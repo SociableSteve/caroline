@@ -30,15 +30,25 @@ export function Projects({ projects, onCreate, onStateChange, onDelete }: Projec
   const [confirming, setConfirming] = useState<string | null>(null)
 
   const create = async () => {
-    const trimmed = title.trim()
+    const sent = title
+    const trimmed = sent.trim()
     if (trimmed === '' || saving) return
 
     setSaving(true)
-    const created = await onCreate(trimmed)
-    setSaving(false)
+    let created = false
+    try {
+      created = await onCreate(trimmed)
+    } catch {
+      // A rejection is a project that was not created, which is what `false` already means.
+      created = false
+    } finally {
+      // In a `finally`, so neither path can leave the button disabled for good.
+      setSaving(false)
+    }
 
-    // Cleared only once it landed, so a rejected write does not eat what was typed.
-    if (created) setTitle('')
+    // Cleared only once it landed, and only if it still holds what was sent: the field stays
+    // editable while the request is out, so a newer title is the next project, not this one.
+    if (created) setTitle((current) => (current === sent ? '' : current))
   }
 
   return (

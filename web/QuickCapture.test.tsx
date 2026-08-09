@@ -4,7 +4,7 @@
  * whatever opened it. Not borrowed from `<dialog>`, therefore tested here.
  */
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { useState } from 'react'
 import { QuickCapture } from './components/QuickCapture.js'
@@ -144,6 +144,51 @@ describe('capturing', () => {
     await openCapture()
 
     expect(screen.getByRole('button', { name: 'Capture' })).toBeDisabled()
+  })
+
+  /**
+   * The fields stay editable while the request is out, so anything typed in that window belongs
+   * to the next capture. Clearing it would be a silent loss.
+   */
+  it('keeps a title typed while the first capture was in flight', async () => {
+    let release: (created: boolean) => void = () => {}
+    const onCreate = vi.fn(() => new Promise<boolean>((resolve) => (release = resolve)))
+    await openCapture(onCreate)
+
+    await userEvent.type(screen.getByLabelText('What is it?'), 'First thing')
+    await userEvent.click(screen.getByRole('button', { name: 'Capture' }))
+    await userEvent.clear(screen.getByLabelText('What is it?'))
+    await userEvent.type(screen.getByLabelText('What is it?'), 'Second thing')
+    release(true)
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    await userEvent.click(screen.getByRole('button', { name: 'Quick capture' }))
+    expect(screen.getByLabelText('What is it?')).toHaveValue('Second thing')
+  })
+
+  it('clears the fields it did send, so the next capture starts empty', async () => {
+    await openCapture()
+
+    await userEvent.type(screen.getByLabelText('What is it?'), 'Renew the domain')
+    await userEvent.click(screen.getByRole('button', { name: 'Capture' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Quick capture' }))
+
+    expect(screen.getByLabelText('What is it?')).toHaveValue('')
+  })
+
+  /** The prop is a promise, so a caller that rejects must not disable the button for good. */
+  it('can be tried again after the create rejects rather than resolving', async () => {
+    await openCapture(
+      vi.fn(async () => {
+        throw new Error('the network went away')
+      }),
+    )
+
+    await userEvent.type(screen.getByLabelText('What is it?'), 'Renew the domain')
+    await userEvent.click(screen.getByRole('button', { name: 'Capture' }))
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Capture' })).toBeEnabled())
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
 
   it('does not send the same capture twice while the first is in flight', async () => {

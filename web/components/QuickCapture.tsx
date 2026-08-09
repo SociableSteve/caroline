@@ -53,21 +53,46 @@ export function QuickCapture({ open, projects, onClose, onCreate }: QuickCapture
     onClose()
   }
 
+  /**
+   * Clears only what was actually sent. The fields stay editable while the request is out, and
+   * text typed in that window belongs to the next capture rather than to this one, so a blanket
+   * reset would throw it away.
+   */
+  const closeKeeping = (sent: { title: string; notes: string; projectId: string }) => {
+    setTitle((current) => (current === sent.title ? '' : current))
+    setNotes((current) => (current === sent.notes ? '' : current))
+    setProjectId((current) => (current === sent.projectId ? '' : current))
+    onClose()
+  }
+
   const submit = async () => {
-    const trimmed = title.trim()
+    const sent = { title, notes, projectId }
+    const trimmed = sent.title.trim()
     if (trimmed === '' || saving) return
 
     setSaving(true)
-    const created = await onCreate({
-      title: trimmed,
-      ...(notes.trim() === '' ? {} : { notes: notes.trim() }),
-      ...(projectId === '' ? {} : { projectId }),
-    })
-    setSaving(false)
+    let created = false
+    try {
+      created = await onCreate({
+        title: trimmed,
+        ...(sent.notes.trim() === '' ? {} : { notes: sent.notes.trim() }),
+        ...(sent.projectId === '' ? {} : { projectId: sent.projectId }),
+      })
+    } catch {
+      // A rejection is a capture that did not happen, which is what `false` already means, so
+      // it is handled the same way: the dialog stays open with the text in it. Swallowed rather
+      // than rethrown, since there is nowhere for it to go from a form submit, and reporting the
+      // reason is the caller's job.
+      created = false
+    } finally {
+      // In a `finally`, so neither path can leave the Capture button disabled for as long as
+      // the dialog is open.
+      setSaving(false)
+    }
 
     // Only on success. A rejected write leaves the dialog open with the text still in it, so
     // the failure costs a second attempt rather than the typing.
-    if (created) close()
+    if (created) closeKeeping(sent)
   }
 
   /**

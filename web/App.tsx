@@ -59,14 +59,26 @@ export function App() {
     async (work: () => Promise<unknown>): Promise<boolean> => {
       try {
         await work()
-        setWriteFailure(null)
-        setNow(Date.now())
-        await reload()
-        return true
       } catch (error) {
         setWriteFailure(error instanceof Error ? error.message : 'That did not work')
         return false
       }
+
+      setWriteFailure(null)
+      setNow(Date.now())
+
+      // The refresh is deliberately outside the result. It happened after the write landed, so
+      // a failure here is a stale screen, not a failed write: reporting it as one would have a
+      // form offer to retry a create that already succeeded, and the retry would duplicate it.
+      // `reload` reports its own failures and does not reject, and this keeps that from being
+      // something a caller has to know.
+      try {
+        await reload()
+      } catch {
+        // Deliberately ignored: see above.
+      }
+
+      return true
     },
     [reload],
   )

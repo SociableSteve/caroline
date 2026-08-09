@@ -3,7 +3,7 @@
  * Spec 01 criteria 4 and 6 as the user meets them.
  */
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { ProjectDetail, Projects } from './surfaces/Projects.js'
 import { aProject, aTask, NOW } from './test-fixtures.js'
@@ -91,6 +91,38 @@ describe('the projects list', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add project' }))
 
     expect(screen.getByLabelText(/Outcome/)).toHaveValue('Ship it')
+  })
+
+  it('keeps a title typed while the first create was still in flight', async () => {
+    let release: (created: boolean) => void = () => {}
+    renderProjects({
+      onCreate: vi.fn(() => new Promise<boolean>((resolve) => (release = resolve))),
+    })
+
+    await userEvent.type(screen.getByLabelText(/Outcome/), 'First outcome')
+    await userEvent.click(screen.getByRole('button', { name: 'Add project' }))
+    await userEvent.clear(screen.getByLabelText(/Outcome/))
+    await userEvent.type(screen.getByLabelText(/Outcome/), 'Second outcome')
+
+    // Released and then flushed, so the assertion is made after the code that would clear the
+    // field has had its turn. A `waitFor` alone would pass before it ran.
+    release(true)
+    await act(async () => {})
+
+    expect(screen.getByLabelText(/Outcome/)).toHaveValue('Second outcome')
+  })
+
+  it('can be tried again after the create rejects rather than resolving', async () => {
+    renderProjects({
+      onCreate: vi.fn(async () => {
+        throw new Error('the network went away')
+      }),
+    })
+
+    await userEvent.type(screen.getByLabelText(/Outcome/), 'Ship it')
+    await userEvent.click(screen.getByRole('button', { name: 'Add project' }))
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Add project' })).toBeEnabled())
   })
 
   it('changes a project state', async () => {

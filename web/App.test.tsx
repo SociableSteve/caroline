@@ -189,6 +189,27 @@ describe('failures', () => {
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument()
   })
 
+  /**
+   * A create that landed is a success even if the refresh after it did not. Reporting the
+   * refresh as a failed write would have the form offer a retry of something that already
+   * happened, and the retry would create a second one.
+   */
+  it('counts a create as done when the refresh after it fails', async () => {
+    // Writes succeed; the listing that follows does not.
+    stubApi({ failListing: true })
+
+    render(<App />)
+    await screen.findByRole('button', { name: 'Try again' })
+    await userEvent.keyboard('c')
+    await userEvent.type(screen.getByLabelText('What is it?'), 'Renew the domain')
+    await userEvent.click(screen.getByRole('button', { name: 'Capture' }))
+
+    // Closed, so the capture is not offered for a second attempt.
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    // And the stale screen is still reported, as itself.
+    expect(screen.getByRole('alert')).toHaveTextContent('Everything is broken')
+  })
+
   /** A capture whose write is refused keeps the dialog and the typing, and says why. */
   it('keeps the capture dialog open and its text when the write is refused', async () => {
     stubApi({ failWrites: true })
