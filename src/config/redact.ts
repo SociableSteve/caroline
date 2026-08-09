@@ -67,10 +67,27 @@ export function redactConfig(config: Config): Config {
   return copy as unknown as Config
 }
 
+/**
+ * Every form of a secret that could show up in text: the literal value, and its
+ * percent-encoded form, which is how a secret carrying reserved characters reaches a
+ * request log. Longest first, so a secret that is a prefix of another cannot be replaced
+ * first and leave the longer one's tail exposed.
+ */
+function redactionTargets(config: Config): string[] {
+  const targets = new Set<string>()
+
+  for (const secret of secretValues(config)) {
+    targets.add(secret)
+    targets.add(encodeURIComponent(secret))
+  }
+
+  return [...targets].sort((a, b) => b.length - a.length)
+}
+
 /** Replaces any configured secret appearing in a string. Used on log lines and responses. */
 export function redactSecrets(text: string, config: Config): string {
-  return secretValues(config).reduce(
-    (scrubbed, secret) => scrubbed.split(secret).join(REDACTED),
+  return redactionTargets(config).reduce(
+    (scrubbed, target) => scrubbed.split(target).join(REDACTED),
     text,
   )
 }

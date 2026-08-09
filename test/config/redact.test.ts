@@ -85,4 +85,34 @@ describe('redactSecrets', () => {
 
     expect(redactSecrets('a plain message', config)).toBe('a plain message')
   })
+
+  it('redacts a longer secret whole when a shorter secret is a prefix of it', () => {
+    const shorterSecret = 'tok-shared'
+    const longerSecret = `${shorterSecret}-with-a-tail`
+    const config = loadConfig({
+      file: { llm: { provider: 'anthropic' } },
+      env: {
+        ANTHROPIC_API_KEY: shorterSecret,
+        GITHUB_TOKEN: longerSecret,
+      } as NodeJS.ProcessEnv,
+    })
+
+    const scrubbed = redactSecrets(`upstream rejected ${longerSecret}`, config)
+
+    expect(scrubbed).toBe(`upstream rejected ${REDACTED}`)
+    expect(scrubbed).not.toContain('-with-a-tail')
+  })
+
+  it('redacts the percent-encoded form of a secret as well as the literal one', () => {
+    const secretWithReservedChars = 'access+token/value'
+    const config = loadConfig({
+      file: null,
+      env: { CAROLINE_ACCESS_TOKEN: secretWithReservedChars } as NodeJS.ProcessEnv,
+    })
+
+    const encoded = encodeURIComponent(secretWithReservedChars)
+    const scrubbed = redactSecrets(`GET /api/health?token=${encoded}`, config)
+
+    expect(scrubbed).toBe(`GET /api/health?token=${REDACTED}`)
+  })
 })

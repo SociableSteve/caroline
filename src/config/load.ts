@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import type { z } from 'zod'
 import { registerEnvironmentSecrets } from './redact.js'
 import {
+  credentialFreeUrl,
   fileConfigSchema,
   remoteLlmProviders,
   type Config,
@@ -70,6 +71,24 @@ function envPort(env: NodeJS.ProcessEnv, fallback: number): number {
     )
   }
   return port
+}
+
+/**
+ * The environment overrides the file, so it has to meet the same bar the schema sets:
+ * without this check `CAROLINE_LLM_BASE_URL` would be the one way credentials could reach
+ * an unredacted config field.
+ */
+function envBaseUrl(env: NodeJS.ProcessEnv, fallback: string | null): string | null {
+  const raw = env.CAROLINE_LLM_BASE_URL
+  if (raw === undefined || raw === '') return fallback
+
+  const result = credentialFreeUrl.safeParse(raw)
+  if (!result.success) {
+    throw new ConfigError(
+      `Invalid configuration. llm.baseUrl: CAROLINE_LLM_BASE_URL ${result.error.issues[0]?.message ?? 'is invalid'}.`,
+    )
+  }
+  return result.data
 }
 
 function nonEmpty(value: string | undefined): string | null {
@@ -158,7 +177,7 @@ export function loadConfig({ file, env }: LoadOptions): Config {
     llm: {
       provider,
       model: nonEmpty(env.CAROLINE_LLM_MODEL) ?? parsed.llm.model,
-      baseUrl: nonEmpty(env.CAROLINE_LLM_BASE_URL) ?? parsed.llm.baseUrl,
+      baseUrl: envBaseUrl(env, parsed.llm.baseUrl),
       apiKey,
       isLocal: provider === 'ollama',
       configured: provider === 'ollama' || (provider !== 'none' && apiKey !== null),

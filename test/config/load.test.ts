@@ -92,6 +92,50 @@ describe('loadConfig validation', () => {
     ).toThrow(/server\.port/)
   })
 
+  it('rejects an LLM base URL carrying credentials in the config file', () => {
+    expect(() =>
+      loadConfig({ file: { llm: { baseUrl: 'https://user:pass@llm.example.com' } }, env: noEnv }),
+    ).toThrow(/llm\.baseUrl/)
+  })
+
+  it('rejects an LLM base URL carrying credentials in the environment', () => {
+    expect(() =>
+      loadConfig({
+        file: null,
+        env: { CAROLINE_LLM_BASE_URL: 'https://user:pass@llm.example.com' } as NodeJS.ProcessEnv,
+      }),
+    ).toThrow(/llm\.baseUrl/)
+  })
+
+  it('rejects an LLM base URL carrying a bare username', () => {
+    expect(() =>
+      loadConfig({ file: { llm: { baseUrl: 'https://user@llm.example.com' } }, env: noEnv }),
+    ).toThrow(/llm\.baseUrl/)
+  })
+
+  it('rejects an LLM base URL from the environment that is not a URL at all', () => {
+    expect(() =>
+      loadConfig({
+        file: null,
+        env: { CAROLINE_LLM_BASE_URL: 'not a url' } as NodeJS.ProcessEnv,
+      }),
+    ).toThrow(/llm\.baseUrl/)
+  })
+
+  it('accepts a credential-free LLM base URL from either source', () => {
+    const fromFile = loadConfig({
+      file: { llm: { baseUrl: 'http://127.0.0.1:11434' } },
+      env: noEnv,
+    })
+    const fromEnv = loadConfig({
+      file: null,
+      env: { CAROLINE_LLM_BASE_URL: 'https://llm.example.com/v1' } as NodeJS.ProcessEnv,
+    })
+
+    expect(fromFile.llm.baseUrl).toBe('http://127.0.0.1:11434')
+    expect(fromEnv.llm.baseUrl).toBe('https://llm.example.com/v1')
+  })
+
   it('throws a ConfigError rather than a bare Error', () => {
     try {
       loadConfig({ file: { privacy: { snippetChars: -1 } }, env: noEnv })

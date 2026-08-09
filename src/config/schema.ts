@@ -20,6 +20,24 @@ export type LlmProvider = (typeof llmProviders)[number]
 export const remoteLlmProviders: readonly LlmProvider[] = ['anthropic', 'openai']
 
 /**
+ * A URL with no user info in it. `baseUrl` is not a secret field, so it is returned
+ * verbatim by `GET /api/config` and is not scrubbed from logs. Credentials embedded in it
+ * would therefore leak, so they are rejected outright rather than quietly redacted. Both
+ * the config file and `CAROLINE_LLM_BASE_URL` are checked against this. Spec 09.
+ */
+export const credentialFreeUrl = z
+  .string()
+  .url('must be a valid URL')
+  .refine((value) => {
+    // Zod still runs a refinement after `url()` has failed, so an unparseable value has to
+    // pass through here and be reported by that check rather than throwing.
+    if (!URL.canParse(value)) return true
+
+    const { username, password } = new URL(value)
+    return username === '' && password === ''
+  }, 'must not embed credentials: set the API key in the environment instead')
+
+/**
  * The configuration as it may be written in `caroline.config.json`. Secrets are absent by
  * design: they only ever come from the environment, and their presence here is a startup
  * error rather than a silently accepted value.
@@ -53,7 +71,7 @@ export const fileConfigSchema = z
       .object({
         provider: z.enum(llmProviders).default('none'),
         model: z.string().min(1).nullable().default(null),
-        baseUrl: z.string().url().nullable().default(null),
+        baseUrl: credentialFreeUrl.nullable().default(null),
       })
       .strict()
       .default({}),

@@ -36,6 +36,22 @@ describe('no secret reaches a log line (spec 09 criterion 6)', () => {
     }
   })
 
+  it('keeps a percent-encoded secret out of request logging', async () => {
+    const secretWithReservedChars = 'access+token/value'
+    const { lines, stream } = captureLog()
+    const config = loadConfig({
+      file: null,
+      env: { CAROLINE_ACCESS_TOKEN: secretWithReservedChars } as NodeJS.ProcessEnv,
+    })
+    const app = await buildServer({ config, logger: { level: 'info', stream } })
+
+    const encoded = encodeURIComponent(secretWithReservedChars)
+    await app.inject({ method: 'GET', url: `/api/health?token=${encoded}` })
+    await app.close()
+
+    expect(lines.join('\n')).not.toContain(encoded)
+  })
+
   it('keeps secrets out of a logged error message', async () => {
     const { lines, stream } = captureLog()
     const config = loadConfig({ file: null, env: secrets })
