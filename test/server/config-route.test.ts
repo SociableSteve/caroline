@@ -51,6 +51,18 @@ describe('the standard error shape', () => {
     await app.close()
   })
 
+  it('names the path but not the query string in an unknown-route message', async () => {
+    const app = await buildServer({
+      config: loadConfig({ file: null, env: {} as NodeJS.ProcessEnv }),
+    })
+
+    const response = await app.inject({ method: 'GET', url: '/api/nope?token=anything-at-all' })
+
+    expect(response.json().error.message).toContain('/api/nope')
+    expect(response.json().error.message).not.toContain('anything-at-all')
+    await app.close()
+  })
+
   it('returns 400 in the standard shape when a request violates its schema', async () => {
     const app = await buildServer({
       config: loadConfig({ file: null, env: {} as NodeJS.ProcessEnv }),

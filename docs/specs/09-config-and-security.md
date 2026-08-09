@@ -69,6 +69,14 @@ call would contain, using a real item, before it is used.
   error.
 - Secrets are redacted in API responses, logs and error messages. A test asserts that no
   configured secret value appears in any log line or HTTP response body.
+- Redaction matches secret values literally, and runs on values before anything encodes
+  them, because a secret rewritten by an encoder no longer matches itself: JSON escaping
+  turns `tok"en` into `tok\"en`. Recognising a secret through its encodings does not
+  terminate, so the encodings are handled by removing the places they occur rather than by
+  matching more forms.
+- Query strings are never logged and never echoed in a response. They are the only part of
+  a request whose bytes a caller chooses freely, and nothing here puts anything in one
+  worth keeping. Requests are identified in logs by method and path.
 
 There is no encryption at rest beyond filesystem permissions. That is a deliberate choice
 for a single-user local tool, and it is documented rather than implied: anyone with access

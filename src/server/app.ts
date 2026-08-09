@@ -2,11 +2,17 @@ import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import Fastify, { type FastifyInstance } from 'fastify'
 import fastifyStatic from '@fastify/static'
+import { redactSecrets } from '../config/redact.js'
 import type { Config } from '../config/schema.js'
 import { registerErrorHandling } from './errors.js'
 import { registerHealthRoute } from './routes/health.js'
 import { registerConfigRoute } from './routes/config.js'
-import { scrubbingStream } from './log-redaction.js'
+import {
+  errorSerialiser,
+  redactLogPayload,
+  requestSerialiser,
+  scrubbingStream,
+} from './log-redaction.js'
 
 export interface BuildServerOptions {
   config: Config
@@ -32,6 +38,25 @@ export async function buildServer({
     logger: {
       level: logger?.level ?? process.env.CAROLINE_LOG_LEVEL ?? 'info',
       stream: scrubbingStream(logger?.stream ?? process.stdout, config),
+      serializers: {
+        req: requestSerialiser(config),
+        err: errorSerialiser(config),
+      },
+      formatters: {
+        log: (payload) => redactLogPayload(payload, config) as Record<string, unknown>,
+      },
+      hooks: {
+        // The message is not part of the payload the formatter sees, so it is redacted
+        // here, still as a string and still before pino encodes it.
+        logMethod(args, method) {
+          return method.apply(
+            this,
+            args.map((argument) =>
+              typeof argument === 'string' ? redactSecrets(argument, config) : argument,
+            ) as Parameters<typeof method>,
+          )
+        },
+      },
     },
   })
 

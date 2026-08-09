@@ -20,6 +20,69 @@ function captureLog() {
   return { lines, stream }
 }
 
+describe('query strings never reach a log line', () => {
+  it('logs the path but not the query string, whatever it holds', async () => {
+    const { lines, stream } = captureLog()
+    const config = loadConfig({ file: null, env: secrets })
+    const app = await buildServer({ config, logger: { level: 'info', stream } })
+
+    await app.inject({ method: 'GET', url: '/api/health?verbose=true&token=anything-at-all' })
+    await app.close()
+
+    const logged = lines.join('\n')
+    expect(logged).toContain('/api/health')
+    expect(logged).not.toContain('anything-at-all')
+    expect(logged).not.toContain('verbose=true')
+    expect(logged).not.toContain('?')
+  })
+})
+
+describe('secrets are redacted before the log line is serialised', () => {
+  it('redacts a secret whose characters JSON escaping would rewrite', async () => {
+    const secretNeedingEscapes = 'tok"en\\value'
+    const { lines, stream } = captureLog()
+    const config = loadConfig({
+      file: null,
+      env: { CAROLINE_ACCESS_TOKEN: secretNeedingEscapes } as NodeJS.ProcessEnv,
+    })
+    const app = await buildServer({ config, logger: { level: 'info', stream } })
+
+    app.get('/api/boom', async () => {
+      throw new Error(`upstream rejected ${secretNeedingEscapes}`)
+    })
+
+    await app.inject({ method: 'GET', url: '/api/boom' })
+    await app.close()
+
+    const logged = lines.join('\n')
+    const jsonEscaped = JSON.stringify(secretNeedingEscapes).slice(1, -1)
+    expect(logged).not.toContain(secretNeedingEscapes)
+    expect(logged).not.toContain(jsonEscaped)
+  })
+
+  it('redacts a secret logged as a structured field', async () => {
+    const { lines, stream } = captureLog()
+    const config = loadConfig({ file: null, env: secrets })
+    const app = await buildServer({ config, logger: { level: 'info', stream } })
+
+    app.log.info({ upstream: { token: 'ghp_supersecret' } }, 'calling upstream')
+    await app.close()
+
+    expect(lines.join('\n')).not.toContain('ghp_supersecret')
+  })
+
+  it('redacts a secret appearing in the log message itself', async () => {
+    const { lines, stream } = captureLog()
+    const config = loadConfig({ file: null, env: secrets })
+    const app = await buildServer({ config, logger: { level: 'info', stream } })
+
+    app.log.info('calling upstream with ghp_supersecret')
+    await app.close()
+
+    expect(lines.join('\n')).not.toContain('ghp_supersecret')
+  })
+})
+
 describe('no secret reaches a log line (spec 09 criterion 6)', () => {
   it('keeps secrets out of request logging, even when one appears in the URL', async () => {
     const { lines, stream } = captureLog()

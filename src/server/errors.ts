@@ -45,13 +45,14 @@ export function registerErrorHandling(
     if (spaFallback && !request.url.startsWith('/api/')) {
       return reply.sendFile('index.html')
     }
+    // Path only. Echoing the query string back would put caller-supplied bytes into a
+    // response body in whatever encoding the caller chose, which is the same problem the
+    // log serialisers avoid by dropping it.
+    const path = request.url.split('?')[0] ?? request.url
     return reply
       .status(404)
       .send(
-        apiError(
-          'not_found',
-          `Route ${request.method} ${redactSecrets(request.url, config)} not found`,
-        ),
+        apiError('not_found', `Route ${request.method} ${redactSecrets(path, config)} not found`),
       )
   })
 

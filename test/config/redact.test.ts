@@ -103,7 +103,14 @@ describe('redactSecrets', () => {
     expect(scrubbed).not.toContain('-with-a-tail')
   })
 
-  it('redacts the percent-encoded form of a secret as well as the literal one', () => {
+  /**
+   * Deliberate boundary, not a gap. Recognising a secret through an encoding does not
+   * terminate: percent-encoding in either hex case, a partly encoded value, JSON escaping,
+   * whatever an upstream SDK does. The encodings are handled by removing the places they
+   * can occur, which the logging tests cover. This test exists so that reintroducing
+   * pattern matching here is a deliberate act rather than a quiet one.
+   */
+  it('matches literally, leaving an encoded form of a secret to be handled elsewhere', () => {
     const secretWithReservedChars = 'access+token/value'
     const config = loadConfig({
       file: null,
@@ -111,33 +118,9 @@ describe('redactSecrets', () => {
     })
 
     const encoded = encodeURIComponent(secretWithReservedChars)
-    const scrubbed = redactSecrets(`GET /api/health?token=${encoded}`, config)
 
-    expect(scrubbed).toBe(`GET /api/health?token=${REDACTED}`)
-  })
-
-  it('redacts percent-encoded escapes written in either hex case', () => {
-    const secretWithReservedChars = 'access+token/value'
-    const config = loadConfig({
-      file: null,
-      env: { CAROLINE_ACCESS_TOKEN: secretWithReservedChars } as NodeJS.ProcessEnv,
-    })
-
-    const lowerCaseEscapes = 'access%2btoken%2fvalue'
-    const mixedCaseEscapes = 'access%2Btoken%2fvalue'
-
-    expect(redactSecrets(lowerCaseEscapes, config)).toBe(REDACTED)
-    expect(redactSecrets(mixedCaseEscapes, config)).toBe(REDACTED)
-  })
-
-  it('redacts a secret that is only partly percent-encoded', () => {
-    const secretWithReservedChars = 'access+token/value'
-    const config = loadConfig({
-      file: null,
-      env: { CAROLINE_ACCESS_TOKEN: secretWithReservedChars } as NodeJS.ProcessEnv,
-    })
-
-    expect(redactSecrets('access%2Btoken/value', config)).toBe(REDACTED)
+    expect(redactSecrets(encoded, config)).toBe(encoded)
+    expect(redactSecrets(secretWithReservedChars, config)).toBe(REDACTED)
   })
 
   it('still matches the literal characters of a secret case-sensitively', () => {
