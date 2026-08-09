@@ -214,6 +214,9 @@ describe('draining a sync in flight', () => {
       drained = true
     })
 
+    // Past a macrotask, not just a microtask: read in the same turn, this would also pass
+    // for a `drain` that resolved on the next tick without waiting for anything.
+    await new Promise((resolve) => setTimeout(resolve, 5))
     expect(drained).toBe(false)
     release()
     await draining

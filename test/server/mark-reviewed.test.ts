@@ -70,7 +70,7 @@ describe('marking a pull request reviewed', () => {
     })
   })
 
-  it('leaves the task tracked, since it is a move inside the connector s own statuses', async () => {
+  it('leaves the task tracked, since it is a move inside the connector’s own statuses', async () => {
     const { app, database } = await testServer()
     const task = trackedPullRequest(database)
 

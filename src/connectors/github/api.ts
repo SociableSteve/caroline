@@ -183,12 +183,22 @@ export const REFRESH_BATCH = 50
  */
 export const REQUEST_TIMEOUT_MS = 20_000
 
+/**
+ * How long one pass may take in total, however many requests it makes. A per-request
+ * deadline alone is not a bound on a pass that pages: twenty pages at twenty seconds each is
+ * nearly seven minutes, and for all of it the next sync is answered "already running".
+ */
+export const PASS_TIMEOUT_MS = 60_000
+
 export interface GitHubApiOptions {
   readonly token: string
   readonly endpoint?: string
   /** Injected so nothing in the suite has to reach the network to test the client itself. */
   readonly fetch?: typeof globalThis.fetch
+  /** How long a single request may take. */
   readonly timeoutMs?: number
+  /** How long all the requests of one `searchReviewRequested` or `pullRequests` may take. */
+  readonly passTimeoutMs?: number
 }
 
 interface GraphQlResponse {
@@ -234,8 +244,23 @@ export function createGitHubApi({
   endpoint = 'https://api.github.com/graphql',
   fetch = globalThis.fetch,
   timeoutMs = REQUEST_TIMEOUT_MS,
+  passTimeoutMs = PASS_TIMEOUT_MS,
 }: GitHubApiOptions): GitHubApi {
-  async function run(query: string, variables: Record<string, unknown>): Promise<GraphQlResponse> {
+  /**
+   * A budget for one pass, shared by every request the pass makes. Bounding each request on
+   * its own is not enough once a pass makes many of them: twenty pages at twenty seconds
+   * each is nearly seven minutes of holding the sync open, which is the thing the per
+   * request deadline was added to prevent.
+   */
+  function budget(): AbortSignal {
+    return AbortSignal.timeout(passTimeoutMs)
+  }
+
+  async function run(
+    query: string,
+    variables: Record<string, unknown>,
+    pass: AbortSignal,
+  ): Promise<GraphQlResponse> {
     let response: Response
     try {
       response = await fetch(endpoint, {
@@ -246,13 +271,18 @@ export function createGitHubApi({
           accept: 'application/vnd.github+json',
         },
         body: JSON.stringify({ query, variables }),
-        signal: AbortSignal.timeout(timeoutMs),
+        // Whichever runs out first: this request, or the pass it belongs to.
+        signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), pass]),
       })
     } catch (error) {
       // A run that fails is retried next time; a run that hangs is never retried at all,
       // because the guard against overlapping runs is still holding it open.
       if (error instanceof Error && error.name === 'TimeoutError') {
-        throw new GitHubApiError(`GitHub did not answer within ${timeoutMs}ms`)
+        throw new GitHubApiError(
+          pass.aborted
+            ? `GitHub did not finish answering within ${passTimeoutMs}ms`
+            : `GitHub did not answer within ${timeoutMs}ms`,
+        )
       }
       throw error
     }
@@ -279,7 +309,7 @@ export function createGitHubApi({
 
   return {
     async viewerLogin() {
-      const body = await run(viewerQuery, {})
+      const body = await run(viewerQuery, {}, budget())
       const login = (body.data as { viewer?: { login?: unknown } } | null)?.viewer?.login
       if (typeof login !== 'string' || login === '') {
         throw new GitHubApiError('GitHub did not say who the token belongs to')
@@ -289,17 +319,17 @@ export function createGitHubApi({
 
     async searchReviewRequested(viewer) {
       const found: PullRequestNode[] = []
+      const pass = budget()
       let after: string | null = null
 
       // Paged to exhaustion rather than capped: a cap here would hide a review request
       // behind whichever fifty happened to sort first, and never say that it had.
       for (let page = 0; page < DISCOVERY_MAX_PAGES; page += 1) {
-        const body: GraphQlResponse = await run(discoveryQuery, {
-          q: DISCOVERY_QUERY,
-          viewer,
-          first: DISCOVERY_PAGE,
-          after,
-        })
+        const body: GraphQlResponse = await run(
+          discoveryQuery,
+          { q: DISCOVERY_QUERY, viewer, first: DISCOVERY_PAGE, after },
+          pass,
+        )
 
         const search = (body.data as { search?: SearchPage } | null)?.search
         // A search node that is not a pull request comes back as an empty object, which is
@@ -309,6 +339,16 @@ export function createGitHubApi({
         if (search?.pageInfo?.hasNextPage !== true) break
         after = search.pageInfo.endCursor ?? null
         if (after === null) break
+
+        // Still more pages after the guard is a runaway, not a large review queue: a
+        // thousand open review requests means the query or the cursor is wrong. It fails
+        // loudly rather than returning a partial answer that reads like a complete one,
+        // which is the same silent truncation the paging was added to remove.
+        if (page === DISCOVERY_MAX_PAGES - 1) {
+          throw new GitHubApiError(
+            `The review-request search still had pages after ${DISCOVERY_MAX_PAGES} of ${DISCOVERY_PAGE}`,
+          )
+        }
       }
 
       return found
@@ -316,12 +356,13 @@ export function createGitHubApi({
 
     async pullRequests(viewer, refs) {
       const found: PullRequestNode[] = []
+      const pass = budget()
 
       // Every known pull request, in batches. One that fell outside a batch would never be
       // refreshed and so could never resolve, and the set is ordered stably, so the same
       // ones would be starved on every run rather than a different few each time.
       for (const batch of chunk(refs, REFRESH_BATCH)) {
-        const body = await run(refreshQuery(batch), refreshVariables(viewer, batch))
+        const body = await run(refreshQuery(batch), refreshVariables(viewer, batch), pass)
         const data = (body.data ?? {}) as Record<string, { pullRequest?: unknown } | null>
 
         // A repository that has been deleted or a pull request that is no longer visible

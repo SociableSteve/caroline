@@ -308,12 +308,13 @@ describe('who a task is waiting on', () => {
     // the reader who has to know that the field only counts in one status.
     const database = migratedDatabase()
     const connector = stubConnector('github', [[pullRequest], [reviewed], [pullRequest]])
+    const THIRD_RUN = SECOND_RUN + 900_000
 
     await sync(database, [connector], () => FIRST_RUN)
     await sync(database, [connector], () => SECOND_RUN)
-    await sync(database, [connector], () => SECOND_RUN + 900_000)
+    await sync(database, [connector], () => THIRD_RUN)
 
-    expect(onlyTask(database, SECOND_RUN)).toMatchObject({ status: 'review', waitingOn: null })
+    expect(onlyTask(database, THIRD_RUN)).toMatchObject({ status: 'review', waitingOn: null })
   })
 })
 

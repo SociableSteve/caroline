@@ -43,7 +43,7 @@ describe('GET /api/projects', () => {
    * that came from a connector arrived with a source, and dropping it here would have the
    * project view show no provenance for a task the board shows a pull request link on.
    */
-  it('carries the next action s provenance, as GET /api/tasks does', async () => {
+  it('carries the next action’s provenance, as GET /api/tasks does', async () => {
     const { app, database } = await testServer()
     const created = (
       await app.inject({ method: 'POST', url: '/api/projects', payload: { title: 'Ship it' } })

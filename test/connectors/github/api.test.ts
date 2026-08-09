@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   createGitHubApi,
+  DISCOVERY_MAX_PAGES,
   DISCOVERY_QUERY,
   GitHubApiError,
   refreshQuery,
@@ -52,6 +53,14 @@ function stubFetch(
   }) as typeof globalThis.fetch
 
   return { fetch, calls }
+}
+
+/** A request that connects and then never answers, until its signal gives up on it. */
+function hangingFetch(): typeof globalThis.fetch {
+  return ((_url: string | URL, init?: RequestInit) =>
+    new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(init.signal?.reason))
+    })) as typeof globalThis.fetch
 }
 
 function apiAnswering(
@@ -187,6 +196,28 @@ describe('the client', () => {
     expect(nodes.map((node) => node.number)).toEqual([42, 7])
   })
 
+  /**
+   * The guard is against a runaway, not against a large review queue. Returning what it had
+   * would be the same silent truncation the paging was added to remove, so it says so and
+   * the run is recorded as failed.
+   */
+  it('fails loudly rather than truncating when the pages never run out', async () => {
+    let page = 0
+    const { api, calls } = apiAnswering(() => {
+      page += 1
+      return {
+        body: {
+          data: {
+            search: { pageInfo: { hasNextPage: true, endCursor: `cursor-${page}` }, nodes: [] },
+          },
+        },
+      }
+    })
+
+    await expect(api.searchReviewRequested(VIEWER)).rejects.toThrow(/still had pages after 20/)
+    expect(calls).toHaveLength(DISCOVERY_MAX_PAGES)
+  })
+
   it('stops paging when a page says there is no cursor to follow', async () => {
     const { api, calls } = apiAnswering(() => ({
       body: { data: { search: { pageInfo: { hasNextPage: true, endCursor: null }, nodes: [] } } },
@@ -243,17 +274,52 @@ describe('a failure', () => {
    * would answer "already running" until the process was restarted.
    */
   it('gives up on a request that never answers, rather than holding the run open', async () => {
-    const { fetch } = stubFetch(() => ({}))
-    const hanging = ((url: string | URL, init?: RequestInit) =>
-      new Promise<Response>((_resolve, reject) => {
-        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason))
-        void fetch
-        void url
-      })) as typeof globalThis.fetch
-
-    const api = createGitHubApi({ token: 'ghp_not_a_real_token', fetch: hanging, timeoutMs: 5 })
+    const api = createGitHubApi({
+      token: 'ghp_not_a_real_token',
+      fetch: hangingFetch(),
+      timeoutMs: 5,
+    })
 
     await expect(api.viewerLogin()).rejects.toThrow(/did not answer within 5ms/)
+  })
+
+  /**
+   * A per-request deadline is not a bound on a pass that pages: twenty pages at twenty
+   * seconds each is nearly seven minutes, and for all of it the next sync is answered
+   * "already running". The pass carries its own budget across every request it makes.
+   */
+  it('gives up on a pass whose requests each answer in time but never run out', async () => {
+    let page = 0
+    // Each page answers well inside the per-request deadline, so only a budget spanning the
+    // whole pass can stop this. Without one it would page until the guard, twenty times over.
+    const slow = ((_url: string | URL, init?: RequestInit) =>
+      new Promise<Response>((resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason))
+        setTimeout(() => {
+          page += 1
+          resolve({
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            headers: new Headers(),
+            json: async () => ({
+              data: {
+                search: { pageInfo: { hasNextPage: true, endCursor: `cursor-${page}` }, nodes: [] },
+              },
+            }),
+          } as unknown as Response)
+        }, 20)
+      })) as typeof globalThis.fetch
+
+    const api = createGitHubApi({
+      token: 'ghp_not_a_real_token',
+      fetch: slow,
+      timeoutMs: 60_000,
+      passTimeoutMs: 30,
+    })
+
+    await expect(api.searchReviewRequested(VIEWER)).rejects.toThrow(/did not finish answering/)
+    expect(page).toBeLessThan(DISCOVERY_MAX_PAGES)
   })
 
   it('reports an ordinary 403 as a 403, since not every one is a rate limit', async () => {

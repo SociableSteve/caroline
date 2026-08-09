@@ -77,7 +77,7 @@ describe('waitingSince', () => {
     expect(waitingSince(task)).toBe(now - 4 * DAY)
   })
 
-  it('is when it became somebody else s turn, for a task with no source', () => {
+  it('is when it became somebody else’s turn, for a task with no source', () => {
     expect(waitingSince({ statusSetAt: now - DAY, sources: [] })).toBe(now - DAY)
   })
 

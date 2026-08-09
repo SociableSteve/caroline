@@ -322,7 +322,7 @@ describe('being dropped as a reviewer', () => {
   })
 })
 
-describe('filing a tracked pull request outside the connector s statuses', () => {
+describe('filing a tracked pull request outside the connector’s statuses', () => {
   it('stops tracking, and a later re-request does not move it back', async () => {
     const reRequested = pullRequestNode({
       headSha: FIRST_SHA,

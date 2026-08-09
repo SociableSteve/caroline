@@ -55,7 +55,7 @@ describe('the content hash', () => {
    * transition look like an upstream content change, and a content change is what returns an
    * inbox task to the classification queue. Spec 02, criterion 2.
    */
-  it('does not move when only the connector s lifecycle position changed', () => {
+  it('does not move when only the connector’s lifecycle position changed', () => {
     expect(
       contentHash({
         ...item,
