@@ -21,6 +21,7 @@ import {
   listTasks,
 } from '../../src/db/repositories/tasks.js'
 import type { SourceProvider } from '../../src/domain/source.js'
+import type { Task } from '../../src/domain/task.js'
 import { migratedDatabase } from '../helpers/temp-database.js'
 
 const FIRST_RUN = Date.UTC(2026, 0, 5, 9, 0)
@@ -88,6 +89,17 @@ async function sync(
   return runSync({ database, connectors, trigger: 'scheduled', now })
 }
 
+/**
+ * The one task a single-item sync produced. Named rather than destructured with a fallback
+ * id, so a run that created nothing fails saying that, instead of failing later on a lookup
+ * against the empty string.
+ */
+function onlyTask(database: Database, at = FIRST_RUN): Task {
+  const { tasks } = listTasks(database, {}, at)
+  if (tasks.length !== 1) throw new Error(`expected exactly one task, found ${tasks.length}`)
+  return tasks[0] as Task
+}
+
 describe('running a sync twice over an unchanged item', () => {
   it('produces one source and one task, with last seen advanced', async () => {
     const database = migratedDatabase()
@@ -125,11 +137,11 @@ describe('running a sync twice over an unchanged item', () => {
     ])
 
     await sync(database, [connector], () => FIRST_RUN)
-    const [task] = listTasks(database, {}, FIRST_RUN).tasks
-    expect(task?.estimateMinutes).toBe(30)
+    const task = onlyTask(database)
+    expect(task.estimateMinutes).toBe(30)
 
     await sync(database, [connector], () => SECOND_RUN)
-    expect(getTask(database, task?.id ?? '')?.estimateMinutes).toBe(30)
+    expect(getTask(database, task.id)?.estimateMinutes).toBe(30)
   })
 })
 
@@ -155,18 +167,14 @@ describe('an upstream content change', () => {
     const connector = stubConnector('gmail', [[email], [changed]])
 
     await sync(database, [connector], () => FIRST_RUN)
-    const [task] = listTasks(database, {}, FIRST_RUN).tasks
-    changeTaskStatus(database, task?.id ?? '', {
-      status: 'next_action',
-      by: 'user',
-      at: FIRST_RUN,
-    })
+    const task = onlyTask(database)
+    changeTaskStatus(database, task.id, { status: 'next_action', by: 'user', at: FIRST_RUN })
 
     await sync(database, [connector], () => SECOND_RUN)
 
     expect(getSourceByExternalId(database, 'gmail', email.externalId)?.requeuedAt).toBeNull()
     // Criterion 3: no subsequent sync moves a triaged task back to the inbox.
-    expect(getTask(database, task?.id ?? '')).toMatchObject({
+    expect(getTask(database, task.id)).toMatchObject({
       status: 'next_action',
       statusSetBy: 'user',
     })
@@ -209,10 +217,10 @@ describe('an item whose upstream closes', () => {
     const connector = stubConnector('github', [[pullRequest], [merged]])
 
     await sync(database, [connector], () => FIRST_RUN)
-    const [task] = listTasks(database, {}, FIRST_RUN).tasks
+    const task = onlyTask(database)
     // Still inside the tracked set, so tracking survives: the user has simply decided this
     // one is on the author now, rather than opting out of the lifecycle.
-    changeTaskStatus(database, task?.id ?? '', { status: 'waiting', by: 'user', at: FIRST_RUN })
+    changeTaskStatus(database, task.id, { status: 'waiting', by: 'user', at: FIRST_RUN })
 
     await sync(database, [connector], () => SECOND_RUN)
 
@@ -220,7 +228,24 @@ describe('an item whose upstream closes', () => {
       resolvedAt: SECOND_RUN,
       completionProposedAt: SECOND_RUN,
     })
-    expect(getTask(database, task?.id ?? '')).toMatchObject({ status: 'waiting' })
+    expect(getTask(database, task.id)).toMatchObject({ status: 'waiting' })
+  })
+
+  it('resolves once, however many times it is seen closed after that', async () => {
+    const database = migratedDatabase()
+    const connector = stubConnector('github', [[pullRequest], [merged]])
+    const THIRD_RUN = SECOND_RUN + 900_000
+
+    await sync(database, [connector], () => FIRST_RUN)
+    await sync(database, [connector], () => SECOND_RUN)
+    const summary = await sync(database, [connector], () => THIRD_RUN)
+
+    // The count is what the run history reports as work done, so a merged pull request must
+    // not go on being reported as newly resolved every fifteen minutes.
+    expect(summary.results[0]?.counts.resolved).toBe(0)
+    expect(getSourceByExternalId(database, 'github', pullRequest.externalId)?.resolvedAt).toBe(
+      SECOND_RUN,
+    )
   })
 
   it('drops out of the refresh set once resolved', async () => {
@@ -241,8 +266,7 @@ describe('an item whose upstream closes', () => {
     const connector = stubConnector('github', [[pullRequest], [merged]])
 
     await sync(database, [connector], () => FIRST_RUN)
-    const [task] = listTasks(database, {}, FIRST_RUN).tasks
-    deleteTask(database, task?.id ?? '')
+    deleteTask(database, onlyTask(database).id)
 
     await sync(database, [connector], () => SECOND_RUN)
 
@@ -256,6 +280,40 @@ describe('an item whose upstream closes', () => {
 
     expect(listTasks(database, {}, FIRST_RUN).total).toBe(0)
     expect(countSources(database)).toBe(1)
+  })
+})
+
+describe('who a task is waiting on', () => {
+  const reviewed: SourceItem = {
+    ...pullRequest,
+    lifecycleState: 'reviewed',
+    task: { status: 'waiting', waitingOn: 'author-one' },
+  }
+
+  it('is named when the connector moves it into waiting', async () => {
+    const database = migratedDatabase()
+    const connector = stubConnector('github', [[pullRequest], [reviewed]])
+
+    await sync(database, [connector], () => FIRST_RUN)
+    await sync(database, [connector], () => SECOND_RUN)
+
+    expect(onlyTask(database, SECOND_RUN)).toMatchObject({
+      status: 'waiting',
+      waitingOn: 'author-one',
+    })
+  })
+
+  it('is cleared on the way back out, since it is no longer on them', async () => {
+    // A card back in Review that still names the author reads as blocked on them, and it is
+    // the reader who has to know that the field only counts in one status.
+    const database = migratedDatabase()
+    const connector = stubConnector('github', [[pullRequest], [reviewed], [pullRequest]])
+
+    await sync(database, [connector], () => FIRST_RUN)
+    await sync(database, [connector], () => SECOND_RUN)
+    await sync(database, [connector], () => SECOND_RUN + 900_000)
+
+    expect(onlyTask(database, SECOND_RUN)).toMatchObject({ status: 'review', waitingOn: null })
   })
 })
 

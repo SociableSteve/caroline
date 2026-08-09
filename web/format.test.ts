@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  canMarkReviewed,
   formatAge,
   formatEstimate,
   hasOptedOutOfSync,
@@ -10,7 +11,7 @@ import {
   waitingAge,
   waitingSince,
 } from './format.js'
-import { aPullRequestSource, aReviewTask } from './test-fixtures.js'
+import { aPullRequestSource, aReviewTask, aTask } from './test-fixtures.js'
 
 const DAY = 24 * 60 * 60 * 1000
 const now = Date.UTC(2026, 5, 10)
@@ -115,6 +116,27 @@ describe('hasPushedSinceReview', () => {
 
   it('is false for a task with no pull request behind it', () => {
     expect(hasPushedSinceReview({ sources: [] })).toBe(false)
+  })
+})
+
+describe('marking a review done', () => {
+  it('applies to an open pull request in Review that sync still follows', () => {
+    expect(canMarkReviewed(aReviewTask())).toBe(true)
+  })
+
+  it.each([
+    ['the task is not in Review', aReviewTask({ status: 'waiting' })],
+    ['sync no longer follows it', aReviewTask({ syncTracked: false })],
+    [
+      'there is no pull request behind it',
+      aTask({ id: 'task-1', title: 'Manual', status: 'review' }),
+    ],
+    [
+      'the pull request has already closed',
+      aReviewTask({ sources: [aPullRequestSource({ resolvedAt: now })] }),
+    ],
+  ])('does not apply when %s', (_why, task) => {
+    expect(canMarkReviewed(task)).toBe(false)
   })
 })
 

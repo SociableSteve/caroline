@@ -109,8 +109,9 @@ export const viewerQuery = `query Viewer { viewer { login } }`
 export const DISCOVERY_QUERY = 'is:open is:pr archived:false review-requested:@me'
 
 export const discoveryQuery = `
-  query Discovery($q: String!, $viewer: String!, $first: Int!) {
-    search(query: $q, type: ISSUE, first: $first) {
+  query Discovery($q: String!, $viewer: String!, $first: Int!, $after: String) {
+    search(query: $q, type: ISSUE, first: $first, after: $after) {
+      pageInfo { hasNextPage endCursor }
       nodes { ... on PullRequest { ${pullRequestFields} } }
     }
   }
@@ -157,22 +158,47 @@ export class GitHubApiError extends Error {
   override readonly name = 'GitHubApiError'
 }
 
-/** The most pull requests one discovery search returns. Beyond this is not a review queue. */
-export const DISCOVERY_LIMIT = 50
+/** How many search results one request asks for. Further pages are followed. */
+export const DISCOVERY_PAGE = 50
 
-/** The most pull requests one refresh request follows. The rest go on the next run. */
+/**
+ * A runaway guard, not a policy: the search is paged until GitHub says there is no more,
+ * and this only stops a pathological result set from paging forever. A thousand open review
+ * requests is not a review queue, it is a symptom.
+ */
+export const DISCOVERY_MAX_PAGES = 20
+
+/**
+ * How many pull requests one refresh request follows. Every known pull request is refreshed
+ * on every run; this is the chunk size the batches are cut into, not a ceiling on them.
+ * Truncating here would starve whatever fell outside the first chunk, and a starved source
+ * never resolves, so it would be followed for as long as the process lived.
+ */
 export const REFRESH_BATCH = 50
+
+/**
+ * How long one GitHub request may take. Without a deadline a stalled read holds the sync
+ * run open indefinitely, and since a run in flight blocks the next one, one hung socket
+ * would answer every later sync with "already running" until the process was restarted.
+ */
+export const REQUEST_TIMEOUT_MS = 20_000
 
 export interface GitHubApiOptions {
   readonly token: string
   readonly endpoint?: string
   /** Injected so nothing in the suite has to reach the network to test the client itself. */
   readonly fetch?: typeof globalThis.fetch
+  readonly timeoutMs?: number
 }
 
 interface GraphQlResponse {
   readonly data?: Record<string, unknown> | null
   readonly errors?: ReadonlyArray<{ readonly message?: unknown }>
+}
+
+interface SearchPage {
+  readonly pageInfo?: { readonly hasNextPage?: boolean; readonly endCursor?: string | null }
+  readonly nodes?: unknown
 }
 
 /**
@@ -194,21 +220,42 @@ function rateLimitMessage(response: Response): string | null {
   return null
 }
 
+/** Cuts a list into chunks of at most `size`, preserving order. */
+function chunk<T>(items: readonly T[], size: number): T[][] {
+  const chunks: T[][] = []
+  for (let start = 0; start < items.length; start += size) {
+    chunks.push(items.slice(start, start + size))
+  }
+  return chunks
+}
+
 export function createGitHubApi({
   token,
   endpoint = 'https://api.github.com/graphql',
   fetch = globalThis.fetch,
+  timeoutMs = REQUEST_TIMEOUT_MS,
 }: GitHubApiOptions): GitHubApi {
   async function run(query: string, variables: Record<string, unknown>): Promise<GraphQlResponse> {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        authorization: `bearer ${token}`,
-        'content-type': 'application/json',
-        accept: 'application/vnd.github+json',
-      },
-      body: JSON.stringify({ query, variables }),
-    })
+    let response: Response
+    try {
+      response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          authorization: `bearer ${token}`,
+          'content-type': 'application/json',
+          accept: 'application/vnd.github+json',
+        },
+        body: JSON.stringify({ query, variables }),
+        signal: AbortSignal.timeout(timeoutMs),
+      })
+    } catch (error) {
+      // A run that fails is retried next time; a run that hangs is never retried at all,
+      // because the guard against overlapping runs is still holding it open.
+      if (error instanceof Error && error.name === 'TimeoutError') {
+        throw new GitHubApiError(`GitHub did not answer within ${timeoutMs}ms`)
+      }
+      throw error
+    }
 
     const limited = rateLimitMessage(response)
     if (limited !== null) throw new GitHubApiError(limited)
@@ -241,30 +288,52 @@ export function createGitHubApi({
     },
 
     async searchReviewRequested(viewer) {
-      const body = await run(discoveryQuery, {
-        q: DISCOVERY_QUERY,
-        viewer,
-        first: DISCOVERY_LIMIT,
-      })
-      const nodes = (body.data as { search?: { nodes?: unknown } } | null)?.search?.nodes
+      const found: PullRequestNode[] = []
+      let after: string | null = null
 
-      // A search node that is not a pull request comes back as an empty object, which is
-      // what the type condition in the document leaves behind.
-      return Array.isArray(nodes) ? nodes.filter(isPullRequestNode) : []
+      // Paged to exhaustion rather than capped: a cap here would hide a review request
+      // behind whichever fifty happened to sort first, and never say that it had.
+      for (let page = 0; page < DISCOVERY_MAX_PAGES; page += 1) {
+        const body: GraphQlResponse = await run(discoveryQuery, {
+          q: DISCOVERY_QUERY,
+          viewer,
+          first: DISCOVERY_PAGE,
+          after,
+        })
+
+        const search = (body.data as { search?: SearchPage } | null)?.search
+        // A search node that is not a pull request comes back as an empty object, which is
+        // what the type condition in the document leaves behind.
+        if (Array.isArray(search?.nodes)) found.push(...search.nodes.filter(isPullRequestNode))
+
+        if (search?.pageInfo?.hasNextPage !== true) break
+        after = search.pageInfo.endCursor ?? null
+        if (after === null) break
+      }
+
+      return found
     },
 
     async pullRequests(viewer, refs) {
-      if (refs.length === 0) return []
+      const found: PullRequestNode[] = []
 
-      const batch = refs.slice(0, REFRESH_BATCH)
-      const body = await run(refreshQuery(batch), refreshVariables(viewer, batch))
-      const data = (body.data ?? {}) as Record<string, { pullRequest?: unknown } | null>
+      // Every known pull request, in batches. One that fell outside a batch would never be
+      // refreshed and so could never resolve, and the set is ordered stably, so the same
+      // ones would be starved on every run rather than a different few each time.
+      for (const batch of chunk(refs, REFRESH_BATCH)) {
+        const body = await run(refreshQuery(batch), refreshVariables(viewer, batch))
+        const data = (body.data ?? {}) as Record<string, { pullRequest?: unknown } | null>
 
-      // A repository that has been deleted or a pull request that is no longer visible comes
-      // back as null rather than as an error, and is simply not followed this run.
-      return Object.values(data)
-        .map((entry) => entry?.pullRequest)
-        .filter(isPullRequestNode)
+        // A repository that has been deleted or a pull request that is no longer visible
+        // comes back as null rather than as an error, and is simply not followed this run.
+        found.push(
+          ...Object.values(data)
+            .map((entry) => entry?.pullRequest)
+            .filter(isPullRequestNode),
+        )
+      }
+
+      return found
     },
   }
 }

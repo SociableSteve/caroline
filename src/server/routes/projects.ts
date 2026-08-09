@@ -7,6 +7,7 @@ import {
   updateProject,
   type ProjectPatch,
 } from '../../db/repositories/projects.js'
+import { listSourcesForTask } from '../../db/repositories/sources.js'
 import { listProjectTasks, getTaskTags } from '../../db/repositories/tasks.js'
 import {
   deriveNextAction,
@@ -77,7 +78,11 @@ export function registerProjectRoutes(
       nextAction:
         nextAction === null
           ? null
-          : toTaskResponse(nextAction, getTaskTags(database, nextAction.id)),
+          : toTaskResponse(
+              nextAction,
+              getTaskTags(database, nextAction.id),
+              listSourcesForTask(database, nextAction.id),
+            ),
       stalled: isStalled(project, tasks),
     }
   }

@@ -436,6 +436,27 @@ describe('a pull request awaiting review', () => {
 
     expect(screen.queryByRole('button', { name: 'Mark reviewed' })).not.toBeInTheDocument()
   })
+
+  it('offers nothing to mark reviewed on a pull request that has already closed', () => {
+    // There is nothing left to discharge. The server refuses it, so offering it would lie.
+    renderBoard({
+      tasks: [aReviewTask({ sources: [aPullRequestSource({ resolvedAt: NOW - DAY })] })],
+    })
+
+    expect(screen.queryByRole('button', { name: 'Mark reviewed' })).not.toBeInTheDocument()
+  })
+
+  it('does nothing on the keyboard for a pull request that has already closed', () => {
+    const handlers = renderBoard({
+      tasks: [aReviewTask({ sources: [aPullRequestSource({ resolvedAt: NOW - DAY })] })],
+    })
+    const card = screen.getByRole('article', { name: title })
+
+    card.focus()
+    fireEvent.keyDown(card, { key: 'r' })
+
+    expect(handlers.onMarkReviewed).not.toHaveBeenCalled()
+  })
 })
 
 describe('a pull request waiting on its author', () => {

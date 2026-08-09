@@ -57,6 +57,10 @@ async function start(): Promise<void> {
         let exitCode = 0
         try {
           await app.close()
+          // A sync in flight is still writing. Closing the handle underneath it turns an
+          // orderly stop into a stack trace and a half-applied pass, so it is given a
+          // bounded moment to finish first. `drain` resolves either way.
+          await sync.drain()
         } catch (error) {
           exitCode = 1
           app.log.error(error, 'Server shutdown failed')

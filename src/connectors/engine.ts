@@ -227,9 +227,11 @@ function applyLifecycle(
   }
 
   // Who it is waiting on is part of the transition into `waiting`, not a separate edit: a
-  // chase list that does not name the person is not a chase list. Spec 02.
-  const waitingOn = item.task.waitingOn ?? null
-  if (item.task.status === 'waiting' && task.waitingOn !== waitingOn) {
+  // chase list that does not name the person is not a chase list. Spec 02. Leaving it does
+  // not, which is why it is cleared on the way out: a pull request back in Review that still
+  // names the author reads as blocked on them, and it is not.
+  const waitingOn = item.task.status === 'waiting' ? (item.task.waitingOn ?? null) : null
+  if (task.waitingOn !== waitingOn) {
     updateTask(database, task.id, { waitingOn }, now)
     updated = true
   }

@@ -93,7 +93,7 @@ describe('GET /api/jobs', () => {
 
 describe('POST /api/jobs/:name/run', () => {
   it('runs sync and reports what each connector did', async () => {
-    const { app, database } = await testServer()
+    const { app } = await testServer()
 
     const response = await app.inject({ method: 'POST', url: '/api/jobs/sync/run' })
 
@@ -106,7 +106,6 @@ describe('POST /api/jobs/:name/run', () => {
 
     const { runs } = (await app.inject({ method: 'GET', url: '/api/jobs' })).json()
     expect(runs).toMatchObject([{ job: 'sync:github', trigger: 'manual', status: 'skipped' }])
-    expect(database).toBeDefined()
   })
 
   it('is a 404 for a job that does not exist', async () => {
@@ -158,5 +157,81 @@ describe('POST /api/jobs/:name/run', () => {
     release()
     expect((await first).statusCode).toBe(200)
     expect(runner.isRunning()).toBe(false)
+  })
+})
+
+/**
+ * Shutdown closes the database. A run still applying items to a closed handle turns an
+ * orderly stop into a stack trace and a half-applied pass, so it is waited for first.
+ */
+describe('draining a sync in flight', () => {
+  function blockingRunner() {
+    let release: () => void = () => {}
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let reportStarted: () => void = () => {}
+    const started = new Promise<void>((resolve) => {
+      reportStarted = resolve
+    })
+
+    const runner = createSyncRunner({
+      database: migratedDatabase(),
+      connectors: [
+        {
+          provider: 'github',
+          isConfigured: () => true,
+          // eslint-disable-next-line require-yield -- it holds the run open, it does not feed it.
+          async *fetch() {
+            reportStarted()
+            await blocked
+          },
+        },
+      ],
+      now: () => REQUEST_TIME,
+    })
+
+    return { runner, release, started }
+  }
+
+  it('returns at once when nothing is running', async () => {
+    const runner = createSyncRunner({
+      database: migratedDatabase(),
+      connectors: [],
+      now: () => REQUEST_TIME,
+    })
+
+    await expect(runner.drain()).resolves.toBeUndefined()
+  })
+
+  it('waits for the run to finish', async () => {
+    const { runner, release, started } = blockingRunner()
+    const run = runner.run('startup')
+    await started
+
+    let drained = false
+    const draining = runner.drain().then(() => {
+      drained = true
+    })
+
+    expect(drained).toBe(false)
+    release()
+    await draining
+    await run
+
+    expect(runner.isRunning()).toBe(false)
+  })
+
+  it('gives up after the timeout rather than refusing to shut down', async () => {
+    const { runner, release, started } = blockingRunner()
+    const run = runner.run('startup')
+    await started
+
+    await runner.drain(5)
+
+    // Still going: the point is that waiting ended, not that the run did.
+    expect(runner.isRunning()).toBe(true)
+    release()
+    await run
   })
 })

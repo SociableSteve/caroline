@@ -120,7 +120,16 @@ export function hasPushedSinceReview(task: Pick<TaskView, 'sources'>): boolean {
 export function canMarkReviewed(
   task: Pick<TaskView, 'status' | 'syncTracked' | 'sources'>,
 ): boolean {
-  return task.status === 'review' && task.syncTracked && pullRequestSource(task) !== undefined
+  const source = pullRequestSource(task)
+
+  // Unresolved, because there is nothing left to discharge on a pull request that has
+  // already merged or closed: the server refuses it, and offering it would be a lie.
+  return (
+    task.status === 'review' &&
+    task.syncTracked &&
+    source !== undefined &&
+    source.resolvedAt === null
+  )
 }
 
 /**

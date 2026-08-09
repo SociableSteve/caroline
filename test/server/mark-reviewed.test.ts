@@ -98,6 +98,42 @@ describe('marking a pull request reviewed', () => {
     ])
   })
 
+  /**
+   * Re-marking would move `acted_at` to now and the marker to the current head, which would
+   * quietly swallow whatever the author pushed between the two requests. Spec 02, criterion
+   * 11 says the same thing from the other side: only activity later than the marker counts.
+   */
+  it('leaves the marker alone on a second request', async () => {
+    const { app, database } = await testServer()
+    const task = trackedPullRequest(database)
+
+    await app.inject({ method: 'POST', url: `/api/tasks/${task.id}/mark-reviewed` })
+    const before = getSourceByExternalId(database, 'github', EXTERNAL_ID)
+
+    // As it would be after the author pushed and a sync recorded the new head.
+    upsertSource(
+      database,
+      {
+        provider: 'github',
+        externalId: EXTERNAL_ID,
+        metadata: { author: 'author-one', headSha: 'a-later-head-sha' },
+      },
+      REQUEST_TIME,
+    )
+
+    const second = await app.inject({
+      method: 'POST',
+      url: `/api/tasks/${task.id}/mark-reviewed`,
+    })
+
+    expect(second.statusCode).toBe(200)
+    expect(second.json()).toMatchObject({ status: 'waiting' })
+    expect(getSourceByExternalId(database, 'github', EXTERNAL_ID)).toMatchObject({
+      actedAt: before?.actedAt,
+      actedAtMarker: HEAD_SHA,
+    })
+  })
+
   it('announces the change so an open board updates without a refresh', async () => {
     const { app, database, published } = await testServer()
     const task = trackedPullRequest(database)

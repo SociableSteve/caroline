@@ -80,10 +80,15 @@ function toSourceResponse(source: Source): SourceResponse {
   }
 }
 
+/**
+ * Both lists are required rather than defaulted. A default meant the projects route could
+ * return a next action with no provenance while `/api/tasks` returned the same task with
+ * its source, and nothing would have said so.
+ */
 export function toTaskResponse(
   task: Task,
-  tags: readonly string[] = [],
-  sources: readonly Source[] = [],
+  tags: readonly string[],
+  sources: readonly Source[],
 ): TaskResponse {
   return { ...task, tags: [...tags], sources: sources.map(toSourceResponse) }
 }
@@ -411,6 +416,14 @@ export function registerTaskRoutes(
       )
       if (source === undefined) {
         return badRequest(reply, 'This task is not an open pull request awaiting your review')
+      }
+
+      // Already discharged. Answering with the task as it stands makes a repeated request a
+      // no-op rather than a fresh stamp: re-marking would move `acted_at` to now and the
+      // marker to the current head, which would quietly swallow whatever the author pushed
+      // between the two clicks. Spec 02, criterion 11 is the same rule from the other side.
+      if (source.lifecycleState !== 'awaiting_review') {
+        return responseFor(id)
       }
 
       if (!task.syncTracked) {

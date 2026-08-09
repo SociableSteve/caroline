@@ -73,7 +73,9 @@ Directly requested, and requested via a team you belong to.
 - `estimate_minutes` is seeded from PR size (changed files and lines) using a fixed,
   documented heuristic, and is editable:
 
-      minutes = 10 + 2 per changed file + 1 per 20 changed lines
+  ```text
+  minutes = 10 + 2 per changed file + 1 per 20 changed lines
+  ```
 
   rounded to the nearest five minutes and clamped between ten minutes and four hours. The
   three terms are the three costs: opening it and reading what it is for, moving between

@@ -11,7 +11,7 @@ import { runSync, type SyncSummary } from '../connectors/engine.js'
 import { createGitHubApi } from '../connectors/github/api.js'
 import { createGitHubConnector, type KnownPullRequest } from '../connectors/github/connector.js'
 import type { Connector } from '../connectors/types.js'
-import type { ReviewState } from '../domain/review.js'
+import { reviewStates, type ReviewState } from '../domain/review.js'
 import type { JobTrigger } from '../domain/job.js'
 import type { ChangeFeed } from '../server/changes.js'
 
@@ -35,11 +35,22 @@ export function buildConnectors(config: Config, database: Database): Connector[]
   ]
 }
 
+/**
+ * `lifecycle_state` is text in the database and connector-owned, so it is checked rather
+ * than asserted: a value the machine does not know is treated as no position at all, which
+ * is the same as a pull request being seen for the first time.
+ */
+function toReviewState(value: string | null): ReviewState | null {
+  return value !== null && (reviewStates as readonly string[]).includes(value)
+    ? (value as ReviewState)
+    : null
+}
+
 /** The refresh pass's input: every pull request known and not yet seen to close. */
 export function knownPullRequests(database: Database): KnownPullRequest[] {
   return listUnresolvedSources(database, 'github').map((source) => ({
     externalId: source.externalId,
-    state: source.lifecycleState as ReviewState | null,
+    state: toReviewState(source.lifecycleState),
     actedAt: source.actedAt,
     actedAtMarker: source.actedAtMarker,
   }))
@@ -53,7 +64,17 @@ export type SyncOutcome =
 export interface SyncRunner {
   run(trigger: JobTrigger): Promise<SyncOutcome>
   isRunning(): boolean
+  /**
+   * Waits for a run in flight to finish, up to `timeoutMs`. Shutdown calls this before
+   * closing the database: a run still applying items to a closed handle is how a clean
+   * stop turns into a stack trace and a half-applied pass. Resolves either way, because a
+   * shutdown that will not shut down is worse than one that gives up waiting.
+   */
+  drain(timeoutMs?: number): Promise<void>
 }
+
+/** How long shutdown waits for a sync in flight before closing the database regardless. */
+export const DRAIN_TIMEOUT_MS = 5_000
 
 export interface SyncRunnerOptions {
   readonly database: Database
@@ -78,6 +99,24 @@ export function createSyncRunner({
 
   return {
     isRunning: () => inFlight !== null,
+
+    async drain(timeoutMs = DRAIN_TIMEOUT_MS) {
+      const running = inFlight
+      if (running === null) return
+
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const expiry = new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, timeoutMs)
+      })
+
+      try {
+        // The run's own failure is already recorded by `runSync`, so it is not this
+        // caller's to report: all that is being waited for here is that it has stopped.
+        await Promise.race([running.then(undefined, () => undefined), expiry])
+      } finally {
+        if (timer !== undefined) clearTimeout(timer)
+      }
+    },
 
     async run(trigger) {
       if (inFlight !== null) return { status: 'already-running' }

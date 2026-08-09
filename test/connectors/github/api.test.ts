@@ -137,7 +137,11 @@ describe('the client', () => {
     expect(nodes.map((node) => node.number)).toEqual([42])
   })
 
-  it('follows at most one batch, leaving the rest for the next run', async () => {
+  /**
+   * The refresh set is ordered stably, so truncating it would starve the same pull requests
+   * on every run, and a pull request that is never refreshed can never resolve.
+   */
+  it('follows every pull request it was given, in batches', async () => {
     const refs = Array.from({ length: REFRESH_BATCH + 10 }, (_, index) => ({
       owner: 'example-org',
       name: 'example-service',
@@ -147,7 +151,50 @@ describe('the client', () => {
 
     await api.pullRequests(VIEWER, refs)
 
-    expect(Object.keys(calls[0]?.variables ?? {})).toHaveLength(REFRESH_BATCH * 3 + 1)
+    expect(calls).toHaveLength(2)
+    // Every number asked for, across both requests, and none asked for twice.
+    const asked = calls.flatMap((call) =>
+      Object.entries(call.variables)
+        .filter(([key]) => key.startsWith('number'))
+        .map(([, value]) => value),
+    )
+    expect(asked.sort((first, second) => Number(first) - Number(second))).toEqual(
+      refs.map((ref) => ref.number),
+    )
+  })
+
+  it('follows the search across pages rather than stopping at the first', async () => {
+    const [first, second] = discoveryFixture()
+    const { api, calls } = apiAnswering((call) => ({
+      body:
+        call.variables.after === null
+          ? {
+              data: {
+                search: { pageInfo: { hasNextPage: true, endCursor: 'cursor-1' }, nodes: [first] },
+              },
+            }
+          : {
+              data: {
+                search: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [second] },
+              },
+            },
+    }))
+
+    const nodes = await api.searchReviewRequested(VIEWER)
+
+    expect(calls).toHaveLength(2)
+    expect(calls[1]?.variables.after).toBe('cursor-1')
+    expect(nodes.map((node) => node.number)).toEqual([42, 7])
+  })
+
+  it('stops paging when a page says there is no cursor to follow', async () => {
+    const { api, calls } = apiAnswering(() => ({
+      body: { data: { search: { pageInfo: { hasNextPage: true, endCursor: null }, nodes: [] } } },
+    }))
+
+    await api.searchReviewRequested(VIEWER)
+
+    expect(calls).toHaveLength(1)
   })
 })
 
@@ -188,6 +235,25 @@ describe('a failure', () => {
     }))
 
     await expect(api.viewerLogin()).rejects.toThrow(/rate limit reached: resets at/)
+  })
+
+  /**
+   * A run that fails is retried on the next tick. A run that hangs is never retried at all,
+   * because the guard against overlapping runs is still holding it open, so every later sync
+   * would answer "already running" until the process was restarted.
+   */
+  it('gives up on a request that never answers, rather than holding the run open', async () => {
+    const { fetch } = stubFetch(() => ({}))
+    const hanging = ((url: string | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason))
+        void fetch
+        void url
+      })) as typeof globalThis.fetch
+
+    const api = createGitHubApi({ token: 'ghp_not_a_real_token', fetch: hanging, timeoutMs: 5 })
+
+    await expect(api.viewerLogin()).rejects.toThrow(/did not answer within 5ms/)
   })
 
   it('reports an ordinary 403 as a 403, since not every one is a rate limit', async () => {

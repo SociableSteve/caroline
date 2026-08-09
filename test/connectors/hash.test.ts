@@ -50,6 +50,26 @@ describe('the content hash', () => {
     expect(contentHash({ ...item, ...change })).not.toBe(contentHash(item))
   })
 
+  /**
+   * The lifecycle is where the item sits, not what it says. Hashing it would make every
+   * transition look like an upstream content change, and a content change is what returns an
+   * inbox task to the classification queue. Spec 02, criterion 2.
+   */
+  it('does not move when only the connector s lifecycle position changed', () => {
+    expect(
+      contentHash({
+        ...item,
+        lifecycleState: 'reviewed',
+        actedAt: item.occurredAt,
+        actedAtMarker: 'sha-one',
+      }),
+    ).toBe(contentHash(item))
+  })
+
+  it('does not move when only the item was marked resolved', () => {
+    expect(contentHash({ ...item, resolved: true })).toBe(contentHash(item))
+  })
+
   it('does not move when the metadata is the same facts in another order', () => {
     expect(
       contentHash({

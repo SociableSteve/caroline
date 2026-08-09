@@ -161,10 +161,17 @@ export function pullRequestNode(overrides: PullRequestOverrides = {}): PullReque
           : [{ state: review.state, submittedAt: review.submittedAt, commit: { oid: review.sha } }],
     },
     timelineItems: {
+      // The event names whoever the request was made to, so a team-requested fixture does
+      // not quietly hand the mapper a direct request it would never have seen.
       nodes:
         reviewRequestedAt === null
           ? []
-          : [{ createdAt: reviewRequestedAt, requestedReviewer: reviewer('you') }],
+          : [
+              {
+                createdAt: reviewRequestedAt,
+                requestedReviewer: reviewer(requestedReviewers[0] ?? 'you'),
+              },
+            ],
     },
   }
 }
