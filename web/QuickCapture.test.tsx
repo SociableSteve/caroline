@@ -245,6 +245,56 @@ describe('capturing', () => {
     expect(screen.getByLabelText('What is it?')).toHaveValue('')
   })
 
+  /**
+   * `saving` is one flag for a component that outlives its dialog, so it has an owner: the
+   * session that set it. A request from a closed session must neither block the new dialog's
+   * Capture button nor, once this is fixed, re-enable it while the new session's own request is
+   * still out, which would send that one twice.
+   */
+  describe('a request left over from a closed session', () => {
+    /** Hands back a resolver per call, so two captures can be in flight at once. */
+    function pendingCreates() {
+      const resolvers: Array<(created: boolean) => void> = []
+      const onCreate = vi.fn(() => new Promise<boolean>((resolve) => resolvers.push(resolve)))
+
+      return { onCreate, resolvers }
+    }
+
+    it('does not leave Capture disabled in the dialog that opens next', async () => {
+      const { onCreate } = pendingCreates()
+      await openCapture(onCreate)
+
+      await userEvent.type(screen.getByLabelText('What is it?'), 'First thing')
+      await userEvent.click(screen.getByRole('button', { name: 'Capture' }))
+      await userEvent.keyboard('{Escape}')
+      await userEvent.click(screen.getByRole('button', { name: 'Quick capture' }))
+      await userEvent.type(screen.getByLabelText('What is it?'), 'Second thing')
+
+      expect(screen.getByRole('button', { name: 'Capture' })).toBeEnabled()
+    })
+
+    it('cannot re-enable Capture while this session is still saving', async () => {
+      const { onCreate, resolvers } = pendingCreates()
+      await openCapture(onCreate)
+
+      await userEvent.type(screen.getByLabelText('What is it?'), 'First thing')
+      await userEvent.click(screen.getByRole('button', { name: 'Capture' }))
+      await userEvent.keyboard('{Escape}')
+      await userEvent.click(screen.getByRole('button', { name: 'Quick capture' }))
+      await userEvent.type(screen.getByLabelText('What is it?'), 'Second thing')
+      await userEvent.click(screen.getByRole('button', { name: 'Capture' }))
+      expect(onCreate).toHaveBeenCalledTimes(2)
+
+      // The first request lands while the second is still out.
+      resolvers[0]?.(true)
+      await act(async () => {})
+
+      expect(screen.getByRole('button', { name: 'Capture' })).toBeDisabled()
+      await userEvent.click(screen.getByRole('button', { name: 'Capture' }))
+      expect(onCreate).toHaveBeenCalledTimes(2)
+    })
+  })
+
   it('does not send the same capture twice while the first is in flight', async () => {
     let release = () => {}
     const onCreate = vi.fn(

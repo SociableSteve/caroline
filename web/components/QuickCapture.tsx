@@ -67,6 +67,10 @@ export function QuickCapture({ open, projects, onClose, onCreate }: QuickCapture
     if (!open) return
 
     session.current += 1
+    // A request from a previous session may still be out, and its pending state is not this
+    // session's business: leaving it set would open the dialog with Capture disabled and no
+    // explanation for it.
+    setSaving(false)
     opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     // Opening puts the caret in the title, which is the only reason to have opened it.
     titleField.current?.focus()
@@ -112,9 +116,11 @@ export function QuickCapture({ open, projects, onClose, onCreate }: QuickCapture
       // reason is the caller's job.
       created = false
     } finally {
-      // In a `finally`, so neither path can leave the Capture button disabled for as long as
-      // the dialog is open.
-      setSaving(false)
+      // In a `finally`, so neither a refusal nor a rejection can leave Capture disabled for as
+      // long as the dialog is open. Only for the session that started it, though: a stale
+      // request clearing the flag would re-enable Capture while this session's own request is
+      // still out, and the second press would send it twice.
+      if (mine === session.current) setSaving(false)
     }
 
     // Only on success. A rejected write leaves the dialog open with the text still in it, so
