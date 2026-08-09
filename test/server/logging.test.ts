@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Writable } from 'node:stream'
 import { loadConfig } from '../../src/config/load.js'
 import { buildServer } from '../../src/server/app.js'
+import { migratedDatabase } from '../helpers/temp-database.js'
 import { UNMATCHED_ROUTE } from '../../src/server/log-redaction.js'
 
 const secrets = {
@@ -25,7 +26,11 @@ describe('request URLs never reach a log line', () => {
   it('logs the matched route, not the URL the caller sent', async () => {
     const { lines, stream } = captureLog()
     const config = loadConfig({ file: null, env: secrets })
-    const app = await buildServer({ config, logger: { level: 'info', stream } })
+    const app = await buildServer({
+      config,
+      database: migratedDatabase(),
+      logger: { level: 'info', stream },
+    })
 
     await app.inject({ method: 'GET', url: '/api/health?verbose=true&token=anything-at-all' })
     await app.close()
@@ -40,7 +45,11 @@ describe('request URLs never reach a log line', () => {
   it('logs no URL bytes at all for a request that matched no route', async () => {
     const { lines, stream } = captureLog()
     const config = loadConfig({ file: null, env: secrets })
-    const app = await buildServer({ config, logger: { level: 'info', stream } })
+    const app = await buildServer({
+      config,
+      database: migratedDatabase(),
+      logger: { level: 'info', stream },
+    })
 
     await app.inject({ method: 'GET', url: '/api/no-such-route-abcdef' })
     await app.close()
@@ -59,7 +68,11 @@ describe('secrets are redacted before the log line is serialised', () => {
       file: null,
       env: { CAROLINE_ACCESS_TOKEN: secretNeedingEscapes } as NodeJS.ProcessEnv,
     })
-    const app = await buildServer({ config, logger: { level: 'info', stream } })
+    const app = await buildServer({
+      config,
+      database: migratedDatabase(),
+      logger: { level: 'info', stream },
+    })
 
     app.get('/api/boom', async () => {
       throw new Error(`upstream rejected ${secretNeedingEscapes}`)
@@ -77,7 +90,11 @@ describe('secrets are redacted before the log line is serialised', () => {
   it('redacts a secret logged as a structured field', async () => {
     const { lines, stream } = captureLog()
     const config = loadConfig({ file: null, env: secrets })
-    const app = await buildServer({ config, logger: { level: 'info', stream } })
+    const app = await buildServer({
+      config,
+      database: migratedDatabase(),
+      logger: { level: 'info', stream },
+    })
 
     app.log.info({ upstream: { token: 'ghp_supersecret' } }, 'calling upstream')
     await app.close()
@@ -88,7 +105,11 @@ describe('secrets are redacted before the log line is serialised', () => {
   it('redacts a secret appearing in the log message itself', async () => {
     const { lines, stream } = captureLog()
     const config = loadConfig({ file: null, env: secrets })
-    const app = await buildServer({ config, logger: { level: 'info', stream } })
+    const app = await buildServer({
+      config,
+      database: migratedDatabase(),
+      logger: { level: 'info', stream },
+    })
 
     app.log.info('calling upstream with ghp_supersecret')
     await app.close()
@@ -101,7 +122,11 @@ describe('no secret reaches a log line (spec 09 criterion 6)', () => {
   it('keeps secrets out of request logging, even when one appears in the URL', async () => {
     const { lines, stream } = captureLog()
     const config = loadConfig({ file: null, env: secrets })
-    const app = await buildServer({ config, logger: { level: 'info', stream } })
+    const app = await buildServer({
+      config,
+      database: migratedDatabase(),
+      logger: { level: 'info', stream },
+    })
 
     await app.inject({ method: 'GET', url: '/api/health?token=ghp_supersecret' })
     await app.inject({ method: 'GET', url: '/api/sk-ant-supersecret' })
@@ -120,7 +145,11 @@ describe('no secret reaches a log line (spec 09 criterion 6)', () => {
       file: null,
       env: { CAROLINE_ACCESS_TOKEN: secretWithReservedChars } as NodeJS.ProcessEnv,
     })
-    const app = await buildServer({ config, logger: { level: 'info', stream } })
+    const app = await buildServer({
+      config,
+      database: migratedDatabase(),
+      logger: { level: 'info', stream },
+    })
 
     const encoded = encodeURIComponent(secretWithReservedChars)
     await app.inject({ method: 'GET', url: `/api/health?token=${encoded}` })
@@ -136,7 +165,11 @@ describe('no secret reaches a log line (spec 09 criterion 6)', () => {
       file: null,
       env: { CAROLINE_ACCESS_TOKEN: secretWithReservedChars } as NodeJS.ProcessEnv,
     })
-    const app = await buildServer({ config, logger: { level: 'info', stream } })
+    const app = await buildServer({
+      config,
+      database: migratedDatabase(),
+      logger: { level: 'info', stream },
+    })
 
     await app.inject({ method: 'GET', url: '/api/health?token=access%2btoken%2fvalue' })
     await app.close()
@@ -148,7 +181,11 @@ describe('no secret reaches a log line (spec 09 criterion 6)', () => {
     const secretInPath = 'access-supersecret'
     const { lines, stream } = captureLog()
     const config = loadConfig({ file: null, env: secrets })
-    const app = await buildServer({ config, logger: { level: 'info', stream } })
+    const app = await buildServer({
+      config,
+      database: migratedDatabase(),
+      logger: { level: 'info', stream },
+    })
 
     const percentEncodedPerCharacter = [...secretInPath]
       .map((character) => `%${character.charCodeAt(0).toString(16).padStart(2, '0')}`)
@@ -166,7 +203,11 @@ describe('no secret reaches a log line (spec 09 criterion 6)', () => {
       file: null,
       env: { CAROLINE_ACCESS_TOKEN: secretNeedingEscapes } as NodeJS.ProcessEnv,
     })
-    const app = await buildServer({ config, logger: { level: 'info', stream } })
+    const app = await buildServer({
+      config,
+      database: migratedDatabase(),
+      logger: { level: 'info', stream },
+    })
 
     app.log.info({ [secretNeedingEscapes]: 'value' }, 'calling upstream')
     await app.close()
@@ -184,7 +225,11 @@ describe('no secret reaches a log line (spec 09 criterion 6)', () => {
       file: null,
       env: { CAROLINE_ACCESS_TOKEN: secretNeedingEscapes } as NodeJS.ProcessEnv,
     })
-    const app = await buildServer({ config, logger: { level: 'info', stream } })
+    const app = await buildServer({
+      config,
+      database: migratedDatabase(),
+      logger: { level: 'info', stream },
+    })
 
     const sharedCredentials = { token: secretNeedingEscapes }
     app.log.info({ primary: sharedCredentials, fallback: sharedCredentials }, 'calling upstream')
@@ -206,7 +251,11 @@ describe('no secret reaches a log line (spec 09 criterion 6)', () => {
       file: null,
       env: { CAROLINE_ACCESS_TOKEN: secretNeedingEscapes } as NodeJS.ProcessEnv,
     })
-    const app = await buildServer({ config, logger: { level: 'info', stream } })
+    const app = await buildServer({
+      config,
+      database: migratedDatabase(),
+      logger: { level: 'info', stream },
+    })
 
     app.log.info({ upstream: new Credentials(secretNeedingEscapes) }, 'calling upstream')
     app.log.info({ pool: [new Credentials(secretNeedingEscapes)] }, 'calling upstream')
@@ -226,7 +275,11 @@ describe('no secret reaches a log line (spec 09 criterion 6)', () => {
       file: null,
       env: { CAROLINE_ACCESS_TOKEN: secretNeedingEscapes } as NodeJS.ProcessEnv,
     })
-    const app = await buildServer({ config, logger: { level: 'info', stream } })
+    const app = await buildServer({
+      config,
+      database: migratedDatabase(),
+      logger: { level: 'info', stream },
+    })
 
     // JSON.parse is how an own, enumerable `__proto__` reaches a log payload in practice:
     // an upstream response parsed and then logged. An object literal would set the
@@ -260,7 +313,11 @@ describe('no secret reaches a log line (spec 09 criterion 6)', () => {
       file: null,
       env: { CAROLINE_ACCESS_TOKEN: secretNeedingEscapes } as NodeJS.ProcessEnv,
     })
-    const app = await buildServer({ config, logger: { level: 'info', stream } })
+    const app = await buildServer({
+      config,
+      database: migratedDatabase(),
+      logger: { level: 'info', stream },
+    })
 
     app.log.info({ cause: new UpstreamError(secretNeedingEscapes) }, 'call failed')
     await app.close()
@@ -275,7 +332,11 @@ describe('no secret reaches a log line (spec 09 criterion 6)', () => {
   it('still lets the error serialiser shape an error, redacted', async () => {
     const { lines, stream } = captureLog()
     const config = loadConfig({ file: null, env: secrets })
-    const app = await buildServer({ config, logger: { level: 'info', stream } })
+    const app = await buildServer({
+      config,
+      database: migratedDatabase(),
+      logger: { level: 'info', stream },
+    })
 
     app.log.error({ err: new Error('upstream rejected ghp_supersecret') }, 'call failed')
     await app.close()
@@ -289,7 +350,11 @@ describe('no secret reaches a log line (spec 09 criterion 6)', () => {
   it('keeps secrets out of a logged error message', async () => {
     const { lines, stream } = captureLog()
     const config = loadConfig({ file: null, env: secrets })
-    const app = await buildServer({ config, logger: { level: 'info', stream } })
+    const app = await buildServer({
+      config,
+      database: migratedDatabase(),
+      logger: { level: 'info', stream },
+    })
 
     app.get('/api/boom', async () => {
       throw new Error('upstream rejected token ghp_supersecret')

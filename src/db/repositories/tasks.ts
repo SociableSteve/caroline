@@ -7,6 +7,7 @@ import {
   newTask,
   type NewTaskInput,
   type StatusChange,
+  type StatusChangeRefusal,
   type StatusChangeResult,
   type Task,
   type TaskStatus,
@@ -193,4 +194,181 @@ export function getTaskTags(database: Database, taskId: string): string[] {
     .prepare('select tag from task_tags where task_id = ? order by tag')
     .all(taskId)
     .map((row) => String((row as Row).tag))
+}
+
+/**
+ * The tags of several tasks in one query, so listing a board does not run a query per card.
+ * A task with no tags is absent from the map rather than present with an empty array: the
+ * caller defaults it, and the distinction never matters.
+ */
+export function listTags(database: Database, taskIds: readonly string[]): Map<string, string[]> {
+  const tags = new Map<string, string[]>()
+  if (taskIds.length === 0) return tags
+
+  const placeholders = taskIds.map(() => '?').join(', ')
+  const rows = database
+    .prepare(`select task_id, tag from task_tags where task_id in (${placeholders}) order by tag`)
+    .all(...taskIds)
+
+  for (const row of rows) {
+    const taskId = String((row as Row).task_id)
+    const existing = tags.get(taskId)
+    if (existing === undefined) {
+      tags.set(taskId, [String((row as Row).tag)])
+    } else {
+      existing.push(String((row as Row).tag))
+    }
+  }
+
+  return tags
+}
+
+/** What `GET /api/tasks` can ask for. Every field is optional and they combine with `and`. */
+export interface TaskQuery {
+  readonly status?: readonly TaskStatus[]
+  /** A project id, or `null` for the tasks belonging to no project. Omit for either. */
+  readonly projectId?: string | null
+  readonly tag?: string
+  /** Due at or before this moment. Tasks with no due date are excluded. */
+  readonly dueBefore?: number
+  /** Case-insensitive substring of the title or the notes. Treated as literal text. */
+  readonly search?: string
+  /** Include next actions still deferred. Off by default, per spec 01 criterion 5. */
+  readonly includeDeferred?: boolean
+  readonly limit?: number
+  readonly offset?: number
+}
+
+export interface TaskPage {
+  readonly tasks: Task[]
+  /** Matching rows before `limit` and `offset`, so a client can page through them. */
+  readonly total: number
+}
+
+/** `like` treats these as wildcards, so a search for `100%` has to escape them first. */
+function likePattern(search: string): string {
+  return `%${search.replace(/[\\%_]/g, (character) => `\\${character}`)}%`
+}
+
+/** What a bound parameter may be. Everything a filter binds is text or an integer. */
+type Bindable = string | number
+
+interface Filter {
+  readonly sql: string
+  readonly params: readonly Bindable[]
+}
+
+function filters(query: TaskQuery, now: number): Filter[] {
+  const built: Filter[] = []
+
+  if (query.status !== undefined) {
+    // An empty status list matches nothing, which is what asking for no statuses means.
+    const placeholders = query.status.map(() => '?').join(', ')
+    built.push({ sql: `status in (${placeholders})`, params: query.status })
+  }
+
+  if (query.projectId !== undefined) {
+    built.push(
+      query.projectId === null
+        ? { sql: 'project_id is null', params: [] }
+        : { sql: 'project_id = ?', params: [query.projectId] },
+    )
+  }
+
+  if (query.tag !== undefined) {
+    // `exists` rather than a join: a task with two matching tags is still one task.
+    built.push({
+      sql: 'exists (select 1 from task_tags where task_tags.task_id = tasks.id and tag = ?)',
+      params: [query.tag],
+    })
+  }
+
+  if (query.dueBefore !== undefined) {
+    built.push({ sql: 'due_at is not null and due_at <= ?', params: [query.dueBefore] })
+  }
+
+  if (query.search !== undefined) {
+    // SQLite's `like` is already case-insensitive for ASCII, which is what `lower()` on
+    // both sides would buy and no more.
+    built.push({
+      sql: "(title like ? escape '\\' or notes like ? escape '\\')",
+      params: [likePattern(query.search), likePattern(query.search)],
+    })
+  }
+
+  if (query.includeDeferred !== true) {
+    // Deferral hides a next action and nothing else: a task waiting on someone is still
+    // waiting whether or not you have deferred looking at it. Spec 01, criterion 5.
+    built.push({
+      sql: "not (status = 'next_action' and defer_until is not null and defer_until > ?)",
+      params: [now],
+    })
+  }
+
+  return built
+}
+
+/**
+ * The filtered, ordered, paginated listing behind `GET /api/tasks`. `now` is passed rather
+ * than read so that deferral is testable without waiting for a clock.
+ */
+export function listTasks(database: Database, query: TaskQuery, now: number): TaskPage {
+  const built = filters(query, now)
+  const where = built.length === 0 ? '' : `where ${built.map((filter) => filter.sql).join(' and ')}`
+  const params: Bindable[] = built.flatMap((filter) => [...filter.params])
+
+  const total = Number(
+    (database.prepare(`select count(*) as count from tasks ${where}`).get(...params) as Row).count,
+  )
+
+  // A negative limit is SQLite's "no limit", and offset needs a limit present to be legal.
+  const tasks = database
+    .prepare(`select ${columns} from tasks ${where} ${ordering} limit ? offset ?`)
+    .all(...params, query.limit ?? -1, query.offset ?? 0)
+    .map((row) => toTask(row as Row))
+
+  return { tasks, total }
+}
+
+/** Why a bulk operation skipped one of the tasks it was given. */
+export type BulkRefusal = 'not-found' | StatusChangeRefusal
+
+export type BulkResult =
+  | { readonly id: string; readonly applied: true }
+  | { readonly id: string; readonly applied: false; readonly reason: BulkRefusal }
+
+/**
+ * Bulk operations are all-or-nothing at the database level and per-task in their reporting:
+ * one transaction, so a failed write leaves nothing half-applied, but a task that does not
+ * exist or that the status rules refuse is reported rather than aborting the rest.
+ */
+export function bulkChangeStatus(
+  database: Database,
+  ids: readonly string[],
+  change: StatusChange,
+): BulkResult[] {
+  return withTransaction(database, () =>
+    ids.map((id) => {
+      const result = changeTaskStatus(database, id, change)
+      if (result === null) return { id, applied: false as const, reason: 'not-found' as const }
+      return result.applied
+        ? { id, applied: true as const }
+        : { id, applied: false as const, reason: result.reason }
+    }),
+  )
+}
+
+export function bulkAssignProject(
+  database: Database,
+  ids: readonly string[],
+  projectId: string | null,
+  now: number,
+): BulkResult[] {
+  return withTransaction(database, () =>
+    ids.map((id) =>
+      updateTask(database, id, { projectId }, now) === null
+        ? { id, applied: false as const, reason: 'not-found' as const }
+        : { id, applied: true as const },
+    ),
+  )
 }

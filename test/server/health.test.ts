@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { loadConfig } from '../../src/config/load.js'
 import { buildServer } from '../../src/server/app.js'
+import { migratedDatabase } from '../helpers/temp-database.js'
 
 const cleanCheckout = loadConfig({ file: null, env: {} as NodeJS.ProcessEnv })
 
 describe('GET /api/health on a clean checkout with no credentials', () => {
   it('answers 200 rather than failing', async () => {
-    const app = await buildServer({ config: cleanCheckout })
+    const app = await buildServer({ config: cleanCheckout, database: migratedDatabase() })
 
     const response = await app.inject({ method: 'GET', url: '/api/health' })
 
@@ -15,7 +16,7 @@ describe('GET /api/health on a clean checkout with no credentials', () => {
   })
 
   it('reports every integration as not configured', async () => {
-    const app = await buildServer({ config: cleanCheckout })
+    const app = await buildServer({ config: cleanCheckout, database: migratedDatabase() })
 
     const response = await app.inject({ method: 'GET', url: '/api/health' })
     const body = response.json()
@@ -30,7 +31,7 @@ describe('GET /api/health on a clean checkout with no credentials', () => {
   })
 
   it('reports its version and uptime', async () => {
-    const app = await buildServer({ config: cleanCheckout })
+    const app = await buildServer({ config: cleanCheckout, database: migratedDatabase() })
 
     const body = (await app.inject({ method: 'GET', url: '/api/health' })).json()
 
@@ -46,7 +47,7 @@ describe('GET /api/health with integrations configured', () => {
       file: { llm: { provider: 'anthropic' } },
       env: { GITHUB_TOKEN: 'ghp_x', ANTHROPIC_API_KEY: 'sk-ant-x' } as NodeJS.ProcessEnv,
     })
-    const app = await buildServer({ config })
+    const app = await buildServer({ config, database: migratedDatabase() })
 
     const body = (await app.inject({ method: 'GET', url: '/api/health' })).json()
 
@@ -61,7 +62,7 @@ describe('GET /api/health with integrations configured', () => {
       file: null,
       env: { GITHUB_TOKEN: 'ghp_supersecret' } as NodeJS.ProcessEnv,
     })
-    const app = await buildServer({ config })
+    const app = await buildServer({ config, database: migratedDatabase() })
 
     const response = await app.inject({ method: 'GET', url: '/api/health' })
 
