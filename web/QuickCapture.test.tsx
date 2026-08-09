@@ -228,7 +228,11 @@ describe('capturing', () => {
     expect(screen.getByLabelText('What is it?')).toHaveValue('Second thing')
   })
 
-  it('clears the text of a capture that landed after the dialog was closed', async () => {
+  /**
+   * Closing empties the fields, so a capture abandoned mid-flight leaves nothing behind for the
+   * next one to send a second time. It is `close` that does this, not the request's own result.
+   */
+  it('starts empty after a capture was abandoned mid-flight', async () => {
     let release: (created: boolean) => void = () => {}
     const onCreate = vi.fn(() => new Promise<boolean>((resolve) => (release = resolve)))
     await openCapture(onCreate)
@@ -240,9 +244,31 @@ describe('capturing', () => {
     release(true)
     await act(async () => {})
 
-    // The capture happened, so its text must not be waiting to be sent a second time.
     await userEvent.click(screen.getByRole('button', { name: 'Quick capture' }))
     expect(screen.getByLabelText('What is it?')).toHaveValue('')
+  })
+
+  /**
+   * The hard case for the clearing rule: the new session happens to hold the same text as the
+   * old request sent. Matching text is not the same text, and a result from a session that is
+   * over has no business touching the one that is open.
+   */
+  it('leaves identical text in a new session alone when an old capture resolves', async () => {
+    let release: (created: boolean) => void = () => {}
+    const onCreate = vi.fn(() => new Promise<boolean>((resolve) => (release = resolve)))
+    await openCapture(onCreate)
+
+    await userEvent.type(screen.getByLabelText('What is it?'), 'Same title')
+    await userEvent.click(screen.getByRole('button', { name: 'Capture' }))
+    await userEvent.keyboard('{Escape}')
+    await userEvent.click(screen.getByRole('button', { name: 'Quick capture' }))
+    await userEvent.type(screen.getByLabelText('What is it?'), 'Same title')
+
+    release(true)
+    await act(async () => {})
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByLabelText('What is it?')).toHaveValue('Same title')
   })
 
   /**

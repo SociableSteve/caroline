@@ -87,7 +87,7 @@ export function QuickCapture({ open, projects, onClose, onCreate }: QuickCapture
   /**
    * Clears only what was actually sent. The fields stay editable while the request is out, and
    * text typed in that window belongs to the next capture rather than to this one, so a blanket
-   * reset would throw it away. Safe to run in any session for the same reason.
+   * reset would throw it away.
    */
   const clearSent = (sent: { title: string; notes: string; projectId: string }) => {
     setTitle((current) => (current === sent.title ? '' : current))
@@ -127,13 +127,14 @@ export function QuickCapture({ open, projects, onClose, onCreate }: QuickCapture
     // the failure costs a second attempt rather than the typing.
     if (!created) return
 
-    // Cleared whatever session this lands in: the capture happened, so leaving its text behind
-    // would invite a duplicate the next time the dialog opened.
-    clearSent(sent)
+    // A result from a session that is over changes nothing here. Closing it would take away the
+    // capture being typed now, and clearing it would be no safer: `close` empties the fields on
+    // the way out, so whatever is in them belongs to the session that is open, even when it
+    // happens to read the same as what was sent.
+    if (mine !== session.current) return
 
-    // Closing, though, belongs to the session that submitted. A result arriving after the user
-    // closed and reopened must not close the capture they are typing into now.
-    if (mine === session.current) onClose()
+    clearSent(sent)
+    onClose()
   }
 
   /**
