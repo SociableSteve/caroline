@@ -4,7 +4,7 @@
  * whatever opened it. Not borrowed from `<dialog>`, therefore tested here.
  */
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { useState } from 'react'
 import { QuickCapture } from './components/QuickCapture.js'
@@ -58,6 +58,21 @@ describe('opening and closing', () => {
     await userEvent.keyboard('{Escape}')
 
     expect(screen.getByRole('button', { name: 'Quick capture' })).toHaveFocus()
+  })
+
+  /**
+   * Escape has to work whatever inside the dialog holds the focus, and while a capture is in
+   * flight the focus is nowhere: submitting disables the Capture button, so the focus falls to
+   * the body and a handler on the backdrop never sees the key.
+   */
+  it('closes on Escape while a capture is still in flight', async () => {
+    await openCapture(vi.fn(() => new Promise<boolean>(() => {})))
+
+    await userEvent.type(screen.getByLabelText('What is it?'), 'Renew the domain')
+    await userEvent.click(screen.getByRole('button', { name: 'Capture' }))
+    await userEvent.keyboard('{Escape}')
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 })
 
@@ -189,6 +204,45 @@ describe('capturing', () => {
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'Capture' })).toBeEnabled())
     expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  /**
+   * A capture can still be in flight when the dialog is closed. Its result then belongs to a
+   * session that is over, and closing on it would take away the capture being typed now.
+   */
+  it('does not close a reopened dialog when an earlier capture resolves', async () => {
+    let release: (created: boolean) => void = () => {}
+    const onCreate = vi.fn(() => new Promise<boolean>((resolve) => (release = resolve)))
+    await openCapture(onCreate)
+
+    await userEvent.type(screen.getByLabelText('What is it?'), 'First thing')
+    await userEvent.click(screen.getByRole('button', { name: 'Capture' }))
+    await userEvent.keyboard('{Escape}')
+    await userEvent.click(screen.getByRole('button', { name: 'Quick capture' }))
+    await userEvent.type(screen.getByLabelText('What is it?'), 'Second thing')
+
+    release(true)
+    await act(async () => {})
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByLabelText('What is it?')).toHaveValue('Second thing')
+  })
+
+  it('clears the text of a capture that landed after the dialog was closed', async () => {
+    let release: (created: boolean) => void = () => {}
+    const onCreate = vi.fn(() => new Promise<boolean>((resolve) => (release = resolve)))
+    await openCapture(onCreate)
+
+    await userEvent.type(screen.getByLabelText('What is it?'), 'First thing')
+    await userEvent.click(screen.getByRole('button', { name: 'Capture' }))
+    await userEvent.keyboard('{Escape}')
+
+    release(true)
+    await act(async () => {})
+
+    // The capture happened, so its text must not be waiting to be sent a second time.
+    await userEvent.click(screen.getByRole('button', { name: 'Quick capture' }))
+    expect(screen.getByLabelText('What is it?')).toHaveValue('')
   })
 
   it('does not send the same capture twice while the first is in flight', async () => {

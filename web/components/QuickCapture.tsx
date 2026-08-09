@@ -8,7 +8,7 @@
  * and the focus restoration below are: `aria-modal="true"` tells a screen reader the rest of
  * the page is inert, and Tab has to agree with it.
  */
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import type { ProjectView, TaskInput } from '../api.js'
 
 export interface QuickCaptureProps {
@@ -30,15 +30,49 @@ export function QuickCapture({ open, projects, onClose, onCreate }: QuickCapture
   const titleField = useRef<HTMLInputElement>(null)
   /** Whatever had the focus when this opened, so closing can give it back. */
   const opener = useRef<HTMLElement | null>(null)
+  /**
+   * Which opening of the dialog this is. A capture can still be in flight when the dialog is
+   * closed, and its result then belongs to a session that is over: acting on it would close the
+   * next one out from under whoever is typing into it.
+   */
+  const session = useRef(0)
+
+  const close = useCallback(() => {
+    setTitle('')
+    setNotes('')
+    setProjectId('')
+    onClose()
+  }, [onClose])
+
+  /**
+   * Escape is handled on the document rather than on the backdrop. A modal has to close on
+   * Escape whatever inside it holds the focus, and the focus can be nowhere at all: submitting
+   * disables the Capture button, which drops the focus to the body, and a handler on the
+   * backdrop then never sees the key.
+   */
+  useEffect(() => {
+    if (!open) return
+
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      close()
+    }
+
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [open, close])
 
   useEffect(() => {
     if (!open) return
 
+    session.current += 1
     opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     // Opening puts the caret in the title, which is the only reason to have opened it.
     titleField.current?.focus()
 
     return () => {
+      session.current += 1
       // The opener can have gone away while the dialog was up, hence the guard.
       if (opener.current?.isConnected === true) opener.current.focus()
     }
@@ -46,27 +80,20 @@ export function QuickCapture({ open, projects, onClose, onCreate }: QuickCapture
 
   if (!open) return null
 
-  const close = () => {
-    setTitle('')
-    setNotes('')
-    setProjectId('')
-    onClose()
-  }
-
   /**
    * Clears only what was actually sent. The fields stay editable while the request is out, and
    * text typed in that window belongs to the next capture rather than to this one, so a blanket
-   * reset would throw it away.
+   * reset would throw it away. Safe to run in any session for the same reason.
    */
-  const closeKeeping = (sent: { title: string; notes: string; projectId: string }) => {
+  const clearSent = (sent: { title: string; notes: string; projectId: string }) => {
     setTitle((current) => (current === sent.title ? '' : current))
     setNotes((current) => (current === sent.notes ? '' : current))
     setProjectId((current) => (current === sent.projectId ? '' : current))
-    onClose()
   }
 
   const submit = async () => {
     const sent = { title, notes, projectId }
+    const mine = session.current
     const trimmed = sent.title.trim()
     if (trimmed === '' || saving) return
 
@@ -92,7 +119,15 @@ export function QuickCapture({ open, projects, onClose, onCreate }: QuickCapture
 
     // Only on success. A rejected write leaves the dialog open with the text still in it, so
     // the failure costs a second attempt rather than the typing.
-    if (created) closeKeeping(sent)
+    if (!created) return
+
+    // Cleared whatever session this lands in: the capture happened, so leaving its text behind
+    // would invite a duplicate the next time the dialog opened.
+    clearSent(sent)
+
+    // Closing, though, belongs to the session that submitted. A result arriving after the user
+    // closed and reopened must not close the capture they are typing into now.
+    if (mine === session.current) onClose()
   }
 
   /**
@@ -117,13 +152,7 @@ export function QuickCapture({ open, projects, onClose, onCreate }: QuickCapture
   }
 
   return (
-    <div
-      className="capture-backdrop"
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') close()
-        else trapFocus(event)
-      }}
-    >
+    <div className="capture-backdrop" onKeyDown={trapFocus}>
       <section
         className="capture"
         role="dialog"
