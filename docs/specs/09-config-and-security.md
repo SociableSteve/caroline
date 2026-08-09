@@ -69,6 +69,21 @@ call would contain, using a real item, before it is used.
   error.
 - Secrets are redacted in API responses, logs and error messages. A test asserts that no
   configured secret value appears in any log line or HTTP response body.
+- Redaction matches secret values literally, and runs on values before anything encodes
+  them, because a secret rewritten by an encoder no longer matches itself: JSON escaping
+  turns `tok"en` into `tok\"en`. Recognising a secret through its encodings does not
+  terminate, so the encodings are handled by removing the places they occur rather than by
+  matching more forms.
+- Pre-encoding redaction covers every value in a log payload, and every field name, whatever
+  the holding object's prototype. A class instance is not a plain object, but encoding walks
+  its own properties just the same, so exempting it would leave a secret on the wire. The
+  exceptions are the fields a log serialiser is about to shape, which redact their own
+  output.
+- No part of a request URL is logged or echoed in a response. Every byte of it is chosen by
+  the caller, path as much as query string, so a secret can be smuggled into a log line in
+  any encoding the caller likes and literal matching will not find it. Requests are
+  identified in logs by method and by the route template they matched, which is written in
+  this repository; a request matching no route contributes no URL bytes at all.
 
 There is no encryption at rest beyond filesystem permissions. That is a deliberate choice
 for a single-user local tool, and it is documented rather than implied: anyone with access

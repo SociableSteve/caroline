@@ -1,0 +1,25 @@
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 5123
+  },
+  "database": {
+    "path": "./data/caroline.db"
+  },
+  "privacy": {
+    "llmContent": "snippet",
+    "storeContent": "metadata",
+    "snippetChars": 300,
+    "retainContentDays": 30,
+    "allowFullContentToRemoteProvider": false
+  },
+  "llm": {
+    "provider": "none",
+    "model": null,
+    "baseUrl": null
+  },
+  "integrations": {
+    "github": { "enabled": true },
+    "google": { "enabled": true, "clientId": null }
+  }
+}
