@@ -218,13 +218,14 @@ describe('the client', () => {
     expect(calls).toHaveLength(DISCOVERY_MAX_PAGES)
   })
 
-  it('stops paging when a page says there is no cursor to follow', async () => {
+  it('refuses a page that promises another one without a cursor to follow it', async () => {
+    // GitHub contradicting itself. Returning what had been collected would be a partial
+    // answer that reads like a complete one, which is what the paging exists to prevent.
     const { api, calls } = apiAnswering(() => ({
       body: { data: { search: { pageInfo: { hasNextPage: true, endCursor: null }, nodes: [] } } },
     }))
 
-    await api.searchReviewRequested(VIEWER)
-
+    await expect(api.searchReviewRequested(VIEWER)).rejects.toThrow(/no cursor to follow/)
     expect(calls).toHaveLength(1)
   })
 })

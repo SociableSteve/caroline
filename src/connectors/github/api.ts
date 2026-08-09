@@ -337,13 +337,20 @@ export function createGitHubApi({
         if (Array.isArray(search?.nodes)) found.push(...search.nodes.filter(isPullRequestNode))
 
         if (search?.pageInfo?.hasNextPage !== true) break
+
         after = search.pageInfo.endCursor ?? null
-        if (after === null) break
+        // Another page, and nothing to fetch it with. Stopping here would return a partial
+        // answer that reads like a complete one, which is the truncation the paging exists
+        // to remove; it is also a contradiction on GitHub's part, so it is said out loud.
+        if (after === null) {
+          throw new GitHubApiError(
+            'The review-request search offered another page but no cursor to follow it with',
+          )
+        }
 
         // Still more pages after the guard is a runaway, not a large review queue: a
         // thousand open review requests means the query or the cursor is wrong. It fails
-        // loudly rather than returning a partial answer that reads like a complete one,
-        // which is the same silent truncation the paging was added to remove.
+        // loudly rather than returning a partial answer, for the same reason.
         if (page === DISCOVERY_MAX_PAGES - 1) {
           throw new GitHubApiError(
             `The review-request search still had pages after ${DISCOVERY_MAX_PAGES} of ${DISCOVERY_PAGE}`,
