@@ -2,7 +2,7 @@
  * Fixtures for the component tests. Named fields rather than partial objects, so a test that
  * cares about an estimate says so and a test that does not is not quietly relying on one.
  */
-import type { ProjectView, TaskStatus, TaskView } from './api.js'
+import type { ProjectView, SourceView, TaskStatus, TaskView } from './api.js'
 
 export const NOW = Date.UTC(2026, 5, 10, 9, 0, 0)
 export const DAY = 24 * 60 * 60 * 1000
@@ -24,8 +24,48 @@ export function aTask(overrides: Partial<TaskView> & { id: string; title: string
     updatedAt: NOW,
     completedAt: null,
     tags: [],
+    sources: [],
     ...overrides,
   }
+}
+
+/** The GitHub source a synced pull request task carries. Spec 02. */
+export function aPullRequestSource(overrides: Partial<SourceView> = {}): SourceView {
+  return {
+    id: 'source-1',
+    provider: 'github',
+    externalId: 'example-org/example-service#42',
+    url: 'https://github.com/example-org/example-service/pull/42',
+    title: 'example-org/example-service#42 Add a retry to the fetch helper',
+    lifecycleState: 'awaiting_review',
+    actedAt: null,
+    actedAtMarker: null,
+    resolvedAt: null,
+    requeuedAt: null,
+    completionProposedAt: null,
+    metadata: {
+      repository: 'example-org/example-service',
+      number: 42,
+      author: 'author-one',
+      headSha: 'sha-one',
+      headCommittedAt: NOW - DAY,
+    },
+    ...overrides,
+  }
+}
+
+/** A task as sync leaves a pull request awaiting your review. */
+export function aReviewTask(overrides: Partial<TaskView> = {}): TaskView {
+  return aTask({
+    id: 'task-pr',
+    title: 'example-org/example-service#42 Add a retry to the fetch helper',
+    status: 'review',
+    statusSetBy: 'sync',
+    syncTracked: true,
+    estimateMinutes: 30,
+    sources: [aPullRequestSource()],
+    ...overrides,
+  })
 }
 
 export function aProject(

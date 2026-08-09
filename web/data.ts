@@ -7,12 +7,21 @@
  * background job once there are any, reloads what is on screen without a refresh.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, ApiFailure, type Health, type ProjectView, type TaskView } from './api.js'
+import {
+  api,
+  ApiFailure,
+  type Health,
+  type JobRun,
+  type ProjectView,
+  type TaskView,
+} from './api.js'
 
 export interface CarolineData {
   readonly tasks: readonly TaskView[]
   readonly projects: readonly ProjectView[]
   readonly health: Health | null
+  /** Recent job runs, most recent first. Empty until something has run. */
+  readonly jobRuns: readonly JobRun[]
   /** The configured waiting staleness threshold, defaulted until the config arrives. */
   readonly staleDays: number
   readonly loading: boolean
@@ -49,6 +58,7 @@ export function useCarolineData(): CarolineData {
   const [tasks, setTasks] = useState<readonly TaskView[]>([])
   const [projects, setProjects] = useState<readonly ProjectView[]>([])
   const [health, setHealth] = useState<Health | null>(null)
+  const [jobRuns, setJobRuns] = useState<readonly JobRun[]>([])
   const [staleDays, setStaleDays] = useState(DEFAULT_STALE_DAYS)
   const [loading, setLoading] = useState(true)
   const [failure, setFailure] = useState<string | null>(null)
@@ -65,11 +75,18 @@ export function useCarolineData(): CarolineData {
     const mine = generation.current
 
     try {
-      const [taskCollection, projectList] = await Promise.all([api.listTasks(), api.listProjects()])
+      // The run history is reloaded alongside the tasks: a sync that just finished changed
+      // both, and the dashboard should not be a refresh behind on either.
+      const [taskCollection, projectList, runs] = await Promise.all([
+        api.listTasks(),
+        api.listProjects(),
+        api.listJobRuns().catch(() => ({ runs: [] })),
+      ])
       if (mine !== generation.current) return
 
       setTasks(taskCollection.tasks)
       setProjects(projectList.projects)
+      setJobRuns(runs.runs)
       setUnfetchedTaskTotal(taskCollection.truncated ? taskCollection.total : null)
       setFailure(null)
     } catch (error) {
@@ -98,5 +115,15 @@ export function useCarolineData(): CarolineData {
 
   useEffect(() => subscribeToChanges(() => void reload()), [reload])
 
-  return { tasks, projects, health, staleDays, loading, failure, unfetchedTaskTotal, reload }
+  return {
+    tasks,
+    projects,
+    health,
+    jobRuns,
+    staleDays,
+    loading,
+    failure,
+    unfetchedTaskTotal,
+    reload,
+  }
 }

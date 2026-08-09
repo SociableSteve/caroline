@@ -4,7 +4,7 @@
  */
 import { useRef, type DragEvent, type KeyboardEvent } from 'react'
 import { boardStatuses, type ProjectView, type TaskStatus, type TaskView } from '../api.js'
-import { byOldestFirst, statusLabel } from '../format.js'
+import { byOldestFirst, canMarkReviewed, statusLabel } from '../format.js'
 import { TaskCard } from '../components/TaskCard.js'
 
 export interface BoardProps {
@@ -15,6 +15,7 @@ export interface BoardProps {
   readonly onStatusChange: (id: string, status: TaskStatus) => void
   readonly onComplete: (id: string) => void
   readonly onDelete: (id: string) => void
+  readonly onMarkReviewed: (id: string) => void
 }
 
 /**
@@ -27,6 +28,7 @@ const shortcuts = [
   // Derived, so the help cannot claim a range the handler does not accept.
   { keys: `1 to ${boardStatuses.length}`, does: 'move the focused task to that column' },
   { keys: 'd', does: 'complete the focused task' },
+  { keys: 'r', does: 'mark the focused review done, moving it to Waiting for' },
   { keys: 'c', does: 'quick capture, from anywhere' },
 ]
 
@@ -52,6 +54,7 @@ export function Board({
   onStatusChange,
   onComplete,
   onDelete,
+  onMarkReviewed,
 }: BoardProps) {
   const grouped = group(tasks)
   const columns = boardStatuses.map((status) => grouped.get(status) ?? [])
@@ -103,6 +106,13 @@ export function Board({
       case 'd':
         event.preventDefault()
         return onComplete(task.id)
+      case 'r':
+        // The board is fully operable by keyboard alone, including marking a review done.
+        // Spec 08, criterion 8. The same predicate the card's button uses, so the two cannot
+        // disagree about which tasks the action applies to.
+        event.preventDefault()
+        if (canMarkReviewed(task)) onMarkReviewed(task.id)
+        return
       default:
         break
     }
@@ -162,6 +172,7 @@ export function Board({
                       onStatusChange={onStatusChange}
                       onComplete={onComplete}
                       onDelete={onDelete}
+                      onMarkReviewed={onMarkReviewed}
                       onKeyDown={(event) => handleKeyDown(event, columnIndex, rowIndex)}
                       registerRef={(id, element) => {
                         if (element === null) cards.current.delete(id)

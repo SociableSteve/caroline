@@ -41,6 +41,16 @@ task creation, error handling and run recording.
   left alone; the change is visible in the UI instead.
 - `resolved: true`: set `resolved_at`, and propose completion of the linked task.
 
+Proposing completion means recording the proposal on the source, and applying it only where
+sync still owns the answer: a task whose status the user set themselves is left where they
+put it, with the proposal shown on the card for them to accept or ignore. A task sync has
+been opted out of is not touched at all.
+
+A connector applies a transition to an existing task only inside the set of statuses it
+declares, and only while the task is already in that set. A connector that declares no set,
+as Gmail does, owns no transitions: it captures an item once, and where it goes after that
+is the user's decision rather than something reasserted every fifteen minutes.
+
 ### Failure handling
 
 A connector failure fails that connector's run only. Others continue. Failures are
@@ -61,7 +71,16 @@ Directly requested, and requested via a team you belong to.
 - Items become tasks with `status_set_by = 'sync'`. They never enter the inbox: a review
   request is unambiguous and needs no classification.
 - `estimate_minutes` is seeded from PR size (changed files and lines) using a fixed,
-  documented heuristic, and is editable.
+  documented heuristic, and is editable:
+
+      minutes = 10 + 2 per changed file + 1 per 20 changed lines
+
+  rounded to the nearest five minutes and clamped between ten minutes and four hours. The
+  three terms are the three costs: opening it and reading what it is for, moving between
+  files, and reading the lines. Files weigh more than lines because a diff spread over twenty
+  files is a harder read than the same number of lines in one, and the clamp is what a
+  generated lockfile hits. It is a starting point, deliberately crude, and it is seeded once:
+  a later sync never overwrites an estimate.
 - Metadata retained: repo, number, author, draft flag, additions, deletions, changed
   files, requested-at, head sha, your latest review state and its timestamp.
 

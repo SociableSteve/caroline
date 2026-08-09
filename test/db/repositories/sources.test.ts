@@ -5,8 +5,13 @@ import {
   getSource,
   getSourceByExternalId,
   listSourcesForTask,
+  listSourcesForTasks,
+  listUnresolvedSources,
   markSourceActed,
+  markSourceRequeued,
   markSourceResolved,
+  proposeSourceCompletion,
+  setSourceLifecycle,
   upsertSource,
   type UpsertSourceInput,
 } from '../../../src/db/repositories/sources.js'
@@ -240,5 +245,92 @@ describe('a source whose task is deleted', () => {
     deleteTask(database, task.id)
 
     expect(getSource(database, source.id)?.taskId).toBeNull()
+  })
+})
+
+describe('the refresh set', () => {
+  it('is every source of a provider that has not been seen to close', () => {
+    upsertSource(database, pullRequest(), firstSeenAt)
+    const closed = upsertSource(
+      database,
+      pullRequest({ externalId: 'octo/widgets#7' }),
+      firstSeenAt,
+    )
+    upsertSource(database, pullRequest({ provider: 'gmail', externalId: 'thread-1' }), firstSeenAt)
+    markSourceResolved(database, closed.id, later)
+
+    expect(listUnresolvedSources(database, 'github').map((source) => source.externalId)).toEqual([
+      'octo/widgets#42',
+    ])
+  })
+})
+
+describe('resolution', () => {
+  it('keeps the first moment the item was seen to have gone', () => {
+    const source = upsertSource(database, pullRequest(), firstSeenAt)
+
+    markSourceResolved(database, source.id, later)
+    markSourceResolved(database, source.id, later + 60_000)
+
+    expect(getSource(database, source.id)?.resolvedAt).toBe(later)
+  })
+
+  it('records a proposal to complete, once', () => {
+    const source = upsertSource(database, pullRequest(), firstSeenAt)
+
+    proposeSourceCompletion(database, source.id, later)
+    proposeSourceCompletion(database, source.id, later + 60_000)
+
+    expect(getSource(database, source.id)?.completionProposedAt).toBe(later)
+  })
+})
+
+describe('requeueing', () => {
+  it('records when the classification queue last got the task back', () => {
+    const source = upsertSource(database, pullRequest(), firstSeenAt)
+
+    markSourceRequeued(database, source.id, later)
+
+    expect(getSource(database, source.id)?.requeuedAt).toBe(later)
+  })
+})
+
+describe('setting the lifecycle position', () => {
+  it('moves the state and the marker together, since the marker is what dates the state', () => {
+    const source = upsertSource(
+      database,
+      pullRequest({ lifecycleState: 'awaiting_review' }),
+      firstSeenAt,
+    )
+
+    setSourceLifecycle(database, source.id, 'reviewed', { at: later, marker: 'sha-head' })
+
+    expect(getSource(database, source.id)).toMatchObject({
+      lifecycleState: 'reviewed',
+      actedAt: later,
+      actedAtMarker: 'sha-head',
+    })
+  })
+})
+
+describe('listing sources for several tasks', () => {
+  it('answers one query for the whole board rather than one per card', () => {
+    const first = createTask(database, { title: 'Review 42', status: 'review' }, firstSeenAt)
+    const second = createTask(database, { title: 'Review 7', status: 'review' }, firstSeenAt)
+    upsertSource(database, pullRequest({ taskId: first.id }), firstSeenAt)
+    upsertSource(
+      database,
+      pullRequest({ externalId: 'octo/widgets#7', taskId: second.id }),
+      firstSeenAt,
+    )
+
+    const sources = listSourcesForTasks(database, [first.id, second.id])
+
+    expect(sources.get(first.id)?.map((source) => source.externalId)).toEqual(['octo/widgets#42'])
+    expect(sources.get(second.id)?.map((source) => source.externalId)).toEqual(['octo/widgets#7'])
+  })
+
+  it('is empty for no tasks, without asking the database', () => {
+    expect(listSourcesForTasks(database, []).size).toBe(0)
   })
 })

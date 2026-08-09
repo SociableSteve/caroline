@@ -7,20 +7,48 @@
  * the client and the server describe the same things in the same words rather than keeping
  * two copies of the vocabulary in step by hand.
  */
+import type { JobRun } from '../src/domain/job.js'
 import type { Project, ProjectState } from '../src/domain/project.js'
+import type { Source } from '../src/domain/source.js'
 import { taskStatuses, type Task, type TaskStatus } from '../src/domain/task.js'
 
-export type { Project, ProjectState, Task, TaskStatus }
+export type { JobRun, Project, ProjectState, Task, TaskStatus }
 export { taskStatuses }
+
+/**
+ * A source as the API returns it. The stored body and the hashing internals are not on the
+ * wire: `sourceResponseSchema` in `src/server/schemas.ts` is the contract, and this is the
+ * same set of fields said in types.
+ */
+export type SourceView = Omit<
+  Source,
+  'content' | 'contentHash' | 'taskId' | 'firstSeenAt' | 'lastSeenAt'
+>
+
+/** What the GitHub connector puts in a source's metadata. Spec 02. */
+export interface PullRequestMetadata {
+  readonly repository?: string
+  readonly number?: number
+  readonly author?: string | null
+  readonly draft?: boolean
+  readonly additions?: number
+  readonly deletions?: number
+  readonly changedFiles?: number
+  readonly headSha?: string
+  readonly headCommittedAt?: number | null
+  readonly lastReviewState?: string | null
+  readonly lastReviewAt?: number | null
+}
 
 /** The columns the board shows. `done` is not one of them: finished work leaves the board. */
 export const boardStatuses: readonly TaskStatus[] = taskStatuses.filter(
   (status) => status !== 'done',
 )
 
-/** A task as the API returns it: the stored row plus its tags. */
+/** A task as the API returns it: the stored row, its tags, and where it came from. */
 export interface TaskView extends Task {
   readonly tags: string[]
+  readonly sources: SourceView[]
 }
 
 /** A project as the API returns it, with the two fields spec 01 derives rather than stores. */
@@ -221,6 +249,19 @@ export const api = {
 
   setTracking(id: string, enabled: boolean): Promise<TaskView> {
     return send<TaskView>('POST', taskPath(id, '/tracking'), { enabled })
+  },
+
+  /** Discharge your part of a review. Moves the card to Waiting for. Spec 02. */
+  markReviewed(id: string): Promise<TaskView> {
+    return send<TaskView>('POST', taskPath(id, '/mark-reviewed'))
+  },
+
+  listJobRuns(limit = 20): Promise<{ runs: JobRun[] }> {
+    return request(`/api/jobs?limit=${limit}`)
+  },
+
+  runJob(name: string): Promise<unknown> {
+    return send('POST', `/api/jobs/${encodeURIComponent(name)}/run`)
   },
 
   bulkTasks(input: {

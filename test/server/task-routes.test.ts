@@ -46,6 +46,8 @@ describe('GET /api/tasks', () => {
         updatedAt: earlier,
         completedAt: null,
         tags: ['admin'],
+        // Manual capture has no provenance. A task from a connector carries its source here.
+        sources: [],
       },
     ])
   })

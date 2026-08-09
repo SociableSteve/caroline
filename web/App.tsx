@@ -24,8 +24,17 @@ function isTyping(target: EventTarget | null): boolean {
 }
 
 export function App() {
-  const { tasks, projects, health, staleDays, loading, failure, unfetchedTaskTotal, reload } =
-    useCarolineData()
+  const {
+    tasks,
+    projects,
+    health,
+    jobRuns,
+    staleDays,
+    loading,
+    failure,
+    unfetchedTaskTotal,
+    reload,
+  } = useCarolineData()
   const route = useRoute()
   const [capturing, setCapturing] = useState(false)
   const [writeFailure, setWriteFailure] = useState<string | null>(null)
@@ -87,6 +96,8 @@ export function App() {
     void write(() => api.patchTask(id, { status }))
   const onComplete = (id: string) => void write(() => api.completeTask(id))
   const onDelete = (id: string) => void write(() => api.deleteTask(id))
+  const onMarkReviewed = (id: string) => void write(() => api.markReviewed(id))
+  const onSync = () => void write(() => api.runJob('sync'))
   // These two answer their forms, which keep what was typed until the write lands.
   const onCapture = (input: TaskInput) => write(() => api.createTask(input))
   const onCreateProject = (title: string) => write(() => api.createProject({ title }))
@@ -111,6 +122,11 @@ export function App() {
             ))}
           </ul>
         </nav>
+        {/* The scheduler arrives in M5. Until then this is how a sync happens, and it stays
+            afterwards as the manual trigger spec 06 asks be first-class. */}
+        <button type="button" onClick={onSync}>
+          Sync now
+        </button>
         <button type="button" onClick={() => setCapturing(true)}>
           Quick capture
         </button>
@@ -149,6 +165,7 @@ export function App() {
             projects={projects}
             staleDays={staleDays}
             now={now}
+            onMarkReviewed={onMarkReviewed}
             {...cardHandlers}
           />
         ) : route.name === 'projects' ? (
@@ -171,6 +188,7 @@ export function App() {
             tasks={tasks}
             projects={projects}
             health={health}
+            jobRuns={jobRuns}
             staleDays={staleDays}
             now={now}
           />

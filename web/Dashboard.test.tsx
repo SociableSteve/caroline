@@ -25,6 +25,7 @@ function renderDashboard(overrides: Partial<Parameters<typeof Dashboard>[0]> = {
       tasks={[]}
       projects={[]}
       health={nothingConfigured}
+      jobRuns={[]}
       staleDays={7}
       now={NOW}
       {...overrides}
@@ -49,7 +50,7 @@ describe('an empty Caroline', () => {
       within(screen.getByRole('region', { name: /calendar/i })).getByText(/No calendar connected/),
     ).toBeInTheDocument()
     expect(
-      within(screen.getByRole('region', { name: /jobs/i })).getByText(/No jobs run/),
+      within(screen.getByRole('region', { name: /jobs/i })).getByText(/Nothing has run yet/),
     ).toBeInTheDocument()
   })
 
@@ -174,5 +175,58 @@ describe('stalled projects', () => {
     renderDashboard({ projects: [aProject({ id: 'project-1', title: 'Ship it', stalled: false })] })
 
     expect(screen.getByText('Every active project has a next action.')).toBeInTheDocument()
+  })
+})
+
+/** Spec 02, criterion 5: a connector's failure is surfaced, not left in a log line. */
+describe('the background jobs panel', () => {
+  const run = {
+    id: 'run-1',
+    job: 'sync:github',
+    trigger: 'manual' as const,
+    startedAt: NOW - 2 * 60_000,
+    finishedAt: NOW - 60_000,
+    counts: {
+      itemsSeen: 3,
+      sourcesCreated: 1,
+      tasksCreated: 1,
+      tasksUpdated: 0,
+      resolved: 0,
+      requeued: 0,
+    },
+    error: null,
+    errorStack: null,
+  }
+
+  it('shows the last run of each job with how long ago it was', () => {
+    renderDashboard({ jobRuns: [{ ...run, status: 'success' }] })
+
+    const panel = screen.getByRole('region', { name: /jobs/i })
+
+    expect(within(panel).getByText('sync:github')).toBeInTheDocument()
+    expect(within(panel).getByText('success')).toBeInTheDocument()
+    expect(within(panel).getByText('1 minute ago')).toBeInTheDocument()
+  })
+
+  it('shows a failure with the error message the connector gave', () => {
+    renderDashboard({
+      jobRuns: [{ ...run, status: 'failure', error: 'GitHub answered 401 Unauthorized' }],
+    })
+
+    expect(screen.getByText('GitHub answered 401 Unauthorized')).toBeInTheDocument()
+  })
+
+  it('shows only the most recent run of a job, since the history has its own surface', () => {
+    renderDashboard({
+      jobRuns: [
+        { ...run, id: 'run-2', status: 'failure', error: 'the latest' },
+        { ...run, id: 'run-1', status: 'success' },
+      ],
+    })
+
+    const panel = screen.getByRole('region', { name: /jobs/i })
+
+    expect(within(panel).getByText('failure')).toBeInTheDocument()
+    expect(within(panel).queryByText('success')).not.toBeInTheDocument()
   })
 })

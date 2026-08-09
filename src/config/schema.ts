@@ -90,6 +90,12 @@ export const fileConfigSchema = z
         github: z
           .object({
             enabled: z.boolean().default(true),
+            /**
+             * Whether new commits after a changes-requested review pull a pull request back
+             * into Review, or only an explicit re-request does. Spec 02 defaults it on: if
+             * you asked for changes, the changes arriving are your cue.
+             */
+            returnToReviewOnNewCommits: z.boolean().default(true),
           })
           .strict()
           .default({}),
@@ -142,6 +148,7 @@ export interface Config {
   readonly integrations: {
     readonly github: {
       readonly enabled: boolean
+      readonly returnToReviewOnNewCommits: boolean
       readonly token: string | null
       readonly configured: boolean
     }

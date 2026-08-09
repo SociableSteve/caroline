@@ -4,6 +4,7 @@ import { loadConfig } from '../../src/config/load.js'
 import type { Database } from '../../src/db/connection.js'
 import { buildServer } from '../../src/server/app.js'
 import { createChangeFeed, type ChangeEvent, type ChangeFeed } from '../../src/server/changes.js'
+import type { SyncRunner } from '../../src/jobs/sync.js'
 import { migratedDatabase } from './temp-database.js'
 
 /** A clean checkout with no credentials, which is what the API tests care about. */
@@ -30,7 +31,12 @@ afterEach(async () => {
  * A real server over a real migrated SQLite file, driven with `inject`. Nothing is mocked:
  * the routes are worth testing precisely where they meet the database.
  */
-export async function testServer(): Promise<TestServer> {
+export interface TestServerOptions {
+  /** A runner the jobs routes should use instead of the one built from the config. */
+  readonly sync?: SyncRunner
+}
+
+export async function testServer({ sync }: TestServerOptions = {}): Promise<TestServer> {
   const database = migratedDatabase()
   const changes = createChangeFeed()
   const published: ChangeEvent[] = []
@@ -41,6 +47,7 @@ export async function testServer(): Promise<TestServer> {
     database,
     changes,
     now: () => REQUEST_TIME,
+    ...(sync === undefined ? {} : { sync }),
   })
   openApps.push(app)
 

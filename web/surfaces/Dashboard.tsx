@@ -8,7 +8,7 @@
  * honest answer to "what is my day".
  */
 import { taskStatuses } from '../api.js'
-import type { Health, ProjectView, TaskView } from '../api.js'
+import type { Health, JobRun, ProjectView, TaskView } from '../api.js'
 import { byOldestFirst, formatAge, isStale, statusLabel, waitingAge } from '../format.js'
 import { projectHref } from '../router.js'
 
@@ -16,8 +16,20 @@ export interface DashboardProps {
   readonly tasks: readonly TaskView[]
   readonly projects: readonly ProjectView[]
   readonly health: Health | null
+  /** Recent runs, most recent first. Only the latest of each job is shown. */
+  readonly jobRuns: readonly JobRun[]
   readonly staleDays: number
   readonly now: number
+}
+
+/** One row per job: the history is long, and what the dashboard answers is "is it working". */
+function latestRunPerJob(runs: readonly JobRun[]): JobRun[] {
+  const latest = new Map<string, JobRun>()
+  for (const run of runs) {
+    if (!latest.has(run.job)) latest.set(run.job, run)
+  }
+
+  return [...latest.values()].sort((first, second) => (first.job < second.job ? -1 : 1))
 }
 
 const integrationNames: Record<string, string> = {
@@ -26,7 +38,8 @@ const integrationNames: Record<string, string> = {
   llm: 'LLM provider',
 }
 
-export function Dashboard({ tasks, projects, health, staleDays, now }: DashboardProps) {
+export function Dashboard({ tasks, projects, health, jobRuns, staleDays, now }: DashboardProps) {
+  const latestRuns = latestRunPerJob(jobRuns)
   const counts = new Map(
     taskStatuses.map((status) => [status, tasks.filter((task) => task.status === status).length]),
   )
@@ -101,9 +114,26 @@ export function Dashboard({ tasks, projects, health, staleDays, now }: Dashboard
         )}
       </section>
 
+      {/* The scheduler and its own surface arrive in M5. This is the last run of each job, so
+          a failed sync is visible rather than silent. Spec 02, criterion 5. */}
       <section aria-labelledby="jobs-heading">
         <h2 id="jobs-heading">Background jobs</h2>
-        <p className="empty">No jobs run in this version. Nothing is syncing or classifying.</p>
+        {latestRuns.length === 0 ? (
+          <p className="empty">
+            Nothing has run yet. Sync runs on demand in this version; there is no schedule.
+          </p>
+        ) : (
+          <ul className="job-list">
+            {latestRuns.map((run) => (
+              <li key={run.job} className={run.status === 'failure' ? 'job-failed' : undefined}>
+                <span>{run.job}</span>
+                <span>{run.status}</span>
+                <span>{formatAge(Math.max(0, now - run.finishedAt))} ago</span>
+                {run.error !== null && <span className="job-error">{run.error}</span>}
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <section aria-labelledby="integrations-heading">
