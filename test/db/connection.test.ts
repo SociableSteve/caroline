@@ -3,7 +3,7 @@ import { withTransaction, type Database } from '../../src/db/connection.js'
 import { migratedDatabase } from '../helpers/temp-database.js'
 
 /** A handle that records what it was asked to run, and fails the statements it is told to. */
-function recordingDatabase(failing: { statement: string; message: string }): {
+function recordingDatabase(failures: Readonly<Record<string, string>>): {
   database: Database
   statements: string[]
 } {
@@ -11,7 +11,8 @@ function recordingDatabase(failing: { statement: string; message: string }): {
   const database = {
     exec(statement: string): void {
       statements.push(statement)
-      if (statement === failing.statement) throw new Error(failing.message)
+      const message = failures[statement]
+      if (message !== undefined) throw new Error(message)
     },
   } as unknown as Database
 
@@ -60,8 +61,7 @@ describe('withTransaction', () => {
   // explicit rollback fail. The original failure is the one worth reporting.
   it('reports the original failure when the rollback itself fails', () => {
     const { database, statements } = recordingDatabase({
-      statement: 'rollback',
-      message: 'cannot rollback - no transaction is active',
+      rollback: 'cannot rollback - no transaction is active',
     })
 
     expect(() =>
@@ -74,11 +74,12 @@ describe('withTransaction', () => {
   })
 
   it('reports the original failure when the commit fails and the rollback fails too', () => {
-    const { database } = recordingDatabase({
-      statement: 'commit',
-      message: 'disk I/O error',
+    const { database, statements } = recordingDatabase({
+      commit: 'disk I/O error',
+      rollback: 'cannot rollback - no transaction is active',
     })
 
     expect(() => withTransaction(database, () => 'unused')).toThrow('disk I/O error')
+    expect(statements).toEqual(['begin', 'commit', 'rollback'])
   })
 })
