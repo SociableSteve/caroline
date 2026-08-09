@@ -1,5 +1,6 @@
 import { resolve } from 'node:path'
 import { ConfigError, loadConfig, readConfigFile } from '../config/load.js'
+import { openCarolineDatabase } from '../db/index.js'
 import { buildServer } from './app.js'
 import { version } from './version.js'
 
@@ -7,13 +8,17 @@ const configPath = resolve(process.env.CAROLINE_CONFIG ?? 'caroline.config.json'
 
 async function start(): Promise<void> {
   const config = loadConfig({ file: readConfigFile(configPath), env: process.env })
-  const app = await buildServer({ config })
+  // Before the server, so a schema that cannot be brought up to date stops the process
+  // rather than leaving it serving requests against a half-migrated database.
+  const database = openCarolineDatabase(config)
+  const app = await buildServer({ config, database })
 
   await app.listen({ host: config.server.host, port: config.server.port })
 
   app.log.info(
     {
       version,
+      database: config.database.path,
       github: config.integrations.github.configured ? 'configured' : 'not configured',
       google: config.integrations.google.configured ? 'configured' : 'not configured',
       llm: config.llm.configured ? config.llm.provider : 'not configured',
@@ -25,7 +30,10 @@ async function start(): Promise<void> {
 
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => {
-      void app.close().then(() => process.exit(0))
+      void app.close().then(() => {
+        database.close()
+        process.exit(0)
+      })
     })
   }
 }

@@ -7,10 +7,10 @@ in what order it gets built, with what tooling, and how each piece is proved.
 
 | Choice | Decision | Why |
 | --- | --- | --- |
-| Runtime | Node 22 LTS or later, ESM | Matches `package.json` `"type": "module"` |
+| Runtime | Node 24 LTS or later, ESM | Matches `package.json` `"type": "module"`. Node 24 is the floor because `node:sqlite` is only unflagged there |
 | Language | TypeScript, strict | Typed across the sync, LLM and HTTP boundaries where shapes actually bite |
 | HTTP | Fastify 5 with typed route schemas | Schema-first validation, and the schemas double as the API contract |
-| Database | SQLite via `better-sqlite3` | Synchronous, mature, no server. `node:sqlite` is close but the ecosystem is not there yet |
+| Database | SQLite via the built-in `node:sqlite` | Synchronous, no server, and no native compilation. Prefer the built-in: `better-sqlite3` would put `node-gyp` and a working compiler between a reader of the setup guide and a running Caroline |
 | Migrations | Hand-rolled numbered runner | Half a page of code, runs on startup, idempotent. No framework needed for one user |
 | Client | React 19 + Vite, built to static assets served by Fastify | One process, one deployable |
 | Tests | Vitest for server and client, Testing Library for components | One runner, watch mode for red-green |
@@ -61,6 +61,12 @@ that opting out is permanent until re-enabled, derived next action, stalled proj
 deferral, project deletion orphaning rather than cascading.
 
 Exit: every acceptance criterion in spec 01 has a test. Domain logic has no IO in it.
+
+Two criteria straddle a milestone boundary, so their tests are split rather than their
+behaviour. Criterion 2 has its rule tested here (a classifier proposal against a
+`status_set_by = 'user'` task changes nothing); recording that proposal is asserted in M5,
+where `classifications` is defined. Criterion 5 has the query-level exclusion tested here;
+the planner honouring it is asserted in M6. Both rules ship in M1 either way.
 
 ### M2. API and board UI over manual tasks
 

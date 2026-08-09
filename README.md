@@ -5,9 +5,12 @@ keeps the inbox sorted with an LLM, and proposes a daily plan that fits the free
 actually available.
 
 See [docs/specs](docs/specs/README.md) for what it does and [docs/plan.md](docs/plan.md)
-for the order it gets built in. This is milestone M0: the skeleton.
+for the order it gets built in. This is milestone M1: the task model and its persistence.
 
 ## Running it
+
+Node 24 or later, which is where the built-in `node:sqlite` is available unflagged. There
+is no native module to compile.
 
 ```sh
 npm install
@@ -16,7 +19,8 @@ npm start
 ```
 
 With nothing configured, the server starts, serves the UI and reports every integration as
-"not configured". No credentials are needed to run it.
+"not configured". No credentials are needed to run it. The SQLite database is created at
+`./data/caroline.db` on first run and migrated on every start.
 
 For development, run the API and the client separately:
 

@@ -4,6 +4,7 @@ import Fastify, { type FastifyInstance } from 'fastify'
 import fastifyStatic from '@fastify/static'
 import { redactSecrets } from '../config/redact.js'
 import type { Config } from '../config/schema.js'
+import type { Database } from '../db/index.js'
 import { registerErrorHandling } from './errors.js'
 import { registerHealthRoute } from './routes/health.js'
 import { registerConfigRoute } from './routes/config.js'
@@ -16,6 +17,11 @@ import {
 
 export interface BuildServerOptions {
   config: Config
+  /**
+   * Optional while no route reads from it. M1 ships the schema and repositories; the
+   * routes that use them arrive in M2, at which point this stops being optional.
+   */
+  database?: Database
   logger?: {
     level?: string
     /** Where log lines go. Wrapped in the secret scrubber before Fastify sees it. */
@@ -32,6 +38,7 @@ const webRoot = fileURLToPath(new URL('../web', import.meta.url))
  */
 export async function buildServer({
   config,
+  database,
   logger,
 }: BuildServerOptions): Promise<FastifyInstance> {
   const app = Fastify({
@@ -66,7 +73,7 @@ export async function buildServer({
   }
 
   registerErrorHandling(app, config, { spaFallback: serveWeb })
-  registerHealthRoute(app, config)
+  registerHealthRoute(app, config, database)
   registerConfigRoute(app, config)
 
   return app
