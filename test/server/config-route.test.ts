@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { loadConfig } from '../../src/config/load.js'
 import { buildServer } from '../../src/server/app.js'
+import { migratedDatabase } from '../helpers/temp-database.js'
 import { REDACTED } from '../../src/config/redact.js'
 
 const secrets = {
@@ -13,7 +14,7 @@ const secrets = {
 describe('GET /api/config', () => {
   it('returns the full effective configuration', async () => {
     const config = loadConfig({ file: { server: { port: 6000 } }, env: {} as NodeJS.ProcessEnv })
-    const app = await buildServer({ config })
+    const app = await buildServer({ config, database: migratedDatabase() })
 
     const body = (await app.inject({ method: 'GET', url: '/api/config' })).json()
 
@@ -24,7 +25,7 @@ describe('GET /api/config', () => {
 
   it('redacts every secret field (spec 09 criterion 8)', async () => {
     const config = loadConfig({ file: { llm: { provider: 'anthropic' } }, env: secrets })
-    const app = await buildServer({ config })
+    const app = await buildServer({ config, database: migratedDatabase() })
 
     const response = await app.inject({ method: 'GET', url: '/api/config' })
 
@@ -40,6 +41,7 @@ describe('the standard error shape', () => {
   it('returns { error: { code, message } } for an unknown route', async () => {
     const app = await buildServer({
       config: loadConfig({ file: null, env: {} as NodeJS.ProcessEnv }),
+      database: migratedDatabase(),
     })
 
     const response = await app.inject({ method: 'GET', url: '/api/nope' })
@@ -54,6 +56,7 @@ describe('the standard error shape', () => {
   it('echoes no part of the request URL in an unknown-route message', async () => {
     const app = await buildServer({
       config: loadConfig({ file: null, env: {} as NodeJS.ProcessEnv }),
+      database: migratedDatabase(),
     })
 
     const response = await app.inject({ method: 'GET', url: '/api/nope?token=anything-at-all' })
@@ -68,6 +71,7 @@ describe('the standard error shape', () => {
   it('returns 400 in the standard shape when a request violates its schema', async () => {
     const app = await buildServer({
       config: loadConfig({ file: null, env: {} as NodeJS.ProcessEnv }),
+      database: migratedDatabase(),
     })
 
     const response = await app.inject({ method: 'GET', url: '/api/health?verbose=maybe' })
@@ -81,7 +85,7 @@ describe('the standard error shape', () => {
 
   it('does not leak a secret through an error message', async () => {
     const config = loadConfig({ file: null, env: secrets })
-    const app = await buildServer({ config })
+    const app = await buildServer({ config, database: migratedDatabase() })
 
     const response = await app.inject({ method: 'GET', url: '/api/ghp_supersecret' })
 

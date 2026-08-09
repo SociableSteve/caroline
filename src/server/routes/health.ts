@@ -13,6 +13,20 @@ const integrationStatusSchema = {
   },
 } as const
 
+/**
+ * Asked rather than assumed. Reaching this route means migrations ran at startup, but the
+ * file can go away underneath a running process, and a health check that only reports what
+ * was true at boot is not worth reading.
+ */
+function databaseStatus(database: Database): { status: 'ready' | 'unavailable' } {
+  try {
+    database.prepare('select 1').get()
+    return { status: 'ready' }
+  } catch {
+    return { status: 'unavailable' }
+  }
+}
+
 function describe(enabled: boolean, configured: boolean) {
   if (!enabled) return { configured: false, status: 'disabled' as const }
   return configured
@@ -28,7 +42,7 @@ function describe(enabled: boolean, configured: boolean) {
 export function registerHealthRoute(
   app: FastifyInstance,
   config: Config,
-  database?: Database,
+  database: Database,
 ): void {
   app.get(
     '/api/health',
@@ -73,10 +87,7 @@ export function registerHealthRoute(
       status: 'ok' as const,
       version,
       uptimeSeconds: Math.round(process.uptime()),
-      // Reaching this route at all means migrations ran, since startup opens the database
-      // before it builds the server. Omitted when no database was supplied, as in the
-      // route tests that do not need one.
-      ...(database === undefined ? {} : { database: { status: 'ready' as const } }),
+      database: databaseStatus(database),
       integrations: {
         github: describe(config.integrations.github.enabled, config.integrations.github.configured),
         google: describe(config.integrations.google.enabled, config.integrations.google.configured),

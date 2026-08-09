@@ -14,6 +14,26 @@ describe('loadConfig defaults', () => {
     expect(config.privacy.storeContent).toBe('metadata')
     expect(config.privacy.allowFullContentToRemoteProvider).toBe(false)
     expect(config.llm.provider).toBe('none')
+    // Spec 02's default: a week of silence is when a waiting item becomes a chase.
+    expect(config.tasks.waitingStaleDays).toBe(7)
+  })
+
+  it('takes a waiting staleness threshold from the file', () => {
+    const config = loadConfig({ file: { tasks: { waitingStaleDays: 3 } }, env: noEnv })
+
+    expect(config.tasks.waitingStaleDays).toBe(3)
+  })
+
+  it('rejects a threshold of zero days, which would call everything stale at once', () => {
+    expect(() => loadConfig({ file: { tasks: { waitingStaleDays: 0 } }, env: noEnv })).toThrow(
+      ConfigError,
+    )
+  })
+
+  it('rejects a threshold that is not a whole number of days', () => {
+    expect(() => loadConfig({ file: { tasks: { waitingStaleDays: 1.5 } }, env: noEnv })).toThrow(
+      ConfigError,
+    )
   })
 
   it('reports every integration as not configured when no credentials are present', () => {

@@ -83,3 +83,123 @@ describe('withTransaction', () => {
     expect(statements).toEqual(['begin', 'commit', 'rollback'])
   })
 })
+
+/**
+ * SQLite has no nested transactions, so a repository function that wraps its own writes
+ * cannot be called from inside a caller's transaction without savepoints. It happens as soon
+ * as a route composes two repository calls, which is what the task routes do.
+ */
+describe('withTransaction nested inside another', () => {
+  it('uses a savepoint rather than a second begin', () => {
+    const { database, statements } = recordingDatabase({})
+
+    withTransaction(database, () => withTransaction(database, () => 'inner'))
+
+    expect(statements).toEqual(['begin', 'savepoint caroline_1', 'release caroline_1', 'commit'])
+  })
+
+  it('commits the outer work and the inner work together', () => {
+    const database = migratedDatabase()
+    const insert = (id: string) =>
+      database
+        .prepare(
+          'insert into projects (id, title, state, created_at, updated_at) values (?, ?, ?, 0, 0)',
+        )
+        .run(id, 'Ship Caroline', 'active')
+
+    withTransaction(database, () => {
+      insert('outer')
+      withTransaction(database, () => insert('inner'))
+    })
+
+    expect(database.prepare('select count(*) as count from projects').get()).toMatchObject({
+      count: 2,
+    })
+  })
+
+  it('rolls the inner work back to its savepoint, leaving the outer work standing', () => {
+    const database = migratedDatabase()
+    const insert = (id: string) =>
+      database
+        .prepare(
+          'insert into projects (id, title, state, created_at, updated_at) values (?, ?, ?, 0, 0)',
+        )
+        .run(id, 'Ship Caroline', 'active')
+
+    withTransaction(database, () => {
+      insert('outer')
+      try {
+        withTransaction(database, () => {
+          insert('inner')
+          throw new Error('the inner work failed')
+        })
+      } catch {
+        // Deliberately swallowed: the point is that the outer transaction survives it.
+      }
+    })
+
+    expect(
+      database
+        .prepare('select id from projects order by id')
+        .all()
+        .map((row) => row.id),
+    ).toEqual(['outer'])
+  })
+
+  it('rolls everything back when the failure reaches the outermost transaction', () => {
+    const database = migratedDatabase()
+    const insert = (id: string) =>
+      database
+        .prepare(
+          'insert into projects (id, title, state, created_at, updated_at) values (?, ?, ?, 0, 0)',
+        )
+        .run(id, 'Ship Caroline', 'active')
+
+    expect(() =>
+      withTransaction(database, () => {
+        insert('outer')
+        withTransaction(database, () => insert('inner'))
+        throw new Error('the outer work failed')
+      }),
+    ).toThrow('the outer work failed')
+
+    expect(database.prepare('select count(*) as count from projects').get()).toMatchObject({
+      count: 0,
+    })
+  })
+
+  it('returns to the outermost level after a nested transaction, so the next one begins', () => {
+    const { database, statements } = recordingDatabase({})
+
+    withTransaction(database, () => withTransaction(database, () => 'inner'))
+    withTransaction(database, () => 'second')
+
+    expect(statements.slice(-2)).toEqual(['begin', 'commit'])
+  })
+
+  it('leaves the level unchanged when the nested work throws', () => {
+    const { database, statements } = recordingDatabase({})
+
+    withTransaction(database, () => {
+      try {
+        withTransaction(database, () => {
+          throw new Error('the inner work failed')
+        })
+      } catch {
+        // See above.
+      }
+      withTransaction(database, () => 'sibling')
+    })
+
+    expect(statements).toEqual([
+      'begin',
+      'savepoint caroline_1',
+      // Released as well as rolled back, so the savepoint does not outlive the failure it
+      // was undoing and the stack cannot grow through repeated caught failures.
+      'rollback to caroline_1; release caroline_1',
+      'savepoint caroline_1',
+      'release caroline_1',
+      'commit',
+    ])
+  })
+})

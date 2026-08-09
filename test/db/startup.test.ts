@@ -50,6 +50,8 @@ describe('opening the database at startup', () => {
 })
 
 describe('GET /api/health with a database', () => {
+  // From M2 the server cannot be built without one, because the task and project routes
+  // read from it, so reaching this route at all means migrations have run.
   it('reports the database as ready once migrations have run', async () => {
     const path = temporaryDatabasePath()
     const config = configFor(path)
@@ -63,14 +65,19 @@ describe('GET /api/health with a database', () => {
     database.close()
   })
 
-  it('omits the database entirely when the server was built without one', async () => {
-    const app = await buildServer({
-      config: loadConfig({ file: null, env: {} as NodeJS.ProcessEnv }),
-    })
+  it('reports the database as unavailable when it can no longer be queried', async () => {
+    const path = temporaryDatabasePath()
+    const config = configFor(path)
+    const database = openCarolineDatabase(config)
+    const app = await buildServer({ config, database })
+    database.close()
 
-    const body = (await app.inject({ method: 'GET', url: '/api/health' })).json()
+    const response = await app.inject({ method: 'GET', url: '/api/health' })
 
-    expect(body.database).toBeUndefined()
+    // The process is up and still says so. Only the database is in trouble, and the point
+    // of the route is to say which.
+    expect(response.statusCode).toBe(200)
+    expect(response.json().database).toEqual({ status: 'unavailable' })
     await app.close()
   })
 })

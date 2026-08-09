@@ -57,6 +57,16 @@ export const fileConfigSchema = z
       })
       .strict()
       .default({}),
+    tasks: z
+      .object({
+        /**
+         * How long a `waiting` item may sit before it is called out as stale, in the column,
+         * on the dashboard and in the daily plan. Spec 02 sets the default at seven days.
+         */
+        waitingStaleDays: z.number().int().min(1).max(365).default(7),
+      })
+      .strict()
+      .default({}),
     privacy: z
       .object({
         llmContent: z.enum(contentLevels).default('snippet'),
@@ -110,6 +120,9 @@ export interface Config {
   }
   readonly database: {
     readonly path: string
+  }
+  readonly tasks: {
+    readonly waitingStaleDays: number
   }
   readonly privacy: {
     readonly llmContent: ContentLevel
