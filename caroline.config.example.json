@@ -6,6 +6,9 @@
   "database": {
     "path": "./data/caroline.db"
   },
+  "tasks": {
+    "waitingStaleDays": 7
+  },
   "privacy": {
     "llmContent": "snippet",
     "storeContent": "metadata",

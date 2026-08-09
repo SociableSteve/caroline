@@ -5,7 +5,10 @@ keeps the inbox sorted with an LLM, and proposes a daily plan that fits the free
 actually available.
 
 See [docs/specs](docs/specs/README.md) for what it does and [docs/plan.md](docs/plan.md)
-for the order it gets built in. This is milestone M1: the task model and its persistence.
+for the order it gets built in. This is milestone M2: a usable manual GTD app. Tasks and
+projects over an HTTP API, a keyboard-operable board, quick capture, a projects view and a
+dashboard. No integrations and no LLM yet, so nothing arrives on its own: what is in it is
+what you put in it.
 
 ## Running it
 
@@ -46,6 +49,18 @@ read from the environment only: a key in the config file is a startup error.
 | `GITHUB_TOKEN`                                                         | Fine-grained personal access token, read-only             |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`                             | OAuth desktop client from your Google Cloud project       |
 | `CAROLINE_LOG_LEVEL`                                                   | Pino log level. Default `info`                            |
+
+`tasks.waitingStaleDays` sets how long something may sit in Waiting for before it is called
+out as gone quiet, in the column and on the dashboard. Seven days by default, per
+[spec 02](docs/specs/02-ingestion.md).
+
+### Using the board
+
+The board is operable from the keyboard alone: arrow keys or `h j k l` to move between
+cards and columns, `1` to `6` to move the focused card to that column, `d` to complete it,
+and `c` to capture something new from anywhere. Dragging a card between columns does the
+same thing as the digit. Either way the change is recorded as yours, and the classifier will
+not later overrule it.
 
 ### What leaves the machine
 

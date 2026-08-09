@@ -173,6 +173,7 @@ export function loadConfig({ file, env }: LoadOptions): Config {
     database: {
       path: nonEmpty(env.CAROLINE_DB_PATH) ?? parsed.database.path,
     },
+    tasks: parsed.tasks,
     privacy: parsed.privacy,
     llm: {
       provider,

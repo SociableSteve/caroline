@@ -128,9 +128,13 @@ author. Nothing in sync may complete, hide or drop an open PR. Completion is pro
 on close, or on being dropped as a reviewer.
 
 `waiting` items carry the age since `acted_at`, are ordered oldest first, and cross a
-configurable staleness threshold (default 7 days) after which they are called out: in the
+staleness threshold, `tasks.waitingStaleDays`, after which they are called out: in the
 Waiting column (spec 08), on the dashboard, and as chase nudges in the daily plan (spec 05).
-Chasing is itself work, and it is the thing this status exists to prompt.
+It defaults to 7 days. Chasing is itself work, and it is the thing this status exists to
+prompt.
+
+An item with no source has no `acted_at`, so for a manually created `waiting` task the age is
+measured from `status_set_at`: the moment it became somebody else's turn.
 
 ## Gmail connector
 
