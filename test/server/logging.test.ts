@@ -245,6 +245,33 @@ describe('no secret reaches a log line (spec 09 criterion 6)', () => {
     expect(logged).toContain('[redacted]')
   })
 
+  it('redacts a secret held by an error nested inside a payload', async () => {
+    const secretNeedingEscapes = 'tok"en\\value'
+    class UpstreamError extends Error {
+      constructor(readonly token: string) {
+        super('upstream rejected')
+      }
+      toJSON() {
+        return { message: this.message, token: this.token }
+      }
+    }
+    const { lines, stream } = captureLog()
+    const config = loadConfig({
+      file: null,
+      env: { CAROLINE_ACCESS_TOKEN: secretNeedingEscapes } as NodeJS.ProcessEnv,
+    })
+    const app = await buildServer({ config, logger: { level: 'info', stream } })
+
+    app.log.info({ cause: new UpstreamError(secretNeedingEscapes) }, 'call failed')
+    await app.close()
+
+    const logged = lines.join('\n')
+    const jsonEscaped = JSON.stringify(secretNeedingEscapes).slice(1, -1)
+    expect(logged).not.toContain(secretNeedingEscapes)
+    expect(logged).not.toContain(jsonEscaped)
+    expect(logged).toContain('[redacted]')
+  })
+
   it('still lets the error serialiser shape an error, redacted', async () => {
     const { lines, stream } = captureLog()
     const config = loadConfig({ file: null, env: secrets })

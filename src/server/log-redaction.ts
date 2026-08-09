@@ -60,8 +60,10 @@ const SERIALISED_FIELDS = new Set(['req', 'res', 'err'])
  * JSON encoding walks its own enumerable properties just the same, so leaving one untouched
  * put a secret on the wire in an encoded form the stream scrubber could no longer match.
  * Anything with a `toJSON` is redacted through that method, since that is what encoding
- * will call. Errors are the exception: their own properties are not enumerable, so there is
- * nothing to rebuild, and `err` needs to reach its serialiser intact.
+ * will call. Errors are rebuilt like anything else: a plain one carries nothing enumerable
+ * to rebuild, but a subclass can hold a secret in an own field or hand one out through
+ * `toJSON`, and encoding would then escape it past the stream scrubber. Only the top-level
+ * `err` is exempt, in `redactLogFields`, so that it reaches its serialiser intact.
  *
  * Property names are redacted as well as values, because a name is JSON-encoded on the way
  * out exactly as a value is, and a secret used as a field name would reach the stream in a
@@ -87,7 +89,6 @@ export function redactLogPayload(
 ): unknown {
   if (typeof value === 'string') return redactSecrets(value, config)
   if (value === null || typeof value !== 'object') return value
-  if (value instanceof Error) return value
 
   if (replacements.has(value)) return replacements.get(value)
 
