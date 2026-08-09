@@ -120,6 +120,45 @@ describe('upsertSource', () => {
     expect(listSourcesForTask(database, task.id).map((found) => found.id)).toEqual([source.id])
   })
 
+  // An omitted field and an explicit null mean different things: the first is "I do not
+  // know", the second is "it is gone upstream".
+  it('keeps a stored field the caller omitted', () => {
+    upsertSource(database, pullRequest(), firstSeenAt)
+
+    const updated = upsertSource(
+      database,
+      { provider: 'github', externalId: 'octo/widgets#42' },
+      later,
+    )
+
+    expect(updated.title).toBe('Cache the widget index')
+    expect(updated.url).toBe('https://github.com/octo/widgets/pull/42')
+  })
+
+  it('clears a stored field the caller passed as null', () => {
+    upsertSource(database, pullRequest({ lifecycleState: 'review_requested' }), firstSeenAt)
+
+    const updated = upsertSource(database, pullRequest({ url: null, lifecycleState: null }), later)
+
+    expect(updated.url).toBeNull()
+    expect(updated.lifecycleState).toBeNull()
+    expect(getSource(database, updated.id)?.url).toBeNull()
+  })
+
+  it('unlinks the task when the caller passes a null task id', () => {
+    const task = createTask(
+      database,
+      { title: 'Review PR 42', status: 'review', statusSetBy: 'sync' },
+      firstSeenAt,
+    )
+    upsertSource(database, pullRequest({ taskId: task.id }), firstSeenAt)
+
+    const updated = upsertSource(database, pullRequest({ taskId: null }), later)
+
+    expect(updated.taskId).toBeNull()
+    expect(listSourcesForTask(database, task.id)).toEqual([])
+  })
+
   it('exists happily with no task, as a calendar event does', () => {
     const source = upsertSource(
       database,

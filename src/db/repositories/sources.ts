@@ -49,6 +49,14 @@ function nullableText(value: unknown): string | null {
   return value === null || value === undefined ? null : String(value)
 }
 
+/**
+ * The upsert's field rule: what the caller supplied wins, including an explicit `null`;
+ * only an omitted field falls back to what is stored.
+ */
+function supplied<T>(input: T | undefined, stored: T | null | undefined): T | null {
+  return input !== undefined ? input : (stored ?? null)
+}
+
 function nullableNumber(value: unknown): number | null {
   return value === null || value === undefined ? null : Number(value)
 }
@@ -99,7 +107,9 @@ function writeSource(database: Database, source: Source): void {
  *
  * `first_seen_at` belongs to the first sighting and is never overwritten; `last_seen_at`
  * moves on every pass. Fields the caller omits keep their stored value, so a refresh that
- * only knows the new title does not blank the rest of the row.
+ * only knows the new title does not blank the rest of the row. An explicit `null` is the
+ * other case and does clear the field: a connector saying a pull request no longer has a
+ * linked task means it, where a connector that never mentions the link does not.
  */
 export function upsertSource(database: Database, input: UpsertSourceInput, now: number): Source {
   const existing = getSourceByExternalId(database, input.provider, input.externalId)
@@ -108,16 +118,16 @@ export function upsertSource(database: Database, input: UpsertSourceInput, now: 
     id: existing?.id ?? randomUUID(),
     provider: input.provider,
     externalId: input.externalId,
-    url: input.url ?? existing?.url ?? null,
-    title: input.title ?? existing?.title ?? null,
-    metadata: input.metadata ?? existing?.metadata ?? null,
-    content: input.content ?? existing?.content ?? null,
-    contentHash: input.contentHash ?? existing?.contentHash ?? null,
-    taskId: input.taskId ?? existing?.taskId ?? null,
+    url: supplied(input.url, existing?.url),
+    title: supplied(input.title, existing?.title),
+    metadata: supplied(input.metadata, existing?.metadata),
+    content: supplied(input.content, existing?.content),
+    contentHash: supplied(input.contentHash, existing?.contentHash),
+    taskId: supplied(input.taskId, existing?.taskId),
     firstSeenAt: existing?.firstSeenAt ?? now,
     lastSeenAt: now,
     resolvedAt: existing?.resolvedAt ?? null,
-    lifecycleState: input.lifecycleState ?? existing?.lifecycleState ?? null,
+    lifecycleState: supplied(input.lifecycleState, existing?.lifecycleState),
     actedAt: existing?.actedAt ?? null,
     actedAtMarker: existing?.actedAtMarker ?? null,
   }

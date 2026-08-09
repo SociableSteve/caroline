@@ -30,10 +30,20 @@ async function start(): Promise<void> {
 
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => {
-      void app.close().then(() => {
-        database.close()
-        process.exit(0)
-      })
+      // The database handle is released whether or not the server shut down cleanly, so a
+      // failed close cannot leave the file locked behind an unhandled rejection.
+      void (async () => {
+        let exitCode = 0
+        try {
+          await app.close()
+        } catch (error) {
+          exitCode = 1
+          app.log.error(error, 'Server shutdown failed')
+        } finally {
+          database.close()
+        }
+        process.exit(exitCode)
+      })()
     })
   }
 }

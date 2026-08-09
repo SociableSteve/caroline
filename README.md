@@ -9,8 +9,8 @@ for the order it gets built in. This is milestone M1: the task model and its per
 
 ## Running it
 
-Node 24 or later, which is where the built-in `node:sqlite` is available unflagged. There
-is no native module to compile.
+Node 24 or later, which is where the built-in `node:sqlite` stops being experimental (Node
+24.2.0). There is no native module to compile.
 
 ```sh
 npm install

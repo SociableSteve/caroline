@@ -7,7 +7,7 @@ in what order it gets built, with what tooling, and how each piece is proved.
 
 | Choice | Decision | Why |
 | --- | --- | --- |
-| Runtime | Node 24 LTS or later, ESM | Matches `package.json` `"type": "module"`. Node 24 is the floor because `node:sqlite` is only unflagged there |
+| Runtime | Node 24 LTS or later, ESM | Matches `package.json` `"type": "module"`. Node 24 is the floor because `node:sqlite` is only non-experimental there, from 24.2.0. It runs unflagged from 22.13.0, but on a stability promise nobody made |
 | Language | TypeScript, strict | Typed across the sync, LLM and HTTP boundaries where shapes actually bite |
 | HTTP | Fastify 5 with typed route schemas | Schema-first validation, and the schemas double as the API contract |
 | Database | SQLite via the built-in `node:sqlite` | Synchronous, no server, and no native compilation. Prefer the built-in: `better-sqlite3` would put `node-gyp` and a working compiler between a reader of the setup guide and a running Caroline |

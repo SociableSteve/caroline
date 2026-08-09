@@ -81,7 +81,14 @@ export function updateProject(
   const existing = getProject(database, id)
   if (existing === null) return null
 
-  const updated: Project = { ...existing, ...patch, updatedAt: now }
+  // completedAt follows from state rather than being patchable in its own right, so a
+  // project can never come back reading done with no completion date, or active with one.
+  const merged: Project = { ...existing, ...patch, updatedAt: now }
+  const updated: Project =
+    merged.state === existing.state
+      ? merged
+      : { ...merged, completedAt: merged.state === 'done' ? now : null }
+
   writeProject(database, updated)
 
   return updated

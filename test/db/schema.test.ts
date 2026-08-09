@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { projectStates } from '../../src/domain/project.js'
+import { sourceProviders } from '../../src/domain/source.js'
 import { statusActors, taskStatuses } from '../../src/domain/task.js'
 import { migratedDatabase } from '../helpers/temp-database.js'
 
@@ -51,6 +52,24 @@ describe('the schema and the domain constants', () => {
 
   it('rejects a project state the domain does not define', () => {
     expect(() => insertProject('paused')).toThrow(/constraint/i)
+  })
+
+  function insertSource(provider: string): void {
+    const database = migratedDatabase()
+    database
+      .prepare(
+        `insert into sources (id, provider, external_id, first_seen_at, last_seen_at)
+         values (?, ?, ?, 0, 0)`,
+      )
+      .run('source-1', provider, 'octo/widgets#42')
+  }
+
+  it.each(sourceProviders)('accepts %s as a source provider', (provider) => {
+    expect(() => insertSource(provider)).not.toThrow()
+  })
+
+  it('rejects a source provider the domain does not define', () => {
+    expect(() => insertSource('jira')).toThrow(/constraint/i)
   })
 })
 

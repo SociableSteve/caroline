@@ -149,8 +149,11 @@ function nextSyncTracked(task: Task, change: StatusChange): boolean {
   if (!task.syncTracked) return false
   if (change.by !== 'user') return true
 
-  const trackedStatuses = change.trackedStatuses ?? []
-  return trackedStatuses.includes(change.status)
+  // A caller that did not name the connector's set has not expressed an opt-out, and an
+  // opt-out is permanent, so tracking stands rather than being dropped by omission.
+  if (change.trackedStatuses === undefined) return true
+
+  return change.trackedStatuses.includes(change.status)
 }
 
 /** Re-enables the lifecycle the user previously opted out of. Spec 01, sync tracking. */

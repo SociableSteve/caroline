@@ -38,7 +38,8 @@ multi-tenancy, no shared server, no account system.
 - Fastify for HTTP, serving the API and static SPA assets.
 - React SPA, built with Vite.
 - SQLite via the built-in `node:sqlite`, one file on disk. No native module, so installing
-  Caroline never needs a compiler. This is what sets the Node 24 floor.
+  Caroline never needs a compiler. `node:sqlite` is non-experimental from Node 24.2.0,
+  which is what sets the Node 24 floor.
 - Vitest as the single test runner for server and client.
 
 ### Principles

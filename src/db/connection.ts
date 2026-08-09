@@ -40,7 +40,13 @@ export function withTransaction<T>(database: Database, work: () => T): T {
     database.exec('commit')
     return result
   } catch (error) {
-    database.exec('rollback')
+    // SQLite aborts the transaction itself on errors such as SQLITE_FULL, which leaves
+    // nothing to roll back and makes this throw. The original failure is the useful one.
+    try {
+      database.exec('rollback')
+    } catch {
+      // Ignored deliberately: see above.
+    }
     throw error
   }
 }

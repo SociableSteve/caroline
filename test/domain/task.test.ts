@@ -226,6 +226,19 @@ describe('sync tracking', () => {
     expect(result.task.syncTracked).toBe(false)
   })
 
+  // Without a tracked set, the caller has not expressed an opt-out, and an opt-out is
+  // permanent. A route that forgets the field must not silently unsubscribe the task.
+  it('keeps tracking when the change does not say what the connector tracks', () => {
+    const result = applyStatusChange(trackedReviewTask(), {
+      status: 'someday',
+      by: 'user',
+      at: changedAt,
+    })
+
+    expect(result.applied).toBe(true)
+    expect(result.task.syncTracked).toBe(true)
+  })
+
   it('declares review, waiting and done as the GitHub connector tracked set', () => {
     expect([...githubTrackedStatuses]).toEqual(['review', 'waiting', 'done'])
   })

@@ -211,6 +211,36 @@ describe('updateProject', () => {
   it('reports null for a project that does not exist', () => {
     expect(updateProject(database, 'nonexistent', { title: 'Nothing' }, later)).toBeNull()
   })
+
+  // completedAt is derived from state, never patched independently, so a completion date
+  // can never contradict the state a consumer reads next to it.
+  it('records a completion date when the patch moves the project to done', () => {
+    const project = createProject(database, { title: 'Conference talk' }, createdAt)
+
+    const updated = updateProject(database, project.id, { state: 'done' }, later)
+
+    expect(updated?.completedAt).toBe(later)
+    expect(getProject(database, project.id)?.completedAt).toBe(later)
+  })
+
+  it('clears the completion date when the patch reopens a completed project', () => {
+    const project = createProject(database, { title: 'Conference talk' }, createdAt)
+    markProjectComplete(database, project.id, later)
+
+    const reopened = updateProject(database, project.id, { state: 'active' }, later + 60_000)
+
+    expect(reopened?.completedAt).toBeNull()
+    expect(getProject(database, project.id)?.completedAt).toBeNull()
+  })
+
+  it('keeps the completion date when the patch leaves the state alone', () => {
+    const project = createProject(database, { title: 'Conference talk' }, createdAt)
+    markProjectComplete(database, project.id, later)
+
+    const updated = updateProject(database, project.id, { title: 'Talk delivered' }, later + 60_000)
+
+    expect(updated?.completedAt).toBe(later)
+  })
 })
 
 describe('deleteProject', () => {
