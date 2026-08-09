@@ -67,27 +67,54 @@ export function redactConfig(config: Config): Config {
   return copy as unknown as Config
 }
 
+const regexpSyntax = /[.*+?^${}()|[\]\\]/g
+
+/** A character class matching either case, or the character itself when it has only one. */
+function eitherCase(character: string): string {
+  const upper = character.toUpperCase()
+  const lower = character.toLowerCase()
+  return upper === lower ? upper : `[${upper}${lower}]`
+}
+
 /**
- * Every form of a secret that could show up in text: the literal value, and its
- * percent-encoded form, which is how a secret carrying reserved characters reaches a
- * request log. Longest first, so a secret that is a prefix of another cannot be replaced
- * first and leave the longer one's tail exposed.
+ * Matches a secret whether it appears literally or with any of its characters
+ * percent-encoded, which is how a secret carrying reserved characters reaches a request
+ * log. Encoding is decided per character, so a partly encoded value matches too. Only the
+ * hex digits of an escape are case-insensitive, since `%2b` and `%2B` are the same
+ * character: the literal characters of the secret still have to match exactly, so a
+ * different-cased lookalike is not mistaken for the secret.
  */
-function redactionTargets(config: Config): string[] {
-  const targets = new Set<string>()
+function secretPattern(secret: string): RegExp {
+  const source = [...secret]
+    .map((character) => {
+      const literal = character.replace(regexpSyntax, '\\$&')
+      const encoded = encodeURIComponent(character)
+      if (encoded === character) return literal
 
-  for (const secret of secretValues(config)) {
-    targets.add(secret)
-    targets.add(encodeURIComponent(secret))
-  }
+      const escapes = [...encoded]
+        .map((escapeCharacter) => (escapeCharacter === '%' ? '%' : eitherCase(escapeCharacter)))
+        .join('')
+      return `(?:${literal}|${escapes})`
+    })
+    .join('')
 
-  return [...targets].sort((a, b) => b.length - a.length)
+  return new RegExp(source, 'g')
+}
+
+/**
+ * One pattern per configured secret, longest secret first, so a secret that is a prefix of
+ * another cannot be replaced first and leave the longer one's tail exposed.
+ */
+function redactionPatterns(config: Config): RegExp[] {
+  return secretValues(config)
+    .sort((left, right) => right.length - left.length)
+    .map(secretPattern)
 }
 
 /** Replaces any configured secret appearing in a string. Used on log lines and responses. */
 export function redactSecrets(text: string, config: Config): string {
-  return redactionTargets(config).reduce(
-    (scrubbed, target) => scrubbed.split(target).join(REDACTED),
+  return redactionPatterns(config).reduce(
+    (scrubbed, pattern) => scrubbed.replace(pattern, REDACTED),
     text,
   )
 }

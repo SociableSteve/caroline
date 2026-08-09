@@ -115,4 +115,47 @@ describe('redactSecrets', () => {
 
     expect(scrubbed).toBe(`GET /api/health?token=${REDACTED}`)
   })
+
+  it('redacts percent-encoded escapes written in either hex case', () => {
+    const secretWithReservedChars = 'access+token/value'
+    const config = loadConfig({
+      file: null,
+      env: { CAROLINE_ACCESS_TOKEN: secretWithReservedChars } as NodeJS.ProcessEnv,
+    })
+
+    const lowerCaseEscapes = 'access%2btoken%2fvalue'
+    const mixedCaseEscapes = 'access%2Btoken%2fvalue'
+
+    expect(redactSecrets(lowerCaseEscapes, config)).toBe(REDACTED)
+    expect(redactSecrets(mixedCaseEscapes, config)).toBe(REDACTED)
+  })
+
+  it('redacts a secret that is only partly percent-encoded', () => {
+    const secretWithReservedChars = 'access+token/value'
+    const config = loadConfig({
+      file: null,
+      env: { CAROLINE_ACCESS_TOKEN: secretWithReservedChars } as NodeJS.ProcessEnv,
+    })
+
+    expect(redactSecrets('access%2Btoken/value', config)).toBe(REDACTED)
+  })
+
+  it('still matches the literal characters of a secret case-sensitively', () => {
+    const config = loadConfig({
+      file: null,
+      env: { CAROLINE_ACCESS_TOKEN: 'MixedCaseToken' } as NodeJS.ProcessEnv,
+    })
+
+    expect(redactSecrets('mixedcasetoken', config)).toBe('mixedcasetoken')
+  })
+
+  it('treats regular expression syntax in a secret as literal text', () => {
+    const config = loadConfig({
+      file: null,
+      env: { CAROLINE_ACCESS_TOKEN: 'a.c*d' } as NodeJS.ProcessEnv,
+    })
+
+    expect(redactSecrets('abcxd', config)).toBe('abcxd')
+    expect(redactSecrets('a.c*d', config)).toBe(REDACTED)
+  })
 })
