@@ -2,29 +2,46 @@
  * Quick capture: reachable from anywhere, creates an inbox task, and gets out of the way.
  * Spec 08, interaction rules.
  *
- * Not a `<dialog>`: `showModal` is where a browser's own focus trap lives, and the element
- * brings behaviour that has to be worked around as often as it is used. A labelled region
- * with the focus moved into it and Escape wired up is the whole contract here.
+ * Not a `<dialog>`: `showModal` brings behaviour that has to be worked around as often as it
+ * is used, and jsdom does not implement it, so the modal contract would go untested. Taking
+ * that route means owning the contract instead of borrowing it, which is what the focus trap
+ * and the focus restoration below are: `aria-modal="true"` tells a screen reader the rest of
+ * the page is inert, and Tab has to agree with it.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import type { ProjectView, TaskInput } from '../api.js'
 
 export interface QuickCaptureProps {
   readonly open: boolean
   readonly projects: readonly ProjectView[]
   readonly onClose: () => void
-  readonly onCreate: (input: TaskInput) => void
+  /** Answers whether the task was created. The form holds what was typed until it was. */
+  readonly onCreate: (input: TaskInput) => Promise<boolean>
 }
+
+const FOCUSABLE = 'input, textarea, select, button:not([disabled]), [href]'
 
 export function QuickCapture({ open, projects, onClose, onCreate }: QuickCaptureProps) {
   const [title, setTitle] = useState('')
   const [notes, setNotes] = useState('')
   const [projectId, setProjectId] = useState('')
+  const [saving, setSaving] = useState(false)
+  const dialog = useRef<HTMLElement>(null)
   const titleField = useRef<HTMLInputElement>(null)
+  /** Whatever had the focus when this opened, so closing can give it back. */
+  const opener = useRef<HTMLElement | null>(null)
 
-  // Opening puts the caret in the title, which is the only reason to have opened it.
   useEffect(() => {
-    if (open) titleField.current?.focus()
+    if (!open) return
+
+    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    // Opening puts the caret in the title, which is the only reason to have opened it.
+    titleField.current?.focus()
+
+    return () => {
+      // The opener can have gone away while the dialog was up, hence the guard.
+      if (opener.current?.isConnected === true) opener.current.focus()
+    }
   }, [open])
 
   if (!open) return null
@@ -36,32 +53,65 @@ export function QuickCapture({ open, projects, onClose, onCreate }: QuickCapture
     onClose()
   }
 
-  const submit = () => {
+  const submit = async () => {
     const trimmed = title.trim()
-    if (trimmed === '') return
+    if (trimmed === '' || saving) return
 
-    onCreate({
+    setSaving(true)
+    const created = await onCreate({
       title: trimmed,
       ...(notes.trim() === '' ? {} : { notes: notes.trim() }),
       ...(projectId === '' ? {} : { projectId }),
     })
-    close()
+    setSaving(false)
+
+    // Only on success. A rejected write leaves the dialog open with the text still in it, so
+    // the failure costs a second attempt rather than the typing.
+    if (created) close()
+  }
+
+  /**
+   * Tab cycles within the dialog rather than walking off into content that `aria-modal` has
+   * just declared inert.
+   */
+  const trapFocus = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key !== 'Tab') return
+
+    const focusable = Array.from(dialog.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    if (first === undefined || last === undefined) return
+
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault()
+      first.focus()
+    }
   }
 
   return (
-    <div className="capture-backdrop" onKeyDown={(event) => event.key === 'Escape' && close()}>
+    <div
+      className="capture-backdrop"
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') close()
+        else trapFocus(event)
+      }}
+    >
       <section
         className="capture"
         role="dialog"
         aria-modal="true"
         aria-labelledby="capture-heading"
+        ref={dialog}
       >
         <h2 id="capture-heading">Quick capture</h2>
 
         <form
           onSubmit={(event) => {
             event.preventDefault()
-            submit()
+            void submit()
           }}
         >
           <label>
@@ -104,7 +154,7 @@ export function QuickCapture({ open, projects, onClose, onCreate }: QuickCapture
           <p className="capture-hint">It lands in the inbox, to be triaged later.</p>
 
           <div className="capture-actions">
-            <button type="submit" disabled={title.trim() === ''}>
+            <button type="submit" disabled={title.trim() === '' || saving}>
               Capture
             </button>
             <button type="button" onClick={close}>

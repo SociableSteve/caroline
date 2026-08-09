@@ -25,10 +25,23 @@ export function parseRoute(hash: string): Route {
   if (segments[0] === 'board') return { name: 'board' }
   if (segments[0] === 'projects') {
     const id = segments[1]
-    return id === undefined ? { name: 'projects' } : { name: 'project', id: decodeURIComponent(id) }
+    if (id === undefined) return { name: 'projects' }
+
+    const decoded = decode(id)
+    // A hash such as `#/projects/%` is not a project id, and throwing out of the router would
+    // take the whole app down. It is an unrecognised route, so it gets the same fallback.
+    return decoded === null ? { name: 'dashboard' } : { name: 'project', id: decoded }
   }
 
   return { name: 'dashboard' }
+}
+
+function decode(segment: string): string | null {
+  try {
+    return decodeURIComponent(segment)
+  } catch {
+    return null
+  }
 }
 
 export function projectHref(id: string): string {

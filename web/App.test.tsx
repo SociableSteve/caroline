@@ -31,9 +31,17 @@ interface StubOptions {
   projects?: unknown[]
   failListing?: boolean
   failWrites?: boolean
+  /** Reported by the server as the total, when it is more than the stubbed rows. */
+  taskTotal?: number
 }
 
-function stubApi({ tasks = [], projects = [], failListing, failWrites }: StubOptions = {}) {
+function stubApi({
+  tasks = [],
+  projects = [],
+  failListing,
+  failWrites,
+  taskTotal,
+}: StubOptions = {}) {
   const calls: Call[] = []
 
   vi.stubGlobal(
@@ -55,9 +63,23 @@ function stubApi({ tasks = [], projects = [], failListing, failWrites }: StubOpt
           : answer({}, 200)
       }
       if (url.startsWith('/api/tasks')) {
-        return failListing === true
-          ? answer({ error: { code: 'internal_error', message: 'Everything is broken' } }, 500)
-          : answer({ tasks, total: tasks.length, limit: 500, offset: 0 })
+        if (failListing === true) {
+          return answer({ error: { code: 'internal_error', message: 'Everything is broken' } }, 500)
+        }
+        const offset = Number(new URL(url, 'http://localhost').searchParams.get('offset') ?? 0)
+        const total = taskTotal ?? tasks.length
+
+        // With a total of its own, the stub serves that many rows across as many pages as the
+        // client asks for, which is the only way to reach its fetch ceiling. Otherwise the
+        // named tasks are the whole list and arrive on the first page.
+        if (taskTotal !== undefined) {
+          const page = Array.from({ length: Math.max(0, Math.min(500, total - offset)) }, (_, i) =>
+            aTask({ id: `generated-${offset + i}`, title: `Generated ${offset + i}` }),
+          )
+          return answer({ tasks: page, total, limit: 500, offset })
+        }
+
+        return answer({ tasks: offset === 0 ? tasks : [], total, limit: 500, offset })
       }
       if (url.startsWith('/api/projects')) return answer({ projects })
       if (url.startsWith('/api/health')) return answer(health)
@@ -165,6 +187,21 @@ describe('failures', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Everything is broken')
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument()
+  })
+
+  /** A capture whose write is refused keeps the dialog and the typing, and says why. */
+  it('keeps the capture dialog open and its text when the write is refused', async () => {
+    stubApi({ failWrites: true })
+
+    render(<App />)
+    await screen.findByRole('region', { name: /where everything is/i })
+    await userEvent.keyboard('c')
+    await userEvent.type(screen.getByLabelText('What is it?'), 'Renew the domain')
+    await userEvent.click(screen.getByRole('button', { name: 'Capture' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('The server said no')
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByLabelText('What is it?')).toHaveValue('Renew the domain')
   })
 
   it('reports what the server said about a refused write', async () => {
@@ -345,6 +382,30 @@ describe('the change feed', () => {
     render(<App />)
 
     expect(await screen.findByRole('article', { name: 'Captured' })).toBeInTheDocument()
+  })
+})
+
+/**
+ * The client fetches every task by following the pages, and where it cannot, it says so. A
+ * screen quietly showing a subset of the tasks is the failure worth guarding against, since
+ * nothing about it looks wrong.
+ */
+describe('more tasks than the client will fetch', () => {
+  it('says how many it is showing of how many there are', async () => {
+    stubApi({ taskTotal: 6000 })
+
+    render(<App />)
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Showing 5000 of 6000 tasks')
+  })
+
+  it('says nothing when it has them all', async () => {
+    stubApi({ tasks: [aTask({ id: 'task-1', title: 'Captured' })] })
+
+    render(<App />)
+    await screen.findByRole('region', { name: /where everything is/i })
+
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 })
 

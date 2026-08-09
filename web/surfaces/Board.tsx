@@ -24,7 +24,8 @@ export interface BoardProps {
 const shortcuts = [
   { keys: '← → h l', does: 'move between columns' },
   { keys: '↑ ↓ j k', does: 'move within a column' },
-  { keys: '1 to 6', does: 'move the focused task to that column' },
+  // Derived, so the help cannot claim a range the handler does not accept.
+  { keys: `1 to ${boardStatuses.length}`, does: 'move the focused task to that column' },
   { keys: 'd', does: 'complete the focused task' },
   { keys: 'c', does: 'quick capture, from anywhere' },
 ]
@@ -70,6 +71,12 @@ export function Board({
     columnIndex: number,
     rowIndex: number,
   ) => {
+    // Only keys raised on the card itself. The card holds a status select and buttons, and
+    // their keys are theirs: an ArrowDown inside the select picks an option, and taking it
+    // for a board move would leave that select unusable from the keyboard, which is the very
+    // path it exists to provide.
+    if (event.target !== event.currentTarget) return
+
     const task = columns[columnIndex]?.[rowIndex]
     if (task === undefined) return
 

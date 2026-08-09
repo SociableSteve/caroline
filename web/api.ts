@@ -36,6 +36,14 @@ export interface TaskPage {
   readonly offset: number
 }
 
+/** Every matching task the client could fetch, and whether that was all of them. */
+export interface TaskCollection {
+  readonly tasks: TaskView[]
+  readonly total: number
+  /** True when the ceiling was hit and `tasks` is therefore not the whole answer. */
+  readonly truncated: boolean
+}
+
 export interface IntegrationStatus {
   readonly configured: boolean
   readonly status: string
@@ -100,10 +108,20 @@ export class ApiFailure extends Error {
 }
 
 /**
- * A single-user process with one browser tab has no use for paging, so the board asks for
- * one generous page and groups it client-side. The cap is the server's own maximum.
+ * A single-user process with one browser tab has no use for paging in the UI, so the board
+ * fetches everything and groups it client-side. It still has to fetch it: done tasks
+ * accumulate for as long as Caroline is used, so one page is not a safe assumption. The page
+ * size is the server's own maximum.
  */
 const PAGE = 500
+
+/**
+ * The most the client will fetch in one pass, as a guard rather than an expectation: without
+ * one, a database far larger than this design anticipates would have the UI issue requests
+ * until the tab gave up. Hitting it is reported rather than hidden, so the screen never
+ * quietly shows a subset.
+ */
+const MAX_TASKS = 5_000
 
 function errorFrom(status: number, body: unknown): ApiFailure {
   const error = (body as { error?: { code?: unknown; message?: unknown } } | null)?.error
@@ -150,18 +168,39 @@ function projectPath(id: string): string {
 }
 
 export const api = {
-  /**
-   * Every task, deferred ones included: the board and the dashboard both read from one
-   * fetch, and each decides for itself what to show. The status filter is left to the
-   * caller for the project drill-in, which asks for a subset.
-   */
-  listTasks(filter: TaskFilter = {}): Promise<TaskPage> {
-    const query = new URLSearchParams({ limit: String(PAGE) })
+  /** One page. Exposed for the tests and for anything that genuinely wants a window. */
+  listTaskPage(filter: TaskFilter = {}, offset = 0): Promise<TaskPage> {
+    const query = new URLSearchParams({ limit: String(PAGE), offset: String(offset) })
     for (const [key, value] of Object.entries(filter)) {
       if (value !== undefined) query.set(key, String(value))
     }
 
     return request<TaskPage>(`/api/tasks?${query.toString()}`)
+  },
+
+  /**
+   * Every matching task, following the pages until the server's own total is met: the board
+   * and the dashboard read from one call and each decides what to show. Deferred tasks are
+   * left out by the server unless asked for, and the filter is the caller's, which is what
+   * the project drill-in uses.
+   */
+  async listTasks(filter: TaskFilter = {}): Promise<TaskCollection> {
+    const tasks: TaskView[] = []
+    let total = 0
+
+    for (;;) {
+      const page = await api.listTaskPage(filter, tasks.length)
+      total = page.total
+      tasks.push(...page.tasks)
+
+      // An empty page ends it whatever the total says, so a total that disagrees with the rows
+      // cannot spin here.
+      if (page.tasks.length === 0) break
+      if (tasks.length >= total) break
+      if (tasks.length >= MAX_TASKS) return { tasks, total, truncated: true }
+    }
+
+    return { tasks, total, truncated: false }
   },
 
   createTask(input: TaskInput): Promise<TaskView> {

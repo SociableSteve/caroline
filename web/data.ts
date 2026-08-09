@@ -6,7 +6,7 @@
  * The change feed (spec 08) is subscribed to here, so a write from anywhere, including a
  * background job once there are any, reloads what is on screen without a refresh.
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, ApiFailure, type Health, type ProjectView, type TaskView } from './api.js'
 
 export interface CarolineData {
@@ -17,6 +17,8 @@ export interface CarolineData {
   readonly staleDays: number
   readonly loading: boolean
   readonly failure: string | null
+  /** How many tasks exist, when that is more than the client fetched. Null when it is not. */
+  readonly unfetchedTaskTotal: number | null
   readonly reload: () => Promise<void>
 }
 
@@ -50,16 +52,31 @@ export function useCarolineData(): CarolineData {
   const [staleDays, setStaleDays] = useState(DEFAULT_STALE_DAYS)
   const [loading, setLoading] = useState(true)
   const [failure, setFailure] = useState<string | null>(null)
+  const [unfetchedTaskTotal, setUnfetchedTaskTotal] = useState<number | null>(null)
+  /**
+   * Which reload is the current one. Mounting, the change feed and every write can all have
+   * one in flight at once, and without this an older response finishing last would put stale
+   * tasks back on the screen until something else happened to reload.
+   */
+  const generation = useRef(0)
 
   const reload = useCallback(async () => {
+    generation.current += 1
+    const mine = generation.current
+
     try {
-      const [taskPage, projectList] = await Promise.all([api.listTasks(), api.listProjects()])
-      setTasks(taskPage.tasks)
+      const [taskCollection, projectList] = await Promise.all([api.listTasks(), api.listProjects()])
+      if (mine !== generation.current) return
+
+      setTasks(taskCollection.tasks)
       setProjects(projectList.projects)
+      setUnfetchedTaskTotal(taskCollection.truncated ? taskCollection.total : null)
       setFailure(null)
     } catch (error) {
+      if (mine !== generation.current) return
       setFailure(describeFailure(error))
     } finally {
+      // Loading is about the first answer arriving, so a superseded reload still ends it.
       setLoading(false)
     }
   }, [])
@@ -81,5 +98,5 @@ export function useCarolineData(): CarolineData {
 
   useEffect(() => subscribeToChanges(() => void reload()), [reload])
 
-  return { tasks, projects, health, staleDays, loading, failure, reload }
+  return { tasks, projects, health, staleDays, loading, failure, unfetchedTaskTotal, reload }
 }

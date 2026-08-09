@@ -24,7 +24,8 @@ function isTyping(target: EventTarget | null): boolean {
 }
 
 export function App() {
-  const { tasks, projects, health, staleDays, loading, failure, reload } = useCarolineData()
+  const { tasks, projects, health, staleDays, loading, failure, unfetchedTaskTotal, reload } =
+    useCarolineData()
   const route = useRoute()
   const [capturing, setCapturing] = useState(false)
   const [writeFailure, setWriteFailure] = useState<string | null>(null)
@@ -49,16 +50,22 @@ export function App() {
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [])
 
-  /** Every write goes through here: do it, refresh, and say so if it failed. */
+  /**
+   * Every write goes through here: do it, refresh, and say so if it failed. It reports whether
+   * the write landed, because a form that clears itself on a rejected request has thrown away
+   * what the user typed, and the message alone does not give it back.
+   */
   const write = useCallback(
-    async (work: () => Promise<unknown>) => {
+    async (work: () => Promise<unknown>): Promise<boolean> => {
       try {
         await work()
         setWriteFailure(null)
         setNow(Date.now())
         await reload()
+        return true
       } catch (error) {
         setWriteFailure(error instanceof Error ? error.message : 'That did not work')
+        return false
       }
     },
     [reload],
@@ -68,8 +75,9 @@ export function App() {
     void write(() => api.patchTask(id, { status }))
   const onComplete = (id: string) => void write(() => api.completeTask(id))
   const onDelete = (id: string) => void write(() => api.deleteTask(id))
-  const onCapture = (input: TaskInput) => void write(() => api.createTask(input))
-  const onCreateProject = (title: string) => void write(() => api.createProject({ title }))
+  // These two answer their forms, which keep what was typed until the write lands.
+  const onCapture = (input: TaskInput) => write(() => api.createTask(input))
+  const onCreateProject = (title: string) => write(() => api.createProject({ title }))
   const onProjectState = (id: string, state: ProjectState) =>
     void write(() => api.patchProject(id, { state }))
   const onDeleteProject = (id: string) => void write(() => api.deleteProject(id))
@@ -109,6 +117,15 @@ export function App() {
         {writeFailure !== null && (
           <p role="alert" className="failure">
             {writeFailure}
+          </p>
+        )}
+
+        {/* Said out loud rather than left to be noticed: a screen showing a subset of the
+            tasks and not saying so is worse than one that admits it. */}
+        {unfetchedTaskTotal !== null && (
+          <p role="status" className="failure">
+            Showing {tasks.length} of {unfetchedTaskTotal} tasks. Complete or delete some, or narrow
+            what you are looking at.
           </p>
         )}
 

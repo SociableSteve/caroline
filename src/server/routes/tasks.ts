@@ -131,7 +131,18 @@ export function registerTaskRoutes(
   app: FastifyInstance,
   { database, changes, now }: RouteContext,
 ): void {
-  const announce = (at: number) => changes.publish({ kind: 'tasks', at })
+  /**
+   * A task write announces both kinds. A project's next action and stalled flag are derived
+   * from its tasks, so moving, completing, creating or deleting a task can change a project
+   * without touching the projects table: a client subscribed only to `projects` would
+   * otherwise show a stale next action. The projects routes are symmetric about this, since
+   * deleting a project changes its tasks. The feed is deliberately coarse, and the cost of a
+   * kind that did not strictly need announcing is one reload of a short list.
+   */
+  const announce = (at: number) => {
+    changes.publish({ kind: 'tasks', at })
+    changes.publish({ kind: 'projects', at })
+  }
 
   /** Reads the task back with its tags, which is what every write responds with. */
   const responseFor = (id: string): TaskResponse | null => {

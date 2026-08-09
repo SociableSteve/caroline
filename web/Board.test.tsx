@@ -263,6 +263,58 @@ describe('the keyboard', () => {
   })
 })
 
+/**
+ * The card holds a status select and buttons, and their keys bubble to the card. Taking those
+ * as board shortcuts made the select unusable from the keyboard: an ArrowDown to pick an option
+ * moved the focus to another card instead, and a letter typed to jump within the list completed
+ * the task or changed its status.
+ */
+describe('the keyboard inside a card control', () => {
+  const tasks = [
+    aTask({ id: 'first', title: 'First inbox' }),
+    aTask({ id: 'second', title: 'Second inbox' }),
+  ]
+
+  it('leaves the arrow keys to the status select', async () => {
+    renderBoard({ tasks })
+    const select = screen.getByRole('combobox', { name: 'Status of First inbox' })
+    select.focus()
+
+    await userEvent.keyboard('{ArrowDown}')
+
+    expect(select).toHaveFocus()
+    expect(screen.getByRole('article', { name: 'Second inbox' })).not.toHaveFocus()
+  })
+
+  it('does not complete a task when d is typed into the select', async () => {
+    const handlers = renderBoard({ tasks })
+    screen.getByRole('combobox', { name: 'Status of First inbox' }).focus()
+
+    await userEvent.keyboard('d')
+
+    expect(handlers.onComplete).not.toHaveBeenCalled()
+  })
+
+  it('does not change a status when a digit is typed into the select', async () => {
+    const handlers = renderBoard({ tasks })
+    screen.getByRole('combobox', { name: 'Status of First inbox' }).focus()
+
+    await userEvent.keyboard('4')
+
+    expect(handlers.onStatusChange).not.toHaveBeenCalled()
+  })
+
+  it('leaves keys pressed on a card button alone as well', async () => {
+    const handlers = renderBoard({ tasks })
+    screen.getAllByRole('button', { name: 'Complete' })[0]?.focus()
+
+    await userEvent.keyboard('{ArrowRight}')
+
+    expect(handlers.onStatusChange).not.toHaveBeenCalled()
+    expect(screen.getAllByRole('button', { name: 'Complete' })[0]).toHaveFocus()
+  })
+})
+
 describe('the card actions', () => {
   it('completes a task from its button', async () => {
     const handlers = renderBoard({ tasks: [aTask({ id: 'task-1', title: 'Captured' })] })

@@ -11,7 +11,8 @@ import { TaskCard } from '../components/TaskCard.js'
 
 export interface ProjectsProps {
   readonly projects: readonly ProjectView[]
-  readonly onCreate: (title: string) => void
+  /** Answers whether the project was created. The field keeps its text until it was. */
+  readonly onCreate: (title: string) => Promise<boolean>
   readonly onStateChange: (id: string, state: ProjectState) => void
   readonly onDelete: (id: string) => void
 }
@@ -25,7 +26,20 @@ const stateLabels: Record<ProjectState, string> = {
 
 export function Projects({ projects, onCreate, onStateChange, onDelete }: ProjectsProps) {
   const [title, setTitle] = useState('')
+  const [saving, setSaving] = useState(false)
   const [confirming, setConfirming] = useState<string | null>(null)
+
+  const create = async () => {
+    const trimmed = title.trim()
+    if (trimmed === '' || saving) return
+
+    setSaving(true)
+    const created = await onCreate(trimmed)
+    setSaving(false)
+
+    // Cleared only once it landed, so a rejected write does not eat what was typed.
+    if (created) setTitle('')
+  }
 
   return (
     <div className="projects">
@@ -35,9 +49,7 @@ export function Projects({ projects, onCreate, onStateChange, onDelete }: Projec
           className="inline-form"
           onSubmit={(event) => {
             event.preventDefault()
-            if (title.trim() === '') return
-            onCreate(title.trim())
-            setTitle('')
+            void create()
           }}
         >
           <label>
@@ -49,7 +61,7 @@ export function Projects({ projects, onCreate, onStateChange, onDelete }: Projec
               autoComplete="off"
             />
           </label>
-          <button type="submit" disabled={title.trim() === ''}>
+          <button type="submit" disabled={title.trim() === '' || saving}>
             Add project
           </button>
         </form>

@@ -66,6 +66,16 @@ describe('GET /api/tasks', () => {
     ])
   })
 
+  it('accepts a single status, which the array schema coerces', async () => {
+    const { app, database } = await testServer()
+    createTask(database, { title: 'Captured' }, earlier)
+    createTask(database, { title: 'Blocked', status: 'waiting' }, earlier)
+
+    const body = (await app.inject({ method: 'GET', url: '/api/tasks?status=waiting' })).json()
+
+    expect(body.tasks.map((task: { title: string }) => task.title)).toEqual(['Blocked'])
+  })
+
   it('filters by project, tag, due date and search', async () => {
     const { app, database } = await testServer()
     const project = createProject(database, { title: 'Ship it' }, earlier)
@@ -194,12 +204,19 @@ describe('POST /api/tasks', () => {
     expect(body.tags).toEqual(['chase', 'finance'])
   })
 
+  /**
+   * Both kinds, because a task write can change a project's derived next action and stalled
+   * flag without touching the projects table.
+   */
   it('announces the change on the feed', async () => {
     const { app, published } = await testServer()
 
     await app.inject({ method: 'POST', url: '/api/tasks', payload: { title: 'Anything' } })
 
-    expect(published).toEqual([{ kind: 'tasks', at: REQUEST_TIME }])
+    expect(published).toEqual([
+      { kind: 'tasks', at: REQUEST_TIME },
+      { kind: 'projects', at: REQUEST_TIME },
+    ])
   })
 
   it('rejects a missing title', async () => {
@@ -372,7 +389,10 @@ describe('PATCH /api/tasks/:id', () => {
       payload: { title: 'Renewed' },
     })
 
-    expect(published).toEqual([{ kind: 'tasks', at: REQUEST_TIME }])
+    expect(published).toEqual([
+      { kind: 'tasks', at: REQUEST_TIME },
+      { kind: 'projects', at: REQUEST_TIME },
+    ])
   })
 
   it('answers 404 for a task that does not exist', async () => {
@@ -446,6 +466,15 @@ describe('POST /api/tasks/:id/complete', () => {
     })
   })
 
+  it('announces the change on the feed', async () => {
+    const { app, database, published } = await testServer()
+    const task = createTask(database, { title: 'Renew the domain' }, earlier)
+
+    await app.inject({ method: 'POST', url: `/api/tasks/${task.id}/complete` })
+
+    expect(published.map((event) => event.kind)).toEqual(['tasks', 'projects'])
+  })
+
   it('answers 404 for a task that does not exist', async () => {
     const { app } = await testServer()
 
@@ -464,6 +493,15 @@ describe('DELETE /api/tasks/:id', () => {
 
     expect(response.statusCode).toBe(204)
     expect(getTask(database, task.id)).toBeNull()
+  })
+
+  it('announces the change on the feed', async () => {
+    const { app, database, published } = await testServer()
+    const task = createTask(database, { title: 'Renew the domain' }, earlier)
+
+    await app.inject({ method: 'DELETE', url: `/api/tasks/${task.id}` })
+
+    expect(published.map((event) => event.kind)).toEqual(['tasks', 'projects'])
   })
 
   it('answers 404 for a task that does not exist', async () => {

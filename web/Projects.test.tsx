@@ -10,7 +10,8 @@ import { aProject, aTask, NOW } from './test-fixtures.js'
 
 function renderProjects(overrides: Partial<Parameters<typeof Projects>[0]> = {}) {
   const handlers = {
-    onCreate: vi.fn(),
+    // Creating answers whether it worked, which is what the form waits for.
+    onCreate: vi.fn(async () => true),
     onStateChange: vi.fn(),
     onDelete: vi.fn(),
   }
@@ -71,6 +72,25 @@ describe('the projects list', () => {
     renderProjects()
 
     expect(screen.getByRole('button', { name: 'Add project' })).toBeDisabled()
+  })
+
+  it('clears the field once the project has been created', async () => {
+    renderProjects()
+
+    await userEvent.type(screen.getByLabelText(/Outcome/), 'Ship it')
+    await userEvent.click(screen.getByRole('button', { name: 'Add project' }))
+
+    expect(screen.getByLabelText(/Outcome/)).toHaveValue('')
+  })
+
+  /** Losing what was typed is a worse outcome than the failure that caused it. */
+  it('keeps what was typed when the create is refused', async () => {
+    renderProjects({ onCreate: vi.fn(async () => false) })
+
+    await userEvent.type(screen.getByLabelText(/Outcome/), 'Ship it')
+    await userEvent.click(screen.getByRole('button', { name: 'Add project' }))
+
+    expect(screen.getByLabelText(/Outcome/)).toHaveValue('Ship it')
   })
 
   it('changes a project state', async () => {

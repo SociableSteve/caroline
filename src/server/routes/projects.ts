@@ -37,6 +37,15 @@ interface ProjectBody {
   state?: ProjectState
 }
 
+/**
+ * The create body, where the schema makes `title` required. Typed separately so the compiler
+ * knows it is there rather than the handler defaulting it: a fallback would turn a schema
+ * change into a project with an empty title instead of the 400 it should be.
+ */
+interface CreateProjectBody extends ProjectBody {
+  title: string
+}
+
 function notFound(reply: FastifyReply): FastifyReply {
   return reply.status(404).send(apiError('not_found', 'No such project'))
 }
@@ -89,7 +98,7 @@ export function registerProjectRoutes(
     },
   )
 
-  app.post<{ Body: ProjectBody }>(
+  app.post<{ Body: CreateProjectBody }>(
     '/api/projects',
     {
       schema: {
@@ -99,9 +108,12 @@ export function registerProjectRoutes(
     },
     async (request, reply) => {
       const at = now()
+      // No `?? ''` anywhere: the type carries the schema's promise that a title is present,
+      // so a schema that stopped requiring one would fail to compile rather than quietly
+      // creating a project with no title.
       const project = createProject(
         database,
-        { ...toPatch(request.body), title: request.body.title?.trim() ?? '' },
+        { ...toPatch(request.body), title: request.body.title.trim() },
         at,
       )
 

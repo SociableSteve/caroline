@@ -24,8 +24,14 @@ describe('loadConfig defaults', () => {
     expect(config.tasks.waitingStaleDays).toBe(3)
   })
 
-  it('rejects a threshold that is not a whole number of days', () => {
+  it('rejects a threshold of zero days, which would call everything stale at once', () => {
     expect(() => loadConfig({ file: { tasks: { waitingStaleDays: 0 } }, env: noEnv })).toThrow(
+      ConfigError,
+    )
+  })
+
+  it('rejects a threshold that is not a whole number of days', () => {
+    expect(() => loadConfig({ file: { tasks: { waitingStaleDays: 1.5 } }, env: noEnv })).toThrow(
       ConfigError,
     )
   })

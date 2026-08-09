@@ -423,7 +423,10 @@ label {
   position: fixed;
   inset: 0;
   display: grid;
-  place-items: center;
+  /* `safe` centring, and scrollable: a plain centred grid item taller than the viewport is
+     clipped at both ends, which puts the heading and the first field out of reach. */
+  place-items: safe center;
+  overflow: auto;
   background: rgb(0 0 0 / 45%);
   padding: 1rem;
 }

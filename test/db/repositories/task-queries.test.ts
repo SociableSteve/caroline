@@ -284,7 +284,33 @@ describe('bulkChangeStatus', () => {
     ])
   })
 
-  it('rolls the whole batch back when a write fails', () => {
+  /**
+   * The failure has to land on the second task for this to be about rollback at all: a batch
+   * that dies on the first write has nothing to undo. A trigger refuses one named task, which
+   * is the only way to fail a write that the repository itself considers valid.
+   */
+  it('rolls the earlier writes back when a later one fails', () => {
+    const first = createTask(database, { title: 'First' }, createdAt)
+    const second = createTask(database, { title: 'Second' }, createdAt)
+    database.exec(`
+      create trigger refuse_second before update on tasks
+      when new.id = '${second.id}'
+      begin select raise(abort, 'this write is refused'); end
+    `)
+
+    expect(() =>
+      bulkChangeStatus(database, [first.id, second.id], {
+        status: 'someday',
+        by: 'user',
+        at: later,
+      }),
+    ).toThrow('this write is refused')
+
+    // Both, not just the one that failed: the batch is one transaction.
+    expect(listTasks(database, { status: ['inbox'] }, later).total).toBe(2)
+  })
+
+  it('rolls back when the very first write fails', () => {
     const task = createTask(database, { title: 'First' }, createdAt)
 
     expect(() =>
@@ -294,6 +320,24 @@ describe('bulkChangeStatus', () => {
         at: later,
       }),
     ).toThrow()
+    expect(listTasks(database, { status: ['inbox'] }, later).total).toBe(1)
+  })
+
+  /**
+   * `reason` on a bulk result can carry a domain refusal, not only `not-found`. Reachable
+   * from here but not through the API, which always acts as the user: the rules only ever
+   * refuse the classifier and sync.
+   */
+  it('reports a domain refusal with the reason the rules gave', () => {
+    const task = createTask(database, { title: 'Decided by hand' }, createdAt)
+
+    const results = bulkChangeStatus(database, [task.id], {
+      status: 'someday',
+      by: 'llm',
+      at: later,
+    })
+
+    expect(results).toEqual([{ id: task.id, applied: false, reason: 'user-set' }])
     expect(listTasks(database, { status: ['inbox'] }, later).total).toBe(1)
   })
 })

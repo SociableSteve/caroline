@@ -182,6 +182,22 @@ describe('PATCH /api/projects/:id', () => {
     expect(body).toMatchObject({ state: 'done', completedAt: REQUEST_TIME })
   })
 
+  it('announces the change on the feed', async () => {
+    const { app, published } = await testServer()
+    const created = (
+      await app.inject({ method: 'POST', url: '/api/projects', payload: { title: 'Ship it' } })
+    ).json()
+    published.length = 0
+
+    await app.inject({
+      method: 'PATCH',
+      url: `/api/projects/${created.id}`,
+      payload: { title: 'Ship it properly' },
+    })
+
+    expect(published).toEqual([{ kind: 'projects', at: REQUEST_TIME }])
+  })
+
   it('answers 404 for a project that does not exist', async () => {
     const { app } = await testServer()
 

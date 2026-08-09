@@ -24,6 +24,12 @@ describe('parseRoute', () => {
     expect(parseRoute('#/nowhere')).toEqual({ name: 'dashboard' })
   })
 
+  /** A malformed escape used to throw out of the router, which took the app down with it. */
+  it('falls back to the dashboard for an id that cannot be decoded', () => {
+    expect(parseRoute('#/projects/%')).toEqual({ name: 'dashboard' })
+    expect(parseRoute('#/projects/%E0%A4%A')).toEqual({ name: 'dashboard' })
+  })
+
   it('round-trips an id that needs escaping', () => {
     const id = 'a/b c'
 

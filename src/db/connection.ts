@@ -52,7 +52,10 @@ export function withTransaction<T>(database: Database, work: () => T): T {
   const savepoint = `caroline_${depth}`
   const begin = depth === 0 ? 'begin' : `savepoint ${savepoint}`
   const commit = depth === 0 ? 'commit' : `release ${savepoint}`
-  const rollback = depth === 0 ? 'rollback' : `rollback to ${savepoint}`
+  // `rollback to` reverts the work but leaves the savepoint on SQLite's stack, so a nested
+  // rollback releases it too. Without that, every caught nested failure inside one long outer
+  // transaction leaves an entry behind and the depth counter and the stack drift apart.
+  const rollback = depth === 0 ? 'rollback' : `rollback to ${savepoint}; release ${savepoint}`
 
   database.exec(begin)
   transactionDepth.set(database, depth + 1)

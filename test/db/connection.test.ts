@@ -194,7 +194,9 @@ describe('withTransaction nested inside another', () => {
     expect(statements).toEqual([
       'begin',
       'savepoint caroline_1',
-      'rollback to caroline_1',
+      // Released as well as rolled back, so the savepoint does not outlive the failure it
+      // was undoing and the stack cannot grow through repeated caught failures.
+      'rollback to caroline_1; release caroline_1',
       'savepoint caroline_1',
       'release caroline_1',
       'commit',
