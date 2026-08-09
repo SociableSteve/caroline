@@ -46,13 +46,33 @@ export function errorSerialiser(config: Config) {
 }
 
 /**
+ * The top-level keys pino hands to a serialiser. This formatter runs before the serialisers
+ * do, so it sees the raw request and the raw error: rebuilding those would hand the
+ * serialiser a stripped object and lose the very fields it exists to shape. They are left
+ * alone here because `requestSerialiser` and `errorSerialiser` redact them instead.
+ */
+const SERIALISED_FIELDS = new Set(['req', 'res', 'err'])
+
+/**
  * Redacts every string in a log payload, in place of the object pino would serialise.
- * Only plain objects and arrays are rebuilt: anything with its own prototype is left for
- * its serialiser.
+ *
+ * Objects are rebuilt whatever their prototype. A class instance is not a plain object but
+ * JSON encoding walks its own enumerable properties just the same, so leaving one untouched
+ * put a secret on the wire in an encoded form the stream scrubber could no longer match.
+ * Anything with a `toJSON` is redacted through that method, since that is what encoding
+ * will call. Errors are the exception: their own properties are not enumerable, so there is
+ * nothing to rebuild, and `err` needs to reach its serialiser intact.
  *
  * Property names are redacted as well as values, because a name is JSON-encoded on the way
  * out exactly as a value is, and a secret used as a field name would reach the stream in a
  * form the scrubber can no longer match.
+ *
+ * The rebuilt object has a null prototype so that a payload carrying its own `__proto__`
+ * field, which is what `JSON.parse` produces from an upstream response, stores it as
+ * ordinary data. Assigning it to a plain object would invoke the inherited setter, silently
+ * dropping the field from the log line instead of recording it redacted. Note that this is
+ * about not losing the field: the prototype an inherited setter would install is not
+ * serialised either way, since encoding only walks own properties.
  *
  * A payload can reference the same object twice, and a second visit must not hand back the
  * original: that object still holds the secret, and returning it would leave one occurrence
@@ -67,9 +87,9 @@ export function redactLogPayload(
 ): unknown {
   if (typeof value === 'string') return redactSecrets(value, config)
   if (value === null || typeof value !== 'object') return value
+  if (value instanceof Error) return value
 
-  const existing = replacements.get(value)
-  if (existing !== undefined) return existing
+  if (replacements.has(value)) return replacements.get(value)
 
   if (Array.isArray(value)) {
     const copy: unknown[] = []
@@ -78,15 +98,47 @@ export function redactLogPayload(
     return copy
   }
 
-  const prototype = Object.getPrototypeOf(value) as object | null
-  if (prototype !== Object.prototype && prototype !== null) return value
+  const { toJSON } = value as { toJSON?: unknown }
+  if (typeof toJSON === 'function') {
+    replacements.set(value, null)
+    const encoded = redactLogPayload((toJSON as () => unknown).call(value), config, replacements)
+    replacements.set(value, encoded)
+    return encoded
+  }
 
-  const copy: Record<string, unknown> = {}
+  const copy = Object.create(null) as Record<string, unknown>
   replacements.set(value, copy)
   for (const [key, item] of Object.entries(value)) {
     copy[redactSecrets(key, config)] = redactLogPayload(item, config, replacements)
   }
   return copy
+}
+
+/**
+ * The payload as pino should serialise it: every field redacted, except those a serialiser
+ * is about to shape. Serialisers only apply to top-level keys, so the exemption stops here.
+ */
+export function redactLogFields(
+  payload: Record<string, unknown>,
+  config: Config,
+): Record<string, unknown> {
+  const replacements = new WeakMap<object, unknown>()
+  // A plain object, unlike the null-prototype copies in `redactLogPayload`: pino looks up
+  // `serializers[key]` for every top-level key, so an own `__proto__` here would fetch
+  // `Object.prototype` and call it, throwing from inside the logger. Assigning to a plain
+  // object routes that one name to the inherited setter and drops it, which is the outcome
+  // worth having.
+  const redacted: Record<string, unknown> = {}
+
+  for (const [key, item] of Object.entries(payload)) {
+    if (SERIALISED_FIELDS.has(key)) {
+      redacted[key] = item
+    } else {
+      redacted[redactSecrets(key, config)] = redactLogPayload(item, config, replacements)
+    }
+  }
+
+  return redacted
 }
 
 /**

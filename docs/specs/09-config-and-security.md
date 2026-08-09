@@ -74,6 +74,11 @@ call would contain, using a real item, before it is used.
   turns `tok"en` into `tok\"en`. Recognising a secret through its encodings does not
   terminate, so the encodings are handled by removing the places they occur rather than by
   matching more forms.
+- Pre-encoding redaction covers every value in a log payload, and every field name, whatever
+  the holding object's prototype. A class instance is not a plain object, but encoding walks
+  its own properties just the same, so exempting it would leave a secret on the wire. The
+  exceptions are the fields a log serialiser is about to shape, which redact their own
+  output.
 - No part of a request URL is logged or echoed in a response. Every byte of it is chosen by
   the caller, path as much as query string, so a secret can be smuggled into a log line in
   any encoding the caller likes and literal matching will not find it. Requests are

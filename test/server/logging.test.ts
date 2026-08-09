@@ -196,6 +196,69 @@ describe('no secret reaches a log line (spec 09 criterion 6)', () => {
     expect(logged).not.toContain(jsonEscaped)
   })
 
+  it('redacts a secret held by an object that is not a plain object', async () => {
+    const secretNeedingEscapes = 'tok"en\\value'
+    class Credentials {
+      constructor(readonly token: string) {}
+    }
+    const { lines, stream } = captureLog()
+    const config = loadConfig({
+      file: null,
+      env: { CAROLINE_ACCESS_TOKEN: secretNeedingEscapes } as NodeJS.ProcessEnv,
+    })
+    const app = await buildServer({ config, logger: { level: 'info', stream } })
+
+    app.log.info({ upstream: new Credentials(secretNeedingEscapes) }, 'calling upstream')
+    app.log.info({ pool: [new Credentials(secretNeedingEscapes)] }, 'calling upstream')
+    await app.close()
+
+    const logged = lines.join('\n')
+    const jsonEscaped = JSON.stringify(secretNeedingEscapes).slice(1, -1)
+    expect(logged).not.toContain(secretNeedingEscapes)
+    expect(logged).not.toContain(jsonEscaped)
+    expect(logged).toContain('[redacted]')
+  })
+
+  it('redacts, rather than silently drops, an own __proto__ field', async () => {
+    const secretNeedingEscapes = 'tok"en\\value'
+    const { lines, stream } = captureLog()
+    const config = loadConfig({
+      file: null,
+      env: { CAROLINE_ACCESS_TOKEN: secretNeedingEscapes } as NodeJS.ProcessEnv,
+    })
+    const app = await buildServer({ config, logger: { level: 'info', stream } })
+
+    // JSON.parse is how an own, enumerable `__proto__` reaches a log payload in practice:
+    // an upstream response parsed and then logged. An object literal would set the
+    // prototype instead of creating the field, so the fixture has to come from real JSON.
+    const parsedUpstreamBody: unknown = JSON.parse(
+      `{"__proto__":{"token":${JSON.stringify(secretNeedingEscapes)}}}`,
+    )
+    app.log.info({ upstream: parsedUpstreamBody }, 'calling upstream')
+    await app.close()
+
+    const logged = lines.join('\n')
+    const jsonEscaped = JSON.stringify(secretNeedingEscapes).slice(1, -1)
+    expect(logged).not.toContain(secretNeedingEscapes)
+    expect(logged).not.toContain(jsonEscaped)
+    expect(logged).toContain('__proto__')
+    expect(logged).toContain('[redacted]')
+  })
+
+  it('still lets the error serialiser shape an error, redacted', async () => {
+    const { lines, stream } = captureLog()
+    const config = loadConfig({ file: null, env: secrets })
+    const app = await buildServer({ config, logger: { level: 'info', stream } })
+
+    app.log.error({ err: new Error('upstream rejected ghp_supersecret') }, 'call failed')
+    await app.close()
+
+    const logged = lines.join('\n')
+    expect(logged).toContain('"type":"Error"')
+    expect(logged).toContain('upstream rejected [redacted]')
+    expect(logged).not.toContain('ghp_supersecret')
+  })
+
   it('keeps secrets out of a logged error message', async () => {
     const { lines, stream } = captureLog()
     const config = loadConfig({ file: null, env: secrets })

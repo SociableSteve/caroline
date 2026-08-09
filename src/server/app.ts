@@ -9,7 +9,7 @@ import { registerHealthRoute } from './routes/health.js'
 import { registerConfigRoute } from './routes/config.js'
 import {
   errorSerialiser,
-  redactLogPayload,
+  redactLogFields,
   requestSerialiser,
   scrubbingStream,
 } from './log-redaction.js'
@@ -43,7 +43,7 @@ export async function buildServer({
         err: errorSerialiser(config),
       },
       formatters: {
-        log: (payload) => redactLogPayload(payload, config) as Record<string, unknown>,
+        log: (payload) => redactLogFields(payload, config),
       },
       hooks: {
         // The message is not part of the payload the formatter sees, so it is redacted
