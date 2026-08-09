@@ -8,6 +8,7 @@ import Fastify from 'fastify'
 import { registerRoutes } from '../../src/server/app.js'
 import { REQUEST_TIME, testConfig } from '../helpers/test-server.js'
 import { createChangeFeed } from '../../src/server/changes.js'
+import { createSyncRunner } from '../../src/jobs/sync.js'
 import { migratedDatabase } from '../helpers/temp-database.js'
 
 interface RecordedRoute {
@@ -31,11 +32,13 @@ async function registeredRoutes(): Promise<RecordedRoute[]> {
     }
   })
 
+  const database = migratedDatabase()
   registerRoutes(app, {
     config: testConfig,
-    database: migratedDatabase(),
+    database,
     changes: createChangeFeed(),
     now: () => REQUEST_TIME,
+    sync: createSyncRunner({ database, connectors: [], now: () => REQUEST_TIME }),
   })
   await app.ready()
   await app.close()
@@ -61,7 +64,7 @@ describe('every API route', () => {
     expect(routes.every((route) => route.url.startsWith('/api'))).toBe(true)
   })
 
-  it('covers the routes M2 promises, so the list above cannot pass by being empty', async () => {
+  it('covers the routes M2 and M3 promise, so the list above cannot pass by being empty', async () => {
     const routes = (await registeredRoutes()).map((route) => `${route.method} ${route.url}`)
 
     expect(routes).toEqual(
@@ -76,11 +79,14 @@ describe('every API route', () => {
         'DELETE /api/tasks/:id',
         'POST /api/tasks/:id/complete',
         'POST /api/tasks/:id/tracking',
+        'POST /api/tasks/:id/mark-reviewed',
         'GET /api/projects',
         'POST /api/projects',
         'GET /api/projects/:id',
         'PATCH /api/projects/:id',
         'DELETE /api/projects/:id',
+        'GET /api/jobs',
+        'POST /api/jobs/:name/run',
       ]),
     )
   })

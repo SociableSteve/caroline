@@ -36,6 +36,22 @@ describe('loadConfig defaults', () => {
     )
   })
 
+  /** Spec 02: if you asked for changes, the changes arriving are your cue. */
+  it('returns a pull request to review on new commits by default', () => {
+    expect(
+      loadConfig({ file: null, env: noEnv }).integrations.github.returnToReviewOnNewCommits,
+    ).toBe(true)
+  })
+
+  it('lets that be turned off, so only an explicit re-request returns it', () => {
+    const config = loadConfig({
+      file: { integrations: { github: { returnToReviewOnNewCommits: false } } },
+      env: noEnv,
+    })
+
+    expect(config.integrations.github.returnToReviewOnNewCommits).toBe(false)
+  })
+
   it('reports every integration as not configured when no credentials are present', () => {
     const config = loadConfig({ file: null, env: noEnv })
 

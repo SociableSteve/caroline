@@ -1,0 +1,48 @@
+{
+  "data": {
+    "pr0": {
+      "pullRequest": {
+        "number": 42,
+        "title": "Add a retry to the fetch helper",
+        "url": "https://github.com/example-org/example-service/pull/42",
+        "state": "OPEN",
+        "isDraft": false,
+        "additions": 132,
+        "deletions": 31,
+        "changedFiles": 7,
+        "updatedAt": "2026-01-06T14:02:00Z",
+        "author": { "login": "author-one" },
+        "repository": { "nameWithOwner": "example-org/example-service" },
+        "headRefOid": "1111111111111111111111111111111111111111",
+        "commits": {
+          "nodes": [
+            {
+              "commit": {
+                "oid": "1111111111111111111111111111111111111111",
+                "committedDate": "2026-01-05T09:10:00Z"
+              }
+            }
+          ]
+        },
+        "reviewRequests": { "nodes": [] },
+        "reviews": {
+          "nodes": [
+            {
+              "state": "CHANGES_REQUESTED",
+              "submittedAt": "2026-01-06T14:00:00Z",
+              "commit": { "oid": "1111111111111111111111111111111111111111" }
+            }
+          ]
+        },
+        "timelineItems": {
+          "nodes": [
+            {
+              "createdAt": "2026-01-05T09:12:00Z",
+              "requestedReviewer": { "__typename": "User", "login": "reviewer-you" }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

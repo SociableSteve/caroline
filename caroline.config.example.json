@@ -22,7 +22,7 @@
     "baseUrl": null
   },
   "integrations": {
-    "github": { "enabled": true },
+    "github": { "enabled": true, "returnToReviewOnNewCommits": true },
     "google": { "enabled": true, "clientId": null }
   }
 }

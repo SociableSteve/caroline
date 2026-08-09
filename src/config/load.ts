@@ -186,6 +186,7 @@ export function loadConfig({ file, env }: LoadOptions): Config {
     integrations: {
       github: {
         enabled: parsed.integrations.github.enabled,
+        returnToReviewOnNewCommits: parsed.integrations.github.returnToReviewOnNewCommits,
         token: githubToken,
         configured: parsed.integrations.github.enabled && githubToken !== null,
       },

@@ -3,7 +3,9 @@ import type { Database } from '../connection.js'
 import type { Row } from '../rows.js'
 import {
   markActed,
+  markRequeued,
   markResolved,
+  proposeCompletion,
   type ActedRecord,
   type Source,
   type SourceProvider,
@@ -19,10 +21,17 @@ export interface UpsertSourceInput {
   readonly contentHash?: string | null
   readonly taskId?: string | null
   readonly lifecycleState?: string | null
+  /**
+   * The connector's state machine carries the previous marker forward itself, so these are
+   * supplied on every pass rather than only when they change. Spec 02.
+   */
+  readonly actedAt?: number | null
+  readonly actedAtMarker?: string | null
 }
 
 const columns = `id, provider, external_id, url, title, metadata, content, content_hash, task_id,
-  first_seen_at, last_seen_at, resolved_at, lifecycle_state, acted_at, acted_at_marker`
+  first_seen_at, last_seen_at, resolved_at, lifecycle_state, acted_at, acted_at_marker,
+  requeued_at, completion_proposed_at`
 
 function toSource(row: Row): Source {
   const metadata = row.metadata
@@ -42,6 +51,8 @@ function toSource(row: Row): Source {
     lifecycleState: nullableText(row.lifecycle_state),
     actedAt: nullableNumber(row.acted_at),
     actedAtMarker: nullableText(row.acted_at_marker),
+    requeuedAt: nullableNumber(row.requeued_at),
+    completionProposedAt: nullableNumber(row.completion_proposed_at),
   }
 }
 
@@ -67,7 +78,7 @@ function writeSource(database: Database, source: Source): void {
       `insert into sources (${columns}) values (
          :id, :provider, :external_id, :url, :title, :metadata, :content, :content_hash,
          :task_id, :first_seen_at, :last_seen_at, :resolved_at, :lifecycle_state, :acted_at,
-         :acted_at_marker
+         :acted_at_marker, :requeued_at, :completion_proposed_at
        )
        on conflict (id) do update set
          url = excluded.url,
@@ -80,7 +91,9 @@ function writeSource(database: Database, source: Source): void {
          resolved_at = excluded.resolved_at,
          lifecycle_state = excluded.lifecycle_state,
          acted_at = excluded.acted_at,
-         acted_at_marker = excluded.acted_at_marker`,
+         acted_at_marker = excluded.acted_at_marker,
+         requeued_at = excluded.requeued_at,
+         completion_proposed_at = excluded.completion_proposed_at`,
     )
     .run({
       id: source.id,
@@ -98,6 +111,8 @@ function writeSource(database: Database, source: Source): void {
       lifecycle_state: source.lifecycleState,
       acted_at: source.actedAt,
       acted_at_marker: source.actedAtMarker,
+      requeued_at: source.requeuedAt,
+      completion_proposed_at: source.completionProposedAt,
     })
 }
 
@@ -128,8 +143,10 @@ export function upsertSource(database: Database, input: UpsertSourceInput, now: 
     lastSeenAt: now,
     resolvedAt: existing?.resolvedAt ?? null,
     lifecycleState: supplied(input.lifecycleState, existing?.lifecycleState),
-    actedAt: existing?.actedAt ?? null,
-    actedAtMarker: existing?.actedAtMarker ?? null,
+    actedAt: supplied(input.actedAt, existing?.actedAt),
+    actedAtMarker: supplied(input.actedAtMarker, existing?.actedAtMarker),
+    requeuedAt: existing?.requeuedAt ?? null,
+    completionProposedAt: existing?.completionProposedAt ?? null,
   }
 
   writeSource(database, source)
@@ -161,6 +178,48 @@ export function listSourcesForTask(database: Database, taskId: string): Source[]
     .map((row) => toSource(row as Row))
 }
 
+/**
+ * The set the refresh pass follows: everything of this provider that has not closed,
+ * whether or not the provider's own discovery query still returns it. Spec 02, criterion 18.
+ */
+export function listUnresolvedSources(database: Database, provider: SourceProvider): Source[] {
+  return database
+    .prepare(
+      `select ${columns} from sources
+       where provider = ? and resolved_at is null
+       order by first_seen_at, id`,
+    )
+    .all(provider)
+    .map((row) => toSource(row as Row))
+}
+
+/** The sources of several tasks in one query, so a board listing is not a query per card. */
+export function listSourcesForTasks(
+  database: Database,
+  taskIds: readonly string[],
+): Map<string, Source[]> {
+  const sources = new Map<string, Source[]>()
+  if (taskIds.length === 0) return sources
+
+  const placeholders = taskIds.map(() => '?').join(', ')
+  const rows = database
+    .prepare(
+      `select ${columns} from sources where task_id in (${placeholders}) order by first_seen_at, id`,
+    )
+    .all(...taskIds)
+
+  for (const row of rows) {
+    const source = toSource(row as Row)
+    if (source.taskId === null) continue
+
+    const existing = sources.get(source.taskId)
+    if (existing === undefined) sources.set(source.taskId, [source])
+    else existing.push(source)
+  }
+
+  return sources
+}
+
 export function countSources(database: Database): number {
   const row = database.prepare('select count(*) as count from sources').get()
   return Number((row as Row).count)
@@ -183,6 +242,44 @@ export function markSourceActed(database: Database, id: string, acted: ActedReco
   if (existing === null) return null
 
   const source = markActed(existing, acted)
+  writeSource(database, source)
+
+  return source
+}
+
+/** Sync would like the linked task completed. Recorded whether or not it was allowed to. */
+export function proposeSourceCompletion(database: Database, id: string, at: number): Source | null {
+  const existing = getSource(database, id)
+  if (existing === null) return null
+
+  const source = proposeCompletion(existing, at)
+  writeSource(database, source)
+
+  return source
+}
+
+/** An upstream content change put the linked inbox task back in the classification queue. */
+export function markSourceRequeued(database: Database, id: string, at: number): Source | null {
+  const existing = getSource(database, id)
+  if (existing === null) return null
+
+  const source = markRequeued(existing, at)
+  writeSource(database, source)
+
+  return source
+}
+
+/** Sets the connector's state machine position without touching anything else on the row. */
+export function setSourceLifecycle(
+  database: Database,
+  id: string,
+  lifecycleState: string,
+  acted: ActedRecord,
+): Source | null {
+  const existing = getSource(database, id)
+  if (existing === null) return null
+
+  const source = markActed({ ...existing, lifecycleState }, acted)
   writeSource(database, source)
 
   return source

@@ -1,7 +1,11 @@
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import { withTransaction } from '../../db/connection.js'
 import { getProject } from '../../db/repositories/projects.js'
-import { listSourcesForTask } from '../../db/repositories/sources.js'
+import {
+  listSourcesForTask,
+  listSourcesForTasks,
+  setSourceLifecycle,
+} from '../../db/repositories/sources.js'
 import {
   bulkAssignProject,
   bulkChangeStatus,
@@ -19,6 +23,8 @@ import {
   type TaskQuery,
 } from '../../db/repositories/tasks.js'
 import type { Database } from '../../db/index.js'
+import { markReviewedOutcome } from '../../domain/review.js'
+import type { Source } from '../../domain/source.js'
 import { trackedStatusesFor } from '../../domain/tracking.js'
 import type { Task, TaskStatus } from '../../domain/task.js'
 import { apiError } from '../errors.js'
@@ -41,13 +47,50 @@ export interface RouteContext {
   readonly now: () => number
 }
 
-/** The task as the API returns it: the stored row, plus the tags that live beside it. */
+/**
+ * A source as the API returns it. The stored body and the hashing internals are not among
+ * them: nothing in the UI reads a body, so nothing puts one on the wire (spec 09).
+ */
+export type SourceResponse = Omit<
+  Source,
+  'content' | 'contentHash' | 'taskId' | 'firstSeenAt' | 'lastSeenAt'
+>
+
+/** The task as the API returns it: the stored row, its tags, and where it came from. */
 export interface TaskResponse extends Task {
   readonly tags: string[]
+  readonly sources: SourceResponse[]
 }
 
-export function toTaskResponse(task: Task, tags: readonly string[] = []): TaskResponse {
-  return { ...task, tags: [...tags] }
+/** Named rather than subtracted, so a field added to `Source` is not published by default. */
+function toSourceResponse(source: Source): SourceResponse {
+  return {
+    id: source.id,
+    provider: source.provider,
+    externalId: source.externalId,
+    url: source.url,
+    title: source.title,
+    metadata: source.metadata,
+    resolvedAt: source.resolvedAt,
+    lifecycleState: source.lifecycleState,
+    actedAt: source.actedAt,
+    actedAtMarker: source.actedAtMarker,
+    requeuedAt: source.requeuedAt,
+    completionProposedAt: source.completionProposedAt,
+  }
+}
+
+/**
+ * Both lists are required rather than defaulted. A default meant the projects route could
+ * return a next action with no provenance while `/api/tasks` returned the same task with
+ * its source, and nothing would have said so.
+ */
+export function toTaskResponse(
+  task: Task,
+  tags: readonly string[],
+  sources: readonly Source[],
+): TaskResponse {
+  return { ...task, tags: [...tags], sources: sources.map(toSourceResponse) }
 }
 
 function notFound(reply: FastifyReply, what: string): FastifyReply {
@@ -144,10 +187,12 @@ export function registerTaskRoutes(
     changes.publish({ kind: 'projects', at })
   }
 
-  /** Reads the task back with its tags, which is what every write responds with. */
+  /** Reads the task back whole, which is what every write responds with. */
   const responseFor = (id: string): TaskResponse | null => {
     const task = getTask(database, id)
-    return task === null ? null : toTaskResponse(task, getTaskTags(database, id))
+    return task === null
+      ? null
+      : toTaskResponse(task, getTaskTags(database, id), listSourcesForTask(database, id))
   }
 
   app.get<{ Querystring: TaskListQuery }>(
@@ -174,13 +219,14 @@ export function registerTaskRoutes(
       }
 
       const page = listTasks(database, query, now())
-      const tags = listTags(
-        database,
-        page.tasks.map((task) => task.id),
-      )
+      const ids = page.tasks.map((task) => task.id)
+      const tags = listTags(database, ids)
+      const sources = listSourcesForTasks(database, ids)
 
       return {
-        tasks: page.tasks.map((task) => toTaskResponse(task, tags.get(task.id) ?? [])),
+        tasks: page.tasks.map((task) =>
+          toTaskResponse(task, tags.get(task.id) ?? [], sources.get(task.id) ?? []),
+        ),
         total: page.total,
         limit,
         offset,
@@ -332,6 +378,79 @@ export function registerTaskRoutes(
         by: 'user',
         at,
         ...(statuses === undefined ? {} : { trackedStatuses: statuses }),
+      })
+
+      announce(at)
+
+      return responseFor(id)
+    },
+  )
+
+  /**
+   * Discharging your part of a review from Caroline: the task moves to Waiting for, named
+   * on the author, and the source records when you acted and where upstream was when you
+   * did. That marker is what stops the next sync, fifteen minutes later, seeing a standing
+   * review request and pulling the card straight back into Review. Spec 02, criteria 10 and
+   * 11.
+   *
+   * It is attributed to `sync` rather than to the user, because it is a move within the
+   * connector's own state machine rather than a decision to file the task somewhere: the
+   * user supplied the input, the machine made the move. Filing it somewhere is what the
+   * status control does, and that is attributed to the user.
+   */
+  app.post<{ Params: { id: string } }>(
+    '/api/tasks/:id/mark-reviewed',
+    {
+      schema: {
+        params: idParamsSchema,
+        response: { 200: taskResponseSchema },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params
+      const task = getTask(database, id)
+      if (task === null) return notFound(reply, 'task')
+
+      const source = listSourcesForTask(database, id).find(
+        (candidate) => candidate.provider === 'github' && candidate.resolvedAt === null,
+      )
+      if (source === undefined) {
+        return badRequest(reply, 'This task is not an open pull request awaiting your review')
+      }
+
+      // Already discharged. Answering with the task as it stands makes a repeated request a
+      // no-op rather than a fresh stamp: re-marking would move `acted_at` to now and the
+      // marker to the current head, which would quietly swallow whatever the author pushed
+      // between the two clicks. Spec 02, criterion 11 is the same rule from the other side.
+      if (source.lifecycleState !== 'awaiting_review') {
+        return responseFor(id)
+      }
+
+      if (!task.syncTracked) {
+        return badRequest(
+          reply,
+          'Sync tracking is off for this task. Turn it back on to follow the review again.',
+        )
+      }
+
+      const metadata = source.metadata as { headSha?: unknown; author?: unknown } | null
+      const headSha = metadata?.headSha
+      if (typeof headSha !== 'string') {
+        return badRequest(reply, 'This pull request has not been synced yet')
+      }
+
+      const at = now()
+      const outcome = markReviewedOutcome(headSha, at)
+
+      withTransaction(database, () => {
+        setSourceLifecycle(database, source.id, outcome.state, { at, marker: headSha })
+        changeTaskStatus(database, id, { status: outcome.status, by: 'sync', at })
+        updateTask(
+          database,
+          id,
+          { waitingOn: typeof metadata?.author === 'string' ? metadata.author : null },
+          at,
+        )
       })
 
       announce(at)

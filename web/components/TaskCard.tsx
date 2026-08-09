@@ -5,11 +5,16 @@
 import { useState, type KeyboardEvent } from 'react'
 import { boardStatuses, type TaskStatus, type TaskView } from '../api.js'
 import {
+  canMarkReviewed,
   formatAge,
   formatDate,
   formatEstimate,
+  hasOptedOutOfSync,
+  hasPushedSinceReview,
+  isCompletionProposed,
   isDeferred,
   isStale,
+  pullRequestSource,
   statusLabel,
   waitingAge,
 } from '../format.js'
@@ -22,6 +27,8 @@ export interface TaskCardProps {
   readonly onStatusChange: (id: string, status: TaskStatus) => void
   readonly onComplete: (id: string) => void
   readonly onDelete: (id: string) => void
+  /** Absent on surfaces that do not offer the action, such as a project drill-in. */
+  readonly onMarkReviewed?: ((id: string) => void) | undefined
   /** The board hands this in to drive its own keyboard grid. */
   readonly onKeyDown?: ((event: KeyboardEvent<HTMLElement>) => void) | undefined
   readonly registerRef?: ((id: string, element: HTMLElement | null) => void) | undefined
@@ -35,6 +42,7 @@ export function TaskCard({
   onStatusChange,
   onComplete,
   onDelete,
+  onMarkReviewed,
   onKeyDown,
   registerRef,
 }: TaskCardProps) {
@@ -43,6 +51,12 @@ export function TaskCard({
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const waiting = task.status === 'waiting'
   const stale = waiting && isStale(task, now, staleDays)
+  const pullRequest = pullRequestSource(task)
+  const pushedSince = waiting && hasPushedSinceReview(task)
+  const optedOut = hasOptedOutOfSync(task)
+  const completionProposed = isCompletionProposed(task)
+  // The primary action on a Review card, because it is the one taken most often. Spec 08.
+  const offerMarkReviewed = onMarkReviewed !== undefined && canMarkReviewed(task)
 
   return (
     <li className="card-slot">
@@ -104,6 +118,17 @@ export function TaskCard({
             </>
           )}
 
+          {pullRequest !== undefined && pullRequest.url !== null && (
+            <>
+              <dt>From</dt>
+              <dd>
+                <a href={pullRequest.url} target="_blank" rel="noreferrer">
+                  {pullRequest.externalId}
+                </a>
+              </dd>
+            </>
+          )}
+
           {task.tags.length > 0 && (
             <>
               <dt>Tags</dt>
@@ -112,7 +137,31 @@ export function TaskCard({
           )}
         </dl>
 
+        {/* Every state carried by a badge is carried by its words too, so none of it depends
+            on colour alone. Spec 08, accessibility. */}
+        {(pushedSince || optedOut || completionProposed) && (
+          <ul className="card-flags">
+            {pushedSince && (
+              <li className="badge badge-pushed">The author has pushed since you reviewed</li>
+            )}
+            {completionProposed && (
+              <li className="badge badge-proposed">Closed upstream. Complete it?</li>
+            )}
+            {optedOut && <li className="badge badge-untracked">Sync tracking off</li>}
+          </ul>
+        )}
+
         <div className="card-actions">
+          {offerMarkReviewed && (
+            <button
+              type="button"
+              className="card-primary"
+              onClick={() => onMarkReviewed?.(task.id)}
+            >
+              Mark reviewed
+            </button>
+          )}
+
           <label className="card-status">
             <span className="visually-hidden">Status of {task.title}</span>
             <select

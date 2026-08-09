@@ -6,7 +6,9 @@
  * schema is dropped from the payload, which makes the schema the definition of what the API
  * returns rather than a description of it.
  */
+import { jobRunStatuses, jobTriggers } from '../domain/job.js'
 import { projectStates } from '../domain/project.js'
+import { sourceProviders } from '../domain/source.js'
 import { taskStatuses } from '../domain/task.js'
 
 /** Titles are one line of text. The cap is generous, and it stops a body being a novel. */
@@ -35,10 +37,46 @@ const tags = {
   items: { type: 'string', minLength: 1, maxLength: TAG_MAX },
 } as const
 
+/**
+ * A task's provenance: which item it came from, with a link out, and where the connector's
+ * state machine has it. Spec 08 asks every task show this. `content` is deliberately absent:
+ * nothing in the UI reads a stored body, so nothing puts one on the wire (spec 09).
+ */
+export const sourceResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'provider', 'externalId'],
+  properties: {
+    id: { type: 'string' },
+    provider: { type: 'string', enum: sourceProviders },
+    externalId: { type: 'string' },
+    url: nullableString(2000),
+    title: nullableString(TITLE_MAX),
+    lifecycleState: nullableString(60),
+    actedAt: nullableInteger,
+    actedAtMarker: nullableString(200),
+    resolvedAt: nullableInteger,
+    requeuedAt: nullableInteger,
+    completionProposedAt: nullableInteger,
+    // The shape is the connector's, not this layer's, so it is passed through whole rather
+    // than enumerated here and silently truncated every time a connector learns a new fact.
+    metadata: { type: 'object', additionalProperties: true, nullable: true },
+  },
+} as const
+
 export const taskResponseSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['id', 'title', 'status', 'statusSetBy', 'statusSetAt', 'syncTracked', 'tags'],
+  required: [
+    'id',
+    'title',
+    'status',
+    'statusSetBy',
+    'statusSetAt',
+    'syncTracked',
+    'tags',
+    'sources',
+  ],
   properties: {
     id: { type: 'string' },
     title: { type: 'string' },
@@ -57,6 +95,7 @@ export const taskResponseSchema = {
     updatedAt: { type: 'integer' },
     completedAt: nullableInteger,
     tags: { type: 'array', items: { type: 'string' } },
+    sources: { type: 'array', items: sourceResponseSchema },
   },
 } as const
 
@@ -228,4 +267,88 @@ export const patchProjectBodySchema = {
   additionalProperties: false,
   minProperties: 1,
   properties: projectWritableProperties,
+} as const
+
+/** How many runs `GET /api/jobs` returns by default, and the most it will return. */
+export const RUNS_DEFAULT = 50
+export const RUNS_MAX = 200
+
+const jobCountsSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    itemsSeen: { type: 'integer' },
+    sourcesCreated: { type: 'integer' },
+    tasksCreated: { type: 'integer' },
+    tasksUpdated: { type: 'integer' },
+    resolved: { type: 'integer' },
+    requeued: { type: 'integer' },
+  },
+} as const
+
+/**
+ * The run history. The error message is part of it: a failed run whose reason is only in a
+ * log line is not a run history. Spec 02, criterion 5. The stack is deliberately not
+ * returned, since it is of no use in the UI and is the sort of thing that leaks paths.
+ */
+export const jobRunResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'job', 'trigger', 'startedAt', 'finishedAt', 'status', 'counts'],
+  properties: {
+    id: { type: 'string' },
+    job: { type: 'string' },
+    trigger: { type: 'string', enum: jobTriggers },
+    startedAt: { type: 'integer' },
+    finishedAt: { type: 'integer' },
+    status: { type: 'string', enum: jobRunStatuses },
+    counts: jobCountsSchema,
+    error: nullableString(2000),
+  },
+} as const
+
+export const jobListQuerySchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    job: { type: 'string', maxLength: 60 },
+    limit: { type: 'integer', minimum: 1, maximum: RUNS_MAX, default: RUNS_DEFAULT },
+  },
+} as const
+
+export const jobListResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['runs'],
+  properties: { runs: { type: 'array', items: jobRunResponseSchema } },
+} as const
+
+export const jobNameParamsSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['name'],
+  properties: { name: { type: 'string', minLength: 1, maxLength: 60 } },
+} as const
+
+export const jobRunTriggeredResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['job', 'results'],
+  properties: {
+    job: { type: 'string' },
+    results: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['provider', 'status', 'counts'],
+        properties: {
+          provider: { type: 'string', enum: sourceProviders },
+          status: { type: 'string', enum: jobRunStatuses },
+          counts: jobCountsSchema,
+          error: nullableString(2000),
+        },
+      },
+    },
+  },
 } as const

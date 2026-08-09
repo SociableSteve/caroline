@@ -7,13 +7,15 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { Board } from './surfaces/Board.js'
 import { formatDate } from './format.js'
-import { aProject, aTask, DAY, NOW } from './test-fixtures.js'
+import type { SourceView } from './api.js'
+import { aProject, aPullRequestSource, aReviewTask, aTask, DAY, NOW } from './test-fixtures.js'
 
 function renderBoard(overrides: Partial<Parameters<typeof Board>[0]> = {}) {
   const handlers = {
     onStatusChange: vi.fn(),
     onComplete: vi.fn(),
     onDelete: vi.fn(),
+    onMarkReviewed: vi.fn(),
   }
 
   render(<Board tasks={[]} projects={[]} staleDays={7} now={NOW} {...handlers} {...overrides} />)
@@ -381,5 +383,170 @@ describe('what a card shows without being asked', () => {
     })
 
     expect(screen.getByText('Deferred until')).toBeInTheDocument()
+  })
+})
+
+/**
+ * Spec 08 criteria 8, 9 and 10, and spec 02's Review and Waiting for columns: the pull
+ * request card, the action that moves it on, and what the column says about it afterwards.
+ */
+describe('a pull request awaiting review', () => {
+  const title = 'example-org/example-service#42 Add a retry to the fetch helper'
+
+  it('offers Mark reviewed as the primary action on the card', async () => {
+    const handlers = renderBoard({ tasks: [aReviewTask()] })
+
+    await userEvent.click(
+      within(screen.getByRole('article', { name: title })).getByRole('button', {
+        name: 'Mark reviewed',
+      }),
+    )
+
+    expect(handlers.onMarkReviewed).toHaveBeenCalledWith('task-pr')
+  })
+
+  it('offers the same action from the keyboard alone', () => {
+    const handlers = renderBoard({ tasks: [aReviewTask()] })
+    const card = screen.getByRole('article', { name: title })
+
+    card.focus()
+    fireEvent.keyDown(card, { key: 'r' })
+
+    expect(handlers.onMarkReviewed).toHaveBeenCalledWith('task-pr')
+  })
+
+  it('links out to the pull request, so every task shows its provenance', () => {
+    renderBoard({ tasks: [aReviewTask()] })
+
+    const link = within(screen.getByRole('article', { name: title })).getByRole('link', {
+      name: 'example-org/example-service#42',
+    })
+
+    expect(link).toHaveAttribute('href', 'https://github.com/example-org/example-service/pull/42')
+  })
+
+  it('offers nothing to mark reviewed on a manually captured task', () => {
+    renderBoard({ tasks: [aTask({ id: 'task-1', title: 'Renew the domain', status: 'review' })] })
+
+    expect(screen.queryByRole('button', { name: 'Mark reviewed' })).not.toBeInTheDocument()
+  })
+
+  it('offers nothing to mark reviewed once the task has opted out of tracking', () => {
+    renderBoard({ tasks: [aReviewTask({ syncTracked: false })] })
+
+    expect(screen.queryByRole('button', { name: 'Mark reviewed' })).not.toBeInTheDocument()
+  })
+
+  it('offers nothing to mark reviewed on a pull request that has already closed', () => {
+    // There is nothing left to discharge. The server refuses it, so offering it would lie.
+    renderBoard({
+      tasks: [aReviewTask({ sources: [aPullRequestSource({ resolvedAt: NOW - DAY })] })],
+    })
+
+    expect(screen.queryByRole('button', { name: 'Mark reviewed' })).not.toBeInTheDocument()
+  })
+
+  it('does nothing on the keyboard for a pull request that has already closed', () => {
+    const handlers = renderBoard({
+      tasks: [aReviewTask({ sources: [aPullRequestSource({ resolvedAt: NOW - DAY })] })],
+    })
+    const card = screen.getByRole('article', { name: title })
+
+    card.focus()
+    fireEvent.keyDown(card, { key: 'r' })
+
+    expect(handlers.onMarkReviewed).not.toHaveBeenCalled()
+  })
+})
+
+describe('a pull request waiting on its author', () => {
+  const title = 'example-org/example-service#42 Add a retry to the fetch helper'
+
+  /** As the connector leaves it once you have reviewed: acted on, waiting on the author. */
+  function reviewed(overrides: Partial<SourceView> = {}) {
+    return aReviewTask({
+      status: 'waiting',
+      waitingOn: 'author-one',
+      // Deliberately different from `actedAt`: the age is measured from when you acted, not
+      // from when the row was last written.
+      statusSetAt: NOW - DAY,
+      sources: [
+        aPullRequestSource({
+          lifecycleState: 'reviewed',
+          actedAt: NOW - 9 * DAY,
+          actedAtMarker: 'sha-one',
+          ...overrides,
+        }),
+      ],
+    })
+  }
+
+  it('measures the wait from when you reviewed it, not from the last write', () => {
+    renderBoard({ tasks: [reviewed()] })
+
+    expect(
+      within(screen.getByRole('article', { name: title })).getByText(/9 days/),
+    ).toBeInTheDocument()
+  })
+
+  it('is flagged stale once it passes the threshold, in words as well as colour', () => {
+    renderBoard({ tasks: [reviewed()] })
+
+    expect(
+      within(screen.getByRole('article', { name: title })).getByText('Stale'),
+    ).toBeInTheDocument()
+  })
+
+  it('says when the author has pushed since you reviewed', () => {
+    renderBoard({
+      tasks: [
+        reviewed({
+          metadata: {
+            repository: 'example-org/example-service',
+            author: 'author-one',
+            headSha: 'sha-two',
+            headCommittedAt: NOW - 2 * DAY,
+          },
+        }),
+      ],
+    })
+
+    expect(screen.getByText('The author has pushed since you reviewed')).toBeInTheDocument()
+  })
+
+  it('says nothing about a push when the head is where you left it', () => {
+    renderBoard({ tasks: [reviewed()] })
+
+    expect(screen.queryByText('The author has pushed since you reviewed')).not.toBeInTheDocument()
+  })
+})
+
+describe('a task sync has stopped following', () => {
+  it('says so, so it is clear why it stopped moving on its own', () => {
+    renderBoard({ tasks: [aReviewTask({ status: 'someday', syncTracked: false })] })
+
+    expect(screen.getByText('Sync tracking off')).toBeInTheDocument()
+  })
+})
+
+describe('a pull request that closed upstream', () => {
+  it('offers the completion sync proposed rather than quietly applying it', () => {
+    renderBoard({
+      tasks: [
+        aReviewTask({
+          status: 'waiting',
+          statusSetBy: 'user',
+          sources: [
+            aPullRequestSource({
+              lifecycleState: 'closed',
+              resolvedAt: NOW - DAY,
+              completionProposedAt: NOW - DAY,
+            }),
+          ],
+        }),
+      ],
+    })
+
+    expect(screen.getByText('Closed upstream. Complete it?')).toBeInTheDocument()
   })
 })

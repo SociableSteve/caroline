@@ -5,6 +5,7 @@ import fastifyStatic from '@fastify/static'
 import { redactSecrets } from '../config/redact.js'
 import type { Config } from '../config/schema.js'
 import type { Database } from '../db/index.js'
+import { buildConnectors, createSyncRunner, type SyncRunner } from '../jobs/sync.js'
 import { createChangeFeed, type ChangeFeed } from './changes.js'
 import { registerErrorHandling } from './errors.js'
 import { registerHealthRoute } from './routes/health.js'
@@ -12,6 +13,7 @@ import { registerConfigRoute } from './routes/config.js'
 import { registerChangesRoute } from './routes/changes.js'
 import { registerTaskRoutes } from './routes/tasks.js'
 import { registerProjectRoutes } from './routes/projects.js'
+import { registerJobRoutes } from './routes/jobs.js'
 import {
   errorSerialiser,
   redactLogFields,
@@ -29,6 +31,8 @@ export interface BuildServerOptions {
   changes?: ChangeFeed
   /** The clock the routes stamp writes with. Injected so tests do not have to wait. */
   now?: () => number
+  /** The sync job the jobs routes trigger. One is built from the config if none is given. */
+  sync?: SyncRunner
   logger?: {
     level?: string
     /** Where log lines go. Wrapped in the secret scrubber before Fastify sees it. */
@@ -44,6 +48,7 @@ export interface RouteDependencies {
   database: Database
   changes: ChangeFeed
   now: () => number
+  sync: SyncRunner
 }
 
 /**
@@ -53,13 +58,14 @@ export interface RouteDependencies {
  */
 export function registerRoutes(
   app: FastifyInstance,
-  { config, database, changes, now }: RouteDependencies,
+  { config, database, changes, now, sync }: RouteDependencies,
 ): void {
   registerHealthRoute(app, config, database)
   registerConfigRoute(app, config)
   registerChangesRoute(app, changes)
   registerTaskRoutes(app, { database, changes, now })
   registerProjectRoutes(app, { database, changes, now })
+  registerJobRoutes(app, { database, sync })
 }
 
 /**
@@ -71,6 +77,12 @@ export async function buildServer({
   database,
   changes = createChangeFeed(),
   now = () => Date.now(),
+  sync = createSyncRunner({
+    database,
+    connectors: buildConnectors(config, database),
+    changes,
+    now,
+  }),
   logger,
 }: BuildServerOptions): Promise<FastifyInstance> {
   const app = Fastify({
@@ -114,7 +126,7 @@ export async function buildServer({
   }
 
   registerErrorHandling(app, config, { spaFallback: serveWeb })
-  registerRoutes(app, { config, database, changes, now })
+  registerRoutes(app, { config, database, changes, now, sync })
 
   return app
 }

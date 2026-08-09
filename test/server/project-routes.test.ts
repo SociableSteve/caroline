@@ -4,6 +4,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { getProject, listProjects } from '../../src/db/repositories/projects.js'
+import { upsertSource } from '../../src/db/repositories/sources.js'
 import { createTask, getTask } from '../../src/db/repositories/tasks.js'
 import { REQUEST_TIME, testServer } from '../helpers/test-server.js'
 
@@ -35,6 +36,40 @@ describe('GET /api/projects', () => {
     expect(body.projects).toHaveLength(1)
     expect(body.projects[0].nextAction).toMatchObject({ id: task.id, title: 'Do the thing' })
     expect(body.projects[0].stalled).toBe(false)
+  })
+
+  /**
+   * The same task through two routes has to describe itself the same way. A next action
+   * that came from a connector arrived with a source, and dropping it here would have the
+   * project view show no provenance for a task the board shows a pull request link on.
+   */
+  it('carries the next action’s provenance, as GET /api/tasks does', async () => {
+    const { app, database } = await testServer()
+    const created = (
+      await app.inject({ method: 'POST', url: '/api/projects', payload: { title: 'Ship it' } })
+    ).json()
+    const task = createTask(
+      database,
+      { title: 'Review the pull request', status: 'next_action', projectId: created.id },
+      earlier,
+    )
+    upsertSource(
+      database,
+      {
+        provider: 'github',
+        externalId: 'example-org/example-service#42',
+        url: 'https://github.com/example-org/example-service/pull/42',
+        taskId: task.id,
+        lifecycleState: 'awaiting_review',
+      },
+      earlier,
+    )
+
+    const body = (await app.inject({ method: 'GET', url: '/api/projects' })).json()
+
+    expect(body.projects[0].nextAction.sources).toMatchObject([
+      { provider: 'github', externalId: 'example-org/example-service#42' },
+    ])
   })
 
   it('flags an active project with nothing to do next as stalled', async () => {

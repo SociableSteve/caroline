@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { jobRunStatuses, jobTriggers } from '../../src/domain/job.js'
 import { projectStates } from '../../src/domain/project.js'
 import { sourceProviders } from '../../src/domain/source.js'
 import { statusActors, taskStatuses } from '../../src/domain/task.js'
@@ -70,6 +71,32 @@ describe('the schema and the domain constants', () => {
 
   it('rejects a source provider the domain does not define', () => {
     expect(() => insertSource('jira')).toThrow(/constraint/i)
+  })
+
+  function insertJobRun(status: string, trigger = 'scheduled'): void {
+    const database = migratedDatabase()
+    database
+      .prepare(
+        `insert into job_runs (id, job, trigger, started_at, finished_at, status)
+         values (?, 'sync:github', ?, 0, 1, ?)`,
+      )
+      .run('run-1', trigger, status)
+  }
+
+  it.each(jobRunStatuses)('accepts %s as a job run status', (status) => {
+    expect(() => insertJobRun(status)).not.toThrow()
+  })
+
+  it('rejects a job run status the domain does not define', () => {
+    expect(() => insertJobRun('running')).toThrow(/constraint/i)
+  })
+
+  it.each(jobTriggers)('accepts %s as a job trigger', (trigger) => {
+    expect(() => insertJobRun('success', trigger)).not.toThrow()
+  })
+
+  it('rejects a job trigger the domain does not define', () => {
+    expect(() => insertJobRun('success', 'webhook')).toThrow(/constraint/i)
   })
 })
 

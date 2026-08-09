@@ -252,11 +252,39 @@ label {
   margin: 0;
 }
 
+/* Every one of these carries its meaning in words, so none of them depends on its colour. */
+.card-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin: 0 0 0.5rem;
+  padding: 0;
+  list-style: none;
+}
+
+.badge-pushed,
+.badge-proposed {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.badge-untracked {
+  border-color: var(--ink-quiet);
+  color: var(--ink-quiet);
+}
+
 .card-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: end;
   gap: 0.35rem;
+}
+
+/* Mark reviewed is the action taken most often on a Review card, so it leads. Spec 08. */
+.card-primary {
+  font-weight: 600;
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .card-actions button,
@@ -341,6 +369,7 @@ label {
 .chase-list,
 .stalled-list,
 .integration-list,
+.job-list,
 .project-list {
   margin: 0;
   padding: 0;
@@ -348,6 +377,7 @@ label {
 }
 
 .chase-list li,
+.job-list li,
 .integration-list li {
   display: flex;
   justify-content: space-between;
@@ -361,6 +391,16 @@ label {
   color: var(--ink-quiet);
   font-size: 0.85rem;
   white-space: nowrap;
+}
+
+/* A failed job is called out in the panel as well as in its own words. */
+.job-failed {
+  background: var(--alarm-surface);
+}
+
+.job-error {
+  color: var(--alarm);
+  font-size: 0.85rem;
 }
 
 /* Projects */

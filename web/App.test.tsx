@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { App } from './App.js'
-import { aProject, aTask } from './test-fixtures.js'
+import { aProject, aReviewTask, aTask } from './test-fixtures.js'
 
 interface Call {
   readonly method: string
@@ -29,6 +29,7 @@ const health = {
 interface StubOptions {
   tasks?: unknown[]
   projects?: unknown[]
+  jobRuns?: unknown[]
   failListing?: boolean
   failWrites?: boolean
   /** Reported by the server as the total, when it is more than the stubbed rows. */
@@ -38,6 +39,7 @@ interface StubOptions {
 function stubApi({
   tasks = [],
   projects = [],
+  jobRuns = [],
   failListing,
   failWrites,
   taskTotal,
@@ -82,6 +84,7 @@ function stubApi({
         return answer({ tasks: offset === 0 ? tasks : [], total, limit: 500, offset })
       }
       if (url.startsWith('/api/projects')) return answer({ projects })
+      if (url.startsWith('/api/jobs')) return answer({ runs: jobRuns })
       if (url.startsWith('/api/health')) return answer(health)
       if (url.startsWith('/api/config')) return answer({ tasks: { waitingStaleDays: 7 } })
 
@@ -344,6 +347,22 @@ describe('writes from the board', () => {
     )
   })
 
+  it('marks a review done from the card, moving it to Waiting for', async () => {
+    const calls = stubApi({ tasks: [aReviewTask()] })
+    window.location.hash = '#/board'
+
+    render(<App />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Mark reviewed' }))
+
+    await waitFor(() =>
+      expect(calls).toContainEqual({
+        method: 'POST',
+        url: '/api/tasks/task-pr/mark-reviewed',
+        body: undefined,
+      }),
+    )
+  })
+
   it('deletes a project from the projects surface', async () => {
     const calls = stubApi({ projects: [aProject({ id: 'project-1', title: 'Ship it' })] })
     window.location.hash = '#/projects'
@@ -358,6 +377,27 @@ describe('writes from the board', () => {
         url: '/api/projects/project-1',
         body: undefined,
       }),
+    )
+  })
+
+  /** No scheduler until M5, so this is how a sync happens. Spec 06: manual is first-class. */
+  it('triggers a sync from the header and refetches when it finishes', async () => {
+    const calls = stubApi()
+
+    render(<App />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Sync now' }))
+
+    await waitFor(() =>
+      expect(calls).toContainEqual({
+        method: 'POST',
+        url: '/api/jobs/sync/run',
+        body: undefined,
+      }),
+    )
+    await waitFor(() =>
+      expect(
+        calls.filter((call) => call.method === 'GET' && call.url.startsWith('/api/tasks')),
+      ).toHaveLength(2),
     )
   })
 })

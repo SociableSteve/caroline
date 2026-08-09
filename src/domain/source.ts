@@ -31,6 +31,17 @@ export interface Source {
   readonly actedAt: number | null
   /** Upstream position at `actedAt`, so later change is distinguishable from no change. */
   readonly actedAtMarker: string | null
+  /**
+   * When an upstream content change last put the linked task back in the classification
+   * queue. Only ever set while that task is in `inbox`. Spec 02, criterion 2.
+   */
+  readonly requeuedAt: number | null
+  /**
+   * When sync proposed completing the linked task. A proposal rather than the act: sync
+   * never completes an open item, and never silently completes one the user has since
+   * decided on for themselves. Spec 02, criterion 4.
+   */
+  readonly completionProposedAt: number | null
 }
 
 export interface ActedRecord {
@@ -42,6 +53,19 @@ export function markActed(source: Source, acted: ActedRecord): Source {
   return { ...source, actedAt: acted.at, actedAtMarker: acted.marker }
 }
 
+/**
+ * The upstream item closed or vanished. `resolvedAt` keeps the first moment it was seen to
+ * have gone: a second sync over an already-resolved item is not a second resolution.
+ */
 export function markResolved(source: Source, at: number): Source {
-  return { ...source, resolvedAt: at }
+  return { ...source, resolvedAt: source.resolvedAt ?? at }
+}
+
+/** Sync would like the linked task completed. Whether it may is the caller's decision. */
+export function proposeCompletion(source: Source, at: number): Source {
+  return { ...source, completionProposedAt: source.completionProposedAt ?? at }
+}
+
+export function markRequeued(source: Source, at: number): Source {
+  return { ...source, requeuedAt: at }
 }
