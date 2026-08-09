@@ -45,15 +45,11 @@ export function registerErrorHandling(
     if (spaFallback && !request.url.startsWith('/api/')) {
       return reply.sendFile('index.html')
     }
-    // Path only. Echoing the query string back would put caller-supplied bytes into a
-    // response body in whatever encoding the caller chose, which is the same problem the
-    // log serialisers avoid by dropping it.
-    const path = request.url.split('?')[0] ?? request.url
-    return reply
-      .status(404)
-      .send(
-        apiError('not_found', `Route ${request.method} ${redactSecrets(path, config)} not found`),
-      )
+    // The URL is not echoed. Every byte of it is chosen by the caller, so reflecting it
+    // puts caller-supplied bytes into a response body in whatever encoding the caller
+    // chose: the same reason the request logger records the matched route instead. The
+    // caller knows the URL it sent, and the status and code carry the rest.
+    return reply.status(404).send(apiError('not_found', `Route ${request.method} not found`))
   })
 
   app.setErrorHandler<FastifyError>((error, request, reply) => {

@@ -74,9 +74,11 @@ call would contain, using a real item, before it is used.
   turns `tok"en` into `tok\"en`. Recognising a secret through its encodings does not
   terminate, so the encodings are handled by removing the places they occur rather than by
   matching more forms.
-- Query strings are never logged and never echoed in a response. They are the only part of
-  a request whose bytes a caller chooses freely, and nothing here puts anything in one
-  worth keeping. Requests are identified in logs by method and path.
+- No part of a request URL is logged or echoed in a response. Every byte of it is chosen by
+  the caller, path as much as query string, so a secret can be smuggled into a log line in
+  any encoding the caller likes and literal matching will not find it. Requests are
+  identified in logs by method and by the route template they matched, which is written in
+  this repository; a request matching no route contributes no URL bytes at all.
 
 There is no encryption at rest beyond filesystem permissions. That is a deliberate choice
 for a single-user local tool, and it is documented rather than implied: anyone with access

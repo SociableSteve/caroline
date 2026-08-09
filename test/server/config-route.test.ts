@@ -51,15 +51,17 @@ describe('the standard error shape', () => {
     await app.close()
   })
 
-  it('names the path but not the query string in an unknown-route message', async () => {
+  it('echoes no part of the request URL in an unknown-route message', async () => {
     const app = await buildServer({
       config: loadConfig({ file: null, env: {} as NodeJS.ProcessEnv }),
     })
 
     const response = await app.inject({ method: 'GET', url: '/api/nope?token=anything-at-all' })
 
-    expect(response.json().error.message).toContain('/api/nope')
-    expect(response.json().error.message).not.toContain('anything-at-all')
+    const message = response.json().error.message as string
+    expect(message).toContain('GET')
+    expect(message).not.toContain('/api/nope')
+    expect(message).not.toContain('anything-at-all')
     await app.close()
   })
 

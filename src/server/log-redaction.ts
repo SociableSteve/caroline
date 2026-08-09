@@ -12,17 +12,21 @@ import type { Config } from '../config/schema.js'
  * a caller controls the bytes. Spec 09 criterion 6.
  */
 
+/** Logged in place of a route for a request that matched none. */
+export const UNMATCHED_ROUTE = '(unmatched)'
+
 /**
- * Request logging without the query string. Nothing this application puts in a query
- * string is worth a log line, and it is the only part of a request whose bytes a caller
- * chooses freely: dropping it removes every encoding of a secret at once, which matching
- * the encodings one at a time cannot do. Method and path still identify the request, and
- * the path is redacted because a route parameter can carry a secret literally.
+ * Requests are identified by the route they matched, not by the URL they arrived on. Every
+ * byte of that URL is chosen by the caller, path as much as query string, so a secret can
+ * be smuggled into a log line in any encoding the caller likes: `/api/%67%68%70...` is not
+ * the literal secret and never will be. The route template is written in this repository
+ * and matching it is what makes the smuggling impossible rather than merely harder. A
+ * request that matched no route contributes no route bytes at all.
  */
-export function requestSerialiser(config: Config) {
+export function requestSerialiser() {
   return (request: FastifyRequest) => ({
     method: request.method,
-    path: redactSecrets(request.url.split('?')[0] ?? request.url, config),
+    route: request.routeOptions.url ?? UNMATCHED_ROUTE,
     remoteAddress: request.ip,
   })
 }
@@ -44,27 +48,45 @@ export function errorSerialiser(config: Config) {
 /**
  * Redacts every string in a log payload, in place of the object pino would serialise.
  * Only plain objects and arrays are rebuilt: anything with its own prototype is left for
- * its serialiser, and already-visited objects are returned as they are so a cyclic payload
- * cannot loop.
+ * its serialiser.
+ *
+ * Property names are redacted as well as values, because a name is JSON-encoded on the way
+ * out exactly as a value is, and a secret used as a field name would reach the stream in a
+ * form the scrubber can no longer match.
+ *
+ * A payload can reference the same object twice, and a second visit must not hand back the
+ * original: that object still holds the secret, and returning it would leave one occurrence
+ * redacted and the other not. Each object is mapped to its own replacement before its
+ * contents are walked, so repeated references share the redacted copy and a cycle
+ * terminates on the copy rather than on the original.
  */
 export function redactLogPayload(
   value: unknown,
   config: Config,
-  seen: WeakSet<object> = new WeakSet(),
+  replacements: WeakMap<object, unknown> = new WeakMap(),
 ): unknown {
   if (typeof value === 'string') return redactSecrets(value, config)
   if (value === null || typeof value !== 'object') return value
-  if (seen.has(value)) return value
-  seen.add(value)
 
-  if (Array.isArray(value)) return value.map((item) => redactLogPayload(item, config, seen))
+  const existing = replacements.get(value)
+  if (existing !== undefined) return existing
+
+  if (Array.isArray(value)) {
+    const copy: unknown[] = []
+    replacements.set(value, copy)
+    for (const item of value) copy.push(redactLogPayload(item, config, replacements))
+    return copy
+  }
 
   const prototype = Object.getPrototypeOf(value) as object | null
   if (prototype !== Object.prototype && prototype !== null) return value
 
-  return Object.fromEntries(
-    Object.entries(value).map(([key, item]) => [key, redactLogPayload(item, config, seen)]),
-  )
+  const copy: Record<string, unknown> = {}
+  replacements.set(value, copy)
+  for (const [key, item] of Object.entries(value)) {
+    copy[redactSecrets(key, config)] = redactLogPayload(item, config, replacements)
+  }
+  return copy
 }
 
 /**

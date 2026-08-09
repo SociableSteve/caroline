@@ -39,7 +39,7 @@ export async function buildServer({
       level: logger?.level ?? process.env.CAROLINE_LOG_LEVEL ?? 'info',
       stream: scrubbingStream(logger?.stream ?? process.stdout, config),
       serializers: {
-        req: requestSerialiser(config),
+        req: requestSerialiser(),
         err: errorSerialiser(config),
       },
       formatters: {
