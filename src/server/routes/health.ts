@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import type { Config } from '../../config/schema.js'
+import type { Database } from '../../db/index.js'
 import { version } from '../version.js'
 
 const integrationStatusSchema = {
@@ -24,7 +25,11 @@ function describe(enabled: boolean, configured: boolean) {
  * than treated as a failure: a clean checkout with no credentials is a valid state.
  * Overview criterion 1.
  */
-export function registerHealthRoute(app: FastifyInstance, config: Config): void {
+export function registerHealthRoute(
+  app: FastifyInstance,
+  config: Config,
+  database?: Database,
+): void {
   app.get(
     '/api/health',
     {
@@ -68,6 +73,10 @@ export function registerHealthRoute(app: FastifyInstance, config: Config): void 
       status: 'ok' as const,
       version,
       uptimeSeconds: Math.round(process.uptime()),
+      // Reaching this route at all means migrations ran, since startup opens the database
+      // before it builds the server. Omitted when no database was supplied, as in the
+      // route tests that do not need one.
+      ...(database === undefined ? {} : { database: { status: 'ready' as const } }),
       integrations: {
         github: describe(config.integrations.github.enabled, config.integrations.github.configured),
         google: describe(config.integrations.google.enabled, config.integrations.google.configured),
