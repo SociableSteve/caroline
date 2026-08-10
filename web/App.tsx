@@ -5,9 +5,11 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import { api, type ProjectState, type TaskInput, type TaskStatus } from './api.js'
+import { useChat } from './chat.js'
 import { useCarolineData } from './data.js'
-import { routeLinks, useRoute } from './router.js'
+import { conversationHref, routeLinks, useRoute } from './router.js'
 import { Board } from './surfaces/Board.js'
+import { Chat } from './surfaces/Chat.js'
 import { Dashboard } from './surfaces/Dashboard.js'
 import { Jobs } from './surfaces/Jobs.js'
 import { ProjectDetail, Projects } from './surfaces/Projects.js'
@@ -137,6 +139,18 @@ export function App() {
   const cardHandlers = { onStatusChange, onComplete, onDelete }
 
   /**
+   * Chat keeps its own state: it is the one surface whose answers arrive in pieces, and the board's
+   * one-fetch-serves-everything approach has nothing to offer it. What it shares with the rest of
+   * the UI is the reload, because a turn that moved a task has moved it for every other surface too.
+   */
+  const chat = useChat({
+    conversationId: route.name === 'chat' ? route.id : null,
+    active: route.name === 'chat',
+    onDataChanged: () => void reload(),
+    onConversationStarted: (id) => window.location.assign(conversationHref(id)),
+  })
+
+  /**
    * The settings answers are read when Settings is opened rather than on every load: the payload
    * preview fetches a Gmail thread, and doing that behind the board would be a request nobody asked
    * for. Re-read after connecting or disconnecting, which is the one thing that changes them.
@@ -242,6 +256,20 @@ export function App() {
             staleDays={staleDays}
             now={now}
             {...cardHandlers}
+          />
+        ) : route.name === 'chat' ? (
+          <Chat
+            status={chat.status}
+            conversations={chat.conversations}
+            conversation={chat.conversation}
+            messages={chat.messages}
+            draft={chat.draft}
+            sending={chat.sending}
+            failure={chat.failure}
+            now={now}
+            onSend={chat.send}
+            onConfirm={chat.confirm}
+            onUndo={chat.undo}
           />
         ) : route.name === 'jobs' ? (
           <Jobs jobs={jobStatus} runs={jobRuns} now={now} onRun={onRunJob} />

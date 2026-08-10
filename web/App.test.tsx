@@ -130,6 +130,17 @@ function stubApi({
       if (url.startsWith('/api/calendar')) {
         return answer({ date: PLAN_DATE, connected: false, events: [], capacity: emptyCapacity })
       }
+      if (url.startsWith('/api/chat/status')) {
+        return answer({
+          configured: false,
+          readOnly: true,
+          maxToolCalls: 25,
+          bulkConfirmThreshold: 10,
+          provider: null,
+          model: null,
+        })
+      }
+      if (url.startsWith('/api/chat/conversations')) return answer({ conversations: [] })
       if (url.startsWith('/api/integrations/google')) return answer(google)
       if (url.startsWith('/api/privacy/preview')) return answer(preview)
       if (url.startsWith('/api/health')) return answer(health)
@@ -198,6 +209,37 @@ describe('the shell', () => {
 
     expect(await screen.findByRole('heading', { name: /^Inbox/ })).toBeInTheDocument()
     expect(screen.getByRole('article', { name: 'Captured' })).toBeInTheDocument()
+  })
+
+  it('shows chat when the hash asks for it', async () => {
+    stubApi()
+    window.location.hash = '#/chat'
+
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: 'New conversation' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Message')).toBeInTheDocument()
+  })
+
+  /**
+   * The chat surface reads its own answers, and only when it is opened: the conversation list and
+   * the status are of no use behind the board, and one of them is a read per surface change.
+   */
+  it('reads nothing for chat until chat is opened', async () => {
+    const calls = stubApi()
+
+    render(<App />)
+    await screen.findByRole('region', { name: /where everything is/i })
+    expect(calls.some((call) => call.url.startsWith('/api/chat'))).toBe(false)
+
+    window.location.hash = '#/chat'
+    window.dispatchEvent(new HashChangeEvent('hashchange'))
+
+    await waitFor(() => {
+      expect(calls.some((call) => call.url.startsWith('/api/chat/conversations'))).toBe(true)
+      // Both, so the test would notice either read being dropped rather than only the list.
+      expect(calls.some((call) => call.url.startsWith('/api/chat/status'))).toBe(true)
+    })
   })
 
   it('follows a hash change without a reload', async () => {

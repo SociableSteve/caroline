@@ -214,6 +214,94 @@ export interface CalendarDay {
   readonly capacity: CapacityView
 }
 
+/** Whether chat can answer, and whether it can change anything. Spec 07, criterion 7. */
+export interface ChatStatus {
+  readonly configured: boolean
+  readonly readOnly: boolean
+  readonly maxToolCalls: number
+  readonly bulkConfirmThreshold: number
+  readonly provider: string | null
+  readonly model: string | null
+}
+
+export interface ConversationView {
+  readonly id: string
+  readonly title: string
+  readonly createdAt: number
+  readonly updatedAt: number
+  readonly messageCount: number
+  readonly inputTokens: number
+  readonly outputTokens: number
+}
+
+/** One thing a turn changed, as the transcript renders it. Spec 07's compact record. */
+export interface ChatChangeView {
+  readonly id: string
+  readonly position: number
+  readonly tool: string
+  readonly summary: string
+  readonly entity: 'task' | 'project' | 'plan'
+  readonly entityId: string | null
+  readonly createdAt: number
+  readonly undoneAt: number | null
+  /** False for a change with nothing to put back, so undo is offered only where it works. */
+  readonly undoable: boolean
+}
+
+/** An operation the model proposed and did not perform. Spec 07, criteria 3 and 4. */
+export interface ChatConfirmationView {
+  readonly id: string
+  readonly reason: 'delete' | 'bulk'
+  readonly tool: string
+  readonly affectedCount: number
+  readonly summary: string
+  readonly createdAt: number
+  readonly decidedAt: number | null
+  readonly decision: 'confirmed' | 'rejected' | null
+}
+
+export interface ChatMessageView {
+  readonly id: string
+  readonly conversationId: string
+  readonly seq: number
+  readonly role: 'user' | 'assistant'
+  readonly content: string
+  readonly createdAt: number
+  readonly toolCalls: number
+  readonly toolCallLimitReached: boolean
+  readonly readOnly: boolean
+  readonly inputTokens: number
+  readonly outputTokens: number
+  readonly stopReason: string | null
+  readonly error: string | null
+  readonly changes: ChatChangeView[]
+  readonly confirmations: ChatConfirmationView[]
+}
+
+export interface TranscriptView {
+  readonly conversation: ConversationView
+  readonly messages: ChatMessageView[]
+}
+
+/**
+ * A turn as it arrives. The same records the history route returns, so a live turn and a reopened
+ * one are rendered by one piece of code.
+ */
+export type ChatStreamEvent =
+  | { readonly type: 'conversation'; readonly conversation: ConversationView }
+  | { readonly type: 'user-message'; readonly message: ChatMessageView }
+  | { readonly type: 'turn'; readonly messageId: string; readonly readOnly: boolean }
+  | { readonly type: 'text'; readonly text: string }
+  | { readonly type: 'tool'; readonly name: string; readonly outcome: string }
+  | { readonly type: 'change'; readonly change: ChatChangeView }
+  | { readonly type: 'confirmation'; readonly confirmation: ChatConfirmationView }
+  | {
+      readonly type: 'done'
+      readonly message: ChatMessageView
+      readonly conversation: ConversationView
+    }
+  | { readonly type: 'error'; readonly message: string }
+
 /** A project as the API returns it, with the two fields spec 01 derives rather than stores. */
 export interface ProjectView extends Project {
   readonly nextAction: TaskView | null
@@ -358,6 +446,44 @@ function projectPath(id: string): string {
   return `/api/projects/${encodeURIComponent(id)}`
 }
 
+/** The event names a turn sends. Anything else is not something this client knows how to render. */
+const chatEventTypes: readonly string[] = [
+  'conversation',
+  'user-message',
+  'turn',
+  'text',
+  'tool',
+  'change',
+  'confirmation',
+  'done',
+  'error',
+]
+
+/**
+ * One server-sent event, as a chat event. Comments and keep-alives have no `data:` line and are
+ * skipped; so is an event whose data will not parse, because half an event is not one, and so is
+ * one whose name this client does not know: passing it on would have the reader treat it as
+ * whichever type it tests for last.
+ */
+function parseEvent(block: string): ChatStreamEvent | null {
+  let name = ''
+  const data: string[] = []
+
+  for (const line of block.split('\n')) {
+    if (line.startsWith('event:')) name = line.slice('event:'.length).trim()
+    // A multi-line data field is legal SSE and is rejoined with newlines, as the standard says.
+    if (line.startsWith('data:')) data.push(line.slice('data:'.length).trimStart())
+  }
+
+  if (name === '' || data.length === 0 || !chatEventTypes.includes(name)) return null
+
+  try {
+    return { type: name, ...(JSON.parse(data.join('\n')) as object) } as ChatStreamEvent
+  } catch {
+    return null
+  }
+}
+
 export const api = {
   /** One page. Exposed for the tests and for anything that genuinely wants a window. */
   listTaskPage(filter: TaskFilter = {}, offset = 0): Promise<TaskPage> {
@@ -497,6 +623,86 @@ export const api = {
 
   deleteProject(id: string): Promise<void> {
     return send<void>('DELETE', projectPath(id))
+  },
+
+  getChatStatus(): Promise<ChatStatus> {
+    return request<ChatStatus>('/api/chat/status')
+  },
+
+  listConversations(): Promise<{ conversations: ConversationView[] }> {
+    return request('/api/chat/conversations')
+  },
+
+  getConversation(id: string): Promise<TranscriptView> {
+    return request<TranscriptView>(`/api/chat/conversations/${encodeURIComponent(id)}`)
+  },
+
+  /**
+   * Sends a turn and reads the stream it answers with. `EventSource` cannot post a body, so the
+   * stream is read off `fetch` and cut into events here.
+   *
+   * A turn is recorded as it happens, so abandoning the read does not abandon the turn: the caller
+   * that gives up gets the rest by reloading the conversation.
+   */
+  async streamChat(
+    input: { conversationId?: string; message: string },
+    onEvent: (event: ChatStreamEvent) => void,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(input),
+      ...(signal === undefined ? {} : { signal }),
+    })
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => null)
+      throw errorFrom(response.status, body)
+    }
+    if (response.body === null) throw new ApiFailure(500, 'unknown', 'The turn sent no stream')
+
+    const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
+    let buffered = ''
+
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (done) break
+
+      // Normalised, because SSE allows CRLF and a boundary of `\r\n\r\n` contains no `\n\n` to
+      // split on: a stream through something that rewrote the line endings would never yield an event.
+      buffered += (value ?? '').replace(/\r\n/g, '\n')
+
+      // Events are separated by a blank line. Anything after the last one is a partial event and
+      // stays in the buffer until the rest of it arrives.
+      let boundary = buffered.indexOf('\n\n')
+      while (boundary !== -1) {
+        const block = buffered.slice(0, boundary)
+        buffered = buffered.slice(boundary + 2)
+
+        const event = parseEvent(block)
+        if (event !== null) onEvent(event)
+
+        boundary = buffered.indexOf('\n\n')
+      }
+    }
+  },
+
+  confirmChat(
+    id: string,
+    confirmed: boolean,
+  ): Promise<{
+    confirmation: ChatConfirmationView
+    changes: ChatChangeView[]
+    failures: string[]
+  }> {
+    return send('POST', `/api/chat/confirmations/${encodeURIComponent(id)}`, { confirmed })
+  },
+
+  undoChatTurn(conversationId: string, messageId: string): Promise<{ changes: ChatChangeView[] }> {
+    return send('POST', `/api/chat/conversations/${encodeURIComponent(conversationId)}/undo`, {
+      messageId,
+    })
   },
 
   getHealth(): Promise<Health> {

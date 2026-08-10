@@ -268,6 +268,24 @@ export function recordDailyPlan(database: Database, input: RecordDailyPlanInput)
   })
 }
 
+/**
+ * The plan entries naming a task. Read before a delete, so that undoing one can put the links back:
+ * `task_id` is `on delete set null` (migration 5), which keeps the record of what was proposed and
+ * loses the entry's connection to the task. Without this an undone delete would leave today's plan
+ * unable to mark that entry done.
+ */
+export function listPlanEntryIdsForTask(database: Database, taskId: string): string[] {
+  return database
+    .prepare('select id from daily_plan_entries where task_id = ? order by id')
+    .all(taskId)
+    .map((row) => String((row as Row).id))
+}
+
+/** Reattaches a plan entry to a task. The other half of the read above. */
+export function relinkPlanEntry(database: Database, entryId: string, taskId: string): void {
+  database.prepare('update daily_plan_entries set task_id = ? where id = ?').run(taskId, entryId)
+}
+
 export interface DailyPlanQuery {
   readonly planDate?: string
   readonly limit?: number

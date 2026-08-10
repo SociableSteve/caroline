@@ -4,6 +4,12 @@ import {
   calendarResponseStatuses,
   calendarTransparencies,
 } from '../../src/domain/calendar.js'
+import {
+  chatChangeEntities,
+  chatConfirmationDecisions,
+  chatConfirmationReasons,
+  chatRoles,
+} from '../../src/domain/chat.js'
 import { planEntryKinds } from '../../src/domain/plan.js'
 import { jobRunStatuses, jobTriggers } from '../../src/domain/job.js'
 import { llmCallStatuses, llmPurposes } from '../../src/domain/llm.js'
@@ -318,6 +324,227 @@ describe('a daily plan entry', () => {
     expect(
       database.prepare('select count(*) as count from daily_plan_entries').get(),
     ).toMatchObject({ count: 0 })
+  })
+})
+
+/**
+ * The chat tables. Spec 07's rules are enforced in `src/chat`, and the ones the schema can hold on
+ * its own are held here too: a user turn that claims to have spent tokens, a confirmation that is
+ * half-decided, and a change or a confirmation belonging to a turn that has gone.
+ */
+describe('a chat row', () => {
+  function withConversation() {
+    const database = migratedDatabase()
+    database
+      .prepare(
+        `insert into chat_conversations (id, title, created_at, updated_at)
+         values ('conversation-1', 'Triage my inbox', 0, 0)`,
+      )
+      .run()
+
+    const addMessage = (id: string, role: string, seq: number, extra = '', values = '') =>
+      database
+        .prepare(
+          `insert into chat_messages (id, conversation_id, seq, role, content, created_at${extra})
+           values (?, 'conversation-1', ?, ?, 'Hello', 0${values})`,
+        )
+        .run(id, seq, role)
+
+    return { database, addMessage }
+  }
+
+  it.each(chatRoles)('accepts %s as a role', (role) => {
+    const { addMessage } = withConversation()
+
+    expect(() => addMessage('message-1', role, 1)).not.toThrow()
+  })
+
+  it('rejects a role the domain does not define', () => {
+    const { addMessage } = withConversation()
+
+    expect(() => addMessage('message-1', 'system', 1)).toThrow(/constraint/i)
+  })
+
+  it('rejects two messages at the same position in one conversation', () => {
+    const { addMessage } = withConversation()
+    addMessage('message-1', 'user', 1)
+
+    expect(() => addMessage('message-2', 'assistant', 1)).toThrow(/unique/i)
+  })
+
+  /** A user turn that spent tokens would be a row nothing could act on and a wrong usage total. */
+  it('rejects a user turn carrying token usage', () => {
+    const { addMessage } = withConversation()
+
+    expect(() => addMessage('message-1', 'user', 1, ', input_tokens', ', 100')).toThrow(
+      /constraint/i,
+    )
+  })
+
+  it('rejects a user turn that claims to have called a tool', () => {
+    const { addMessage } = withConversation()
+
+    expect(() => addMessage('message-1', 'user', 1, ', tool_calls', ', 3')).toThrow(/constraint/i)
+  })
+
+  it('accepts an assistant turn carrying usage, which is the point of the columns', () => {
+    const { addMessage } = withConversation()
+
+    expect(() =>
+      addMessage('message-1', 'assistant', 1, ', input_tokens, output_tokens', ', 100, 40'),
+    ).not.toThrow()
+  })
+
+  it('goes with its conversation, since a turn of nothing is nothing', () => {
+    const { database, addMessage } = withConversation()
+    addMessage('message-1', 'user', 1)
+
+    database.prepare('delete from chat_conversations where id = ?').run('conversation-1')
+
+    expect(database.prepare('select count(*) as count from chat_messages').get()).toMatchObject({
+      count: 0,
+    })
+  })
+})
+
+describe('a chat change', () => {
+  function withTurn() {
+    const database = migratedDatabase()
+    database
+      .prepare(
+        `insert into chat_conversations (id, title, created_at, updated_at)
+         values ('conversation-1', 'Triage my inbox', 0, 0)`,
+      )
+      .run()
+    database
+      .prepare(
+        `insert into chat_messages (id, conversation_id, seq, role, content, created_at)
+         values ('message-1', 'conversation-1', 1, 'assistant', 'Done.', 0)`,
+      )
+      .run()
+
+    const add = (id: string, entity: string, position = 1) =>
+      database
+        .prepare(
+          `insert into chat_changes (id, message_id, position, tool, summary, entity, created_at)
+           values (?, 'message-1', ?, 'complete_task', 'Completed it', ?, 0)`,
+        )
+        .run(id, position, entity)
+
+    return { database, add }
+  }
+
+  it.each(chatChangeEntities)('accepts %s as the thing that changed', (entity) => {
+    const { add } = withTurn()
+
+    expect(() => add('change-1', entity)).not.toThrow()
+  })
+
+  it('rejects an entity the domain does not define', () => {
+    const { add } = withTurn()
+
+    expect(() => add('change-1', 'calendar_event')).toThrow(/constraint/i)
+  })
+
+  it('rejects two changes at the same position in one turn', () => {
+    const { add } = withTurn()
+    add('change-1', 'task', 1)
+
+    expect(() => add('change-2', 'task', 1)).toThrow(/unique/i)
+  })
+
+  it('goes with its turn', () => {
+    const { database, add } = withTurn()
+    add('change-1', 'task')
+
+    database.prepare('delete from chat_messages where id = ?').run('message-1')
+
+    expect(database.prepare('select count(*) as count from chat_changes').get()).toMatchObject({
+      count: 0,
+    })
+  })
+})
+
+describe('a chat confirmation', () => {
+  function withTurn() {
+    const database = migratedDatabase()
+    database
+      .prepare(
+        `insert into chat_conversations (id, title, created_at, updated_at)
+         values ('conversation-1', 'Triage my inbox', 0, 0)`,
+      )
+      .run()
+    database
+      .prepare(
+        `insert into chat_messages (id, conversation_id, seq, role, content, created_at)
+         values ('message-1', 'conversation-1', 1, 'assistant', 'Held.', 0)`,
+      )
+      .run()
+
+    const add = (columns: string, values: string) =>
+      database
+        .prepare(
+          `insert into chat_confirmations (id, message_id, tool, arguments, affected_count,
+             summary, created_at, ${columns})
+           values ('confirmation-1', 'message-1', 'delete_task', '{}', 1, 'Delete it', 0, ${values})`,
+        )
+        .run()
+
+    const addWithCount = (affectedCount: number) =>
+      database
+        .prepare(
+          `insert into chat_confirmations (id, message_id, reason, tool, arguments, affected_count,
+             summary, created_at)
+           values ('confirmation-2', 'message-1', 'delete', 'delete_task', '{}', ?, 'Delete it', 0)`,
+        )
+        .run(affectedCount)
+
+    return { add, addWithCount }
+  }
+
+  it.each(chatConfirmationReasons)('accepts %s as a reason to hold an operation', (reason) => {
+    const { add } = withTurn()
+
+    expect(() => add('reason', `'${reason}'`)).not.toThrow()
+  })
+
+  it('rejects a reason the domain does not define', () => {
+    const { add } = withTurn()
+
+    expect(() => add('reason', "'looks risky'")).toThrow(/constraint/i)
+  })
+
+  it.each(chatConfirmationDecisions)('accepts %s as a decision', (decision) => {
+    const { add } = withTurn()
+
+    expect(() => add('reason, decision, decided_at', `'delete', '${decision}', 100`)).not.toThrow()
+  })
+
+  it('rejects a decision the domain does not define', () => {
+    const { add } = withTurn()
+
+    expect(() => add('reason, decision, decided_at', "'delete', 'maybe', 100")).toThrow(
+      /constraint/i,
+    )
+  })
+
+  /** Decided and undecided are one fact. Half of it would be a state nothing could report. */
+  it('rejects a decision with no moment attached to it', () => {
+    const { add } = withTurn()
+
+    expect(() => add('reason, decision', "'delete', 'confirmed'")).toThrow(/constraint/i)
+  })
+
+  it('rejects a moment with no decision attached to it', () => {
+    const { add } = withTurn()
+
+    expect(() => add('reason, decided_at', "'delete', 100")).toThrow(/constraint/i)
+  })
+
+  it('rejects one that affects nothing, since there would be nothing to confirm', () => {
+    const { addWithCount } = withTurn()
+
+    expect(() => addWithCount(0)).toThrow(/constraint/i)
   })
 })
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseRoute, projectHref } from './router.js'
+import { conversationHref, parseRoute, projectHref } from './router.js'
 
 describe('parseRoute', () => {
   it('lands on the dashboard for an empty hash', () => {
@@ -23,6 +23,22 @@ describe('parseRoute', () => {
       name: 'settings',
       outcome: 'connected',
     })
+  })
+
+  it('reads chat, with and without a conversation to reopen', () => {
+    expect(parseRoute('#/chat')).toEqual({ name: 'chat', id: null })
+    expect(parseRoute('#/chat/conversation%201')).toEqual({ name: 'chat', id: 'conversation 1' })
+  })
+
+  /** As for a project id: an undecodable segment is a bad link, not a reason to take the app down. */
+  it('falls back to a new conversation for a chat id that cannot be decoded', () => {
+    expect(parseRoute('#/chat/%')).toEqual({ name: 'chat', id: null })
+  })
+
+  it('round-trips a conversation id that needs escaping', () => {
+    const id = 'a/b c'
+
+    expect(parseRoute(conversationHref(id))).toEqual({ name: 'chat', id })
   })
 
   it('reads a project drill-in, decoding the id', () => {

@@ -26,6 +26,11 @@
     "confidenceThreshold": 0.75,
     "concurrency": 3
   },
+  "chat": {
+    "maxToolCalls": 25,
+    "bulkConfirmThreshold": 10,
+    "contextMessages": 40
+  },
   "privacy": {
     "llmContent": "snippet",
     "storeContent": "metadata",

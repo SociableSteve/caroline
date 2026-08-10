@@ -59,6 +59,12 @@ out as gone quiet, in the column and on the dashboard. Seven days by default, pe
 for changes on comes back into Review when the author pushes, or waits for an explicit
 re-request. On by default.
 
+`chat.maxToolCalls` bounds how much one chat turn may do: twenty-five tool calls by default, after
+which the turn stops and says so. `chat.bulkConfirmThreshold` is how many tasks a turn may change
+before the rest of it is held for you to confirm, ten by default.
+`chat.contextMessages` is how many earlier messages of a conversation are sent with a turn; the
+transcript is kept whole either way.
+
 `jobs.schedules` sets when each background job runs, in cron syntax, read in `jobs.timezone`
 so that a daily job stays where you put it across a clock change. `jobs.retainRunDays` is how
 long the run history is kept, and `jobs.backoffCeilingMinutes` how far a run of failures may
@@ -110,6 +116,29 @@ never creates a project: a project it thinks you need is a suggestion on the car
 Every answer is recorded, applied or not, including the ones that failed. That table is the audit
 trail and the evaluation set for tuning the prompt later.
 
+### Chat
+
+**Chat** discusses and changes your tasks in words: triage a pile of inbox items, reshape a project,
+ask what today looks like and why. The model is given tools that reach Caroline's own database and
+nothing else, so it can search, read, create, update, complete, delete and replan, and it cannot
+send an email, comment on a pull request or touch your calendar. The tool list is the enforcement,
+not a rule it has been asked to follow.
+
+Every change it makes is yours: it happens at once, appears in the transcript as a line saying what
+changed, and the turn carries an **Undo these changes** control that puts the whole batch back.
+Deleting is different: it is never carried out on the model's word, and neither is the rest of a turn
+that has already changed more tasks than `chat.bulkConfirmThreshold`. Those are proposed, with a
+count of what they would affect, and wait for **Confirm** or **Discard**.
+
+Conversations are kept, listed by what they were about, and reopen with their full transcript and
+what each one cost in tokens. A turn is recorded as it happens, so a dropped connection loses the
+live text and nothing else: reload and it is there.
+
+With a model that cannot use tools, chat says so at the top of the surface and answers from the
+counts, the plan and the capacity it is given rather than pretending to make changes. For Ollama
+that is the default, because tool support depends on the model: set `llm.supportsTools` to `true`
+once you know yours calls them, or set it under `llm.overrides.chat` for the chat model alone.
+
 ### The scheduler
 
 Sync runs every fifteen minutes, classification hourly, and a purge nightly. **Jobs** shows what
@@ -129,6 +158,10 @@ same thing as the digit. Either way the change is recorded as yours, and the cla
 not later overrule it.
 
 ### What leaves the machine
+
+Chat is subject to the same policy. A turn is given counts, today's plan and today's free time, and
+no task detail at all: anything more specific the model fetches with a tool, which reads the
+database rather than an inbox, and no tool returns a stored message body.
 
 `privacy.llmContent` governs how much of an item is sent to the LLM provider, and
 `privacy.storeContent` how much is kept on disk. They are set independently and default to

@@ -18,9 +18,10 @@ import {
   type DailyPlanNudgeInput,
 } from '../db/repositories/daily-plans.js'
 import { listProjects } from '../db/repositories/projects.js'
-import { listSourcesForTasks } from '../db/repositories/sources.js'
 import { listTasks } from '../db/repositories/tasks.js'
-import { computeCapacity, workingWindowFor, type Capacity } from '../domain/capacity.js'
+import { workingWindowForDate } from '../actions/capacity.js'
+import { waitingItemsFor } from '../actions/waiting.js'
+import { computeCapacity, type Capacity } from '../domain/capacity.js'
 import { noCounts, type JobCounts, type JobRunStatus } from '../domain/job.js'
 import {
   applyPlanRules,
@@ -30,13 +31,8 @@ import {
   type PlanCandidate,
   type PlannedEntry,
   type RankedEntry,
-  type WaitingItem,
 } from '../domain/plan.js'
-import { hasNewCommitsSinceActing } from '../domain/review.js'
-import type { Source } from '../domain/source.js'
-import type { Task } from '../domain/task.js'
 import { formatLocalDate, instantAt, localDateAt, type LocalDate } from '../domain/time.js'
-import { waitingSince } from '../domain/waiting.js'
 import type { LlmRuntime } from '../llm/index.js'
 import {
   buildPlanPayload,
@@ -65,12 +61,6 @@ export interface PlanResult {
   readonly error: string | null
   /** The plan that was written, or null when none was. */
   readonly plan: DailyPlan | null
-}
-
-/** How many minutes into the day a local `HH:MM` is. The config carries the readable form. */
-function minutesOfDay(time: string): number {
-  const [hour = '0', minute = '0'] = time.split(':')
-  return Number(hour) * 60 + Number(minute)
 }
 
 function skipped(error: string): PlanResult {
@@ -125,13 +115,9 @@ function dayContext(
   timeZone: string,
 ): DayContext {
   const warnings: string[] = []
-  const { workingWindow, workingDays, reservePercent, countAllDayEvents } = config.planning
+  const { reservePercent, countAllDayEvents } = config.planning
 
-  const window = workingWindowFor(date, timeZone, {
-    startMinute: minutesOfDay(workingWindow.start),
-    endMinute: minutesOfDay(workingWindow.end),
-    days: workingDays,
-  })
+  const window = workingWindowForDate(config, date)
 
   // Midnight at the end of the day, which is what "due today" is measured against. Taken from
   // the day itself rather than from the window, so a deadline at eight in the evening is still
@@ -164,60 +150,17 @@ function dayContext(
   }
 
   const tasks = listTasks(database, {}, now()).tasks
-  const sources = listSourcesForTasks(
-    database,
-    tasks.map((task) => task.id),
-  )
 
   return {
     capacity,
     capacityVerified: verified,
     // A day with no window has no work in it, so nothing is offered to the model either.
     candidates: window === null ? [] : planCandidates(tasks, dueBy),
-    nudges: chaseNudges(waitingItems(tasks, sources), now(), config.tasks.waitingStaleDays),
+    nudges: chaseNudges(waitingItemsFor(database, tasks), now(), config.tasks.waitingStaleDays),
     projectTitles: new Map(listProjects(database).map((project) => [project.id, project.title])),
     dueBy,
     warnings,
   }
-}
-
-/** The waiting items, each dated from the moment it became somebody else's turn. Spec 02. */
-function waitingItems(
-  tasks: readonly Task[],
-  sources: ReadonlyMap<string, Source[]>,
-): WaitingItem[] {
-  return tasks
-    .filter((task) => task.status === 'waiting')
-    .map((task) => {
-      const pullRequest = (sources.get(task.id) ?? []).find(
-        (source) => source.provider === 'github',
-      )
-      const metadata = (pullRequest?.metadata ?? {}) as {
-        headSha?: unknown
-        headCommittedAt?: unknown
-      }
-
-      return {
-        taskId: task.id,
-        title: task.title,
-        waitingOn: task.waitingOn,
-        waitingSince: waitingSince(task, pullRequest ?? null),
-        isPullRequest: pullRequest !== undefined,
-        // The state machine's own judgement, imported rather than reimplemented, so the nudge
-        // and the card cannot come to different conclusions about the same two shas.
-        pushedSinceReview:
-          pullRequest !== undefined && typeof metadata.headSha === 'string'
-            ? hasNewCommitsSinceActing(
-                {
-                  headSha: metadata.headSha,
-                  headCommittedAt:
-                    typeof metadata.headCommittedAt === 'number' ? metadata.headCommittedAt : null,
-                },
-                pullRequest,
-              )
-            : false,
-      }
-    })
 }
 
 /** Asks the model, applies the rules, and writes the result. */

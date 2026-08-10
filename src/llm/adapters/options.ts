@@ -11,6 +11,12 @@ export interface AdapterOptions {
   readonly baseUrl: string | null
   readonly timeoutMs: number
   /**
+   * Whether the model can be given tools. Passed through to the provider rather than decided
+   * per adapter, because for Ollama it is a fact about the model and only the configuration
+   * knows which model is loaded. Spec 03's graceful degradation.
+   */
+  readonly supportsTools: boolean
+  /**
    * Injected so that no test in this repository reaches the network. Adapters are proved
    * against recorded provider payloads served through this. Spec 03, criterion 2.
    */

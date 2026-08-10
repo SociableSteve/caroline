@@ -11,6 +11,12 @@ import {
   calendarResponseStatuses,
   calendarTransparencies,
 } from '../domain/calendar.js'
+import {
+  chatChangeEntities,
+  chatConfirmationDecisions,
+  chatConfirmationReasons,
+  chatRoles,
+} from '../domain/chat.js'
 import { planEntryKinds } from '../domain/plan.js'
 import { jobRunStatuses, jobTriggers } from '../domain/job.js'
 import { projectStates } from '../domain/project.js'
@@ -618,6 +624,185 @@ export const calendarResponseSchema = {
       },
     },
   },
+} as const
+
+/** The most a chat message may be. Long enough to paste a paragraph, short of an essay. */
+export const CHAT_MESSAGE_MAX = 8_000
+/** How many conversations the list returns. One person does not have more open than this. */
+export const CONVERSATIONS_DEFAULT = 30
+export const CONVERSATIONS_MAX = 100
+
+export const chatTurnBodySchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['message'],
+  properties: {
+    /** Omitted to start a new conversation, which is titled from the message. */
+    conversationId: { type: 'string', minLength: 1, maxLength: 64 },
+    message: { type: 'string', minLength: 1, maxLength: CHAT_MESSAGE_MAX, pattern: '\\S' },
+  },
+} as const
+
+/**
+ * What a turn changed, as the transcript shows it. The stored inverse is deliberately absent: it
+ * exists for undo and nothing on the wire has any use for it.
+ */
+const chatChangeResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'position', 'tool', 'summary', 'entity', 'undoable'],
+  properties: {
+    id: { type: 'string' },
+    position: { type: 'integer' },
+    tool: { type: 'string' },
+    summary: { type: 'string' },
+    entity: { type: 'string', enum: chatChangeEntities },
+    entityId: nullableString(64),
+    createdAt: { type: 'integer' },
+    undoneAt: nullableInteger,
+    /** False for a change with nothing to put back, so undo is offered only where it works. */
+    undoable: { type: 'boolean' },
+  },
+} as const
+
+/** An operation the model proposed and did not perform. Spec 07, criteria 3 and 4. */
+const chatConfirmationResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'reason', 'tool', 'affectedCount', 'summary'],
+  properties: {
+    id: { type: 'string' },
+    reason: { type: 'string', enum: chatConfirmationReasons },
+    tool: { type: 'string' },
+    /** How many items confirming would affect. Criterion 4 asks this be stated. */
+    affectedCount: { type: 'integer' },
+    summary: { type: 'string' },
+    createdAt: { type: 'integer' },
+    decidedAt: nullableInteger,
+    decision: { type: ['string', 'null'], enum: [...chatConfirmationDecisions, null] },
+  },
+} as unknown as Record<string, unknown>
+
+export const chatMessageResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'role', 'seq', 'content', 'createdAt', 'changes', 'confirmations'],
+  properties: {
+    id: { type: 'string' },
+    conversationId: { type: 'string' },
+    seq: { type: 'integer' },
+    role: { type: 'string', enum: chatRoles },
+    content: { type: 'string' },
+    createdAt: { type: 'integer' },
+    toolCalls: { type: 'integer' },
+    /** The turn stopped on its budget rather than because it had finished. Criterion 6. */
+    toolCallLimitReached: { type: 'boolean' },
+    /** The turn was answered by a model that cannot use tools. Criterion 7. */
+    readOnly: { type: 'boolean' },
+    inputTokens: { type: 'integer' },
+    outputTokens: { type: 'integer' },
+    stopReason: nullableString(60),
+    error: nullableString(2000),
+    changes: { type: 'array', items: chatChangeResponseSchema },
+    confirmations: { type: 'array', items: chatConfirmationResponseSchema },
+  },
+} as const
+
+export const conversationResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'title', 'createdAt', 'updatedAt', 'messageCount'],
+  properties: {
+    id: { type: 'string' },
+    title: { type: 'string' },
+    createdAt: { type: 'integer' },
+    updatedAt: { type: 'integer' },
+    messageCount: { type: 'integer' },
+    /** Spec 07: token usage per conversation is recorded and shown. */
+    inputTokens: { type: 'integer' },
+    outputTokens: { type: 'integer' },
+  },
+} as const
+
+export const conversationListQuerySchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    limit: {
+      type: 'integer',
+      minimum: 1,
+      maximum: CONVERSATIONS_MAX,
+      default: CONVERSATIONS_DEFAULT,
+    },
+  },
+} as const
+
+export const conversationListResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['conversations'],
+  properties: {
+    conversations: { type: 'array', items: conversationResponseSchema },
+  },
+} as const
+
+export const transcriptResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['conversation', 'messages'],
+  properties: {
+    conversation: conversationResponseSchema,
+    messages: { type: 'array', items: chatMessageResponseSchema },
+  },
+} as const
+
+/** Whether chat can answer at all, and whether it can change anything. Criterion 7. */
+export const chatStatusResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['configured', 'readOnly', 'maxToolCalls', 'bulkConfirmThreshold'],
+  properties: {
+    configured: { type: 'boolean' },
+    readOnly: { type: 'boolean' },
+    /** Named so the UI can say what the limits are rather than describing them vaguely. */
+    maxToolCalls: { type: 'integer' },
+    bulkConfirmThreshold: { type: 'integer' },
+    provider: nullableString(20),
+    model: nullableString(200),
+  },
+} as const
+
+export const chatConfirmBodySchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['confirmed'],
+  properties: { confirmed: { type: 'boolean' } },
+} as const
+
+export const chatConfirmResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['confirmation', 'changes', 'failures'],
+  properties: {
+    confirmation: chatConfirmationResponseSchema,
+    changes: { type: 'array', items: chatChangeResponseSchema },
+    /** What could not be carried out after all, in the words the user should see. */
+    failures: { type: 'array', items: { type: 'string' } },
+  },
+} as const
+
+export const chatUndoBodySchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['messageId'],
+  properties: { messageId: { type: 'string', minLength: 1, maxLength: 64 } },
+} as const
+
+export const chatUndoResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['changes'],
+  properties: { changes: { type: 'array', items: chatChangeResponseSchema } },
 } as const
 
 export const privacyPreviewQuerySchema = {

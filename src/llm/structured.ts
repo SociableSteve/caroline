@@ -16,6 +16,7 @@ import {
   type CompletionRequest,
   type CompletionResult,
   type LlmProvider,
+  type TokenUsage,
 } from './types.js'
 import { validateAgainstSchema } from './validate.js'
 
@@ -90,6 +91,7 @@ export function withSchemaValidation(
     name: provider.name,
     isLocal: provider.isLocal,
     model: provider.model,
+    supportsTools: provider.supportsTools,
 
     async complete(request: CompletionRequest): Promise<CompletionResult> {
       const { schema } = request
@@ -131,10 +133,46 @@ export function withSchemaValidation(
       )
     },
 
-    // Streaming is chat's, and chat does not ask for structured output. Passed through
-    // rather than reimplemented, so there is no second, subtly different retry rule.
-    stream(request: CompletionRequest): AsyncIterable<CompletionChunk> {
-      return provider.stream(request)
+    /**
+     * Streaming is chat's, and chat does not ask for structured output, so there is no schema to
+     * validate and no retry rule to apply: the request is passed through rather than
+     * reimplemented, so there cannot be a second, subtly different one.
+     *
+     * It is still recorded. Spec 03 criterion 7 is every call, and a chat turn that made eight
+     * of them spent real tokens on all eight. Reported when the final chunk arrives, because that
+     * is the chunk that carries the usage, and reported as an error if the stream fails part-way,
+     * because a stream that died halfway through was still a call.
+     */
+    async *stream(request: CompletionRequest): AsyncIterable<CompletionChunk> {
+      const startedAt = now()
+      let reported = false
+
+      const report = (status: 'success' | 'error', usage: TokenUsage, error: string | null) => {
+        if (reported) return
+        reported = true
+        onAttempt?.({ startedAt, durationMs: now() - startedAt, usage, status, error })
+      }
+
+      try {
+        for await (const chunk of provider.stream(request)) {
+          // Reported before the chunk is handed over, so a caller that stops reading the moment it
+          // has the result cannot end the generator before the row is written.
+          if (chunk.type === 'done') report('success', chunk.result.usage, null)
+          yield chunk
+        }
+      } catch (error) {
+        report('error', noTokens, error instanceof Error ? error.message : String(error))
+        throw error
+      } finally {
+        /*
+         * A stream that ended without a final chunk answered nothing, and one the caller abandoned
+         * part-way still cost whatever it had produced. Either way the call happened, and a call
+         * with no row is a call the cost view says was never made. In a `finally` because
+         * abandonment is a `return` into the generator rather than an error out of it, and nothing
+         * else would run.
+         */
+        report('error', noTokens, 'the stream ended without a final chunk')
+      }
     },
   }
 }

@@ -12,11 +12,6 @@ import type { LlmCallStatus } from '../domain/llm.js'
  */
 export type JsonSchema = Record<string, unknown>
 
-export interface Message {
-  readonly role: 'user' | 'assistant'
-  readonly content: string
-}
-
 export interface ToolDefinition {
   readonly name: string
   readonly description: string
@@ -29,6 +24,33 @@ export interface ToolCall {
   readonly name: string
   /** Parsed from whatever the provider sent. Validated by the tool, not here. */
   readonly arguments: unknown
+}
+
+/**
+ * What a tool answered, on its way back to the model. The content is text rather than an
+ * object because text is what all three providers carry, and because the tool has already
+ * decided what the model should be told: a shape here would invite a second opinion.
+ */
+export interface ToolResult {
+  readonly toolCallId: string
+  readonly name: string
+  readonly content: string
+  /** True when the tool refused. Spec 07 allows the model one retry against that. */
+  readonly isError?: boolean
+}
+
+/**
+ * One turn of a conversation. Tool traffic travels on the messages rather than in a list of
+ * its own, because its position in the exchange is most of its meaning: a result answers the
+ * call in the turn before it, and every provider encodes that as ordering. `toolCalls`
+ * belongs to an assistant turn and `toolResults` to a user turn; the other combination is
+ * nothing an adapter can express, and chat never builds one.
+ */
+export interface Message {
+  readonly role: 'user' | 'assistant'
+  readonly content: string
+  readonly toolCalls?: readonly ToolCall[]
+  readonly toolResults?: readonly ToolResult[]
 }
 
 export interface CompletionRequest {
@@ -85,6 +107,13 @@ export interface LlmProvider {
   /** True only for ollama. Spec 09's full-content guard turns on exactly this. */
   readonly isLocal: boolean
   readonly model: string
+  /**
+   * Whether this model can be given tools at all. The hosted providers can; Ollama's answer
+   * depends on the model, so it is declared in the configuration rather than assumed. False
+   * makes chat read-only, which spec 07 criterion 7 asks be said plainly rather than
+   * discovered when a change silently fails to happen.
+   */
+  readonly supportsTools: boolean
 
   complete(request: CompletionRequest): Promise<CompletionResult>
   stream(request: CompletionRequest): AsyncIterable<CompletionChunk>

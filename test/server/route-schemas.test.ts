@@ -64,7 +64,7 @@ describe('every API route', () => {
     expect(routes.every((route) => route.url.startsWith('/api'))).toBe(true)
   })
 
-  it('covers the routes M2 and M3 promise, so the list above cannot pass by being empty', async () => {
+  it('covers the routes the milestones promise, so the list above cannot pass by being empty', async () => {
     const routes = (await registeredRoutes()).map((route) => `${route.method} ${route.url}`)
 
     expect(routes).toEqual(
@@ -87,6 +87,16 @@ describe('every API route', () => {
         'DELETE /api/projects/:id',
         'GET /api/jobs',
         'POST /api/jobs/:name/run',
+        'GET /api/plan',
+        'GET /api/plan/:date',
+        'POST /api/plan/:date/regenerate',
+        'GET /api/calendar',
+        'POST /api/chat',
+        'GET /api/chat/status',
+        'GET /api/chat/conversations',
+        'GET /api/chat/conversations/:id',
+        'POST /api/chat/confirmations/:id',
+        'POST /api/chat/conversations/:id/undo',
       ]),
     )
   })

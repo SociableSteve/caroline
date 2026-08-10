@@ -81,6 +81,16 @@ function writeTask(database: Database, task: Task): void {
     })
 }
 
+/**
+ * Writes a whole task row as given, attribution and timestamps included. The one caller is
+ * chat's undo, which holds the row as it was before a turn touched it and has to put exactly
+ * that back: going through `updateTask` would stamp `updated_at` with the moment of the undo and
+ * leave the task looking edited rather than restored. Spec 07, criterion 5.
+ */
+export function restoreTask(database: Database, task: Task): void {
+  writeTask(database, task)
+}
+
 export function createTask(database: Database, input: CreateTaskInput, now: number): Task {
   const task = newTask({ ...input, id: input.id ?? randomUUID() }, now)
   writeTask(database, task)
@@ -261,6 +271,27 @@ export function listTags(database: Database, taskIds: readonly string[]): Map<st
   }
 
   return tags
+}
+
+/**
+ * How many tasks are in each status. The dashboard counts its own from the list it already has;
+ * this is for chat, which is given the counts as context on every turn and must not read the
+ * whole table to get them. Spec 07.
+ *
+ * A status with no tasks is absent rather than zero, and the caller defaults it: the distinction
+ * between "none" and "not asked about" never matters here.
+ */
+export function countTasksByStatus(database: Database): Map<TaskStatus, number> {
+  const counts = new Map<TaskStatus, number>()
+
+  for (const raw of database
+    .prepare('select status, count(*) as count from tasks group by status')
+    .all()) {
+    const row = raw as Row
+    counts.set(String(row.status) as TaskStatus, Number(row.count))
+  }
+
+  return counts
 }
 
 /** What `GET /api/tasks` can ask for. Every field is optional and they combine with `and`. */

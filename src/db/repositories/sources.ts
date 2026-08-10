@@ -346,6 +346,47 @@ export function setSourceContent(
     .run({ id, content, level, stored_at: storedAt })
 }
 
+/**
+ * Puts the state machine back where it was, stamps and all. Chat's undo of a mark-reviewed: the
+ * status change on the task is only half of that move, and leaving the source marked as acted on
+ * would have the next sync treat a review that never happened as discharged. Spec 07.
+ *
+ * Separate from `setSourceLifecycle` because that one is a move forward and cannot express
+ * "nobody has acted on this yet", which is exactly what an undo has to write back.
+ */
+export function restoreSourceLifecycle(
+  database: Database,
+  id: string,
+  lifecycle: {
+    readonly lifecycleState: string | null
+    readonly actedAt: number | null
+    readonly actedAtMarker: string | null
+  },
+): Source | null {
+  const existing = getSource(database, id)
+  if (existing === null) return null
+
+  const source: Source = { ...existing, ...lifecycle }
+  writeSource(database, source)
+
+  return source
+}
+
+/**
+ * Reattaches a source to a task. Deleting a task clears the link rather than the row (migration
+ * 1), so undoing a delete has to put the link back or the restored task would come back without
+ * its provenance.
+ */
+export function relinkSource(database: Database, id: string, taskId: string): Source | null {
+  const existing = getSource(database, id)
+  if (existing === null) return null
+
+  const source: Source = { ...existing, taskId }
+  writeSource(database, source)
+
+  return source
+}
+
 /** Sets the connector's state machine position without touching anything else on the row. */
 export function setSourceLifecycle(
   database: Database,
