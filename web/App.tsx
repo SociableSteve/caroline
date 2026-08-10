@@ -188,9 +188,12 @@ export function App() {
       </header>
 
       <main>
+        {/* The message carries its own context, because the two cases read differently: the
+            whole board being unreachable, and one panel of it that could not be read while the
+            rest of the screen is current. */}
         {failure !== null && (
           <p role="alert" className="failure">
-            Cannot reach the server: {failure}{' '}
+            {failure}{' '}
             <button type="button" onClick={() => void reload()}>
               Try again
             </button>

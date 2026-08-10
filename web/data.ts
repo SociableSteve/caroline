@@ -104,24 +104,41 @@ export function useCarolineData(): CarolineData {
     generation.current += 1
     const mine = generation.current
 
+    /**
+     * What each secondary panel's request said if it failed. A panel that could not be read
+     * keeps whatever it last showed, so the screen stays useful, but the failure is reported:
+     * silently keeping stale data is how a dashboard comes to be trusted while being wrong.
+     */
+    const panelFailures: string[] = []
+
+    const panel = async <T>(what: string, request: Promise<T>): Promise<T | null> => {
+      try {
+        return await request
+      } catch (error) {
+        panelFailures.push(`${what} could not be loaded (${describeFailure(error)})`)
+        return null
+      }
+    }
+
     try {
       // The run history, the plan and the calendar reload alongside the tasks: a sync that just
       // finished changed several of them at once, and completing something from the plan
       // changes how the entry renders. Each is defended on its own, so one failing panel does
-      // not blank the board.
+      // not blank the board. The tasks and the projects are not: they are the board, and a
+      // board that cannot be read is the whole screen failing rather than a panel of it.
       const [taskCollection, projectList, runs, status, day, diary] = await Promise.all([
         api.listTasks(),
         api.listProjects(),
-        api.listJobRuns().catch(() => ({ runs: [] })),
-        api.listJobStatus().catch(() => ({ jobs: [] })),
-        api.getPlan().catch(() => null),
-        api.getCalendar().catch(() => null),
+        panel('the run history', api.listJobRuns()),
+        panel('the job status', api.listJobStatus()),
+        panel("today's plan", api.getPlan()),
+        panel('the calendar', api.getCalendar()),
       ])
       if (mine !== generation.current) return
 
       setTasks(taskCollection.tasks)
       setProjects(projectList.projects)
-      setJobRuns(runs.runs)
+      if (runs !== null) setJobRuns(runs.runs)
 
       // The two were asked independently, so they can straddle the server's midnight and
       // describe different days. The plan's date wins and the diary is re-read for it: a
@@ -129,13 +146,13 @@ export function useCarolineData(): CarolineData {
       // panel that is one beat late.
       const diaryForPlanDay =
         day !== null && diary !== null && diary.date !== day.date
-          ? await api.getCalendar(day.date).catch(() => null)
+          ? await panel('the calendar', api.getCalendar(day.date))
           : diary
       if (mine !== generation.current) return
 
       // A failed request is not an empty day. Blanking on failure would report "No plan yet"
       // for a route that is merely unreachable, so the last good answer stands and the banner
-      // above says the server could not be reached.
+      // says which panel could not be read.
       if (day !== null) {
         setPlan(day.plan)
         setPlanHistory(day.history)
@@ -147,12 +164,13 @@ export function useCarolineData(): CarolineData {
       if (day === null && diary !== null) setPlanDate(diary.date)
       // Defended rather than trusted: the board must not go blank because one panel's answer was
       // not the shape it should have been.
-      setJobStatus(status.jobs ?? [])
+      if (status !== null) setJobStatus(status.jobs ?? [])
       setUnfetchedTaskTotal(taskCollection.truncated ? taskCollection.total : null)
-      setFailure(null)
+      setFailure(panelFailures.length === 0 ? null : panelFailures.join('; '))
     } catch (error) {
       if (mine !== generation.current) return
-      setFailure(describeFailure(error))
+      // The board itself could not be read, which is a different failure from a panel of it.
+      setFailure(`Cannot reach the server: ${describeFailure(error)}`)
     } finally {
       // Loading is about the first answer arriving, so a superseded reload still ends it.
       setLoading(false)

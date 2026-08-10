@@ -96,13 +96,14 @@ describe('overlapping reloads', () => {
  * another day's calendar is silently wrong, which is worse than a panel that is one beat late.
  */
 function PlanProbe() {
-  const { plan, calendar, planDate } = useCarolineData()
+  const { plan, calendar, planDate, failure } = useCarolineData()
 
   return (
     <>
       <p data-testid="plan-date">{planDate ?? 'none'}</p>
       <p data-testid="plan-summary">{plan?.summary ?? 'no plan'}</p>
       <p data-testid="calendar-date">{calendar?.date ?? 'no calendar'}</p>
+      <p data-testid="failure">{failure ?? 'no failure'}</p>
     </>
   )
 }
@@ -111,17 +112,28 @@ interface DayStubOptions {
   readonly planDate: string
   /** What the unqualified `/api/calendar` answers, which may be a different day. */
   readonly calendarDate: string
+  /** Which routes should refuse, so a panel failure can be told from an empty answer. */
+  readonly failing?: readonly string[]
 }
 
 /** Serves a plan and a calendar, recording every calendar URL asked for. */
-function stubDay({ planDate, calendarDate }: DayStubOptions) {
+function stubDay({ planDate, calendarDate, failing = [] }: DayStubOptions) {
   const calendarUrls: string[] = []
+  const refuses = (url: string) => failing.some((prefix) => url.startsWith(prefix))
 
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string) => {
       const answer = (body: unknown) =>
         ({ ok: true, status: 200, json: async () => body }) as unknown as Response
+
+      if (refuses(url)) {
+        return {
+          ok: false,
+          status: 503,
+          json: async () => ({ error: { code: 'unavailable', message: 'the server is down' } }),
+        } as unknown as Response
+      }
 
       if (url.startsWith('/api/tasks')) {
         return answer({ tasks: [], total: 0, limit: 500, offset: 0 })
@@ -163,5 +175,36 @@ describe('the plan and the calendar describing one day', () => {
 
     await waitFor(() => expect(screen.getByTestId('plan-date')).toHaveTextContent('2026-06-08'))
     expect(calendarUrls).toHaveLength(1)
+  })
+})
+
+/**
+ * A panel that could not be read keeps what it last showed, so the rest of the screen stays
+ * usable. It must also say so: quietly keeping stale data is how a dashboard comes to be
+ * trusted while being wrong, and it is worse than the empty state it replaced.
+ */
+describe('a panel whose request failed', () => {
+  it('says which panel could not be read', async () => {
+    stubDay({ planDate: '2026-06-08', calendarDate: '2026-06-08', failing: ['/api/plan'] })
+    render(<PlanProbe />)
+
+    await waitFor(() => expect(screen.getByTestId('failure')).toHaveTextContent(/today's plan/i))
+  })
+
+  it('does not report a failure when every panel answered', async () => {
+    stubDay({ planDate: '2026-06-08', calendarDate: '2026-06-08' })
+    render(<PlanProbe />)
+
+    await waitFor(() => expect(screen.getByTestId('plan-date')).toHaveTextContent('2026-06-08'))
+    expect(screen.getByTestId('failure')).toHaveTextContent('no failure')
+  })
+
+  it('does not blank the panel it could not read', async () => {
+    stubDay({ planDate: '2026-06-08', calendarDate: '2026-06-08', failing: ['/api/calendar'] })
+    render(<PlanProbe />)
+
+    // The plan still landed, so the screen is useful; the calendar simply has nothing yet.
+    await waitFor(() => expect(screen.getByTestId('plan-summary')).toHaveTextContent('plan for'))
+    expect(screen.getByTestId('failure')).toHaveTextContent(/calendar/i)
   })
 })

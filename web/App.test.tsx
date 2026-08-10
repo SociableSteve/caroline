@@ -53,6 +53,23 @@ const nothingToPreview = {
   payload: null,
 }
 
+/** The day the stubbed server thinks it is, for the plan and calendar routes. */
+const PLAN_DATE = '2026-06-10'
+
+/** A working day with nothing booked and no calendar connected. */
+const emptyCapacity = {
+  windowMinutes: 510,
+  busyMinutes: 0,
+  reserveMinutes: 102,
+  capacityMinutes: 408,
+  verified: false,
+  workingDay: true,
+  windowStart: null,
+  windowEnd: null,
+  busy: [],
+  free: [],
+}
+
 function stubApi({
   tasks = [],
   projects = [],
@@ -106,6 +123,13 @@ function stubApi({
       if (url.startsWith('/api/projects')) return answer({ projects })
       if (url.startsWith('/api/jobs/status')) return answer({ jobs: jobStatus })
       if (url.startsWith('/api/jobs')) return answer({ runs: jobRuns })
+      // A server with nothing planned and no calendar connected, which is what these tests are
+      // about. Served rather than left unstubbed: a panel whose request fails now says so, and
+      // an incomplete harness would put a second alert on the screen in every test.
+      if (url.startsWith('/api/plan')) return answer({ date: PLAN_DATE, plan: null, history: [] })
+      if (url.startsWith('/api/calendar')) {
+        return answer({ date: PLAN_DATE, connected: false, events: [], capacity: emptyCapacity })
+      }
       if (url.startsWith('/api/integrations/google')) return answer(google)
       if (url.startsWith('/api/privacy/preview')) return answer(preview)
       if (url.startsWith('/api/health')) return answer(health)
