@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { loadConfig } from '../../src/config/load.js'
-import { redactConfig, redactSecrets, REDACTED } from '../../src/config/redact.js'
+import {
+  redactConfig,
+  redactSecrets,
+  REDACTED,
+  registerRuntimeSecret,
+  // The local `secretValues` below is the environment's; this is what the scrubber will actually use.
+  secretValues as scrubbedValues,
+} from '../../src/config/redact.js'
 
 const configuredEnv = {
   ANTHROPIC_API_KEY: 'sk-ant-supersecret',
@@ -166,5 +173,74 @@ describe('redactSecrets', () => {
 
     expect(redactSecrets('abcxd', config)).toBe('abcxd')
     expect(redactSecrets('a.c*d', config)).toBe(REDACTED)
+  })
+})
+
+/**
+ * Spec 09, criterion 6, for the values the configuration never holds: the OAuth tokens arrive from
+ * Google at runtime, so the scrubber has to be told about them.
+ */
+describe('runtime secrets', () => {
+  function freshConfig() {
+    return loadConfig({ file: null, env: configuredEnv })
+  }
+
+  it('scrubs a token that never came from the configuration', () => {
+    const config = freshConfig()
+    registerRuntimeSecret(config, 'refresh-token-value')
+
+    expect(redactSecrets('using refresh-token-value now', config)).toBe(`using ${REDACTED} now`)
+  })
+
+  it('ignores an absent or empty value rather than scrubbing every gap in a string', () => {
+    const config = freshConfig()
+    registerRuntimeSecret(config, null)
+    registerRuntimeSecret(config, '')
+
+    expect(redactSecrets('nothing to hide', config)).toBe('nothing to hide')
+  })
+
+  /**
+   * An access token is replaced every hour. Unbounded, the list would grow for the life of the
+   * process and the scrubber would scan all of it for every log line.
+   */
+  it('keeps the list of rotating tokens bounded', () => {
+    const config = freshConfig()
+    for (let index = 0; index < 40; index += 1) {
+      registerRuntimeSecret(config, `access-token-${index}`, 'rotating')
+    }
+
+    expect(
+      scrubbedValues(config).filter((value) => value.startsWith('access-token-')),
+    ).toHaveLength(8)
+    // The recent ones are the ones that could still turn up in a line.
+    expect(redactSecrets('access-token-39', config)).toBe(REDACTED)
+    expect(redactSecrets('access-token-0', config)).toBe('access-token-0')
+  })
+
+  /**
+   * The refresh token is the more sensitive of the pair and the one still worth scrubbing an hour
+   * later, so the access tokens it goes on producing must not evict it.
+   */
+  it('never drops a lasting token to make room for a rotating one', () => {
+    const config = freshConfig()
+    registerRuntimeSecret(config, 'refresh-token-value', 'lasting')
+    for (let index = 0; index < 40; index += 1) {
+      registerRuntimeSecret(config, `access-token-${index}`, 'rotating')
+    }
+
+    expect(redactSecrets('refresh-token-value', config)).toBe(REDACTED)
+  })
+
+  it('keeps the environment secrets whatever else arrives', () => {
+    const config = freshConfig()
+    for (let index = 0; index < 40; index += 1) {
+      registerRuntimeSecret(config, `access-token-${index}`, 'rotating')
+    }
+
+    for (const secret of scrubbedValues(config)) {
+      expect(redactSecrets(secret, config)).toBe(REDACTED)
+    }
+    expect(scrubbedValues(config)).toContain('ghp_supersecret')
   })
 })

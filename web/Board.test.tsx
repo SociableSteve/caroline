@@ -16,6 +16,8 @@ function renderBoard(overrides: Partial<Parameters<typeof Board>[0]> = {}) {
     onComplete: vi.fn(),
     onDelete: vi.fn(),
     onMarkReviewed: vi.fn(),
+    onAcceptProposal: vi.fn(),
+    onDismissProposal: vi.fn(),
   }
 
   render(<Board tasks={[]} projects={[]} staleDays={7} now={NOW} {...handlers} {...overrides} />)

@@ -8,8 +8,12 @@
  * enough for a client to decide whether it cares.
  */
 
-/** What changed, coarsely. Enough for a client to know which of its queries went stale. */
-export const changeKinds = ['tasks', 'projects'] as const
+/**
+ * What changed, coarsely. Enough for a client to know which of its queries went stale. `jobs`
+ * covers a run starting or finishing, which changes the jobs surface and the dashboard badge
+ * without necessarily changing a single task.
+ */
+export const changeKinds = ['tasks', 'projects', 'jobs'] as const
 export type ChangeKind = (typeof changeKinds)[number]
 
 export interface ChangeEvent {

@@ -36,15 +36,22 @@ provider is disclosure to a third party. Storing it is a local retention decisio
 
 - `llmContent` may never exceed `storeContent` in effect for stored data, but it may be
   computed transiently: a snippet can be sent while nothing is stored. It may never exceed
-  what the connector fetched.
+  what the connector fetched. Transiently means at the moment of sending: where `llmContent`
+  exceeds `storeContent`, the connector is asked for the body when the call is built, and
+  nothing is persisted from it. The cost is one extra fetch per item classified, which is what
+  the default pair buys.
 - `llmContent: "full"` with a remote provider (Anthropic or OpenAI) requires
   `allowFullContentToRemoteProvider: true`. Without it, startup fails with an explanation
   rather than quietly downgrading. With Ollama, `isLocal` is true and the guard does not
   apply.
 - Changing `storeContent` to a lower level purges content already stored above that level
-  on the next run, and says how many rows it cleared.
+  on the next run, and says how many rows it cleared. Each source row records the level its
+  body was written at, because the text cannot say which it is: three hundred characters may be
+  a truncated snippet or a whole short body, and a downgrade has to tell them apart.
 - `retainContentDays` purges stored `content` older than the window on a daily job. Source
-  rows, tasks and metadata survive; only the body text is dropped.
+  rows, tasks and metadata survive; only the body text is dropped. Age is measured from when
+  the body was written, not from when the item was last seen: a thread still in the inbox is
+  seen every fifteen minutes, so the latter would mean no body was ever old enough to purge.
 
 ### Defaults
 
@@ -59,11 +66,15 @@ call would contain, using a real item, before it is used.
 
 ## Credentials
 
-- **Google**: OAuth desktop flow, read-only scopes only (`gmail.readonly`,
-  `calendar.readonly`). Client id and secret come from a Google Cloud project the user
-  creates; the setup guide walks through it. Access and refresh tokens are stored in a
-  token file with mode 0600 outside the repo, alongside the database, never in config or
-  git.
+- **Google**: OAuth desktop flow with PKCE, read-only scopes only (`gmail.readonly`,
+  `calendar.readonly`), requested together so that consent is walked through once rather than
+  once per feature. Client id and secret come from a Google Cloud project the user creates; the
+  setup guide walks through it. Access and refresh tokens are stored in `google-tokens.json`
+  with mode 0600 outside the repo, alongside the database, never in config or git. The redirect
+  is the loopback address Caroline is already listening on. The authorisation code in the callback is
+  neither logged nor echoed. Google's own `error` word is carried into the redirect so the settings
+  screen can say what went wrong, which is safe because it comes from a fixed vocabulary and the
+  screen maps it to a sentence of its own rather than rendering it.
 - **GitHub**: a fine-grained personal access token, read-only, from the environment.
 - **LLM keys**: environment variables only. A key present in the config file is a startup
   error.

@@ -64,6 +64,37 @@ export const sourceResponseSchema = {
   },
 } as const
 
+/**
+ * A classifier answer the user has not acted on: below the confidence threshold when it was made,
+ * so the task stayed in the inbox with the proposal attached for a one-click accept. Spec 04,
+ * criterion 3. Present on a task only while it is waiting on the user.
+ */
+export const proposalResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'status', 'confidence', 'createdAt'],
+  properties: {
+    id: { type: 'string' },
+    status: { type: 'string', enum: taskStatuses },
+    confidence: { type: 'number' },
+    reasoning: nullableString(1000),
+    suggestedTitle: nullableString(TITLE_MAX),
+    estimateMinutes: nullableInteger,
+    waitingOn: nullableString(200),
+    projectSuggestion: {
+      type: ['object', 'null'],
+      additionalProperties: false,
+      properties: {
+        existingProjectId: nullableString(64),
+        newProjectTitle: nullableString(200),
+      },
+    },
+    model: nullableString(200),
+    promptVersion: { type: 'string' },
+    createdAt: { type: 'integer' },
+  },
+} as const
+
 export const taskResponseSchema = {
   type: 'object',
   additionalProperties: false,
@@ -96,6 +127,7 @@ export const taskResponseSchema = {
     completedAt: nullableInteger,
     tags: { type: 'array', items: { type: 'string' } },
     sources: { type: 'array', items: sourceResponseSchema },
+    proposal: { ...proposalResponseSchema, nullable: true },
   },
 } as const
 
@@ -283,6 +315,12 @@ const jobCountsSchema = {
     tasksUpdated: { type: 'integer' },
     resolved: { type: 'integer' },
     requeued: { type: 'integer' },
+    classified: { type: 'integer' },
+    proposals: { type: 'integer' },
+    llmCalls: { type: 'integer' },
+    failed: { type: 'integer' },
+    contentPurged: { type: 'integer' },
+    runsPurged: { type: 'integer' },
   },
 } as const
 
@@ -330,25 +368,123 @@ export const jobNameParamsSchema = {
   properties: { name: { type: 'string', minLength: 1, maxLength: 60 } },
 } as const
 
+/**
+ * What a manual trigger answers with: the row that was written. The per-connector detail of a sync
+ * is in the history under `sync:<provider>`, so it is not repeated here.
+ */
 export const jobRunTriggeredResponseSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['job', 'results'],
+  required: ['job', 'run'],
   properties: {
     job: { type: 'string' },
-    results: {
+    run: jobRunResponseSchema,
+  },
+} as const
+
+/** One row per scheduled job: is it working, is it going now, and when does it go next. Spec 06. */
+export const jobStatusResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['jobs'],
+  properties: {
+    jobs: {
       type: 'array',
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['provider', 'status', 'counts'],
+        required: ['job', 'cron', 'running', 'consecutiveFailures'],
         properties: {
-          provider: { type: 'string', enum: sourceProviders },
-          status: { type: 'string', enum: jobRunStatuses },
-          counts: jobCountsSchema,
-          error: nullableString(2000),
+          job: { type: 'string' },
+          cron: { type: 'string' },
+          running: { type: 'boolean' },
+          nextRunAt: nullableInteger,
+          lastRun: { ...jobRunResponseSchema, nullable: true },
+          consecutiveFailures: { type: 'integer' },
+          backoffUntil: nullableInteger,
         },
       },
     },
+  },
+} as const
+
+/**
+ * The Google connection as the settings screen sees it. No token, no client secret, nothing that
+ * would be a secret on the wire: only whether consent exists and what it covers. Spec 09.
+ */
+export const googleStatusResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['connected', 'configured', 'scopes'],
+  properties: {
+    connected: { type: 'boolean' },
+    configured: { type: 'boolean' },
+    connectedAt: nullableInteger,
+    scopes: { type: 'array', items: { type: 'string' } },
+    /** Where Google must be told to send the browser back to, so the setup guide can quote it. */
+    redirectUri: { type: 'string' },
+  },
+} as const
+
+export const googleConnectResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['url'],
+  properties: { url: { type: 'string' } },
+} as const
+
+export const googleCallbackQuerySchema = {
+  type: 'object',
+  // Google adds `scope`, `authuser` and `prompt` to the callback, and a request carrying them is
+  // not a bad request. They are ignored rather than rejected.
+  additionalProperties: true,
+  properties: {
+    code: { type: 'string', maxLength: 2000 },
+    state: { type: 'string', maxLength: 200 },
+    error: { type: 'string', maxLength: 200 },
+  },
+} as const
+
+export const privacyPreviewQuerySchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: { taskId: { type: 'string', minLength: 1, maxLength: 64 } },
+} as const
+
+/**
+ * Exactly what a classification call would contain for a real item, under the configuration as it
+ * stands. Spec 09, criterion 9: shown before the policy is used, not described.
+ */
+export const privacyPreviewResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['policy', 'item', 'payload'],
+  properties: {
+    policy: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['llmContent', 'storeContent', 'snippetChars'],
+      properties: {
+        llmContent: { type: 'string' },
+        storeContent: { type: 'string' },
+        snippetChars: { type: 'integer' },
+        llmConsequence: { type: 'string' },
+        storeConsequence: { type: 'string' },
+      },
+    },
+    item: {
+      type: ['object', 'null'],
+      additionalProperties: false,
+      required: ['taskId', 'title'],
+      properties: {
+        taskId: { type: 'string' },
+        title: { type: 'string' },
+        provider: nullableString(20),
+      },
+    },
+    /** The connectors own the shape, so it is passed through whole rather than enumerated. */
+    payload: { type: ['object', 'null'], additionalProperties: true },
+    /** The system prompt and its version, because they are part of what is sent. */
+    promptVersion: { type: 'string' },
   },
 } as const

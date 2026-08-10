@@ -2,10 +2,9 @@
  * The dashboard. Spec 08 criterion 4: with no plan, no calendar and no integrations, it shows
  * empty states rather than errors, because that is the state a clean checkout is in.
  *
- * The plan, the calendar column and the capacity bar arrive with the daily planner in M6, and
- * the job history with the scheduler in M5. Their panels are here now, saying what is missing
- * and how to get it, rather than being hidden until the feature lands: an empty state is the
- * honest answer to "what is my day".
+ * The plan, the calendar column and the capacity bar arrive with the daily planner in M6. Their
+ * panels are here now, saying what is missing and how to get it, rather than being hidden until the
+ * feature lands: an empty state is the honest answer to "what is my day".
  */
 import { taskStatuses } from '../api.js'
 import type { Health, JobRun, ProjectView, TaskView } from '../api.js'
@@ -114,13 +113,13 @@ export function Dashboard({ tasks, projects, health, jobRuns, staleDays, now }: 
         )}
       </section>
 
-      {/* The scheduler and its own surface arrive in M5. This is the last run of each job, so
-          a failed sync is visible rather than silent. Spec 02, criterion 5. */}
+      {/* The last run of each job, so a failed sync is visible rather than silent (spec 02,
+          criterion 5). The Jobs surface is where the schedule and the whole history live. */}
       <section aria-labelledby="jobs-heading">
         <h2 id="jobs-heading">Background jobs</h2>
         {latestRuns.length === 0 ? (
           <p className="empty">
-            Nothing has run yet. Sync runs on demand in this version; there is no schedule.
+            Nothing has run yet. Sync runs every quarter of an hour; see Jobs for the schedule.
           </p>
         ) : (
           <ul className="job-list">

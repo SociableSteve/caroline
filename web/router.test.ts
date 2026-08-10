@@ -12,6 +12,19 @@ describe('parseRoute', () => {
     expect(parseRoute('#/projects')).toEqual({ name: 'projects' })
   })
 
+  it('reads the jobs and settings surfaces', () => {
+    expect(parseRoute('#/jobs')).toEqual({ name: 'jobs' })
+    expect(parseRoute('#/settings')).toEqual({ name: 'settings', outcome: null })
+  })
+
+  /** The Google callback redirects here with how it went, and Settings says so. Spec 09. */
+  it('reads the outcome the OAuth callback left on the settings route', () => {
+    expect(parseRoute('#/settings?google=connected')).toEqual({
+      name: 'settings',
+      outcome: 'connected',
+    })
+  })
+
   it('reads a project drill-in, decoding the id', () => {
     expect(parseRoute('#/projects/project%201')).toEqual({ name: 'project', id: 'project 1' })
   })

@@ -8,7 +8,7 @@ import Fastify from 'fastify'
 import { registerRoutes } from '../../src/server/app.js'
 import { REQUEST_TIME, testConfig } from '../helpers/test-server.js'
 import { createChangeFeed } from '../../src/server/changes.js'
-import { createSyncRunner } from '../../src/jobs/sync.js'
+import { buildJobs } from '../../src/jobs/registry.js'
 import { migratedDatabase } from '../helpers/temp-database.js'
 
 interface RecordedRoute {
@@ -38,7 +38,7 @@ async function registeredRoutes(): Promise<RecordedRoute[]> {
     database,
     changes: createChangeFeed(),
     now: () => REQUEST_TIME,
-    sync: createSyncRunner({ database, connectors: [], now: () => REQUEST_TIME }),
+    jobs: buildJobs({ database, config: testConfig, now: () => REQUEST_TIME }),
   })
   await app.ready()
   await app.close()

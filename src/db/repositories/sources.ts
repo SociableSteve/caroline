@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { Database } from '../connection.js'
 import type { Row } from '../rows.js'
+import { contentLevels, type ContentLevel } from '../../domain/content.js'
 import {
   markActed,
   markRequeued,
@@ -17,7 +18,13 @@ export interface UpsertSourceInput {
   readonly url?: string | null
   readonly title?: string | null
   readonly metadata?: unknown
+  /**
+   * What the storage content policy permits, already applied: the repository stores what it is
+   * given and does not decide policy. Supplied together with the level it was computed at, so
+   * that a later downgrade can tell a truncated snippet from a short body. Spec 09.
+   */
   readonly content?: string | null
+  readonly contentLevel?: ContentLevel
   readonly contentHash?: string | null
   readonly taskId?: string | null
   readonly lifecycleState?: string | null
@@ -29,9 +36,9 @@ export interface UpsertSourceInput {
   readonly actedAtMarker?: string | null
 }
 
-const columns = `id, provider, external_id, url, title, metadata, content, content_hash, task_id,
-  first_seen_at, last_seen_at, resolved_at, lifecycle_state, acted_at, acted_at_marker,
-  requeued_at, completion_proposed_at`
+const columns = `id, provider, external_id, url, title, metadata, content, content_level,
+  content_stored_at, content_hash, task_id, first_seen_at, last_seen_at, resolved_at,
+  lifecycle_state, acted_at, acted_at_marker, requeued_at, completion_proposed_at`
 
 function toSource(row: Row): Source {
   const metadata = row.metadata
@@ -43,6 +50,8 @@ function toSource(row: Row): Source {
     title: nullableText(row.title),
     metadata: typeof metadata === 'string' ? JSON.parse(metadata) : null,
     content: nullableText(row.content),
+    contentLevel: toContentLevel(row.content_level),
+    contentStoredAt: nullableNumber(row.content_stored_at),
     contentHash: nullableText(row.content_hash),
     taskId: nullableText(row.task_id),
     firstSeenAt: Number(row.first_seen_at),
@@ -61,6 +70,15 @@ function nullableText(value: unknown): string | null {
 }
 
 /**
+ * The column is text with a default, and its values are the policy's, so a row written before
+ * the column existed reads as `none`: it holds no body, which is what `none` says.
+ */
+function toContentLevel(value: unknown): ContentLevel {
+  const level = String(value ?? 'none')
+  return (contentLevels as readonly string[]).includes(level) ? (level as ContentLevel) : 'none'
+}
+
+/**
  * The upsert's field rule: what the caller supplied wins, including an explicit `null`;
  * only an omitted field falls back to what is stored.
  */
@@ -76,15 +94,18 @@ function writeSource(database: Database, source: Source): void {
   database
     .prepare(
       `insert into sources (${columns}) values (
-         :id, :provider, :external_id, :url, :title, :metadata, :content, :content_hash,
-         :task_id, :first_seen_at, :last_seen_at, :resolved_at, :lifecycle_state, :acted_at,
-         :acted_at_marker, :requeued_at, :completion_proposed_at
+         :id, :provider, :external_id, :url, :title, :metadata, :content, :content_level,
+         :content_stored_at, :content_hash, :task_id, :first_seen_at, :last_seen_at,
+         :resolved_at, :lifecycle_state, :acted_at, :acted_at_marker, :requeued_at,
+         :completion_proposed_at
        )
        on conflict (id) do update set
          url = excluded.url,
          title = excluded.title,
          metadata = excluded.metadata,
          content = excluded.content,
+         content_level = excluded.content_level,
+         content_stored_at = excluded.content_stored_at,
          content_hash = excluded.content_hash,
          task_id = excluded.task_id,
          last_seen_at = excluded.last_seen_at,
@@ -103,6 +124,8 @@ function writeSource(database: Database, source: Source): void {
       title: source.title,
       metadata: source.metadata === undefined ? null : JSON.stringify(source.metadata),
       content: source.content,
+      content_level: source.contentLevel,
+      content_stored_at: source.contentStoredAt,
       content_hash: source.contentHash,
       task_id: source.taskId,
       first_seen_at: source.firstSeenAt,
@@ -128,6 +151,13 @@ function writeSource(database: Database, source: Source): void {
  */
 export function upsertSource(database: Database, input: UpsertSourceInput, now: number): Source {
   const existing = getSourceByExternalId(database, input.provider, input.externalId)
+  const content = supplied(input.content, existing?.content)
+  // A caller supplying a body without its level would otherwise leave the stored level describing
+  // a body that is no longer there. A body and its label travel together, so a body with no label
+  // is `none` rather than whatever the row said last.
+  const contentLevel =
+    input.contentLevel ??
+    (input.content === undefined ? (existing?.contentLevel ?? 'none') : 'none')
 
   const source: Source = {
     id: existing?.id ?? randomUUID(),
@@ -136,7 +166,17 @@ export function upsertSource(database: Database, input: UpsertSourceInput, now: 
     url: supplied(input.url, existing?.url),
     title: supplied(input.title, existing?.title),
     metadata: supplied(input.metadata, existing?.metadata),
-    content: supplied(input.content, existing?.content),
+    content,
+    contentLevel,
+    // Stamped when a body arrives or changes, and cleared with it, because this is what
+    // retention counts from. A body that has not changed keeps the moment it was first written,
+    // so a thread seen every fifteen minutes still ages out. Spec 09, criterion 5.
+    contentStoredAt:
+      content === null
+        ? null
+        : content === existing?.content
+          ? (existing.contentStoredAt ?? now)
+          : now,
     contentHash: supplied(input.contentHash, existing?.contentHash),
     taskId: supplied(input.taskId, existing?.taskId),
     firstSeenAt: existing?.firstSeenAt ?? now,
@@ -267,6 +307,43 @@ export function markSourceRequeued(database: Database, id: string, at: number): 
   writeSource(database, source)
 
   return source
+}
+
+/**
+ * Every row holding a body, whatever provider it came from. The two content purges read this:
+ * it is a small set by construction, because the default policy stores no bodies at all.
+ */
+export function listSourcesWithContent(database: Database): Source[] {
+  return database
+    .prepare(`select ${columns} from sources where content is not null order by first_seen_at, id`)
+    .all()
+    .map((row) => toSource(row as Row))
+}
+
+/**
+ * Replaces a stored body with what the policy now allows, or clears it. Only the body and its two
+ * labels are touched: the source row, its task and its metadata survive a purge, which is the whole
+ * distinction spec 09 criterion 5 draws.
+ *
+ * `storedAt` is the caller's to choose, and cutting a body back is not writing a new one: a
+ * downgrade passes the row's own stamp, so the retention window still runs from when the body
+ * arrived rather than from when the policy changed.
+ */
+export function setSourceContent(
+  database: Database,
+  id: string,
+  content: string | null,
+  level: ContentLevel,
+  storedAt: number,
+): void {
+  database
+    .prepare(
+      `update sources
+       set content = :content, content_level = :level,
+           content_stored_at = case when :content is null then null else :stored_at end
+       where id = :id`,
+    )
+    .run({ id, content, level, stored_at: storedAt })
 }
 
 /** Sets the connector's state machine position without touching anything else on the row. */

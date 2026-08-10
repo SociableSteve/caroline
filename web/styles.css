@@ -510,3 +510,147 @@ label {
   display: flex;
   gap: 0.5rem;
 }
+
+/* A classifier suggestion, on the card, with its reasoning and how sure it was. Spec 04. */
+.card-proposal {
+  margin: 0 0 0.5rem;
+  padding: 0.5rem;
+  border: 1px dashed var(--accent);
+  border-radius: 4px;
+  font-size: 0.8rem;
+}
+
+.card-proposal p {
+  margin: 0 0 0.35rem;
+}
+
+.proposal-confidence,
+.proposal-reason,
+.proposal-retitle,
+.proposal-project {
+  color: var(--ink-quiet);
+}
+
+.proposal-actions {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.proposal-actions button {
+  font-size: 0.8rem;
+}
+
+/* The jobs surface: one panel per job, then the history. Spec 06. */
+.jobs-surface {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.job-status-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.job-status-list li {
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-raised);
+}
+
+.job-status-list h3 {
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
+}
+
+.job-description {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+  color: var(--ink-quiet);
+}
+
+.job-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.15rem 0.5rem;
+  margin: 0 0 0.75rem;
+  font-size: 0.8rem;
+}
+
+.job-facts dt {
+  color: var(--ink-quiet);
+}
+
+.job-facts dd {
+  margin: 0;
+}
+
+.run-history {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.run-history th,
+.run-history td {
+  padding: 0.35rem 0.5rem;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+}
+
+/* Settings: what leaves the machine, and the payload that proves it. Spec 09. */
+.settings-surface {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  max-width: 60rem;
+}
+
+.settings-outcome {
+  padding: 0.5rem;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+}
+
+.policy-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.35rem 0.75rem;
+  margin: 0 0 0.75rem;
+}
+
+.policy-facts dt {
+  color: var(--ink-quiet);
+}
+
+.policy-facts dd {
+  margin: 0;
+}
+
+.policy-consequence,
+.policy-note {
+  color: var(--ink-quiet);
+  font-size: 0.85rem;
+}
+
+.scope-list {
+  margin: 0 0 0.75rem;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+}
+
+/* The payload is read, not skimmed, so it keeps its shape and scrolls rather than wrapping. */
+.payload-preview {
+  margin: 0 0 0.75rem;
+  padding: 0.75rem;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface);
+  font-size: 0.8rem;
+}

@@ -122,6 +122,46 @@ export function listNextActions(database: Database, now: number): Task[] {
 }
 
 /**
+ * What the classifier is allowed to look at: inbox tasks the user has not decided on, oldest
+ * first, capped by the caller's batch size. Spec 04, criteria 1 and 8.
+ *
+ * A task the user has touched is never a candidate, even while it sits in the inbox: leaving
+ * something there on purpose is a decision.
+ *
+ * A task the classifier has already answered about is not a candidate either, unless the item
+ * has changed upstream since. Three cases arrive at the same rule:
+ *
+ * - A proposal below the threshold is on the screen waiting for the user. Asking again would
+ *   spend a call to produce the same row.
+ * - A proposal the user dismissed was a decision to leave the task where it is.
+ * - A confident answer of `inbox` is the model saying it does not know, which spec 04 asks it to
+ *   prefer over a confident wrong guess. Without this the task would be asked about every hour
+ *   for as long as it sat there.
+ *
+ * A row that failed does not count, because nothing was answered: the next run retries it. What
+ * makes a task a candidate again is an upstream change, which is what `requeued_at` records.
+ */
+export function listClassificationCandidates(database: Database, limit: number): Task[] {
+  return database
+    .prepare(
+      `select ${columns} from tasks
+       where status = 'inbox' and status_set_by != 'user'
+         and not exists (
+           select 1 from classifications
+           where classifications.task_id = tasks.id
+             and classifications.error is null
+             and classifications.created_at >= coalesce(
+               (select max(requeued_at) from sources where sources.task_id = tasks.id), 0
+             )
+         )
+       order by created_at, id
+       limit ?`,
+    )
+    .all(limit)
+    .map((row) => toTask(row as Row))
+}
+
+/**
  * The only way a status changes. The domain decides whether the change is allowed; this
  * writes the result if it is. Returns null when there is no such task, and an unapplied
  * result when the rules refused it, so a caller can record the rejected proposal.

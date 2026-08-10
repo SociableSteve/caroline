@@ -14,7 +14,7 @@ import type { Database } from '../../../src/db/connection.js'
 import { getSourceByExternalId } from '../../../src/db/repositories/sources.js'
 import { changeTaskStatus, getTask, listTasks } from '../../../src/db/repositories/tasks.js'
 import type { Task } from '../../../src/domain/task.js'
-import { knownPullRequests } from '../../../src/jobs/sync.js'
+import { knownPullRequests } from '../../../src/jobs/registry.js'
 import { fakeGitHubApi, pullRequestNode, VIEWER } from '../../helpers/github.js'
 import { migratedDatabase } from '../../helpers/temp-database.js'
 
@@ -62,7 +62,13 @@ function walk(steps: readonly Step[], returnToReviewOnNewCommits = true): Walk {
     database,
     async run() {
       clock += 15 * 60_000
-      await runSync({ database, connectors: [connector], trigger: 'scheduled', now: () => clock })
+      await runSync({
+        database,
+        connectors: [connector],
+        trigger: 'scheduled',
+        policy: { llmContent: 'snippet', storeContent: 'metadata', snippetChars: 300 },
+        now: () => clock,
+      })
 
       const source = getSourceByExternalId(database, 'github', EXTERNAL_ID)
       return source?.taskId === undefined || source.taskId === null

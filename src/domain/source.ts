@@ -4,6 +4,8 @@
  * Spec 01.
  */
 
+import type { ContentLevel } from './content.js'
+
 export const sourceProviders = ['github', 'gmail', 'gcal'] as const
 export type SourceProvider = (typeof sourceProviders)[number]
 
@@ -18,6 +20,18 @@ export interface Source {
   readonly metadata: unknown
   /** Nullable, and governed by the storage content policy in spec 09. */
   readonly content: string | null
+  /**
+   * The policy level `content` was written under. The text cannot say which it is: three
+   * hundred characters may be a truncated snippet or a whole short body, and lowering the
+   * policy later has to tell them apart. Spec 09, criterion 4.
+   */
+  readonly contentLevel: ContentLevel
+  /**
+   * When the body was written. What retention is measured from, rather than `lastSeenAt`: a
+   * thread still in the inbox is seen every fifteen minutes, so measuring from that would mean
+   * no body was ever old enough to purge. Spec 09, criterion 5.
+   */
+  readonly contentStoredAt: number | null
   /** Detects upstream change without diffing bodies. */
   readonly contentHash: string | null
   readonly taskId: string | null

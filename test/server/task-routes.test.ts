@@ -48,6 +48,8 @@ describe('GET /api/tasks', () => {
         tags: ['admin'],
         // Manual capture has no provenance. A task from a connector carries its source here.
         sources: [],
+        // Nothing the classifier has an opinion about, which is every manually captured task.
+        proposal: null,
       },
     ])
   })
