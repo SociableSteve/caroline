@@ -48,6 +48,13 @@ const llmField = {
   baseUrl: () => credentialFreeUrl.nullable(),
   maxTokens: () => z.number().int().min(1).max(200_000),
   timeoutMs: () => z.number().int().min(1_000).max(600_000),
+  /**
+   * Whether the model can be given tools, which is what decides whether chat can make changes
+   * at all (spec 07, criterion 7). Absent means "decide from the provider": the hosted two
+   * can, and Ollama's answer depends on the model, so it is asked for rather than assumed.
+   * Declaring it wrongly optimistically would have chat offer changes the model cannot make.
+   */
+  supportsTools: () => z.boolean(),
 }
 
 /**
@@ -66,6 +73,7 @@ const llmOverrideSchema = z
     baseUrl: llmField.baseUrl().optional(),
     maxTokens: llmField.maxTokens().optional(),
     timeoutMs: llmField.timeoutMs().optional(),
+    supportsTools: llmField.supportsTools().optional(),
   })
   .strict()
 
@@ -189,6 +197,29 @@ export const fileConfigSchema = z
       })
       .strict()
       .default({}),
+    chat: z
+      .object({
+        /**
+         * How many tool calls one turn may make. Spec 07 says twenty-five: enough to triage a
+         * pile of inbox items, few enough that a model in a loop stops costing money.
+         */
+        maxToolCalls: z.number().int().min(1).max(500).default(25),
+        /**
+         * How many tasks a turn may change before the rest of it needs confirming. Spec 07's
+         * bulk threshold, default ten. With one task per write tool, a bulk operation is a turn
+         * that keeps going, so the count is the turn's and not one call's.
+         */
+        bulkConfirmThreshold: z.number().int().min(1).max(500).default(10),
+        /**
+         * How many earlier messages of a conversation are sent with a turn. The transcript is
+         * kept whole either way; this bounds what one turn costs on a conversation that has been
+         * going for a week. Task detail is fetched through tools (spec 07), so an older message
+         * carries the thread of the discussion rather than data the model still needs.
+         */
+        contextMessages: z.number().int().min(2).max(200).default(40),
+      })
+      .strict()
+      .default({}),
     planning: z
       .object({
         /**
@@ -243,6 +274,7 @@ export const fileConfigSchema = z
         baseUrl: llmField.baseUrl().default(null),
         maxTokens: llmField.maxTokens().default(4096),
         timeoutMs: llmField.timeoutMs().default(60_000),
+        supportsTools: llmField.supportsTools().optional(),
         /**
          * Per-job partial configs. Spec 03 names classification and chat; the planner runs
          * on the base settings, because a plan is drawn once a day and is the one place
@@ -323,6 +355,8 @@ export interface LlmSettings {
   readonly apiKey: string | null
   readonly maxTokens: number
   readonly timeoutMs: number
+  /** Whether tools may be offered to this model. False makes chat read-only. Spec 07. */
+  readonly supportsTools: boolean
   /** True only for ollama, which is the whole of the "does content leave the machine" test. */
   readonly isLocal: boolean
   readonly configured: boolean
@@ -356,6 +390,11 @@ export interface Config {
     readonly batchSize: number
     readonly confidenceThreshold: number
     readonly concurrency: number
+  }
+  readonly chat: {
+    readonly maxToolCalls: number
+    readonly bulkConfirmThreshold: number
+    readonly contextMessages: number
   }
   readonly planning: {
     /** Local clock times, `HH:MM`. `src/domain/time.ts` turns them into instants for a date. */

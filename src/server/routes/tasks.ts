@@ -7,11 +7,8 @@ import {
   pendingProposal,
 } from '../../db/repositories/classifications.js'
 import { getProject } from '../../db/repositories/projects.js'
-import {
-  listSourcesForTask,
-  listSourcesForTasks,
-  setSourceLifecycle,
-} from '../../db/repositories/sources.js'
+import { listSourcesForTask, listSourcesForTasks } from '../../db/repositories/sources.js'
+import { markTaskReviewed, trackedStatuses } from '../../actions/tasks.js'
 import {
   bulkAssignProject,
   bulkChangeStatus,
@@ -35,9 +32,7 @@ import {
   type Classification,
   type ProjectSuggestion,
 } from '../../domain/classification.js'
-import { markReviewedOutcome } from '../../domain/review.js'
 import type { Source } from '../../domain/source.js'
-import { trackedStatusesFor } from '../../domain/tracking.js'
 import type { Task, TaskStatus } from '../../domain/task.js'
 import { apiError } from '../errors.js'
 import type { ChangeFeed } from '../changes.js'
@@ -173,21 +168,6 @@ function badRequest(reply: FastifyReply, message: string): FastifyReply {
  */
 function missingProject(database: Database, projectId: string | null | undefined): boolean {
   return projectId !== null && projectId !== undefined && getProject(database, projectId) === null
-}
-
-/**
- * The statuses the task's connector owns, for a task sync still tracks. Passing them is what
- * makes a user filing the task outside that set a permanent opt-out. Spec 01, sync tracking.
- */
-function trackedStatuses(database: Database, task: Task): readonly TaskStatus[] | undefined {
-  if (!task.syncTracked) return undefined
-
-  for (const source of listSourcesForTask(database, task.id)) {
-    const statuses = trackedStatusesFor(source.provider)
-    if (statuses !== undefined) return statuses
-  }
-
-  return undefined
 }
 
 interface TaskListQuery {
@@ -464,16 +444,10 @@ export function registerTaskRoutes(
   )
 
   /**
-   * Discharging your part of a review from Caroline: the task moves to Waiting for, named
-   * on the author, and the source records when you acted and where upstream was when you
-   * did. That marker is what stops the next sync, fifteen minutes later, seeing a standing
-   * review request and pulling the card straight back into Review. Spec 02, criteria 10 and
-   * 11.
-   *
-   * It is attributed to `sync` rather than to the user, because it is a move within the
-   * connector's own state machine rather than a decision to file the task somewhere: the
-   * user supplied the input, the machine made the move. Filing it somewhere is what the
-   * status control does, and that is attributed to the user.
+   * Discharging your part of a review from Caroline. The action itself is in
+   * `src/actions/tasks.ts`, because spec 07 gives chat a `mark_reviewed` tool with the same
+   * effect and two implementations of "the same effect" would not stay the same for long. This
+   * route turns its refusals into the messages a person reads.
    */
   app.post<{ Params: { id: string } }>(
     '/api/tasks/:id/mark-reviewed',
@@ -485,50 +459,25 @@ export function registerTaskRoutes(
     },
     async (request, reply) => {
       const { id } = request.params
-      const task = getTask(database, id)
-      if (task === null) return notFound(reply, 'task')
+      const at = now()
+      const result = markTaskReviewed(database, id, at)
 
-      const source = listSourcesForTask(database, id).find(
-        (candidate) => candidate.provider === 'github' && candidate.resolvedAt === null,
-      )
-      if (source === undefined) {
-        return badRequest(reply, 'This task is not an open pull request awaiting your review')
-      }
-
-      // Already discharged. Answering with the task as it stands makes a repeated request a
-      // no-op rather than a fresh stamp: re-marking would move `acted_at` to now and the
-      // marker to the current head, which would quietly swallow whatever the author pushed
-      // between the two clicks. Spec 02, criterion 11 is the same rule from the other side.
-      if (source.lifecycleState !== 'awaiting_review') {
-        return responseFor(id)
-      }
-
-      if (!task.syncTracked) {
-        return badRequest(
-          reply,
-          'Sync tracking is off for this task. Turn it back on to follow the review again.',
-        )
-      }
-
-      const metadata = source.metadata as { headSha?: unknown; author?: unknown } | null
-      const headSha = metadata?.headSha
-      if (typeof headSha !== 'string') {
+      if (!result.applied) {
+        if (result.reason === 'no-task') return notFound(reply, 'task')
+        // Already discharged, so the task as it stands is the answer: a repeated request is a
+        // no-op rather than a fresh stamp.
+        if (result.reason === 'already-reviewed') return responseFor(id)
+        if (result.reason === 'not-a-review') {
+          return badRequest(reply, 'This task is not an open pull request awaiting your review')
+        }
+        if (result.reason === 'not-tracked') {
+          return badRequest(
+            reply,
+            'Sync tracking is off for this task. Turn it back on to follow the review again.',
+          )
+        }
         return badRequest(reply, 'This pull request has not been synced yet')
       }
-
-      const at = now()
-      const outcome = markReviewedOutcome(headSha, at)
-
-      withTransaction(database, () => {
-        setSourceLifecycle(database, source.id, outcome.state, { at, marker: headSha })
-        changeTaskStatus(database, id, { status: outcome.status, by: 'sync', at })
-        updateTask(
-          database,
-          id,
-          { waitingOn: typeof metadata?.author === 'string' ? metadata.author : null },
-          at,
-        )
-      })
 
       announce(at)
 

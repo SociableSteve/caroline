@@ -786,3 +786,132 @@ label {
   background: var(--surface);
   font-size: 0.8rem;
 }
+
+/* Chat: the transcript, what each turn changed, and what it is waiting to be told. Spec 07. */
+.chat-surface {
+  display: grid;
+  grid-template-columns: minmax(12rem, 18rem) minmax(0, 1fr);
+  gap: 1.5rem;
+  align-items: start;
+  max-width: 70rem;
+}
+
+@media (max-width: 50rem) {
+  .chat-surface {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.conversation-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.conversation-list li {
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.9rem;
+}
+
+.chat-transcript {
+  margin: 0 0 1rem;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.chat-turn {
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-raised);
+}
+
+/* The user's own turns sit back a little, so the eye follows the answers. */
+.chat-user {
+  background: var(--surface);
+}
+
+.chat-role {
+  margin: 0 0 0.35rem;
+  color: var(--ink-quiet);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.chat-text {
+  margin: 0 0 0.5rem;
+  white-space: pre-wrap;
+}
+
+/* What a turn changed. Bordered on one side rather than boxed: it is part of the turn. */
+.chat-changes {
+  margin: 0.5rem 0 0;
+  padding: 0.25rem 0 0.25rem 0.75rem;
+  border-left: 3px solid var(--accent);
+}
+
+.chat-changes ul {
+  margin: 0 0 0.5rem;
+  padding-left: 1.1rem;
+  font-size: 0.9rem;
+}
+
+/* An undone change is kept on the screen, struck through: the record is that it happened and
+   was put back, and removing it would make the transcript a shorter story than the truth. */
+.change-undone .change-summary {
+  text-decoration: line-through;
+  color: var(--ink-quiet);
+}
+
+.change-note {
+  color: var(--ink-quiet);
+  font-size: 0.85rem;
+}
+
+.chat-confirmation {
+  margin: 0.5rem 0 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--alarm);
+  border-radius: 6px;
+  background: var(--alarm-surface);
+}
+
+.chat-confirmation p {
+  margin: 0 0 0.5rem;
+}
+
+.chat-note,
+.chat-readonly {
+  margin: 0 0 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 0.9rem;
+}
+
+.chat-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-width: 45rem;
+}
+
+.chat-composer textarea {
+  font: inherit;
+  padding: 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface-raised);
+  color: var(--ink);
+  resize: vertical;
+}
+
+.chat-composer button {
+  align-self: flex-start;
+}

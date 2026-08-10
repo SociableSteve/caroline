@@ -330,6 +330,7 @@ describe('applying an answer', () => {
       name: 'ollama',
       isLocal: true,
       model: 'fake-classifier',
+      supportsTools: false,
       complete: () => {
         changeTaskStatus(database, taskId, { status: 'inbox', by: 'user', at: NOW })
         return Promise.resolve({

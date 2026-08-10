@@ -12,6 +12,7 @@ interface LlmProvider {
   readonly name: 'anthropic' | 'openai' | 'ollama'
   readonly isLocal: boolean          // true only for ollama
   readonly model: string             // what the usage record is tagged with
+  readonly supportsTools: boolean    // whether tools may be offered at all
 
   complete(request: CompletionRequest): Promise<CompletionResult>
   stream(request: CompletionRequest): AsyncIterable<CompletionChunk>
@@ -24,6 +25,13 @@ interface CompletionRequest {
   tools?: ToolDefinition[]   // chat only
   maxTokens: number
   temperature?: number
+}
+
+interface Message {
+  role: 'user' | 'assistant'
+  content: string
+  toolCalls?: ToolCall[]     // an assistant turn: what the model asked for
+  toolResults?: ToolResult[] // a user turn: what those calls answered
 }
 
 interface CompletionResult {
@@ -73,10 +81,21 @@ a recorded error. Callers never receive unvalidated output.
 ## Tool use
 
 Only chat (spec 07) uses tools. The adapter translates the shared `ToolDefinition` shape to
-the provider's format and normalises tool calls back. Ollama tool support varies by model,
-so the chat surface degrades gracefully: if the configured model cannot call tools, chat
-answers questions but reports that it cannot make changes, rather than hallucinating that
-it did.
+the provider's format and normalises tool calls back.
+
+A tool loop is a conversation, so the traffic travels on the messages: an assistant turn
+carries the calls the model made, and the user turn after it carries their results. Each
+provider encodes that differently, and the adapter is where that difference stops. Anthropic
+takes both as content blocks inside the two turns, with results leading the user turn;
+OpenAI and Ollama take a result as a message of its own, addressed by call id and by tool
+name respectively.
+
+Whether tools may be offered at all is a property of the provider, `supportsTools`. The
+hosted providers take tools from every model they serve, so it is true for them. Ollama's
+answer depends on the model rather than on the server, so it is declared in the
+configuration (`llm.supportsTools`, inheritable by an override) and is false until it is:
+chat that says it cannot make changes is recoverable, and chat that claims a change it could
+not make is not. That is the graceful degradation spec 07 criterion 7 asks for.
 
 ## Configuration
 
@@ -87,7 +106,8 @@ it did.
     "model": "claude-sonnet-5",
     "baseUrl": null,              // override for proxies or self-hosted gateways
     "maxTokens": 4096,
-    "timeoutMs": 60000
+    "timeoutMs": 60000,
+    "supportsTools": true       // ollama only: does this model call tools?
   }
 }
 ```
@@ -116,7 +136,9 @@ table. The UI shows usage per day and per job. There is no billing integration a
 attempt to price the tokens, because rates change.
 
 One row per call to the provider, not one per request from a caller: a schema failure and
-the retry that follows it are two calls, and both spent tokens. Each row carries how it
+the retry that follows it are two calls, and both spent tokens. A streamed call is recorded
+on the same terms, because a chat turn that made eight of them spent real tokens on all
+eight. Each row carries how it
 ended, and a schema failure is recorded as its own outcome rather than as a generic error,
 because a run of them says the prompt or the schema needs work rather than that the provider
 is down.

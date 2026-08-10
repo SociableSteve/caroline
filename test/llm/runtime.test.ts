@@ -230,6 +230,52 @@ describe('recording what every call cost', () => {
     expect(String(reported[0])).toMatch(/llm_calls/)
   })
 
+  /**
+   * Chat streams, and a streamed call spent tokens like any other. Spec 03 criterion 7 is every
+   * call, so the streaming path records too rather than being the one kind that is free.
+   */
+  it('records a streamed call, which is the only kind chat makes', async () => {
+    const database = migratedDatabase()
+    const stub = stubFetch([
+      {
+        lines: [
+          { message: { role: 'assistant', content: 'Your inbox ' } },
+          {
+            message: { role: 'assistant', content: 'has three things.' },
+            done_reason: 'stop',
+            prompt_eval_count: 120,
+            eval_count: 8,
+          },
+        ],
+      },
+    ])
+
+    const stream = createLlmRuntime({ config, database, fetch: stub.fetch })
+      .for('chat')
+      .stream({ system: 'You are Caroline.', messages: [], maxTokens: 512 })
+    for await (const chunk of stream) void chunk
+
+    expect(listLlmCalls(database)).toMatchObject([
+      { purpose: 'chat', status: 'success', inputTokens: 120, outputTokens: 8 },
+    ])
+  })
+
+  it('records a streamed call that died partway through', async () => {
+    const database = migratedDatabase()
+    const stub = stubFetch([{ raw: { body: '{"message":', contentType: 'application/json' } }])
+
+    const stream = createLlmRuntime({ config, database, fetch: stub.fetch })
+      .for('chat')
+      .stream({ system: 'You are Caroline.', messages: [], maxTokens: 512 })
+
+    await expect(
+      (async () => {
+        for await (const chunk of stream) void chunk
+      })(),
+    ).rejects.toThrow()
+    expect(listLlmCalls(database)).toMatchObject([{ purpose: 'chat', status: 'error' }])
+  })
+
   it('makes the call even with nowhere to record it', async () => {
     const stub = stubFetch([{ body: recordedPayload('ollama-classification') }])
 

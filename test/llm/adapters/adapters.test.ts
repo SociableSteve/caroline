@@ -19,6 +19,7 @@ function settings(over: Partial<LlmSettings>): LlmSettings {
     apiKey: null,
     maxTokens: 1024,
     timeoutMs: 5_000,
+    supportsTools: true,
     isLocal: true,
     configured: true,
     ...over,

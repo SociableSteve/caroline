@@ -2,22 +2,21 @@
  * The daily plan and the calendar behind it. Spec 08's route table, specs 05 and 02.
  *
  * Both routes answer for a local calendar date, defaulting to today, and both compute capacity
- * through `src/domain/capacity.ts`. That is what makes spec 08 criterion 6 true rather than
- * merely intended: the capacity bar and `GET /api/calendar` are not two answers that agree,
- * they are one answer read twice.
+ * through `src/actions/capacity.ts`, as the planner and chat's `get_capacity` tool do. That is what
+ * makes spec 08 criterion 6 true rather than merely intended: the capacity bar and
+ * `GET /api/calendar` are not two answers that agree, they are one answer read twice.
  */
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import type { Config } from '../../config/schema.js'
 import type { Database } from '../../db/index.js'
 import { listCalendarEvents } from '../../db/repositories/calendar-events.js'
 import { latestDailyPlan, planHistory } from '../../db/repositories/daily-plans.js'
-import { computeCapacity, workingWindowFor, type Interval } from '../../domain/capacity.js'
+import { capacityFrom, dayBounds, workingWindowForDate } from '../../actions/capacity.js'
 import type { CalendarEvent } from '../../domain/calendar.js'
 import { consumesCapacity } from '../../domain/capacity.js'
 import {
   addDays,
   formatLocalDate,
-  instantAt,
   localDateAt,
   parseLocalDate,
   type LocalDate,
@@ -42,14 +41,6 @@ export interface PlanRouteContext {
 /** How many days of planned-against-completed the dashboard draws. Spec 05. */
 export const HISTORY_DAYS = 14
 
-const DAY_MS = 24 * 60 * 60_000
-
-/** How many minutes into the day a local `HH:MM` is. The config carries the readable form. */
-function minutesOfDay(time: string): number {
-  const [hour = '0', minute = '0'] = time.split(':')
-  return Number(hour) * 60 + Number(minute)
-}
-
 /**
  * The date a request is about. The schema has already checked the shape, so the only thing
  * left to refuse is a shape that is not a date: `2026-02-30` passes a pattern and names no day.
@@ -65,17 +56,6 @@ function badDate(reply: FastifyReply, raw: string): FastifyReply {
     .send(
       apiError('bad_request', `"${raw}" is not a date. Use YYYY-MM-DD, or leave it off for today.`),
     )
-}
-
-/** The whole local day, which is the range the calendar column draws. */
-function dayBounds(date: LocalDate, timeZone: string): Interval {
-  const start = instantAt(date, 0, timeZone)
-  // A day is bounded by the next day's midnight rather than by 23:59, so an event running to
-  // the end of the evening is inside it.
-  const nextDay = localDateAt((start ?? 0) + 36 * 60 * 60_000, timeZone)
-  const end = instantAt(nextDay, 0, timeZone)
-
-  return { start: start ?? 0, end: end ?? (start ?? 0) + DAY_MS }
 }
 
 export function registerPlanRoutes(
@@ -199,17 +179,17 @@ export function registerPlanRoutes(
       // filter out here and a stale row would be a bug rather than a case to handle.
       const events = listCalendarEvents(database, { from: bounds.start, to: bounds.end })
 
-      const window = workingWindowFor(date, timeZone, {
-        startMinute: minutesOfDay(config.planning.workingWindow.start),
-        endMinute: minutesOfDay(config.planning.workingWindow.end),
-        days: config.planning.workingDays,
-      })
-
+      // The events of the whole day, but the capacity of the working window: the column draws a
+      // diary, and the window is the only part of the day there is work to plan into. Both come
+      // from the one computation in `src/actions/capacity.ts`, which is what makes spec 08
+      // criterion 6 true rather than merely intended.
       return {
         date: formatLocalDate(date),
         connected,
         events: events.map((event) => toEventResponse(event, config)),
-        capacity: capacityFor(window, events, config, connected),
+        // The day's events, not the window's: `computeCapacity` clips to the window itself, so
+        // an evening meeting takes nothing off the working day either way.
+        capacity: capacityFrom(workingWindowForDate(config, date), events, config, connected),
       }
     },
   )
@@ -233,52 +213,5 @@ function toEventResponse(event: CalendarEvent, config: Config) {
     consumesCapacity: consumesCapacity(event, {
       countAllDayEvents: config.planning.countAllDayEvents,
     }),
-  }
-}
-
-/**
- * A day that is not a working day has no window, and so no capacity. Reported as zeroes with
- * `workingDay: false` rather than as an absent object, so the bar has numbers to draw and the
- * screen has a reason to show for them.
- */
-function capacityFor(
-  window: Interval | null,
-  events: readonly CalendarEvent[],
-  config: Config,
-  connected: boolean,
-) {
-  if (window === null) {
-    return {
-      windowMinutes: 0,
-      busyMinutes: 0,
-      reserveMinutes: 0,
-      capacityMinutes: 0,
-      verified: connected,
-      workingDay: false,
-      windowStart: null,
-      windowEnd: null,
-      busy: [],
-      free: [],
-    }
-  }
-
-  const capacity = computeCapacity({
-    window,
-    events,
-    reservePercent: config.planning.reservePercent,
-    countAllDayEvents: config.planning.countAllDayEvents,
-  })
-
-  return {
-    windowMinutes: capacity.windowMinutes,
-    busyMinutes: capacity.busyMinutes,
-    reserveMinutes: capacity.reserveMinutes,
-    capacityMinutes: capacity.capacityMinutes,
-    verified: connected,
-    workingDay: true,
-    windowStart: window.start,
-    windowEnd: window.end,
-    busy: capacity.busy,
-    free: capacity.free,
   }
 }

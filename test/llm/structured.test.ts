@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import { createFakeProvider } from '../../src/llm/fake.js'
 import { withSchemaValidation } from '../../src/llm/structured.js'
-import { LlmSchemaError, type CompletionRequest, type JsonSchema } from '../../src/llm/types.js'
+import {
+  LlmError,
+  LlmSchemaError,
+  type CompletionAttempt,
+  type CompletionChunk,
+  type CompletionRequest,
+  type CompletionResult,
+  type JsonSchema,
+  type LlmProvider,
+} from '../../src/llm/types.js'
 
 /**
  * Deliberately not the shared `classificationSchema` from `test/helpers/llm.ts`, and named
@@ -113,5 +122,91 @@ describe('schema validation around a provider', () => {
 
     expect(result.text).toBe('anything at all')
     expect(fake.requests).toHaveLength(1)
+  })
+})
+
+/**
+ * A streamed call is recorded on the same terms as any other. Spec 03 criterion 7 is every call, and
+ * chat only ever streams, so an unrecorded stream would leave the cost view describing a fraction of
+ * what was spent.
+ */
+describe('recording a streamed call', () => {
+  const chat: CompletionRequest = {
+    system: 'You are Caroline.',
+    messages: [{ role: 'user', content: 'What is in my inbox?' }],
+    maxTokens: 256,
+  }
+
+  /** A provider whose stream is scripted chunk by chunk, so it can be made to stop short. */
+  function streamingProvider(chunks: readonly CompletionChunk[]): LlmProvider {
+    return {
+      name: 'ollama',
+      isLocal: true,
+      model: 'a-model',
+      supportsTools: true,
+      complete: () => Promise.reject(new Error('not used')),
+      async *stream() {
+        // Not asynchronous in fact: what matters is that it is an async iterable, which is what the
+        // wrapper consumes.
+        for (const chunk of chunks) yield await Promise.resolve(chunk)
+      },
+    }
+  }
+
+  const answer: CompletionResult = {
+    text: 'Three things.',
+    toolCalls: [],
+    usage: { inputTokens: 120, outputTokens: 8 },
+    stopReason: 'end_turn',
+  }
+
+  async function drain(provider: LlmProvider): Promise<CompletionAttempt[]> {
+    const attempts: CompletionAttempt[] = []
+    const wrapped = withSchemaValidation(provider, { onAttempt: (a) => attempts.push(a) })
+
+    for await (const chunk of wrapped.stream(chat)) void chunk
+
+    return attempts
+  }
+
+  it('records the usage the final chunk carried', async () => {
+    const attempts = await drain(
+      streamingProvider([
+        { type: 'text', text: 'Three things.' },
+        { type: 'done', result: answer },
+      ]),
+    )
+
+    expect(attempts).toMatchObject([
+      { status: 'success', usage: { inputTokens: 120, outputTokens: 8 }, error: null },
+    ])
+  })
+
+  /** A stream that stopped short still cost whatever it produced, and no row reads as free. */
+  it('records a stream that ended without a final chunk', async () => {
+    const attempts = await drain(streamingProvider([{ type: 'text', text: 'Half an ans' }]))
+
+    expect(attempts).toMatchObject([
+      { status: 'error', error: expect.stringContaining('without a final chunk') },
+    ])
+  })
+
+  it('records a stream that failed partway, and re-raises the failure', async () => {
+    const provider: LlmProvider = {
+      ...streamingProvider([]),
+      // eslint-disable-next-line require-yield
+      async *stream() {
+        throw new LlmError('the connection went away')
+      },
+    }
+    const attempts: CompletionAttempt[] = []
+    const wrapped = withSchemaValidation(provider, { onAttempt: (a) => attempts.push(a) })
+
+    await expect(
+      (async () => {
+        for await (const chunk of wrapped.stream(chat)) void chunk
+      })(),
+    ).rejects.toThrow('the connection went away')
+    expect(attempts).toMatchObject([{ status: 'error', error: /went away/ }])
   })
 })

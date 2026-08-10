@@ -24,8 +24,10 @@ src/
   server/        fastify app, routes, schemas
   domain/        tasks, projects, statuses. No IO
   db/            connection, migrations, repositories
+  actions/       what the routes and the chat tools both do, where it touches the database
   connectors/    github, gmail, gcal + shared sync engine
   llm/           provider interface, adapters, prompts
+  chat/          tool registry, turn loop, undo
   jobs/          scheduler, classify, plan, purge
   config/        schema, loading, validation, redaction
 web/             react app

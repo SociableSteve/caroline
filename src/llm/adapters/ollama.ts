@@ -14,6 +14,7 @@ import {
   type CompletionResult,
   type JsonSchema,
   type LlmProvider,
+  type Message,
   type ToolCall,
 } from '../types.js'
 import { assertRequestIsAnswerable } from '../request.js'
@@ -51,6 +52,31 @@ function schemaInPrompt(system: string, schema: JsonSchema): string {
   return `${system}\n\nAnswer with a single JSON object matching this JSON Schema exactly, and nothing else:\n${JSON.stringify(schema)}`
 }
 
+/**
+ * One shared message as Ollama messages. As for OpenAI, a tool result is a message of its own
+ * rather than a block within the turn it answers, and it is named: Ollama has no call id, so
+ * the tool's name is the only attribution a result can carry.
+ */
+function toOllamaMessages(message: Message): Array<Record<string, unknown>> {
+  const results = (message.toolResults ?? []).map((result) => ({
+    role: 'tool',
+    tool_name: result.name,
+    content: result.content,
+  }))
+
+  const calls = (message.toolCalls ?? []).map((call) => ({
+    function: { name: call.name, arguments: call.arguments ?? {} },
+  }))
+
+  if (message.role === 'assistant' && calls.length > 0) {
+    return [...results, { role: 'assistant', content: message.content, tool_calls: calls }]
+  }
+
+  if (results.length > 0 && message.content === '') return results
+
+  return [...results, { role: message.role, content: message.content }]
+}
+
 function requestBody(
   request: CompletionRequest,
   model: string,
@@ -67,10 +93,7 @@ function requestBody(
   // `stream` is not set here: `send` supplies it, so there is one place that decides.
   return {
     model,
-    messages: [
-      { role: 'system', content: system },
-      ...request.messages.map((message) => ({ role: message.role, content: message.content })),
-    ],
+    messages: [{ role: 'system', content: system }, ...request.messages.flatMap(toOllamaMessages)],
     ...(schema === undefined ? {} : { format: schemaInFormat ? schema : 'json' }),
     ...((request.tools ?? []).length === 0
       ? {}
@@ -141,6 +164,7 @@ export function createOllamaAdapter({
   model,
   baseUrl,
   timeoutMs,
+  supportsTools,
   fetch = globalThis.fetch,
 }: AdapterOptions): LlmProvider {
   const endpoint = `${(baseUrl ?? DEFAULT_OLLAMA_URL).replace(/\/+$/, '')}/api/chat`
@@ -198,6 +222,7 @@ export function createOllamaAdapter({
     name: 'ollama',
     isLocal: true,
     model,
+    supportsTools,
 
     async complete(request) {
       // Guarded around the parse as well as the request: a server that answers 200 with a

@@ -23,7 +23,10 @@ both validation and typing. Errors follow one shape: `{ error: { code, message, 
 | `GET /api/inbox/proposals` | Low-confidence classifications awaiting a decision |
 | `POST /api/inbox/proposals/:id/accept|dismiss` | Resolve one |
 | `POST /api/chat` | Streamed turn (SSE) |
+| `GET /api/chat/status` | Whether chat is configured, and whether it can change anything |
 | `GET /api/chat/conversations`, `GET /api/chat/conversations/:id` | History |
+| `POST /api/chat/confirmations/:id` | Confirm or discard an operation the model proposed (spec 07) |
+| `POST /api/chat/conversations/:id/undo` | Undo the last turn's changes (spec 07) |
 | `GET /api/jobs`, `POST /api/jobs/:name/run` | Run history, manual trigger |
 | `GET /api/config`, `PATCH /api/config` | Read and update runtime config, secrets redacted |
 | `GET /api/health` | Process, database, per-integration configured and last-run status |
@@ -33,7 +36,7 @@ subscribes to, so a background job's results appear without a refresh.
 
 ## UI
 
-Five surfaces.
+Six surfaces.
 
 **Dashboard.** Today's plan, today's calendar in a column with the busy and free blocks
 visible, a capacity bar showing planned against available, counts per status, waiting items
@@ -58,7 +61,9 @@ its own.
 into a project for its tasks.
 
 **Chat.** Transcript, streamed responses, inline records of what changed with undo, and
-confirmation prompts for deletes and bulk operations.
+confirmation prompts for deletes and bulk operations. Earlier conversations are listed beside
+it, with what each one has cost. Read-only is stated before anything is typed, and so is a
+turn that stopped at its tool-call limit.
 
 **Settings.** Integration status and connect flows, schedules, LLM provider and model,
 content policies (spec 09) with their consequences spelled out in plain language, working

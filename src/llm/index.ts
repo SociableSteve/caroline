@@ -49,6 +49,7 @@ export function createAdapter(
     model: settings.model,
     baseUrl: settings.baseUrl,
     timeoutMs: settings.timeoutMs,
+    supportsTools: settings.supportsTools,
     ...(fetch === undefined ? {} : { fetch }),
   }
 

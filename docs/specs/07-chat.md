@@ -46,13 +46,38 @@ Every mutation performed by the chat sets `status_set_by = 'user'`, because it h
 the user's instruction. That means chat decisions are protected from the classifier in
 exactly the way manual UI edits are.
 
+`mark_reviewed` is the one exception, and for the same reason the UI action has it: it is a
+move inside the GitHub connector's own state machine rather than a decision about where a
+task belongs, so it is attributed to `sync` exactly as the board's action is (spec 02). The
+user supplied the input; the machine made the move.
+
 - Mutations are applied immediately and rendered inline in the transcript as a compact
   record of what changed, with an undo control.
 - Undo is available for the last mutation batch of a turn, implemented as a stored inverse
-  operation, not as a general history rewind.
+  operation, not as a general history rewind. The inverse is decided and written at the
+  moment of the change, because that is the last moment the previous values exist to be
+  read, and it restores the whole prior row rather than a difference. Only the last batch
+  that has not been undone can be undone: an older inverse holds values from before whatever
+  happened after it, so replaying it would be a silent revert rather than an undo.
 - `delete_task` and any operation affecting more than a configurable number of tasks
   (default 10) require explicit confirmation in the UI before they execute. The model
   proposes; the user confirms.
+
+  With one task per write tool, "an operation affecting more than ten tasks" is a turn that
+  keeps going, which is exactly the pile-of-inbox-items case above. So the count is the
+  turn's: once a turn has changed the threshold number of tasks, every further write in it is
+  held rather than applied, collected into one confirmation for the batch that states how
+  many tasks the turn would change in total. A held operation is written down with the
+  arguments its tool already validated, so confirming performs what was proposed rather than
+  something rebuilt from a description of it, and it is recorded against the same turn, so
+  undo still covers it.
+
+  A confirmation is decided once. The model is told plainly that nothing happened and that
+  the user has been asked, so that it does not report a change it did not make.
+
+  Undoing a deleted task restores its row, its tags, its source links and its place in any daily
+  plan that named it. Its classification history is not restored: that cascaded with the delete,
+  and an inverse that invented rows would be worse than one that admits the loss.
 
 ## Errors and limits
 
@@ -61,7 +86,9 @@ exactly the way manual UI edits are.
 - A turn is capped at a configurable number of tool calls (default 25) to bound cost and
   stop loops.
 - If the configured provider or model cannot use tools (spec 03), chat runs read-only and
-  says so plainly rather than claiming changes it did not make.
+  says so plainly rather than claiming changes it did not make: no tool is offered at all,
+  because a model that cannot call one cannot call a read tool either, the turn is recorded
+  as read-only, and the surface says so before anything is typed.
 - Token usage per conversation is recorded and shown.
 
 ## Non-goals
@@ -74,11 +101,12 @@ exactly the way manual UI edits are.
 
 ## Acceptance criteria
 
-1. Every task or project mutated through chat has `status_set_by = 'user'`.
+1. Every task or project mutated through chat has `status_set_by = 'user'`, except
+   `mark_reviewed`, which is attributed to `sync` exactly as the UI action is (see above).
 2. No tool in the registry performs an outbound call to GitHub, Gmail or Calendar.
 3. A `delete_task` call is not executed until the user confirms in the UI.
-4. A bulk operation over the configured threshold requires confirmation, and the
-   confirmation states how many items are affected.
+4. A turn that would change more tasks than the configured threshold holds the rest of its
+   changes for confirmation, and the confirmation states how many items are affected.
 5. Undo after a turn restores the prior values of every task that turn changed.
 6. A turn that reaches the tool-call cap ends with a message saying so, leaving prior
    mutations applied and recorded.

@@ -90,6 +90,7 @@ export function withSchemaValidation(
     name: provider.name,
     isLocal: provider.isLocal,
     model: provider.model,
+    supportsTools: provider.supportsTools,
 
     async complete(request: CompletionRequest): Promise<CompletionResult> {
       const { schema } = request
@@ -131,10 +132,57 @@ export function withSchemaValidation(
       )
     },
 
-    // Streaming is chat's, and chat does not ask for structured output. Passed through
-    // rather than reimplemented, so there is no second, subtly different retry rule.
-    stream(request: CompletionRequest): AsyncIterable<CompletionChunk> {
-      return provider.stream(request)
+    /**
+     * Streaming is chat's, and chat does not ask for structured output, so there is no schema to
+     * validate and no retry rule to apply: the request is passed through rather than
+     * reimplemented, so there cannot be a second, subtly different one.
+     *
+     * It is still recorded. Spec 03 criterion 7 is every call, and a chat turn that made eight
+     * of them spent real tokens on all eight. Reported when the final chunk arrives, because that
+     * is the chunk that carries the usage, and reported as an error if the stream fails part-way,
+     * because a stream that died halfway through was still a call.
+     */
+    async *stream(request: CompletionRequest): AsyncIterable<CompletionChunk> {
+      const startedAt = now()
+      let finished = false
+
+      try {
+        for await (const chunk of provider.stream(request)) {
+          if (chunk.type === 'done') {
+            finished = true
+            onAttempt?.({
+              startedAt,
+              durationMs: now() - startedAt,
+              usage: chunk.result.usage,
+              status: 'success',
+              error: null,
+            })
+          }
+          yield chunk
+        }
+
+        // A stream that stopped without a final chunk answered nothing and still cost whatever it
+        // had produced. The caller decides what to make of that; this records that it happened,
+        // because a call with no row is a call the cost view says was never made.
+        if (!finished) {
+          onAttempt?.({
+            startedAt,
+            durationMs: now() - startedAt,
+            usage: noTokens,
+            status: 'error',
+            error: 'the stream ended without a final chunk',
+          })
+        }
+      } catch (error) {
+        onAttempt?.({
+          startedAt,
+          durationMs: now() - startedAt,
+          usage: noTokens,
+          status: 'error',
+          error: error instanceof Error ? error.message : String(error),
+        })
+        throw error
+      }
     },
   }
 }

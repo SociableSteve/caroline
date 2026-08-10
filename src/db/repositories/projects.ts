@@ -50,6 +50,14 @@ function writeProject(database: Database, project: Project): void {
     })
 }
 
+/**
+ * Writes a whole project row as given. As for `restoreTask`, the one caller is chat's undo,
+ * which has to put back what was there rather than record a fresh edit of it. Spec 07.
+ */
+export function restoreProject(database: Database, project: Project): void {
+  writeProject(database, project)
+}
+
 export function createProject(database: Database, input: CreateProjectInput, now: number): Project {
   const project = newProject({ ...input, id: input.id ?? randomUUID() }, now)
   writeProject(database, project)

@@ -10,6 +10,7 @@ import type {
   CompletionRequest,
   CompletionResult,
   LlmProvider,
+  Message,
   ToolCall,
 } from '../types.js'
 import { assertRequestIsAnswerable } from '../request.js'
@@ -23,11 +24,47 @@ const LABEL = 'OpenAI'
 type ChatParams = OpenAI.Chat.Completions.ChatCompletionCreateParams
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam
 
+/**
+ * One shared message as OpenAI messages, plural: a tool result is a message in its own right
+ * here rather than a block inside the turn it answers, so a user turn carrying results
+ * expands into one `tool` message each and then the text, in that order.
+ */
+function toChatMessages(message: Message): ChatMessage[] {
+  const results: ChatMessage[] = (message.toolResults ?? []).map((result) => ({
+    role: 'tool',
+    tool_call_id: result.toolCallId,
+    content: result.content,
+  }))
+
+  const calls = (message.toolCalls ?? []).map((call) => ({
+    id: call.id,
+    type: 'function' as const,
+    function: { name: call.name, arguments: JSON.stringify(call.arguments ?? {}) },
+  }))
+
+  if (message.role === 'assistant' && calls.length > 0) {
+    return [
+      ...results,
+      // Content is null rather than empty when the model only called a tool: OpenAI rejects
+      // an assistant message with neither content nor tool calls, and an empty string is not
+      // the same as having said nothing.
+      {
+        role: 'assistant',
+        content: message.content === '' ? null : message.content,
+        tool_calls: calls,
+      },
+    ]
+  }
+
+  // A turn that is nothing but tool results has no text to send, and an empty user message
+  // would be a turn the model has to interpret.
+  if (results.length > 0 && message.content === '') return results
+
+  return [...results, { role: message.role, content: message.content }]
+}
+
 function messages(request: CompletionRequest): ChatMessage[] {
-  return [
-    { role: 'system', content: request.system },
-    ...request.messages.map((message) => ({ role: message.role, content: message.content })),
-  ]
+  return [{ role: 'system', content: request.system }, ...request.messages.flatMap(toChatMessages)]
 }
 
 function body(request: CompletionRequest, model: string): ChatParams {
@@ -123,6 +160,7 @@ export function createOpenAiAdapter({
   model,
   baseUrl,
   timeoutMs,
+  supportsTools,
   fetch,
 }: AdapterOptions): LlmProvider {
   const client = new OpenAI({
@@ -141,6 +179,7 @@ export function createOpenAiAdapter({
     name: 'openai',
     isLocal: false,
     model,
+    supportsTools,
 
     async complete(request) {
       const completion = await guardCall(LABEL, () =>

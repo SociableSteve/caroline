@@ -15,6 +15,7 @@ import { registerTaskRoutes } from './routes/tasks.js'
 import { registerProjectRoutes } from './routes/projects.js'
 import { registerJobRoutes } from './routes/jobs.js'
 import { registerPlanRoutes } from './routes/plan.js'
+import { registerChatRoutes } from './routes/chat.js'
 import { registerIntegrationRoutes } from './routes/integrations.js'
 import { registerPrivacyRoutes } from './routes/privacy.js'
 import {
@@ -74,6 +75,7 @@ export function registerRoutes(
   registerProjectRoutes(app, { database, changes, now })
   registerJobRoutes(app, { database, jobs })
   registerPlanRoutes(app, { config, database, jobs, now })
+  registerChatRoutes(app, { config, database, changes, now, jobs })
   registerIntegrationRoutes(app, { config, database, google: jobs.google })
   registerPrivacyRoutes(app, { config, database, content: jobs.content, now })
 }

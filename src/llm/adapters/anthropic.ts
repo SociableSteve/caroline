@@ -12,6 +12,7 @@ import type {
   CompletionRequest,
   CompletionResult,
   LlmProvider,
+  Message,
   ToolCall,
   ToolDefinition,
 } from '../types.js'
@@ -48,8 +49,45 @@ function tools(request: CompletionRequest): ToolParam[] {
   }))
 }
 
+/**
+ * One shared message as Anthropic content. A turn with no tool traffic on it stays a plain
+ * string, which is the common case and the shape the recorded fixtures were taken against.
+ *
+ * Tool results lead the user turn they belong to, because Anthropic requires them there: a
+ * `tool_result` block after a text block in the same message is rejected.
+ */
+function content(message: Message): MessageParam['content'] {
+  const calls = message.toolCalls ?? []
+  const results = message.toolResults ?? []
+
+  // The ordinary case, and the one every scheduled job is in: a turn of plain text stays plain
+  // text rather than becoming a one-block array that says the same thing at more length.
+  if (calls.length === 0 && results.length === 0) return message.content
+
+  const blocks: Array<Anthropic.Messages.ContentBlockParam> = []
+
+  for (const result of results) {
+    blocks.push({
+      type: 'tool_result',
+      tool_use_id: result.toolCallId,
+      content: result.content,
+      ...(result.isError === true ? { is_error: true } : {}),
+    })
+  }
+
+  // An assistant turn that only called a tool carries no text, and an empty text block is
+  // rejected, so the text is written only when there is some.
+  if (message.content !== '') blocks.push({ type: 'text', text: message.content })
+
+  for (const call of calls) {
+    blocks.push({ type: 'tool_use', id: call.id, name: call.name, input: call.arguments })
+  }
+
+  return blocks
+}
+
 function messages(request: CompletionRequest): MessageParam[] {
-  return request.messages.map((message) => ({ role: message.role, content: message.content }))
+  return request.messages.map((message) => ({ role: message.role, content: content(message) }))
 }
 
 function body(request: CompletionRequest, model: string): Anthropic.Messages.MessageCreateParams {
@@ -105,6 +143,7 @@ export function createAnthropicAdapter({
   model,
   baseUrl,
   timeoutMs,
+  supportsTools,
   fetch,
 }: AdapterOptions): LlmProvider {
   const client = new Anthropic({
@@ -123,6 +162,7 @@ export function createAnthropicAdapter({
     name: 'anthropic',
     isLocal: false,
     model,
+    supportsTools,
 
     async complete(request) {
       return guardCall(LABEL, async () =>

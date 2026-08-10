@@ -19,6 +19,8 @@ export interface FakeProviderOptions {
   readonly name?: LlmProvider['name']
   readonly model?: string
   readonly isLocal?: boolean
+  /** False to stand in for a model that cannot be given tools. Spec 07, criterion 7. */
+  readonly supportsTools?: boolean
   /** How a streamed answer is cut up, so a test can assert reassembly. */
   readonly chunkSize?: number
 }
@@ -40,6 +42,7 @@ export function createFakeProvider({
   name = 'ollama',
   model = 'fake-model',
   isLocal = true,
+  supportsTools = true,
   chunkSize = 8,
 }: FakeProviderOptions): FakeProvider {
   const requests: CompletionRequest[] = []
@@ -63,6 +66,7 @@ export function createFakeProvider({
     name,
     isLocal,
     model,
+    supportsTools,
     requests,
 
     complete(request) {

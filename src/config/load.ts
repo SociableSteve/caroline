@@ -111,7 +111,14 @@ function apiKeyFor(provider: LlmProviderName, env: NodeJS.ProcessEnv): string | 
   }
 }
 
-type LlmChoices = Omit<LlmSettings, 'apiKey' | 'isLocal' | 'configured'>
+/**
+ * The settings a caller chooses, with the derived ones left to `llmSettings`. `supportsTools`
+ * is optional here rather than derived, because "not stated" and "stated as false" are
+ * different answers and only the first of them follows from the provider.
+ */
+type LlmChoices = Omit<LlmSettings, 'apiKey' | 'isLocal' | 'configured' | 'supportsTools'> & {
+  readonly supportsTools?: boolean | undefined
+}
 
 /**
  * The derived facts, in one place, so the base settings and every override agree on what
@@ -124,6 +131,11 @@ function llmSettings(choices: LlmChoices, env: NodeJS.ProcessEnv): LlmSettings {
   return {
     ...choices,
     apiKey,
+    // The hosted providers take tools from every model they serve. Ollama's answer is the
+    // model's, not the server's, so it is false until the operator says otherwise: chat that
+    // says it cannot make changes is recoverable, and chat that claims changes it could not
+    // make is not. Spec 03's graceful degradation, spec 07 criterion 7.
+    supportsTools: choices.supportsTools ?? choices.provider !== 'ollama',
     isLocal: choices.provider === 'ollama',
     // A provider with no model named can no more make a call than one with no key, so it is
     // reported the same way: not configured yet, rather than configured and broken.
@@ -161,6 +173,13 @@ function overrideSettings(
       baseUrl: 'baseUrl' in override ? (override.baseUrl ?? null) : inheritedBaseUrl,
       maxTokens: override.maxTokens ?? base.maxTokens,
       timeoutMs: override.timeoutMs ?? base.timeoutMs,
+      // Not inherited across a change of provider, for the same reason as the base URL: it is
+      // a fact about a model, and the override has named a different one.
+      ...(override.supportsTools === undefined
+        ? provider === base.provider
+          ? { supportsTools: base.supportsTools }
+          : {}
+        : { supportsTools: override.supportsTools }),
     },
     env,
   )
@@ -257,6 +276,9 @@ export function loadConfig({ file, env }: LoadOptions): Config {
       baseUrl: envBaseUrl(env, parsed.llm.baseUrl),
       maxTokens: parsed.llm.maxTokens,
       timeoutMs: parsed.llm.timeoutMs,
+      ...(parsed.llm.supportsTools === undefined
+        ? {}
+        : { supportsTools: parsed.llm.supportsTools }),
     },
     env,
   )
@@ -279,6 +301,7 @@ export function loadConfig({ file, env }: LoadOptions): Config {
     tasks: parsed.tasks,
     jobs: parsed.jobs,
     classification: parsed.classification,
+    chat: parsed.chat,
     planning: parsed.planning,
     privacy: parsed.privacy,
     llm: {

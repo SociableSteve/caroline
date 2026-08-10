@@ -219,3 +219,94 @@ describe('failures', () => {
     await expect(api.listTasks()).rejects.toThrow('network down')
   })
 })
+
+/**
+ * The streamed turn. `EventSource` cannot post a body, so the stream is read off `fetch` and cut
+ * into events here; a chunk boundary in the middle of an event is the case worth proving.
+ */
+describe('api.streamChat', () => {
+  function stubStream(chunks: readonly string[], status = 200): { calls: StubbedCall[] } {
+    const calls: StubbedCall[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({ url, init })
+
+        const body = new ReadableStream<Uint8Array>({
+          start(controller) {
+            const encoder = new TextEncoder()
+            for (const chunk of chunks) controller.enqueue(encoder.encode(chunk))
+            controller.close()
+          },
+        })
+
+        return {
+          ok: status < 400,
+          status,
+          body,
+          json: async () => ({ error: { code: 'bad_request', message: 'no' } }),
+        } as unknown as Response
+      }),
+    )
+
+    return { calls }
+  }
+
+  const event = (name: string, data: unknown) => `event: ${name}\ndata: ${JSON.stringify(data)}\n\n`
+
+  it('posts the message and reports each event as it arrives', async () => {
+    const { calls } = stubStream([
+      event('text', { text: 'Your inbox ' }),
+      event('text', { text: 'has three things.' }),
+    ])
+    const seen: unknown[] = []
+
+    await api.streamChat({ message: 'What is in my inbox?' }, (received) => seen.push(received))
+
+    expect(calls[0]?.url).toBe('/api/chat')
+    expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
+      message: 'What is in my inbox?',
+    })
+    expect(seen).toEqual([
+      { type: 'text', text: 'Your inbox ' },
+      { type: 'text', text: 'has three things.' },
+    ])
+  })
+
+  it('reassembles an event split across two chunks', async () => {
+    stubStream(['event: text\ndata: {"tex', 't":"split"}\n\n'])
+    const seen: unknown[] = []
+
+    await api.streamChat({ message: 'Hello' }, (received) => seen.push(received))
+
+    expect(seen).toEqual([{ type: 'text', text: 'split' }])
+  })
+
+  it('skips a keep-alive comment, which carries no data', async () => {
+    stubStream([': open\n\n', event('done', { message: { id: 'message-1' } })])
+    const seen: unknown[] = []
+
+    await api.streamChat({ message: 'Hello' }, (received) => seen.push(received))
+
+    expect(seen).toEqual([{ type: 'done', message: { id: 'message-1' } }])
+  })
+
+  it('carries the conversation id when one was given', async () => {
+    const { calls } = stubStream([event('done', {})])
+
+    await api.streamChat({ conversationId: 'conversation-1', message: 'More' }, () => {})
+
+    expect(JSON.parse(String(calls[0]?.init?.body))).toMatchObject({
+      conversationId: 'conversation-1',
+    })
+  })
+
+  it('fails with the standard error when the request is refused before the stream starts', async () => {
+    stubStream([], 400)
+
+    await expect(api.streamChat({ message: '   ' }, () => {})).rejects.toMatchObject({
+      status: 400,
+      code: 'bad_request',
+    })
+  })
+})
