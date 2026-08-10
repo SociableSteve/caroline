@@ -127,6 +127,11 @@ function stubDay({ planDate, calendarDate, failing = [] }: DayStubOptions) {
       const answer = (body: unknown) =>
         ({ ok: true, status: 200, json: async () => body }) as unknown as Response
 
+      // Recorded before anything can return, so a refused request is still a request that was
+      // made. A test asserting on what was asked for wants the whole list, not the part of it
+      // that happened to succeed.
+      if (url.startsWith('/api/calendar')) calendarUrls.push(url)
+
       if (refuses(url)) {
         return {
           ok: false,
@@ -146,7 +151,6 @@ function stubDay({ planDate, calendarDate, failing = [] }: DayStubOptions) {
       }
 
       if (url.startsWith('/api/calendar')) {
-        calendarUrls.push(url)
         // A qualified request answers for the date it was asked about; the bare one answers
         // with whatever the server thinks today is, which is the case under test.
         const asked = new URL(url, 'http://localhost').searchParams.get('date')
@@ -200,11 +204,18 @@ describe('a panel whose request failed', () => {
   })
 
   it('does not blank the panel it could not read', async () => {
-    stubDay({ planDate: '2026-06-08', calendarDate: '2026-06-08', failing: ['/api/calendar'] })
+    const { calendarUrls } = stubDay({
+      planDate: '2026-06-08',
+      calendarDate: '2026-06-08',
+      failing: ['/api/calendar'],
+    })
     render(<PlanProbe />)
 
     // The plan still landed, so the screen is useful; the calendar simply has nothing yet.
     await waitFor(() => expect(screen.getByTestId('plan-summary')).toHaveTextContent('plan for'))
     expect(screen.getByTestId('failure')).toHaveTextContent(/calendar/i)
+    // Asked for once and refused, rather than not asked for: the reload must not skip a panel
+    // just because the previous attempt failed.
+    expect(calendarUrls).toHaveLength(1)
   })
 })
