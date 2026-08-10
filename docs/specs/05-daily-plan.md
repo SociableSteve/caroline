@@ -29,14 +29,19 @@ A day whose capacity is zero or negative produces a plan with no work items and 
 
 ## Candidates
 
-- All `next_action` tasks not deferred past today.
+- All `next_action` tasks not deferred past today. A deferral to later the same day is not a
+  deferral past today, so the task is a candidate.
 - All `review` tasks.
-- Tasks due today or overdue, in any status other than `done`.
+- Anything else due today or overdue, which in practice means `inbox`: something with a
+  deadline that has arrived is work whether or not it has been triaged yet.
 - Stalled active projects, as a prompt to define a next action.
 
-`someday` and `reference` are excluded. `waiting` is excluded from the work list but items
-waiting more than a configurable number of days (default 7) are surfaced separately as
-chase nudges, since chasing is itself work.
+`someday`, `reference` and `done` are excluded whatever their deadline says: a someday item
+with a date on it is still not a commitment for today. `waiting` is excluded from the work
+list for the same reason, since the next move belongs to somebody else, but items waiting
+more than a configurable number of days are surfaced separately as chase nudges, because
+chasing is itself work. The threshold is `tasks.waitingStaleDays`, the same one the Waiting
+for column and the dashboard read, and it defaults to 7.
 
 A nudge names the item, who it is waiting on and for how long, and offers the chase as a
 one-click next action. For a reviewed pull request it also says whether the author has
@@ -59,11 +64,19 @@ the prompt:
   queue is non-empty and capacity allows.
 - Tasks with no estimate use a configurable default (30 minutes) so they can still be
   fitted.
+- An entry naming a task that was never a candidate is dropped, and the plan carries a warning
+  saying so. A plan is acted on, and work nobody put in front of the model is work it invented.
+- An entry too large for the whole day goes to overflow without taking the rest of the list
+  with it: fitting steps over it and carries on, so one outsized task does not empty the day.
 
 ## Relationship to task state
 
 The plan is a proposal. Generating it changes no task's status, and no task is "assigned"
 to a day. Regenerating replaces the day's plan and keeps the previous one in history.
+
+Only today's plan can be regenerated. An earlier day's plan is a record of what was proposed
+on that day, and redrawing it against today's tasks would rewrite that record, and the
+fortnight of planned against completed with it.
 
 Completing a task from within the plan view completes the task; the plan entry then renders
 as done. Yesterday's plan is retained, and the dashboard shows planned against completed
@@ -96,3 +109,8 @@ for the last fourteen days.
     and the elapsed time, and does not consume capacity.
 12. A reviewed pull request whose author has not responded appears as a nudge rather than
     disappearing from the day's output.
+13. A day that is not a working day has no capacity, plans nothing, and says which day it was
+    rather than reporting an empty diary as a free one.
+14. An entry naming a task that was not a candidate does not reach the plan, and the plan says
+    it was left out.
+15. Regenerating a date that is not today is refused, so an earlier day's record stands.

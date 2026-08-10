@@ -5,7 +5,13 @@
 import { describe, expect, it } from 'vitest'
 import type { GoogleAuth } from '../../src/connectors/google/auth.js'
 import { GoogleAuthError } from '../../src/connectors/google/oauth.js'
-import { testServer } from '../helpers/test-server.js'
+import {
+  countCalendarEvents,
+  upsertCalendarEvent,
+} from '../../src/db/repositories/calendar-events.js'
+import { createTask, listTasks } from '../../src/db/repositories/tasks.js'
+import { migratedDatabase } from '../helpers/temp-database.js'
+import { REQUEST_TIME, testServer } from '../helpers/test-server.js'
 
 const CONNECT_URL =
   'https://accounts.google.com/o/oauth2/v2/auth?client_id=client-123&state=state-1'
@@ -183,5 +189,47 @@ describe('DELETE /api/integrations/google', () => {
 
     expect(response.statusCode).toBe(204)
     expect(google.disconnected).toBe(true)
+  })
+
+  /**
+   * A calendar event is a reading of a calendar rather than something Caroline was asked to
+   * remember. Left behind, it would go on reducing tomorrow's capacity for a meeting nobody can
+   * check. Spec 09.
+   */
+  it('takes the diary with it', async () => {
+    const database = migratedDatabase()
+    upsertCalendarEvent(
+      database,
+      {
+        calendarId: 'primary',
+        externalId: 'event-1',
+        summary: 'Hub weekly',
+        startsAt: REQUEST_TIME,
+        endsAt: REQUEST_TIME + 60 * 60_000,
+        allDay: false,
+        responseStatus: 'accepted',
+        transparency: 'opaque',
+        status: 'confirmed',
+        attendeeCount: 2,
+        url: null,
+      },
+      REQUEST_TIME,
+    )
+    const { app } = await testServer({ database, google: fakeGoogle({ connected: true }).auth })
+
+    await app.inject({ method: 'DELETE', url: '/api/integrations/google' })
+
+    expect(countCalendarEvents(database)).toBe(0)
+  })
+
+  /** The work Gmail and GitHub produced is work, not a reading, and it stays. */
+  it('leaves the tasks alone', async () => {
+    const database = migratedDatabase()
+    createTask(database, { title: 'Hub numbers', status: 'inbox' }, REQUEST_TIME)
+    const { app } = await testServer({ database, google: fakeGoogle({ connected: true }).auth })
+
+    await app.inject({ method: 'DELETE', url: '/api/integrations/google' })
+
+    expect(listTasks(database, {}, REQUEST_TIME).total).toBe(1)
   })
 })

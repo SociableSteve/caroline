@@ -6,6 +6,12 @@
  * schema is dropped from the payload, which makes the schema the definition of what the API
  * returns rather than a description of it.
  */
+import {
+  calendarEventStatuses,
+  calendarResponseStatuses,
+  calendarTransparencies,
+} from '../domain/calendar.js'
+import { planEntryKinds } from '../domain/plan.js'
 import { jobRunStatuses, jobTriggers } from '../domain/job.js'
 import { projectStates } from '../domain/project.js'
 import { sourceProviders } from '../domain/source.js'
@@ -442,6 +448,175 @@ export const googleCallbackQuerySchema = {
     code: { type: 'string', maxLength: 2000 },
     state: { type: 'string', maxLength: 200 },
     error: { type: 'string', maxLength: 200 },
+  },
+} as const
+
+/** `YYYY-MM-DD`. The pattern catches the shape; the route checks it is a date that exists. */
+const localDate = { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' } as const
+
+export const planParamsSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['date'],
+  properties: { date: localDate },
+} as const
+
+/** One entry of a plan, whichever of the three sections it belongs to. Spec 05. */
+const planEntryResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'kind', 'rank', 'title', 'done'],
+  properties: {
+    id: { type: 'string' },
+    kind: { type: 'string', enum: planEntryKinds },
+    rank: { type: 'integer' },
+    /** Null once the task has been deleted. The entry survives, because the plan is a record. */
+    taskId: nullableString(64),
+    title: { type: 'string' },
+    rationale: nullableString(500),
+    estimateMinutes: nullableInteger,
+    waitingOn: nullableString(TITLE_MAX),
+    waitingSince: nullableInteger,
+    pushedSinceReview: { type: 'boolean' },
+    /** As it stands now, so a completed entry renders as done rather than as still to do. */
+    taskStatus: nullableString(20),
+    done: { type: 'boolean' },
+  },
+} as const
+
+export const planResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'id',
+    'planDate',
+    'generatedAt',
+    'capacityMinutes',
+    'capacityVerified',
+    'entries',
+    'overflow',
+    'nudges',
+    'warnings',
+  ],
+  properties: {
+    id: { type: 'string' },
+    planDate: { type: 'string' },
+    generatedAt: { type: 'integer' },
+    timeZone: { type: 'string' },
+    windowMinutes: { type: 'integer' },
+    busyMinutes: { type: 'integer' },
+    reserveMinutes: { type: 'integer' },
+    /** May be negative: a day with more meetings than hours says so. Spec 05. */
+    capacityMinutes: { type: 'integer' },
+    capacityVerified: { type: 'boolean' },
+    provider: nullableString(20),
+    model: nullableString(200),
+    promptVersion: { type: 'string' },
+    summary: nullableString(1000),
+    warnings: { type: 'array', items: { type: 'string' } },
+    entries: { type: 'array', items: planEntryResponseSchema },
+    overflow: { type: 'array', items: planEntryResponseSchema },
+    nudges: { type: 'array', items: planEntryResponseSchema },
+  },
+} as const
+
+/**
+ * The plan for a day, and the fortnight of planned against completed the dashboard draws
+ * beside it. Carried together because the dashboard reads them together, and a second route
+ * for two numbers a day would be a second round trip for one panel. Spec 05.
+ */
+export const planDayResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['date', 'plan', 'history'],
+  properties: {
+    date: { type: 'string' },
+    plan: { ...planResponseSchema, nullable: true },
+    history: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['planDate', 'planned', 'completed'],
+        properties: {
+          planDate: { type: 'string' },
+          planned: { type: 'integer' },
+          completed: { type: 'integer' },
+        },
+      },
+    },
+  },
+} as const
+
+export const calendarQuerySchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: { date: localDate },
+} as const
+
+/**
+ * An event as the API returns it. No description and no attendee list: neither is fetched
+ * (spec 02's retained metadata), so neither can be published. Spec 09.
+ */
+const calendarEventResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'startsAt', 'endsAt', 'allDay', 'responseStatus', 'transparency', 'status'],
+  properties: {
+    id: { type: 'string' },
+    calendarId: { type: 'string' },
+    summary: nullableString(TITLE_MAX),
+    startsAt: { type: 'integer' },
+    endsAt: { type: 'integer' },
+    allDay: { type: 'boolean' },
+    responseStatus: { type: 'string', enum: calendarResponseStatuses },
+    transparency: { type: 'string', enum: calendarTransparencies },
+    status: { type: 'string', enum: calendarEventStatuses },
+    attendeeCount: { type: 'integer' },
+    url: nullableString(2000),
+    /** Whether this event took time off the day, so the column can show why one did not. */
+    consumesCapacity: { type: 'boolean' },
+  },
+} as const
+
+const intervalSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['start', 'end'],
+  properties: { start: { type: 'integer' }, end: { type: 'integer' } },
+} as const
+
+/**
+ * The day's capacity, as the capacity bar reads it. Spec 08 criterion 6 is that the bar's
+ * numbers match this route, which holds because both are this one computation.
+ */
+export const calendarResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['date', 'connected', 'events', 'capacity'],
+  properties: {
+    date: { type: 'string' },
+    /** Whether a calendar could be read at all. False makes the capacity a guess. */
+    connected: { type: 'boolean' },
+    events: { type: 'array', items: calendarEventResponseSchema },
+    capacity: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['windowMinutes', 'busyMinutes', 'reserveMinutes', 'capacityMinutes', 'verified'],
+      properties: {
+        /** Zero on a day that is not a working day, which `workingDay` is what says. */
+        windowMinutes: { type: 'integer' },
+        busyMinutes: { type: 'integer' },
+        reserveMinutes: { type: 'integer' },
+        capacityMinutes: { type: 'integer' },
+        verified: { type: 'boolean' },
+        workingDay: { type: 'boolean' },
+        windowStart: nullableInteger,
+        windowEnd: nullableInteger,
+        busy: { type: 'array', items: intervalSchema },
+        free: { type: 'array', items: intervalSchema },
+      },
+    },
   },
 } as const
 

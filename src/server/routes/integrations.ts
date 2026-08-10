@@ -2,6 +2,8 @@ import type { FastifyInstance, FastifyReply } from 'fastify'
 import type { Config } from '../../config/schema.js'
 import { redirectUriFor, type GoogleAuth } from '../../connectors/google/auth.js'
 import { GoogleAuthError } from '../../connectors/google/oauth.js'
+import { deleteAllCalendarEvents } from '../../db/repositories/calendar-events.js'
+import type { Database } from '../../db/index.js'
 import { apiError } from '../errors.js'
 import {
   googleCallbackQuerySchema,
@@ -11,6 +13,7 @@ import {
 
 export interface IntegrationRouteContext {
   readonly config: Config
+  readonly database: Database
   readonly google: GoogleAuth
 }
 
@@ -31,7 +34,7 @@ function notConfigured(reply: FastifyReply, message: string): FastifyReply {
  */
 export function registerIntegrationRoutes(
   app: FastifyInstance,
-  { config, google }: IntegrationRouteContext,
+  { config, database, google }: IntegrationRouteContext,
 ): void {
   app.get(
     '/api/integrations/google',
@@ -96,11 +99,19 @@ export function registerIntegrationRoutes(
     },
   )
 
+  /**
+   * Disconnecting takes the diary with it. An event is not something Caroline was asked to
+   * remember, it is a reading of a calendar it can no longer see: leaving the rows behind would
+   * have tomorrow's capacity computed from meetings nobody can check, for as long as the
+   * database lives. The tasks and sources Gmail and GitHub produced are untouched, because
+   * those are work rather than a reading. Spec 09.
+   */
   app.delete(
     '/api/integrations/google',
     { schema: { response: { 204: { type: 'null' } } } },
     async (_request, reply) => {
       google.disconnect()
+      deleteAllCalendarEvents(database)
       return reply.status(204).send()
     },
   )

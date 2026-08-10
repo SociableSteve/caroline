@@ -5,7 +5,13 @@
  * the suite. Spec 02, criterion 8.
  *
  * Read-only, thread level, one account. No labelling, no archiving, nothing that writes.
+ *
+ * The HTTP itself, and reading a refusal correctly, is shared with the calendar client in
+ * `../google/http.ts`: a 403 that is a quota and a 403 that is a missing scope want opposite
+ * answers, and that judgement should not be made twice.
  */
+import { createGoogleClient, PASS_TIMEOUT_MS, REQUEST_TIMEOUT_MS } from '../google/http.js'
+
 export const GMAIL_BASE_URL = 'https://gmail.googleapis.com/gmail/v1/users/me'
 
 /** A thread as Gmail returns it, reduced to the fields Caroline reads. */
@@ -64,15 +70,7 @@ export const LIST_PAGE = 100
  */
 export const LIST_MAX_PAGES = 10
 
-/** How long one Gmail request may take. */
-export const REQUEST_TIMEOUT_MS = 20_000
-
-/**
- * How long one pass may take in total, however many requests it makes. A per-request deadline
- * is not a bound on a pass that fetches a thread at a time: a run held open indefinitely is a
- * run the overlap guard answers "already running" to for the rest of the process's life.
- */
-export const PASS_TIMEOUT_MS = 120_000
+export { PASS_TIMEOUT_MS, REQUEST_TIMEOUT_MS }
 
 export interface GmailApiOptions {
   /** Asked afresh per request, so a token that expires mid-pass is refreshed rather than reused. */
@@ -88,97 +86,24 @@ interface ListResponse {
   readonly nextPageToken?: unknown
 }
 
-/**
- * Why Gmail refused, in its own words. A 403 covers both a quota the scheduler should back off
- * from and a scope it will never be granted, and the two want opposite answers: waiting fixes the
- * first and only the user can fix the second. The `reason` in the body is what tells them apart.
- */
-interface ErrorResponse {
-  readonly error?: {
-    readonly message?: unknown
-    readonly errors?: readonly { readonly reason?: unknown }[]
-  }
-}
-
-const quotaReasons = new Set([
-  'rateLimitExceeded',
-  'userRateLimitExceeded',
-  'dailyLimitExceeded',
-  'quotaExceeded',
-  'backendError',
-])
-
-async function refusal(response: Response): Promise<string> {
-  const body = (await response.json().catch(() => null)) as ErrorResponse | null
-  const reasons = (body?.error?.errors ?? [])
-    .map((entry) => (typeof entry.reason === 'string' ? entry.reason : null))
-    .filter((reason): reason is string => reason !== null)
-
-  // Rate limiting is handled by respecting Google's own answer rather than by sleeping a fixed
-  // amount: the run fails saying so, and the scheduler's backoff decides when to try again
-  // (spec 02).
-  if (response.status === 429 || reasons.some((reason) => quotaReasons.has(reason))) {
-    return `Gmail rate limit reached (${reasons.join(', ') || response.status}). The next scheduled run will try again.`
-  }
-
-  // A permission failure is permanent, and backing off from it would retry it forever. The run
-  // history should say what would actually fix it.
-  const detail = typeof body?.error?.message === 'string' ? body.error.message : response.statusText
-
-  return `Gmail refused the request with ${response.status}${
-    reasons.length === 0 ? '' : ` (${reasons.join(', ')})`
-  }: ${detail}. Caroline may not have the scope it needs, so reconnect the Google account from Settings.`
-}
-
 export function createGmailApi({
   accessToken,
   baseUrl = GMAIL_BASE_URL,
-  fetch = globalThis.fetch,
-  timeoutMs = REQUEST_TIMEOUT_MS,
-  passTimeoutMs = PASS_TIMEOUT_MS,
+  fetch,
+  timeoutMs,
+  passTimeoutMs,
 }: GmailApiOptions): GmailApi {
-  /** A budget for one pass, shared by every request it makes. */
-  function budget(): AbortSignal {
-    return AbortSignal.timeout(passTimeoutMs)
-  }
+  const client = createGoogleClient({
+    product: 'Gmail',
+    baseUrl,
+    accessToken,
+    fail: (message) => new GmailApiError(message),
+    ...(fetch === undefined ? {} : { fetch }),
+    ...(timeoutMs === undefined ? {} : { timeoutMs }),
+    ...(passTimeoutMs === undefined ? {} : { passTimeoutMs }),
+  })
 
-  async function get(path: string, pass: AbortSignal): Promise<unknown> {
-    const token = await accessToken()
-
-    let response: Response
-    try {
-      response = await fetch(`${baseUrl}${path}`, {
-        headers: { authorization: `Bearer ${token}`, accept: 'application/json' },
-        // Whichever runs out first: this request, or the pass it belongs to.
-        signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), pass]),
-      })
-    } catch (error) {
-      if (error instanceof Error && error.name === 'TimeoutError') {
-        throw new GmailApiError(
-          pass.aborted
-            ? `Gmail did not finish answering within ${passTimeoutMs}ms`
-            : `Gmail did not answer within ${timeoutMs}ms`,
-        )
-      }
-      throw error
-    }
-
-    if (response.status === 429 || response.status === 403) {
-      throw new GmailApiError(await refusal(response))
-    }
-
-    if (response.status === 401) {
-      throw new GmailApiError(
-        'Gmail rejected the access token. Reconnect the Google account from Settings.',
-      )
-    }
-
-    if (!response.ok) {
-      throw new GmailApiError(`Gmail answered ${response.status} ${response.statusText}`)
-    }
-
-    return response.json()
-  }
+  const { beginPass: budget, get } = client
 
   return {
     beginPass: budget,

@@ -95,7 +95,12 @@ describe('GET /api/jobs/status', () => {
 
     const { jobs } = (await app.inject({ method: 'GET', url: '/api/jobs/status' })).json()
 
-    expect(jobs.map((job: { job: string }) => job.job)).toEqual(['sync', 'classify', 'purge'])
+    expect(jobs.map((job: { job: string }) => job.job)).toEqual([
+      'sync',
+      'classify',
+      'plan',
+      'purge',
+    ])
     expect(jobs[0]).toMatchObject({
       cron: '*/15 * * * *',
       running: false,
@@ -140,8 +145,11 @@ describe('POST /api/jobs/:name/run', () => {
     })
 
     const { runs } = (await app.inject({ method: 'GET', url: '/api/jobs' })).json()
+    // The calendar is part of the sync pass and writes its own row, alongside the two
+    // connectors that produce sources. Spec 02.
     expect(runs.map((run: { job: string }) => run.job).sort()).toEqual([
       'sync',
+      'sync:gcal',
       'sync:github',
       'sync:gmail',
     ])
@@ -165,10 +173,20 @@ describe('POST /api/jobs/:name/run', () => {
     expect(response.json()).toMatchObject({ run: { job: 'purge', status: 'success' } })
   })
 
-  it('is a 404 for a job that does not exist', async () => {
+  it('runs plan, which is skipped with no provider configured', async () => {
     const { app } = await testServer()
 
     const response = await app.inject({ method: 'POST', url: '/api/jobs/plan/run' })
+
+    expect(response.json()).toMatchObject({
+      run: { job: 'plan', status: 'skipped', error: expect.stringMatching(/No LLM provider/) },
+    })
+  })
+
+  it('is a 404 for a job that does not exist', async () => {
+    const { app } = await testServer()
+
+    const response = await app.inject({ method: 'POST', url: '/api/jobs/reticulate/run' })
 
     expect(response.statusCode).toBe(404)
     expect(response.json()).toMatchObject({ error: { code: 'not_found' } })

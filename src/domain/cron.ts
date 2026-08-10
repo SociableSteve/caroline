@@ -6,7 +6,20 @@
  * Five fields, the standard ones: minute, hour, day of month, month, day of week. No seconds
  * field, because the finest cadence any of these jobs wants is a minute, and no non-standard
  * extensions, because a schedule nobody can read is a schedule nobody can check.
+ *
+ * The wall-clock arithmetic lives in `time.ts`, because the planner's working window asks the
+ * same question of the same timezone and the two must not answer it differently.
  */
+import {
+  dayOfWeekOf,
+  daysInMonth,
+  epochForWallClock,
+  isValidTimeZone,
+  wallClockAt,
+  type WallClock,
+} from './time.js'
+
+export { isValidTimeZone }
 
 /** A cron expression that cannot be parsed, or that names a moment that never arrives. */
 export class CronError extends Error {
@@ -161,140 +174,10 @@ export function isValidCron(expression: string, from = Date.now()): boolean {
   }
 }
 
-/** True when the timezone is one this runtime knows. Used by the configuration schema. */
-export function isValidTimeZone(timeZone: string): boolean {
-  try {
-    new Intl.DateTimeFormat('en-GB', { timeZone })
-    return true
-  } catch {
-    return false
-  }
-}
-
-/** A wall-clock reading: what a clock on the wall in that timezone says. */
-interface WallClock {
-  year: number
-  month: number
-  day: number
-  hour: number
-  minute: number
-}
-
-const formatters = new Map<string, Intl.DateTimeFormat>()
-
-function formatterFor(timeZone: string): Intl.DateTimeFormat {
-  const existing = formatters.get(timeZone)
-  if (existing !== undefined) return existing
-
-  // Built once per timezone and kept: constructing one of these is expensive relative to
-  // formatting with it, and `nextCronTime` formats a great many instants.
-  const formatter = new Intl.DateTimeFormat('en-GB', {
-    timeZone,
-    hourCycle: 'h23',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  })
-
-  formatters.set(timeZone, formatter)
-  return formatter
-}
-
-interface WallClockWithSeconds extends WallClock {
-  second: number
-}
-
-/**
- * What the wall clock in `timeZone` reads at that instant. `Intl` is the only thing in the
- * runtime that knows the world's DST rules, so it is what the offsets are derived from rather
- * than a table this repository would have to keep up to date.
- */
-function wallClockAt(epoch: number, timeZone: string): WallClockWithSeconds {
-  const parts = formatterFor(timeZone).formatToParts(new Date(epoch))
-  const read = (type: Intl.DateTimeFormatPartTypes): number =>
-    Number(parts.find((part) => part.type === type)?.value ?? 0)
-
-  return {
-    year: read('year'),
-    month: read('month'),
-    day: read('day'),
-    hour: read('hour'),
-    minute: read('minute'),
-    second: read('second'),
-  }
-}
-
-function asUtc(clock: WallClock, second = 0): number {
-  return Date.UTC(clock.year, clock.month - 1, clock.day, clock.hour, clock.minute, second)
-}
-
-/** The timezone's offset from UTC at that instant, in milliseconds. */
-function offsetAt(epoch: number, timeZone: string): number {
-  const clock = wallClockAt(epoch, timeZone)
-  // The seconds are carried through so that a zone with a sub-minute historical offset does
-  // not contribute a rounding error of its own.
-  return asUtc(clock, clock.second) - Math.floor(epoch / 1000) * 1000
-}
-
-const DAY_MS = 24 * 60 * 60_000
-
-/**
- * The first instant at which that wall clock reads in that timezone, or null when it never
- * does.
- *
- * Both cases are real. The hour a spring-forward skips has no instant: 01:30 simply does not
- * happen that day, and a schedule naming it does not fire rather than firing at some nearby
- * time nobody asked for. The hour an autumn change repeats has two, and the schedule fires on
- * the first of them, once.
- *
- * Deriving one from the other by arithmetic cannot answer either question, because the offset
- * to subtract is the one in force at an instant that is not known yet. So each offset in force
- * anywhere near the wanted reading is tried, each candidate is read back, and the earliest
- * that reads back correctly is the answer. A day either side covers every transition there is.
- */
-function epochFor(clock: WallClock, timeZone: string): number | null {
-  const naive = asUtc(clock)
-  const offsets = new Set([
-    offsetAt(naive - DAY_MS, timeZone),
-    offsetAt(naive, timeZone),
-    offsetAt(naive + DAY_MS, timeZone),
-  ])
-
-  const candidates = [...offsets]
-    .map((offset) => naive - offset)
-    .filter((epoch) => reads(epoch, clock, timeZone))
-    .sort((first, second) => first - second)
-
-  return candidates[0] ?? null
-}
-
-function reads(epoch: number, clock: WallClock, timeZone: string): boolean {
-  const reading = wallClockAt(epoch, timeZone)
-  return (
-    reading.year === clock.year &&
-    reading.month === clock.month &&
-    reading.day === clock.day &&
-    reading.hour === clock.hour &&
-    reading.minute === clock.minute
-  )
-}
-
-/** Sunday is 0. The weekday of a calendar date is the same in every timezone. */
-function dayOfWeek(clock: WallClock): number {
-  return new Date(Date.UTC(clock.year, clock.month - 1, clock.day)).getUTCDay()
-}
-
-function daysInMonth(year: number, month: number): number {
-  return new Date(Date.UTC(year, month, 0)).getUTCDate()
-}
-
 /** Cron's either-or rule for the two day fields. See `CronFields`. */
 function dayMatches(fields: CronFields, clock: WallClock): boolean {
   const byDate = fields.daysOfMonth.has(clock.day)
-  const byWeekday = fields.daysOfWeek.has(dayOfWeek(clock))
+  const byWeekday = fields.daysOfWeek.has(dayOfWeekOf(clock))
 
   if (fields.restrictedDayOfMonth && fields.restrictedDayOfWeek) return byDate || byWeekday
   if (fields.restrictedDayOfMonth) return byDate
@@ -355,7 +238,7 @@ export function nextCronTime(fields: CronFields, after: number, timeZone: string
     }
 
     if (fields.minutes.has(clock.minute)) {
-      const epoch = epochFor(clock, timeZone)
+      const epoch = epochForWallClock(clock, timeZone)
       // A wall-clock minute the zone skips, or one that resolves to an instant already past
       // because the clocks went back and this minute has happened once already.
       if (epoch !== null && epoch > after) return epoch

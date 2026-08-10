@@ -4,6 +4,11 @@
  * cannot disagree about how long something has been waiting.
  */
 import { hasNewCommitsSinceActing } from '../src/domain/review.js'
+import {
+  isStaleWait,
+  waitingAge as waitingAgeOf,
+  waitingSince as waitingSinceOf,
+} from '../src/domain/waiting.js'
 import type { PullRequestMetadata, SourceView, TaskStatus, TaskView } from './api.js'
 
 const statusLabels: Record<TaskStatus, string> = {
@@ -44,6 +49,11 @@ export function formatDate(epochMs: number): string {
   })
 }
 
+/** A clock time in the reader's own locale. What the calendar column labels a block with. */
+export function formatTimeOfDay(epochMs: number): string {
+  return new Date(epochMs).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+}
+
 export function formatEstimate(minutes: number): string {
   if (minutes < 60) return `${minutes} min`
   const hours = Math.floor(minutes / 60)
@@ -55,22 +65,21 @@ export function formatEstimate(minutes: number): string {
 export type Waiting = Pick<TaskView, 'statusSetAt' | 'sources'>
 
 /**
- * How long a waiting item has been waiting. For a pull request that is the source's
- * `acted_at`: the moment you discharged your part and it became the author's turn. An item
- * with no source has no `acted_at`, so the basis is `status_set_at`, which is the same
- * moment said a different way. Spec 02.
+ * How long a waiting item has been waiting, and when that becomes a chase. The rule is spec
+ * 02's and lives in `src/domain/waiting.ts`; these resolve the pull request source it is
+ * measured from and hand it over, so the card, the dashboard and the daily plan's nudges
+ * cannot come to different answers about the same item.
  */
 export function waitingSince(task: Waiting): number {
-  return pullRequestSource(task)?.actedAt ?? task.statusSetAt
+  return waitingSinceOf(task, pullRequestSource(task))
 }
 
 export function waitingAge(task: Waiting, now: number): number {
-  return Math.max(0, now - waitingSince(task))
+  return waitingAgeOf(task, pullRequestSource(task), now)
 }
 
-/** Past the configured threshold, a waiting item stops being tracked and becomes a chase. */
 export function isStale(task: Waiting, now: number, staleDays: number): boolean {
-  return waitingAge(task, now) >= staleDays * DAY
+  return isStaleWait(task, pullRequestSource(task), now, staleDays)
 }
 
 /** Oldest first: the chase list's whole purpose is the top of it. */

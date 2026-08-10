@@ -32,6 +32,10 @@ export function App() {
     health,
     jobRuns,
     jobStatus,
+    plan,
+    planHistory,
+    planDate,
+    calendar,
     google,
     preview,
     staleDays,
@@ -106,6 +110,22 @@ export function App() {
   const onAcceptProposal = (id: string) => void write(() => api.acceptProposal(id))
   const onDismissProposal = (id: string) => void write(() => api.dismissProposal(id))
   const onSync = () => void write(() => api.runJob('sync'))
+  /**
+   * Redrawing today's plan. The date comes from the server's answer rather than from this
+   * browser's clock: the two can differ across midnight, and the route only regenerates today.
+   *
+   * One at a time. The scheduler's overlap guard already refuses a second concurrent run with a
+   * 409, so a double click cannot draw two plans or spend two model calls; this is so the
+   * second click does not put that 409 on the screen as though something had gone wrong.
+   */
+  const [regenerating, setRegenerating] = useState(false)
+
+  const onRegeneratePlan = () => {
+    if (planDate === null || regenerating) return
+
+    setRegenerating(true)
+    void write(() => api.regeneratePlan(planDate)).finally(() => setRegenerating(false))
+  }
   const onRunJob = (job: string) => void write(() => api.runJob(job))
   // These two answer their forms, which keep what was typed until the write lands.
   const onCapture = (input: TaskInput) => write(() => api.createTask(input))
@@ -168,9 +188,12 @@ export function App() {
       </header>
 
       <main>
+        {/* The message carries its own context, because the two cases read differently: the
+            whole board being unreachable, and one panel of it that could not be read while the
+            rest of the screen is current. */}
         {failure !== null && (
           <p role="alert" className="failure">
-            Cannot reach the server: {failure}{' '}
+            {failure}{' '}
             <button type="button" onClick={() => void reload()}>
               Try again
             </button>
@@ -237,8 +260,14 @@ export function App() {
             projects={projects}
             health={health}
             jobRuns={jobRuns}
+            plan={plan}
+            history={planHistory}
+            calendar={calendar}
             staleDays={staleDays}
             now={now}
+            onRegeneratePlan={onRegeneratePlan}
+            regenerating={regenerating}
+            onComplete={onComplete}
           />
         )}
       </main>

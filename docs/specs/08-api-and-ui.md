@@ -16,9 +16,10 @@ both validation and typing. Errors follow one shape: `{ error: { code, message, 
 | `POST /api/tasks/:id/tracking` | Re-enable sync tracking on a task that opted out |
 | `POST /api/tasks/bulk` | Bulk status change or project assignment |
 | `GET|POST /api/projects`, `PATCH|DELETE /api/projects/:id` | Projects, with derived next action and stalled flag |
-| `GET /api/plan/:date` | A daily plan, defaulting to today |
-| `POST /api/plan/:date/regenerate` | Regenerate |
-| `GET /api/calendar` | Events in a range, plus computed capacity |
+| `GET /api/plan` | Today's daily plan, with the fortnight of planned against completed beside it |
+| `GET /api/plan/:date` | The same, for a named date |
+| `POST /api/plan/:date/regenerate` | Redraw today's plan, keeping the day's earlier versions as history. Today only, because an earlier day's plan is a record of what was proposed on it (spec 05) |
+| `GET /api/calendar` | A day's events, defaulting to today, plus its computed capacity |
 | `GET /api/inbox/proposals` | Low-confidence classifications awaiting a decision |
 | `POST /api/inbox/proposals/:id/accept|dismiss` | Resolve one |
 | `POST /api/chat` | Streamed turn (SSE) |

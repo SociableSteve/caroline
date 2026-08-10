@@ -7,6 +7,12 @@
  * the client and the server describe the same things in the same words rather than keeping
  * two copies of the vocabulary in step by hand.
  */
+import type {
+  CalendarEventStatus,
+  CalendarResponseStatus,
+  CalendarTransparency,
+} from '../src/domain/calendar.js'
+import type { Interval } from '../src/domain/capacity.js'
 import type { JobRun } from '../src/domain/job.js'
 import type { Project, ProjectState } from '../src/domain/project.js'
 import type { Source } from '../src/domain/source.js'
@@ -115,6 +121,97 @@ export interface PrivacyPreview {
   } | null
   readonly payload: Record<string, unknown> | null
   readonly promptVersion?: string
+}
+
+/** One line of a plan, in whichever of the three sections it belongs to. Spec 05. */
+export interface PlanEntryView {
+  readonly id: string
+  readonly kind: 'plan' | 'overflow' | 'nudge'
+  readonly rank: number
+  /** Null once the task has been deleted. The entry survives, because the plan is a record. */
+  readonly taskId: string | null
+  readonly title: string
+  readonly rationale: string | null
+  readonly estimateMinutes: number | null
+  readonly waitingOn: string | null
+  readonly waitingSince: number | null
+  readonly pushedSinceReview: boolean
+  readonly taskStatus: TaskStatus | null
+  readonly done: boolean
+}
+
+/** A day's plan as the API returns it. Spec 05. */
+export interface PlanView {
+  readonly id: string
+  readonly planDate: string
+  readonly generatedAt: number
+  readonly timeZone: string
+  readonly windowMinutes: number
+  readonly busyMinutes: number
+  readonly reserveMinutes: number
+  /** May be negative: a day with more meetings in it than hours says so. */
+  readonly capacityMinutes: number
+  readonly capacityVerified: boolean
+  readonly provider: string | null
+  readonly model: string | null
+  readonly promptVersion: string
+  readonly summary: string | null
+  readonly warnings: string[]
+  readonly entries: PlanEntryView[]
+  /** The "if there is time" list. Spec 05: excess is moved here, never dropped. */
+  readonly overflow: PlanEntryView[]
+  readonly nudges: PlanEntryView[]
+}
+
+/** Planned against completed for one day. Spec 05's fortnight. */
+export interface PlanHistoryDay {
+  readonly planDate: string
+  readonly planned: number
+  readonly completed: number
+}
+
+export interface PlanDay {
+  readonly date: string
+  readonly plan: PlanView | null
+  readonly history: PlanHistoryDay[]
+}
+
+export interface CalendarEventView {
+  readonly id: string
+  readonly calendarId: string
+  readonly summary: string | null
+  readonly startsAt: number
+  readonly endsAt: number
+  readonly allDay: boolean
+  readonly responseStatus: CalendarResponseStatus
+  readonly transparency: CalendarTransparency
+  readonly status: CalendarEventStatus
+  readonly attendeeCount: number
+  readonly url: string | null
+  /** Whether it took time off the day, so the column can show why one did not. */
+  readonly consumesCapacity: boolean
+}
+
+/** The day's capacity, as the capacity bar draws it. Spec 08, criterion 6. */
+export interface CapacityView {
+  readonly windowMinutes: number
+  readonly busyMinutes: number
+  readonly reserveMinutes: number
+  readonly capacityMinutes: number
+  /** False when no calendar is connected, so the window was assumed free. */
+  readonly verified: boolean
+  readonly workingDay: boolean
+  readonly windowStart: number | null
+  readonly windowEnd: number | null
+  readonly busy: Interval[]
+  readonly free: Interval[]
+}
+
+export interface CalendarDay {
+  readonly date: string
+  readonly connected: boolean
+  readonly events: CalendarEventView[]
+  readonly capacity: CapacityView
 }
 
 /** A project as the API returns it, with the two fields spec 01 derives rather than stores. */
@@ -342,6 +439,24 @@ export const api = {
 
   runJob(name: string): Promise<unknown> {
     return send('POST', `/api/jobs/${encodeURIComponent(name)}/run`)
+  },
+
+  /** The plan for a day, and the fortnight beside it. Defaults to today. Spec 05. */
+  getPlan(date?: string): Promise<PlanDay> {
+    return request<PlanDay>(
+      date === undefined ? '/api/plan' : `/api/plan/${encodeURIComponent(date)}`,
+    )
+  },
+
+  /** Redraws today's plan. The previous one stays in history. Spec 05, criterion 8. */
+  regeneratePlan(date: string): Promise<PlanDay> {
+    return send<PlanDay>('POST', `/api/plan/${encodeURIComponent(date)}/regenerate`)
+  },
+
+  getCalendar(date?: string): Promise<CalendarDay> {
+    return request<CalendarDay>(
+      date === undefined ? '/api/calendar' : `/api/calendar?date=${encodeURIComponent(date)}`,
+    )
   },
 
   getGoogleStatus(): Promise<GoogleStatus> {

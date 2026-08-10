@@ -1,4 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import {
+  calendarEventStatuses,
+  calendarResponseStatuses,
+  calendarTransparencies,
+} from '../../src/domain/calendar.js'
+import { planEntryKinds } from '../../src/domain/plan.js'
 import { jobRunStatuses, jobTriggers } from '../../src/domain/job.js'
 import { llmCallStatuses, llmPurposes } from '../../src/domain/llm.js'
 import { projectStates } from '../../src/domain/project.js'
@@ -163,6 +169,155 @@ describe('the schema and the domain constants', () => {
 
   it.each(countedColumns)('accepts a %s of zero, which is a real answer', (column) => {
     expect(() => insertLlmCallWith(column, 0)).not.toThrow()
+  })
+})
+
+/**
+ * Calendar events exist to compute capacity and nothing else. The strongest thing the schema
+ * can say about spec 02 criterion 7 is that there is nowhere to write a task id.
+ */
+describe('a calendar event', () => {
+  interface EventFields {
+    responseStatus: string
+    transparency: string
+    status: string
+    startsAt: number
+    endsAt: number
+  }
+
+  function insertEvent(overrides: Partial<EventFields> = {}): void {
+    const {
+      responseStatus = 'accepted',
+      transparency = 'opaque',
+      status = 'confirmed',
+      startsAt = 0,
+      endsAt = 3_600_000,
+    } = overrides
+
+    migratedDatabase()
+      .prepare(
+        `insert into calendar_events (id, calendar_id, external_id, starts_at, ends_at, all_day,
+           response_status, transparency, status, synced_at)
+         values ('event-1', 'primary', 'abc', ?, ?, 0, ?, ?, ?, 0)`,
+      )
+      .run(startsAt, endsAt, responseStatus, transparency, status)
+  }
+
+  /** Spec 02, criterion 7, said in the schema: there is nowhere to write a task id. */
+  it('has no column a task could be attached to', () => {
+    const columns = migratedDatabase()
+      .prepare('select name from pragma_table_info(?)')
+      .all('calendar_events')
+      .map((row) => String((row as { name: unknown }).name))
+
+    expect(columns).not.toContain('task_id')
+  })
+
+  it.each(calendarResponseStatuses)('accepts %s as a response status', (responseStatus) => {
+    expect(() => insertEvent({ responseStatus })).not.toThrow()
+  })
+
+  it('rejects a response status the domain does not define', () => {
+    expect(() => insertEvent({ responseStatus: 'maybe' })).toThrow(/constraint/i)
+  })
+
+  it.each(calendarTransparencies)('accepts %s as a transparency', (transparency) => {
+    expect(() => insertEvent({ transparency })).not.toThrow()
+  })
+
+  it('rejects a transparency the domain does not define', () => {
+    expect(() => insertEvent({ transparency: 'translucent' })).toThrow(/constraint/i)
+  })
+
+  it.each(calendarEventStatuses)('accepts %s as an event status', (status) => {
+    expect(() => insertEvent({ status })).not.toThrow()
+  })
+
+  it('rejects an event status the domain does not define', () => {
+    expect(() => insertEvent({ status: 'postponed' })).toThrow(/constraint/i)
+  })
+
+  /** A negative duration would subtract from the busy total rather than adding to it. */
+  it('rejects one that ends before it starts', () => {
+    expect(() => insertEvent({ startsAt: 3_600_000, endsAt: 0 })).toThrow(/constraint/i)
+  })
+
+  it('rejects a second row for the same event on the same calendar', () => {
+    const database = migratedDatabase()
+    const insert = database.prepare(
+      `insert into calendar_events (id, calendar_id, external_id, starts_at, ends_at, all_day,
+         response_status, transparency, status, synced_at)
+       values (?, 'primary', 'abc', 0, 1, 0, 'accepted', 'opaque', 'confirmed', 0)`,
+    )
+    insert.run('event-1')
+
+    expect(() => insert.run('event-2')).toThrow(/unique/i)
+  })
+})
+
+/** A plan's three sections. An entry outside them would be a part of the plan nothing renders. */
+describe('a daily plan entry', () => {
+  /** A database holding one plan, ready for entries to be added to it. */
+  function withPlan() {
+    const database = migratedDatabase()
+    database
+      .prepare(
+        `insert into daily_plans (id, plan_date, generated_at, time_zone, window_minutes,
+           busy_minutes, reserve_minutes, capacity_minutes, capacity_verified, prompt_version)
+         values ('plan-1', '2026-06-08', 0, 'UTC', 510, 0, 102, 408, 1, '2026-08-10')`,
+      )
+      .run()
+
+    const insert = database.prepare(
+      `insert into daily_plan_entries (id, plan_id, kind, rank, title)
+       values (?, 'plan-1', ?, ?, 'Book the venue')`,
+    )
+
+    return { database, add: (id: string, kind: string, rank = 1) => insert.run(id, kind, rank) }
+  }
+
+  it.each(planEntryKinds)('accepts %s as a kind of entry', (kind) => {
+    const { add } = withPlan()
+
+    expect(() => add('entry-1', kind)).not.toThrow()
+  })
+
+  it('rejects a kind the repository does not define', () => {
+    const { add } = withPlan()
+
+    expect(() => add('entry-1', 'someday-maybe')).toThrow(/constraint/i)
+  })
+
+  it('rejects two entries at the same position in the same section', () => {
+    const { add } = withPlan()
+    add('entry-1', 'plan', 1)
+
+    expect(() => add('entry-2', 'plan', 1)).toThrow(/unique/i)
+  })
+
+  /** The same position in two different sections is two different positions. */
+  it('allows the same rank in a different section', () => {
+    const { add } = withPlan()
+    add('entry-1', 'plan', 1)
+
+    expect(() => add('entry-2', 'overflow', 1)).not.toThrow()
+  })
+
+  it('rejects a rank of zero, since a plan is numbered from one', () => {
+    const { add } = withPlan()
+
+    expect(() => add('entry-1', 'plan', 0)).toThrow(/constraint/i)
+  })
+
+  it('goes when its plan goes, since an entry without a plan is not part of anything', () => {
+    const { database, add } = withPlan()
+    add('entry-1', 'plan', 1)
+
+    database.prepare('delete from daily_plans where id = ?').run('plan-1')
+
+    expect(
+      database.prepare('select count(*) as count from daily_plan_entries').get(),
+    ).toMatchObject({ count: 0 })
   })
 })
 

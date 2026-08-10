@@ -58,7 +58,7 @@ export interface RunSyncOptions {
 }
 
 /** A mutable tally, turned into the immutable `JobCounts` when the connector's run ends. */
-type Tally = { -readonly [K in keyof JobCounts]: JobCounts[K] }
+export type Tally = { -readonly [K in keyof JobCounts]: JobCounts[K] }
 
 function newTally(): Tally {
   return { ...noCounts }
@@ -256,15 +256,40 @@ function applyLifecycle(
   if (updated) tally.tasksUpdated += 1
 }
 
-async function runConnector(
-  { database, trigger, policy, now }: RunSyncOptions,
-  connector: Connector,
+export interface ConnectorPassOptions {
+  readonly database: Database
+  readonly provider: SourceProvider
+  readonly trigger: JobTrigger
+  readonly isConfigured: () => boolean
+  readonly now: () => number
+}
+
+/**
+ * One connector's pass, recorded. What `work` does is the connector's business; skipping when
+ * nothing is configured, catching what throws, and writing exactly one `sync:<provider>` row
+ * whichever of those happened is not.
+ *
+ * Shared with the calendar pass, which writes to `calendar_events` rather than to `sources`
+ * and so does not go through `applyItem`, but is a connector run in every other respect and
+ * has to appear in the history as one. Spec 02 criteria 5 and 6, and spec 06.
+ *
+ * The tally is passed to `work` rather than returned by it so that a pass that fails part-way
+ * still reports what it managed: a run that stored nine events and then lost the connection
+ * did store nine events, and a row saying zero would be a lie about the database.
+ *
+ * `startedAt` is passed too, rather than each pass reading the clock again. The sync cursor is
+ * stamped with the moment the run began, and it has to be the same moment the run history
+ * records, or the two would disagree about when the pass happened.
+ */
+export async function runConnectorPass(
+  { database, provider, trigger, isConfigured, now }: ConnectorPassOptions,
+  work: (tally: Tally, startedAt: number) => Promise<void>,
 ): Promise<ConnectorRunResult> {
-  const job = syncJobName(connector.provider)
+  const job = syncJobName(provider)
   const startedAt = now()
   const tally = newTally()
 
-  if (!connector.isConfigured()) {
+  if (!isConfigured()) {
     // Not an error. A clean checkout with no credentials is a valid state, and the run
     // history should say the connector was skipped rather than that nothing happened.
     recordJobRun(database, {
@@ -275,19 +300,11 @@ async function runConnector(
       status: 'skipped',
       counts: tally,
     })
-    return { provider: connector.provider, status: 'skipped', counts: { ...tally }, error: null }
+    return { provider, status: 'skipped', counts: { ...tally }, error: null }
   }
 
   try {
-    const since = getSyncCursor(database, connector.provider)
-    for await (const item of connector.fetch(since)) {
-      applyItem(database, connector.provider, item, policy, now(), tally)
-    }
-
-    // Only a successful run advances the cursor, and it advances to when the run *started*,
-    // not to when it finished: anything that changed while it was running is still ahead of
-    // the cursor and will be picked up next time rather than skipped.
-    setSyncCursor(database, connector.provider, startedAt, now())
+    await work(tally, startedAt)
 
     recordJobRun(database, {
       job,
@@ -298,7 +315,7 @@ async function runConnector(
       counts: tally,
     })
 
-    return { provider: connector.provider, status: 'success', counts: { ...tally }, error: null }
+    return { provider, status: 'success', counts: { ...tally }, error: null }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
 
@@ -313,8 +330,34 @@ async function runConnector(
       ...(error instanceof Error && error.stack !== undefined ? { errorStack: error.stack } : {}),
     })
 
-    return { provider: connector.provider, status: 'failure', counts: { ...tally }, error: message }
+    return { provider, status: 'failure', counts: { ...tally }, error: message }
   }
+}
+
+function runConnector(
+  { database, trigger, policy, now }: RunSyncOptions,
+  connector: Connector,
+): Promise<ConnectorRunResult> {
+  return runConnectorPass(
+    {
+      database,
+      provider: connector.provider,
+      trigger,
+      isConfigured: () => connector.isConfigured(),
+      now,
+    },
+    async (tally, startedAt) => {
+      const since = getSyncCursor(database, connector.provider)
+      for await (const item of connector.fetch(since)) {
+        applyItem(database, connector.provider, item, policy, now(), tally)
+      }
+
+      // Only a successful run advances the cursor, and it advances to when the run *started*,
+      // not to when it finished: anything that changed while it was running is still ahead of
+      // the cursor and will be picked up next time rather than skipped.
+      setSyncCursor(database, connector.provider, startedAt, now())
+    },
+  )
 }
 
 function didAnything(counts: JobCounts): boolean {

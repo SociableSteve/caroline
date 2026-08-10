@@ -76,23 +76,40 @@ const cronExpression = z.string().refine(isValidCron, {
 
 /**
  * The jobs the scheduler runs, and the names their schedules and their history are keyed by.
- * `plan` is deliberately absent until the planner exists (M6): a schedule for a job nothing
- * can run is a setting that does nothing, which is worse than one that is not there yet.
  */
-export const scheduledJobs = ['sync', 'classify', 'purge'] as const
+export const scheduledJobs = ['sync', 'classify', 'plan', 'purge'] as const
 export type ScheduledJobName = (typeof scheduledJobs)[number]
 
 /**
  * The defaults from spec 06, with one addition it does not name: `classify` runs at five past
  * rather than on the hour. The two schedules would otherwise coincide every hour, and the
  * chain's own sync step would be skipped as already running for no reason but arithmetic.
- * Purge is nightly and early, because it deletes and nothing waits on it.
+ * The plan is drawn at 07:30, before the working day. Purge is nightly and early, because it
+ * deletes and nothing waits on it.
  */
 const defaultSchedules: Record<ScheduledJobName, string> = {
   sync: '*/15 * * * *',
   classify: '5 * * * *',
+  plan: '30 7 * * *',
   purge: '20 3 * * *',
 }
+
+/** A local clock time, `HH:MM` on a 24-hour clock. What the working window is written in. */
+const timeOfDay = z
+  .string()
+  .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'must be a 24-hour local time such as 09:00')
+
+/**
+ * A set of weekdays, Sunday as zero, as cron and `Date` both number them. Sorted on the way in
+ * so that a configuration listing Friday before Monday still reads in order everywhere it is
+ * shown, and repeats are refused rather than deduplicated: a day named twice is a mistake in
+ * the file, and quietly accepting it would hide the typo next to it.
+ */
+const weekdays = z
+  .array(z.number().int().min(0).max(6))
+  .min(1, 'must name at least one working day')
+  .refine((days) => new Set(days).size === days.length, 'must not name the same day twice')
+  .transform((days) => days.toSorted((first, second) => first - second))
 
 /**
  * The configuration as it may be written in `caroline.config.json`. Secrets are absent by
@@ -142,6 +159,7 @@ export const fileConfigSchema = z
           .object({
             sync: cronExpression.default(defaultSchedules.sync),
             classify: cronExpression.default(defaultSchedules.classify),
+            plan: cronExpression.default(defaultSchedules.plan),
             purge: cronExpression.default(defaultSchedules.purge),
           })
           .strict()
@@ -168,6 +186,43 @@ export const fileConfigSchema = z
         confidenceThreshold: z.number().min(0).max(1).default(0.75),
         /** How many classification calls are in flight at once. Spec 04: bounded. */
         concurrency: z.number().int().min(1).max(20).default(3),
+      })
+      .strict()
+      .default({}),
+    planning: z
+      .object({
+        /**
+         * The working day, in local clock time. Spec 05's default is 09:00 to 17:30, which
+         * with the default reserve leaves a little under seven hours to plan into.
+         */
+        workingWindow: z
+          .object({
+            start: timeOfDay.default('09:00'),
+            end: timeOfDay.default('17:30'),
+          })
+          .strict()
+          .refine(
+            (window) => window.end > window.start,
+            // Lexicographic comparison is correct for zero-padded 24-hour times, and saying it
+            // in minutes here would only put a second parser next to the one in the domain.
+            'the working day must end after it starts',
+          )
+          .default({}),
+        /** Sunday is 0. Spec 05 defaults to Monday to Friday. */
+        workingDays: weekdays.default([1, 2, 3, 4, 5]),
+        /**
+         * Held back for interruptions, as a percentage of the window. Spec 05: nobody gets to
+         * spend every free minute on planned work. A hundred is a day with nothing in it,
+         * which is a strange choice but a coherent one; above it is not.
+         */
+        reservePercent: z.number().int().min(0).max(100).default(20),
+        /** What a task with no estimate is fitted at, so it can still be fitted. Spec 05. */
+        defaultEstimateMinutes: z.number().int().min(1).max(480).default(30),
+        /**
+         * Whether an all-day event takes the day. Spec 02 defaults it off: a public holiday
+         * and a week-long conference are both all-day events, and only one means you are busy.
+         */
+        countAllDayEvents: z.boolean().default(false),
       })
       .strict()
       .default({}),
@@ -231,6 +286,19 @@ export const fileConfigSchema = z
               .min(1)
               .max(500)
               .default('in:inbox -category:promotions -category:social'),
+            /**
+             * Calendars to read besides the primary one. Spec 02: the primary calendar plus
+             * any additional ids configured. Empty is the normal case for one person.
+             */
+            calendarIds: z.array(z.string().min(1).max(320)).max(20).default([]),
+            /**
+             * The rolling window the calendar is read over. Spec 02's default is a day back
+             * and a fortnight forward: yesterday because a plan drawn this morning is still
+             * being looked at, and a fortnight because nothing further out changes capacity
+             * today.
+             */
+            calendarLookbackDays: z.number().int().min(0).max(30).default(1),
+            calendarLookaheadDays: z.number().int().min(1).max(365).default(14),
           })
           .strict()
           .default({}),
@@ -289,6 +357,15 @@ export interface Config {
     readonly confidenceThreshold: number
     readonly concurrency: number
   }
+  readonly planning: {
+    /** Local clock times, `HH:MM`. `src/domain/time.ts` turns them into instants for a date. */
+    readonly workingWindow: { readonly start: string; readonly end: string }
+    /** Sunday is 0, ascending. */
+    readonly workingDays: readonly number[]
+    readonly reservePercent: number
+    readonly defaultEstimateMinutes: number
+    readonly countAllDayEvents: boolean
+  }
   readonly privacy: {
     readonly llmContent: ContentLevel
     readonly storeContent: ContentLevel
@@ -315,6 +392,10 @@ export interface Config {
       readonly clientId: string | null
       readonly clientSecret: string | null
       readonly gmailQuery: string
+      /** Calendars besides the primary one. Spec 02. */
+      readonly calendarIds: readonly string[]
+      readonly calendarLookbackDays: number
+      readonly calendarLookaheadDays: number
       /**
        * Where the OAuth tokens live: beside the database, mode 0600, never in config and never
        * in git (spec 09). Derived from the database path rather than configured, so that the
