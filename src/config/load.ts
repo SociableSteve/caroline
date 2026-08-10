@@ -7,7 +7,8 @@ import {
   remoteLlmProviders,
   type Config,
   type FileConfig,
-  type LlmProvider,
+  type LlmProviderName,
+  type LlmSettings,
 } from './schema.js'
 
 /** A configuration problem the user has to fix before the process can start. */
@@ -24,6 +25,8 @@ export interface LoadOptions {
 /** Secrets never belong in the config file. Each entry names the environment to use instead. */
 const secretsBannedFromFile: ReadonlyArray<{ path: string; envHint: string }> = [
   { path: 'llm.apiKey', envHint: 'ANTHROPIC_API_KEY or OPENAI_API_KEY' },
+  { path: 'llm.overrides.classification.apiKey', envHint: 'ANTHROPIC_API_KEY or OPENAI_API_KEY' },
+  { path: 'llm.overrides.chat.apiKey', envHint: 'ANTHROPIC_API_KEY or OPENAI_API_KEY' },
   { path: 'integrations.github.token', envHint: 'GITHUB_TOKEN' },
   { path: 'integrations.google.clientSecret', envHint: 'GOOGLE_CLIENT_SECRET' },
   { path: 'server.accessToken', envHint: 'CAROLINE_ACCESS_TOKEN' },
@@ -95,7 +98,7 @@ function nonEmpty(value: string | undefined): string | null {
   return value === undefined || value === '' ? null : value
 }
 
-function apiKeyFor(provider: LlmProvider, env: NodeJS.ProcessEnv): string | null {
+function apiKeyFor(provider: LlmProviderName, env: NodeJS.ProcessEnv): string | null {
   switch (provider) {
     case 'anthropic':
       return nonEmpty(env.ANTHROPIC_API_KEY)
@@ -105,6 +108,61 @@ function apiKeyFor(provider: LlmProvider, env: NodeJS.ProcessEnv): string | null
     case 'none':
       return null
   }
+}
+
+type LlmChoices = Omit<LlmSettings, 'apiKey' | 'isLocal' | 'configured'>
+
+/**
+ * The derived facts, in one place, so the base settings and every override agree on what
+ * "configured" and "local" mean. Ollama needs no key, so it counts as configured on the
+ * strength of a provider and a model alone.
+ */
+function llmSettings(choices: LlmChoices, env: NodeJS.ProcessEnv): LlmSettings {
+  const apiKey = apiKeyFor(choices.provider, env)
+
+  return {
+    ...choices,
+    apiKey,
+    isLocal: choices.provider === 'ollama',
+    // A provider with no model named can no more make a call than one with no key, so it is
+    // reported the same way: not configured yet, rather than configured and broken.
+    configured:
+      choices.model !== null &&
+      (choices.provider === 'ollama' || (choices.provider !== 'none' && apiKey !== null)),
+  }
+}
+
+/**
+ * An override is a patch on the base settings, not a replacement: naming only a model keeps
+ * the base provider, its base URL and its budgets. `undefined` means "not overridden", which
+ * is why `model` and `baseUrl` are read with `in` rather than with `??`: both are nullable,
+ * and an override deliberately clearing one back to null is a different thing to say than
+ * leaving it alone.
+ *
+ * The one field that is not inherited across a change of provider is the base URL, because
+ * it addresses a particular provider's API. An Ollama address handed to the Anthropic
+ * adapter is not a proxy, it is a wrong answer, and a silent one.
+ */
+function overrideSettings(
+  base: LlmSettings,
+  override: FileConfig['llm']['overrides']['classification'],
+  env: NodeJS.ProcessEnv,
+): LlmSettings | null {
+  if (override === undefined) return null
+
+  const provider = override.provider ?? base.provider
+  const inheritedBaseUrl = provider === base.provider ? base.baseUrl : null
+
+  return llmSettings(
+    {
+      provider,
+      model: 'model' in override ? (override.model ?? null) : base.model,
+      baseUrl: 'baseUrl' in override ? (override.baseUrl ?? null) : inheritedBaseUrl,
+      maxTokens: override.maxTokens ?? base.maxTokens,
+      timeoutMs: override.timeoutMs ?? base.timeoutMs,
+    },
+    env,
+  )
 }
 
 /** Environment variables that carry a secret, whether or not this configuration uses them. */
@@ -122,16 +180,39 @@ function environmentSecrets(env: NodeJS.ProcessEnv): string[] {
     .filter((value): value is string => typeof value === 'string' && value.length > 0)
 }
 
+/** The base settings and every configured override, each with the path that named it. */
+function everyLlmSettings(config: Config): ReadonlyArray<{ path: string; settings: LlmSettings }> {
+  const found: Array<{ path: string; settings: LlmSettings }> = [
+    { path: 'llm', settings: config.llm },
+  ]
+
+  for (const purpose of ['classification', 'chat'] as const) {
+    const settings = config.llm.overrides[purpose]
+    if (settings !== null) found.push({ path: `llm.overrides.${purpose}`, settings })
+  }
+
+  return found
+}
+
+/**
+ * Checked against every configured provider, not only the base one: an override may name a
+ * hosted provider where the base names ollama, and content sent under that override leaves
+ * the machine just the same. Spec 09, criterion 2.
+ */
 function assertContentPolicyIsAllowed(config: Config): void {
-  const remote = remoteLlmProviders.includes(config.llm.provider)
   if (
-    config.privacy.llmContent === 'full' &&
-    remote &&
-    !config.privacy.allowFullContentToRemoteProvider
+    config.privacy.llmContent !== 'full' ||
+    config.privacy.allowFullContentToRemoteProvider === true
   ) {
-    throw new ConfigError(
-      `privacy.llmContent is "full" with the remote provider "${config.llm.provider}", which sends complete message bodies to a third party. Set privacy.allowFullContentToRemoteProvider to true to accept that, or lower privacy.llmContent.`,
-    )
+    return
+  }
+
+  for (const { path, settings } of everyLlmSettings(config)) {
+    if (remoteLlmProviders.includes(settings.provider)) {
+      throw new ConfigError(
+        `privacy.llmContent is "full" with the remote provider "${settings.provider}" at ${path}.provider, which sends complete message bodies to a third party. Set privacy.allowFullContentToRemoteProvider to true to accept that, or lower privacy.llmContent.`,
+      )
+    }
   }
 }
 
@@ -152,14 +233,24 @@ export function loadConfig({ file, env }: LoadOptions): Config {
   const parsed = parseFile(file)
 
   const provider =
-    (nonEmpty(env.CAROLINE_LLM_PROVIDER) as LlmProvider | null) ?? parsed.llm.provider
+    (nonEmpty(env.CAROLINE_LLM_PROVIDER) as LlmProviderName | null) ?? parsed.llm.provider
   if (!['none', 'anthropic', 'openai', 'ollama'].includes(provider)) {
     throw new ConfigError(
       `Invalid configuration. llm.provider: CAROLINE_LLM_PROVIDER must be one of none, anthropic, openai, ollama.`,
     )
   }
 
-  const apiKey = apiKeyFor(provider, env)
+  const base: LlmSettings = llmSettings(
+    {
+      provider,
+      model: nonEmpty(env.CAROLINE_LLM_MODEL) ?? parsed.llm.model,
+      baseUrl: envBaseUrl(env, parsed.llm.baseUrl),
+      maxTokens: parsed.llm.maxTokens,
+      timeoutMs: parsed.llm.timeoutMs,
+    },
+    env,
+  )
+
   const githubToken = nonEmpty(env.GITHUB_TOKEN)
   const googleClientId = nonEmpty(env.GOOGLE_CLIENT_ID) ?? parsed.integrations.google.clientId
   const googleClientSecret = nonEmpty(env.GOOGLE_CLIENT_SECRET)
@@ -176,12 +267,11 @@ export function loadConfig({ file, env }: LoadOptions): Config {
     tasks: parsed.tasks,
     privacy: parsed.privacy,
     llm: {
-      provider,
-      model: nonEmpty(env.CAROLINE_LLM_MODEL) ?? parsed.llm.model,
-      baseUrl: envBaseUrl(env, parsed.llm.baseUrl),
-      apiKey,
-      isLocal: provider === 'ollama',
-      configured: provider === 'ollama' || (provider !== 'none' && apiKey !== null),
+      ...base,
+      overrides: {
+        classification: overrideSettings(base, parsed.llm.overrides.classification, env),
+        chat: overrideSettings(base, parsed.llm.overrides.chat, env),
+      },
     },
     integrations: {
       github: {

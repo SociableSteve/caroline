@@ -115,6 +115,45 @@ describe('loadConfig precedence', () => {
   })
 })
 
+describe('LLM budgets and overrides', () => {
+  it('defaults the budgets to what spec 03 states', () => {
+    const config = loadConfig({ file: null, env: noEnv })
+
+    expect(config.llm.maxTokens).toBe(4096)
+    expect(config.llm.timeoutMs).toBe(60_000)
+    expect(config.llm.overrides).toEqual({ classification: null, chat: null })
+  })
+
+  it('rejects a timeout short enough that no call could finish inside it', () => {
+    expect(() => loadConfig({ file: { llm: { timeoutMs: 10 } }, env: noEnv })).toThrow(ConfigError)
+  })
+
+  it('rejects an override field the schema does not define', () => {
+    expect(() =>
+      loadConfig({ file: { llm: { overrides: { chat: { modle: 'typo' } } } }, env: noEnv }),
+    ).toThrow(/llm\.overrides\.chat/)
+  })
+
+  it('refuses an API key hidden in an override, as it does in the base config', () => {
+    expect(() =>
+      loadConfig({
+        file: { llm: { overrides: { chat: { apiKey: 'sk-ant-in-the-file' } } } },
+        env: noEnv,
+      }),
+    ).toThrow(/llm\.overrides\.chat\.apiKey/)
+  })
+
+  it('lets an override clear the base model rather than inherit it', () => {
+    const config = loadConfig({
+      file: { llm: { provider: 'ollama', model: 'llama', overrides: { chat: { model: null } } } },
+      env: noEnv,
+    })
+
+    expect(config.llm.overrides.chat?.model).toBeNull()
+    expect(config.llm.overrides.chat?.configured).toBe(false)
+  })
+})
+
 describe('loadConfig validation', () => {
   it('names the offending path when a value is the wrong shape', () => {
     expect(() =>
@@ -240,6 +279,26 @@ describe('loadConfig startup guards', () => {
 
     expect(config.privacy.llmContent).toBe('full')
     expect(config.llm.isLocal).toBe(true)
+  })
+
+  /**
+   * The guard has to look at every provider that could be used, not only the base one.
+   * Content sent under a chat override leaves the machine just the same.
+   */
+  it('fails when an override names a remote provider under a local base', () => {
+    expect(() =>
+      loadConfig({
+        file: {
+          privacy: { llmContent: 'full' },
+          llm: {
+            provider: 'ollama',
+            model: 'llama',
+            overrides: { chat: { provider: 'anthropic', model: 'claude' } },
+          },
+        },
+        env: { ANTHROPIC_API_KEY: 'sk-ant' } as NodeJS.ProcessEnv,
+      }),
+    ).toThrow(/llm\.overrides\.chat\.provider/)
   })
 
   it('fails when binding to a non-loopback address without an access token', () => {

@@ -19,7 +19,10 @@
   "llm": {
     "provider": "none",
     "model": null,
-    "baseUrl": null
+    "baseUrl": null,
+    "maxTokens": 4096,
+    "timeoutMs": 60000,
+    "overrides": {}
   },
   "integrations": {
     "github": { "enabled": true, "returnToReviewOnNewCommits": true },

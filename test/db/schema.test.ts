@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { jobRunStatuses, jobTriggers } from '../../src/domain/job.js'
+import { llmCallStatuses, llmPurposes } from '../../src/domain/llm.js'
 import { projectStates } from '../../src/domain/project.js'
 import { sourceProviders } from '../../src/domain/source.js'
 import { statusActors, taskStatuses } from '../../src/domain/task.js'
@@ -97,6 +98,38 @@ describe('the schema and the domain constants', () => {
 
   it('rejects a job trigger the domain does not define', () => {
     expect(() => insertJobRun('success', 'webhook')).toThrow(/constraint/i)
+  })
+
+  function insertLlmCall(status: string, purpose = 'classification', provider = 'anthropic'): void {
+    const database = migratedDatabase()
+    database
+      .prepare(
+        `insert into llm_calls (id, provider, model, purpose, started_at, duration_ms,
+           input_tokens, output_tokens, status)
+         values ('call-1', ?, 'a-model', ?, 0, 1, 0, 0, ?)`,
+      )
+      .run(provider, purpose, status)
+  }
+
+  it.each(llmCallStatuses)('accepts %s as an llm call status', (status) => {
+    expect(() => insertLlmCall(status)).not.toThrow()
+  })
+
+  it('rejects an llm call status the domain does not define', () => {
+    expect(() => insertLlmCall('retried')).toThrow(/constraint/i)
+  })
+
+  it.each(llmPurposes)('accepts %s as an llm call purpose', (purpose) => {
+    expect(() => insertLlmCall('success', purpose)).not.toThrow()
+  })
+
+  it('rejects an llm call purpose the domain does not define', () => {
+    expect(() => insertLlmCall('success', 'summarisation')).toThrow(/constraint/i)
+  })
+
+  /** `none` is a configuration state, not something that can have made a call. */
+  it('rejects "none" as the provider of a call that was made', () => {
+    expect(() => insertLlmCall('success', 'classification', 'none')).toThrow(/constraint/i)
   })
 })
 

@@ -44,7 +44,9 @@ describe('GET /api/health on a clean checkout with no credentials', () => {
 describe('GET /api/health with integrations configured', () => {
   it('reports a configured integration as configured', async () => {
     const config = loadConfig({
-      file: { llm: { provider: 'anthropic' } },
+      // A model as well as a key: a provider with no model named can no more make a call
+      // than one with no key, so neither counts as configured. Spec 03.
+      file: { llm: { provider: 'anthropic', model: 'claude-sonnet-5' } },
       env: { GITHUB_TOKEN: 'ghp_x', ANTHROPIC_API_KEY: 'sk-ant-x' } as NodeJS.ProcessEnv,
     })
     const app = await buildServer({ config, database: migratedDatabase() })

@@ -1,0 +1,24 @@
+{
+  "id": "msg_recorded_0001",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-sonnet-5",
+  "content": [
+    {
+      "type": "tool_use",
+      "id": "toolu_recorded_0001",
+      "name": "structured_answer",
+      "input": {
+        "status": "next",
+        "confidence": 0.82,
+        "reason": "It asks for a decision from you and nobody else is blocking it."
+      }
+    }
+  ],
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 412,
+    "output_tokens": 37
+  }
+}
