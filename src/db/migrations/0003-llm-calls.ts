@@ -23,9 +23,15 @@ export const llmCalls: Migration = {
         model text not null,
         purpose text not null check (purpose in ('classification', 'planning', 'chat')),
         started_at integer not null,
-        duration_ms integer not null,
-        input_tokens integer not null,
-        output_tokens integer not null,
+        -- SQLite's column types are affinities, not constraints, so a negative or
+        -- fractional count would be stored as given. A negative token count subtracts
+        -- from a usage total silently, which is the one way a cost view can be wrong
+        -- without looking wrong.
+        duration_ms integer not null check (typeof(duration_ms) = 'integer' and duration_ms >= 0),
+        input_tokens integer not null check (typeof(input_tokens) = 'integer' and input_tokens >= 0),
+        output_tokens integer not null check (
+          typeof(output_tokens) = 'integer' and output_tokens >= 0
+        ),
         status text not null check (status in ('success', 'invalid', 'error')),
         error text
       )

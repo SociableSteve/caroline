@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createAdapter } from '../../../src/llm/index.js'
 import { withSchemaValidation } from '../../../src/llm/structured.js'
 import type { LlmSettings } from '../../../src/config/schema.js'
-import type { CompletionRequest, LlmProvider } from '../../../src/llm/types.js'
+import { LlmError, type CompletionRequest, type LlmProvider } from '../../../src/llm/types.js'
 import {
   classificationSchema,
   expectedClassification,
@@ -127,6 +127,53 @@ describe.each(cases)('the $name adapter', (testCase) => {
   })
 })
 
+/**
+ * A schema and a set of tools in one request has no answer that satisfies both: forcing the
+ * structured tool makes the declared tools unreachable, and leaving the choice open cannot
+ * guarantee the schema. Refused by every adapter rather than sent and hoped for.
+ */
+describe.each(cases)('the $name adapter given both a schema and tools', (testCase) => {
+  const ambiguous: CompletionRequest = {
+    ...request,
+    tools: [{ name: 'complete_task', description: 'Complete a task', parameters: {} }],
+  }
+
+  it('refuses the request rather than sending an ambiguous one', async () => {
+    const stub = stubFetch([{ body: recordedPayload(testCase.fixture) }])
+    const provider = createAdapter(testCase.settings, { fetch: stub.fetch })
+
+    await expect(provider.complete(ambiguous)).rejects.toThrow(/both a schema and tools/)
+    expect(stub.requests).toHaveLength(0)
+  })
+
+  it('refuses it on the streaming path too', async () => {
+    const stub = stubFetch([{ body: recordedPayload(testCase.fixture) }])
+    const provider = createAdapter(testCase.settings, { fetch: stub.fetch })
+
+    await expect(
+      (async () => {
+        for await (const _chunk of provider.stream(ambiguous)) void _chunk
+      })(),
+    ).rejects.toThrow(/both a schema and tools/)
+    expect(stub.requests).toHaveLength(0)
+  })
+
+  it('forces the structured answer when a schema is asked for alone', async () => {
+    const { provider, stub } = build(testCase)
+
+    await provider.complete(request)
+
+    // Only Anthropic expresses this as a forced tool choice; the other two have their own
+    // mechanism, asserted by the schema-in-the-body test above.
+    if (testCase.name === 'anthropic') {
+      expect(stub.requests[0]?.body.tool_choice).toEqual({
+        type: 'tool',
+        name: 'structured_answer',
+      })
+    }
+  })
+})
+
 describe('the ollama adapter on an older server', () => {
   const ollama = cases[2] as Case
 
@@ -164,5 +211,90 @@ describe('the ollama adapter on an older server', () => {
 
     await expect(provider.complete(request)).rejects.toThrow(/500/)
     expect(stub.requests).toHaveLength(1)
+  })
+
+  /**
+   * A proxy in front of Ollama answering 200 with an HTML error page fails in the parse, not
+   * in the request. That has to leave as an `LlmError` like every other provider failure, or
+   * it is the one a caller has to recognise by shape.
+   */
+  it('raises an LlmError when a 200 carries something that is not JSON', async () => {
+    const stub = stubFetch([
+      { raw: { contentType: 'text/html', body: '<html>502 Bad Gateway</html>' } },
+    ])
+    const provider = createAdapter(ollama.settings, { fetch: stub.fetch })
+
+    await expect(provider.complete(request)).rejects.toThrow(LlmError)
+  })
+})
+
+/**
+ * Ollama sends a tool call complete, in whichever chunk it decides on, and the final chunk
+ * carries the totals with an empty message. Reading the calls off the last chunk alone loses
+ * every one of them.
+ */
+describe('the ollama adapter reading streamed tool calls', () => {
+  const ollama = cases[2] as Case
+
+  const chatRequest: CompletionRequest = {
+    system: 'Answer questions about the board.',
+    messages: [{ role: 'user', content: 'Complete the venue task.' }],
+    maxTokens: 512,
+    tools: [{ name: 'complete_task', description: 'Complete a task', parameters: {} }],
+  }
+
+  it('collects calls announced before the final chunk', async () => {
+    const stub = stubFetch([
+      {
+        lines: [
+          {
+            message: {
+              role: 'assistant',
+              tool_calls: [{ function: { name: 'complete_task', arguments: { id: 'task-1' } } }],
+            },
+          },
+          { message: { role: 'assistant', content: '' }, done: true, done_reason: 'stop' },
+        ],
+      },
+    ])
+    const provider = createAdapter(ollama.settings, { fetch: stub.fetch })
+
+    const chunks = []
+    for await (const chunk of provider.stream(chatRequest)) chunks.push(chunk)
+
+    const done = chunks.at(-1)
+    expect(done?.type === 'done' && done.result.toolCalls).toEqual([
+      { id: 'call_0', name: 'complete_task', arguments: { id: 'task-1' } },
+    ])
+  })
+
+  it('gives calls from different chunks different ids', async () => {
+    const stub = stubFetch([
+      {
+        lines: [
+          {
+            message: {
+              role: 'assistant',
+              tool_calls: [{ function: { name: 'complete_task', arguments: { id: 'task-1' } } }],
+            },
+          },
+          {
+            message: {
+              role: 'assistant',
+              tool_calls: [{ function: { name: 'complete_task', arguments: { id: 'task-2' } } }],
+            },
+          },
+          { message: { role: 'assistant', content: '' }, done: true, done_reason: 'stop' },
+        ],
+      },
+    ])
+    const provider = createAdapter(ollama.settings, { fetch: stub.fetch })
+
+    const chunks = []
+    for await (const chunk of provider.stream(chatRequest)) chunks.push(chunk)
+
+    const done = chunks.at(-1)
+    const calls = done?.type === 'done' ? done.result.toolCalls : []
+    expect(calls.map((call) => call.id)).toEqual(['call_0', 'call_1'])
   })
 })

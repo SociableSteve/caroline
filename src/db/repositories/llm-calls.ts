@@ -119,32 +119,55 @@ function toUsage(row: Row | undefined): LlmUsage {
 }
 
 /**
- * Usage grouped by local calendar day. SQLite is given the offset rather than being asked
- * for UTC days, because "what did today cost" is a question about the day the user is
- * living in, and a UTC day boundary lands in the middle of one for most of the world.
+ * Usage grouped by local calendar day, because "what did today cost" is a question about the
+ * day the user is living in and a UTC boundary lands in the middle of one for most of the
+ * world.
+ *
+ * Grouped in JavaScript rather than in SQL, and by time zone rather than by a fixed offset.
+ * A single offset applied to every row is only correct until a daylight-saving change: a
+ * call made at 04:30 UTC in January belongs to the previous day in New York, but a query run
+ * in July would apply that summer's offset and file it under the wrong one. `Intl` knows
+ * which offset was in force at each instant; a number cannot.
+ *
+ * The row count here is one per model call over a reporting window, so reading them to add
+ * them up is not a cost worth trading correctness for.
  */
 export function llmUsageByDay(
   database: Database,
   {
     since,
-    offsetMinutes = -new Date().getTimezoneOffset(),
-  }: { since?: number; offsetMinutes?: number } = {},
+    timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone,
+  }: { since?: number; timeZone?: string } = {},
 ): Array<{ day: string; usage: LlmUsage }> {
+  // `en-CA` formats as YYYY-MM-DD, which is both the readable form and the sortable one.
+  const asDay = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+
   const where = since === undefined ? '' : 'where started_at >= ?'
   const params = since === undefined ? [] : [since]
 
-  return database
-    .prepare(
-      `select date((started_at + ?) / 1000, 'unixepoch') as day,
-              count(*) as calls,
-              sum(input_tokens) as input_tokens,
-              sum(output_tokens) as output_tokens
-         from llm_calls ${where}
-        group by day
-        order by day desc`,
-    )
-    .all(offsetMinutes * 60_000, ...params)
-    .map((row) => ({ day: String((row as Row).day), usage: toUsage(row as Row) }))
+  const totals = new Map<string, { calls: number; inputTokens: number; outputTokens: number }>()
+
+  for (const row of database
+    .prepare(`select started_at, input_tokens, output_tokens from llm_calls ${where}`)
+    .all(...params)) {
+    const { started_at, input_tokens, output_tokens } = row as Row
+    const day = asDay.format(new Date(Number(started_at)))
+
+    const running = totals.get(day) ?? { calls: 0, inputTokens: 0, outputTokens: 0 }
+    running.calls += 1
+    running.inputTokens += Number(input_tokens)
+    running.outputTokens += Number(output_tokens)
+    totals.set(day, running)
+  }
+
+  return [...totals.entries()]
+    .map(([day, usage]) => ({ day, usage }))
+    .toSorted((left, right) => right.day.localeCompare(left.day))
 }
 
 /** Usage grouped by what the call was for. Spec 03's "per job" view. */

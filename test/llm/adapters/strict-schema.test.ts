@@ -3,8 +3,15 @@ import { isStrictCompatible } from '../../../src/llm/adapters/strict-schema.js'
 import { classificationSchema } from '../../helpers/llm.js'
 
 describe('deciding whether OpenAI strict mode can be used', () => {
-  it('accepts a closed object with every property required', () => {
-    expect(isStrictCompatible(classificationSchema)).toBe(true)
+  it('accepts a closed object whose every property is required', () => {
+    expect(
+      isStrictCompatible({
+        type: 'object',
+        additionalProperties: false,
+        required: ['status'],
+        properties: { status: { type: 'string', enum: ['inbox', 'next'] } },
+      }),
+    ).toBe(true)
   })
 
   it('refuses an object that allows extra properties', () => {
@@ -57,7 +64,83 @@ describe('deciding whether OpenAI strict mode can be used', () => {
     ).toBe(false)
   })
 
+  it('walks every entry of a tuple, not just the first', () => {
+    expect(
+      isStrictCompatible({
+        type: 'array',
+        items: [
+          { type: 'string' },
+          { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+        ],
+      }),
+    ).toBe(false)
+  })
+
+  it('looks inside $defs, which a $ref reaches into', () => {
+    expect(
+      isStrictCompatible({
+        type: 'object',
+        additionalProperties: false,
+        required: ['task'],
+        properties: { task: { $ref: '#/$defs/task' } },
+        $defs: { task: { type: 'object', properties: { id: { type: 'string' } } } },
+      }),
+    ).toBe(false)
+  })
+
+  /**
+   * An allowlist, so a keyword nobody here has considered lands on the unstrict side. The
+   * two failure modes are not symmetric: unstrict costs a guarantee validation supplies
+   * anyway, while strict with an unsupported keyword fails the whole request.
+   */
+  it.each([
+    ['oneOf', { oneOf: [{ type: 'string' }] }],
+    ['allOf', { allOf: [{ type: 'string' }] }],
+    ['not', { not: { type: 'string' } }],
+    ['if', { if: { type: 'string' }, then: { type: 'number' } }],
+    ['patternProperties', { type: 'object', patternProperties: {} }],
+    ['pattern', { type: 'string', pattern: '^a' }],
+    ['format', { type: 'string', format: 'date-time' }],
+    ['minLength', { type: 'string', minLength: 1 }],
+    ['minimum', { type: 'number', minimum: 0 }],
+    ['minItems', { type: 'array', minItems: 1 }],
+  ])('refuses a schema using %s, which is outside the supported subset', (_keyword, schema) => {
+    expect(isStrictCompatible(schema)).toBe(false)
+  })
+
+  it('refuses a keyword nested inside a property, not only one at the root', () => {
+    expect(
+      isStrictCompatible({
+        type: 'object',
+        additionalProperties: false,
+        required: ['confidence'],
+        properties: { confidence: { type: 'number', minimum: 0, maximum: 1 } },
+      }),
+    ).toBe(false)
+  })
+
+  /**
+   * A union type is not read as an object, so the object rules would be skipped for
+   * something that can still be one. Refused rather than half-checked.
+   */
+  it('refuses a union type', () => {
+    expect(isStrictCompatible({ type: ['object', 'null'] })).toBe(false)
+  })
+
+  it('accepts anyOf, which is the one composition keyword strict mode supports', () => {
+    expect(isStrictCompatible({ anyOf: [{ type: 'string' }, { type: 'number' }] })).toBe(true)
+  })
+
   it('accepts a schema with no objects in it at all', () => {
     expect(isStrictCompatible({ type: 'array', items: { type: 'string' } })).toBe(true)
+  })
+
+  /**
+   * Caroline's own classification schema constrains `confidence` to 0..1, which is outside
+   * the supported subset, so it is sent unstrict. The range is still enforced: the shared
+   * validator applies the whole schema whichever mode the request went out in.
+   */
+  it('sends the classification schema unstrict, because of its numeric bounds', () => {
+    expect(isStrictCompatible(classificationSchema)).toBe(false)
   })
 })

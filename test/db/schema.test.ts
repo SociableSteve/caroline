@@ -131,6 +131,39 @@ describe('the schema and the domain constants', () => {
   it('rejects "none" as the provider of a call that was made', () => {
     expect(() => insertLlmCall('success', 'classification', 'none')).toThrow(/constraint/i)
   })
+
+  /**
+   * SQLite column types are affinities rather than constraints, so without these checks a
+   * negative token count would be stored as given and would subtract from a usage total.
+   */
+  function insertLlmCallWith(column: string, value: number): void {
+    const database = migratedDatabase()
+    database
+      .prepare(
+        `insert into llm_calls (id, provider, model, purpose, started_at, duration_ms,
+           input_tokens, output_tokens, status)
+         values ('call-1', 'anthropic', 'a-model', 'classification', 0,
+           ${column === 'duration_ms' ? '?' : '1'},
+           ${column === 'input_tokens' ? '?' : '0'},
+           ${column === 'output_tokens' ? '?' : '0'},
+           'success')`,
+      )
+      .run(value)
+  }
+
+  const countedColumns = ['duration_ms', 'input_tokens', 'output_tokens'] as const
+
+  it.each(countedColumns)('rejects a negative %s', (column) => {
+    expect(() => insertLlmCallWith(column, -1)).toThrow(/constraint/i)
+  })
+
+  it.each(countedColumns)('rejects a fractional %s', (column) => {
+    expect(() => insertLlmCallWith(column, 1.5)).toThrow(/constraint/i)
+  })
+
+  it.each(countedColumns)('accepts a %s of zero, which is a real answer', (column) => {
+    expect(() => insertLlmCallWith(column, 0)).not.toThrow()
+  })
 })
 
 describe('foreign keys', () => {

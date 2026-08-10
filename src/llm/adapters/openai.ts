@@ -12,6 +12,7 @@ import type {
   LlmProvider,
   ToolCall,
 } from '../types.js'
+import { assertRequestIsAnswerable } from '../request.js'
 import { guardCall, guardStream } from './guard.js'
 import { isStrictCompatible } from './strict-schema.js'
 import { STRUCTURED_TOOL_NAME, structuredToolDescription } from './structured-tool.js'
@@ -30,6 +31,8 @@ function messages(request: CompletionRequest): ChatMessage[] {
 }
 
 function body(request: CompletionRequest, model: string): ChatParams {
+  assertRequestIsAnswerable(request)
+
   const declared = (request.tools ?? []).map((tool) => ({
     type: 'function' as const,
     function: { name: tool.name, description: tool.description, parameters: tool.parameters },
@@ -191,11 +194,16 @@ export function createOpenAiAdapter({
           }
         }
 
+        // Computed rather than spread inline, so that an answer that would not parse omits
+        // the key entirely, exactly as the non-streamed path does. Two shapes for one
+        // failure is a difference a caller would have to know about for no reason.
+        const structured = request.schema === undefined ? undefined : parseStructured(text)
+
         yield {
           type: 'done' as const,
           result: {
             text,
-            ...(request.schema === undefined ? {} : { structured: parseStructured(text) }),
+            ...(structured === undefined ? {} : { structured }),
             toolCalls: [...partialCalls.entries()]
               .sort(([left], [right]) => left - right)
               .map(([, call]) => ({

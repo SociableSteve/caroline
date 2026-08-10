@@ -16,7 +16,8 @@ import {
   type LlmProvider,
   type ToolCall,
 } from '../types.js'
-import { guardStream } from './guard.js'
+import { assertRequestIsAnswerable } from '../request.js'
+import { guardCall, guardStream } from './guard.js'
 import type { AdapterOptions } from './options.js'
 
 const LABEL = 'Ollama'
@@ -55,6 +56,8 @@ function requestBody(
   model: string,
   { schemaInFormat }: { schemaInFormat: boolean },
 ): Record<string, unknown> {
+  assertRequestIsAnswerable(request)
+
   const schema = request.schema
   const system =
     schema !== undefined && !schemaInFormat
@@ -97,22 +100,35 @@ function parseStructured(content: string): unknown {
   }
 }
 
+/** A tool call as Ollama sends it: named, with arguments, and with no identity. */
+type NamedCall = { readonly name: string; readonly arguments: unknown }
+
+function toolCallsIn(body: OllamaResponse): NamedCall[] {
+  return (body.message?.tool_calls ?? []).flatMap((call) =>
+    typeof call.function?.name === 'string'
+      ? [{ name: call.function.name, arguments: call.function.arguments }]
+      : [],
+  )
+}
+
+/**
+ * Ollama does not give a call an id, and chat has to be able to attribute a result back to
+ * one, so the position within the whole turn is used as the identity it never sent. Assigned
+ * once over the collected list rather than per response, or two calls arriving in different
+ * chunks of a stream would both be `call_0`.
+ */
+function withIds(calls: readonly NamedCall[]): ToolCall[] {
+  return calls.map((call, index) => ({ id: `call_${index}`, ...call }))
+}
+
 function readResponse(body: OllamaResponse, wantedStructure: boolean): CompletionResult {
   const text = body.message?.content ?? ''
   const structured = wantedStructure ? parseStructured(text) : undefined
 
-  const toolCalls: ToolCall[] = (body.message?.tool_calls ?? []).flatMap((call, index) =>
-    typeof call.function?.name === 'string'
-      ? // Ollama does not give a call an id, and chat has to be able to attribute a result
-        // back to one, so the position in the list is used as the identity it never sent.
-        [{ id: `call_${index}`, name: call.function.name, arguments: call.function.arguments }]
-      : [],
-  )
-
   return {
     text,
     ...(structured === undefined ? {} : { structured }),
-    toolCalls,
+    toolCalls: withIds(toolCallsIn(body)),
     usage: {
       inputTokens: count(body.prompt_eval_count),
       outputTokens: count(body.eval_count),
@@ -178,8 +194,13 @@ export function createOllamaAdapter({
     model,
 
     async complete(request) {
-      const response = await send(request, false)
-      return readResponse((await response.json()) as OllamaResponse, request.schema !== undefined)
+      // Guarded around the parse as well as the request: a server that answers 200 with a
+      // proxy's HTML error page fails in `response.json()`, and a `SyntaxError` escaping
+      // from here would be the one provider failure a caller had to recognise by shape.
+      return guardCall(LABEL, async () => {
+        const response = await send(request, false)
+        return readResponse((await response.json()) as OllamaResponse, request.schema !== undefined)
+      })
     },
 
     stream(request): AsyncIterable<CompletionChunk> {
@@ -192,10 +213,16 @@ export function createOllamaAdapter({
 
         let text = ''
         let last: OllamaResponse = {}
+        // Ollama sends a tool call complete, in whichever chunk it decides on, and the final
+        // chunk carries the totals with an empty message. Reading the calls off the last
+        // chunk alone would therefore lose every one of them.
+        const calls: NamedCall[] = []
 
         // Newline-delimited JSON, one object per token batch, with the totals on the last.
         for await (const line of jsonLines(response.body)) {
           last = line
+          calls.push(...toolCallsIn(line))
+
           const piece = line.message?.content ?? ''
           if (piece !== '') {
             text += piece
@@ -210,7 +237,7 @@ export function createOllamaAdapter({
           result: {
             text,
             ...(structured === undefined ? {} : { structured }),
-            toolCalls: readResponse(last, false).toolCalls,
+            toolCalls: withIds(calls),
             usage: {
               inputTokens: count(last.prompt_eval_count),
               outputTokens: count(last.eval_count),

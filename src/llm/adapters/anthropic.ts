@@ -15,6 +15,7 @@ import type {
   ToolCall,
   ToolDefinition,
 } from '../types.js'
+import { assertRequestIsAnswerable } from '../request.js'
 import { guardCall, guardStream } from './guard.js'
 import { STRUCTURED_TOOL_NAME, structuredToolDescription } from './structured-tool.js'
 import type { AdapterOptions } from './options.js'
@@ -24,26 +25,27 @@ const LABEL = 'Anthropic'
 type MessageParam = Anthropic.Messages.MessageParam
 type ToolParam = Anthropic.Messages.Tool
 
+/**
+ * Either the declared tools or the structured-output tool, never both: a request carrying
+ * both is refused before it gets here, so there is no case where the forced choice below
+ * makes a declared tool unreachable. See `src/llm/request.ts`.
+ */
 function tools(request: CompletionRequest): ToolParam[] {
-  const declared = (request.tools ?? []).map((tool: ToolDefinition) => ({
+  if (request.schema !== undefined) {
+    return [
+      {
+        name: STRUCTURED_TOOL_NAME,
+        description: structuredToolDescription,
+        input_schema: request.schema as ToolParam['input_schema'],
+      },
+    ]
+  }
+
+  return (request.tools ?? []).map((tool: ToolDefinition) => ({
     name: tool.name,
     description: tool.description,
     input_schema: tool.parameters as ToolParam['input_schema'],
   }))
-
-  if (request.schema === undefined) return declared
-
-  // The structured-output tool is added rather than substituted, because a request that
-  // wants both is a chat turn that has to answer in a shape, and dropping either would
-  // silently change what was asked for.
-  return [
-    ...declared,
-    {
-      name: STRUCTURED_TOOL_NAME,
-      description: structuredToolDescription,
-      input_schema: request.schema as ToolParam['input_schema'],
-    },
-  ]
 }
 
 function messages(request: CompletionRequest): MessageParam[] {
@@ -51,6 +53,7 @@ function messages(request: CompletionRequest): MessageParam[] {
 }
 
 function body(request: CompletionRequest, model: string): Anthropic.Messages.MessageCreateParams {
+  assertRequestIsAnswerable(request)
   const declared = tools(request)
 
   return {
@@ -60,11 +63,11 @@ function body(request: CompletionRequest, model: string): Anthropic.Messages.Mes
     messages: messages(request),
     ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
     ...(declared.length === 0 ? {} : { tools: declared }),
-    // Forced only when a schema was asked for and no other tool was offered. A chat turn
-    // that may also call a real tool has to be left free to choose.
-    ...(request.schema !== undefined && (request.tools ?? []).length === 0
-      ? { tool_choice: { type: 'tool' as const, name: STRUCTURED_TOOL_NAME } }
-      : {}),
+    // Forced whenever a schema was asked for, which is what makes the structured answer a
+    // guarantee rather than a request: the model cannot answer in prose instead.
+    ...(request.schema === undefined
+      ? {}
+      : { tool_choice: { type: 'tool' as const, name: STRUCTURED_TOOL_NAME } }),
   }
 }
 

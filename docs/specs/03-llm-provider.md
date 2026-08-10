@@ -46,11 +46,23 @@ different means:
 - **Anthropic**: a single tool whose `input_schema` is the requested schema, with
   `tool_choice` forcing it. Uses `@anthropic-ai/sdk`.
 - **OpenAI**: `response_format` with a JSON schema. Strict mode is the stronger guarantee,
-  but OpenAI rejects the whole request when a schema does not meet its rules (every object
-  closed, every declared property required) rather than relaxing. Rather than rewrite a
-  schema to fit, which would change what was asked for, the adapter turns strict mode on for
-  the schemas that already qualify and sends the rest unstrict. Shared validation has the
-  final say either way.
+  but OpenAI rejects the whole request when a schema falls outside the subset it supports
+  (every object closed, every declared property required, and only certain keywords used)
+  rather than relaxing. Rather than rewrite a schema to fit, which would change what was
+  asked for, the adapter turns strict mode on for the schemas that already qualify and sends
+  the rest unstrict. Shared validation has the final say either way.
+
+  The keyword test is an allowlist rather than a list of known-bad keywords, because the two
+  failure modes are not symmetric: sending a supported schema unstrict costs a guarantee that
+  validation supplies anyway, while sending an unsupported one strict fails the whole
+  request. The supported subset also moves. A keyword nobody has considered therefore falls
+  on the unstrict side.
+
+A request carrying both a schema and a set of tools is refused before it reaches a provider.
+There is no answer that satisfies both: forcing the structured tool makes the declared tools
+unreachable, and leaving the choice open cannot guarantee the schema. Tools are chat's and
+structured output is the scheduled jobs', and a caller that genuinely needs both needs turns
+rather than one ambiguous request.
 - **Ollama**: `format` set to the JSON schema, which recent Ollama versions support; falls
   back to `format: 'json'` plus schema-in-prompt for older servers.
 
@@ -107,7 +119,12 @@ One row per call to the provider, not one per request from a caller: a schema fa
 the retry that follows it are two calls, and both spent tokens. Each row carries how it
 ended, and a schema failure is recorded as its own outcome rather than as a generic error,
 because a run of them says the prompt or the schema needs work rather than that the provider
-is down. A day is a local calendar day, not a UTC one.
+is down.
+
+A day is a local calendar day, resolved by time zone rather than by a single offset. One
+offset applied to the whole table is only correct until a daylight-saving change: a call made
+at 04:30 UTC in January belongs to the previous day in New York, and a query run the
+following July would file it under the wrong one.
 
 Writing a usage row never fails a call. Losing a whole mailbox's classification because the
 cost table would not take a row is the wrong trade.

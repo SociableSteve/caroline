@@ -87,7 +87,7 @@ describe('usage rollups', () => {
     recordLlmCall(database, aCall({ inputTokens: 100, outputTokens: 10 }))
     recordLlmCall(database, aCall({ inputTokens: 200, outputTokens: 20, status: 'invalid' }))
 
-    const [today] = llmUsageByDay(database, { offsetMinutes: 0 })
+    const [today] = llmUsageByDay(database, { timeZone: 'UTC' })
 
     expect(today).toEqual({
       day: '2026-01-15',
@@ -100,8 +100,35 @@ describe('usage rollups', () => {
     // 23:00 UTC is the next day anywhere an hour or more east of Greenwich.
     recordLlmCall(database, aCall({ startedAt: Date.UTC(2026, 0, 15, 23) }))
 
-    expect(llmUsageByDay(database, { offsetMinutes: 0 })[0]?.day).toBe('2026-01-15')
-    expect(llmUsageByDay(database, { offsetMinutes: 120 })[0]?.day).toBe('2026-01-16')
+    expect(llmUsageByDay(database, { timeZone: 'UTC' })[0]?.day).toBe('2026-01-15')
+    expect(llmUsageByDay(database, { timeZone: 'Europe/Berlin' })[0]?.day).toBe('2026-01-16')
+  })
+
+  /**
+   * The reason this groups by time zone rather than by a single offset. New York is UTC-5 in
+   * January and UTC-4 in July, so one offset chosen when the query runs files one of these
+   * two calls under the wrong day whichever offset it picks.
+   */
+  it('uses the offset in force at each call, not one offset for the whole table', () => {
+    const database = migratedDatabase()
+    // 04:30 UTC: still the previous evening in New York, in winter and in summer alike.
+    recordLlmCall(database, aCall({ startedAt: Date.parse('2026-01-15T04:30:00Z') }))
+    recordLlmCall(database, aCall({ startedAt: Date.parse('2026-07-15T03:30:00Z') }))
+
+    expect(llmUsageByDay(database, { timeZone: 'America/New_York' }).map((day) => day.day)).toEqual(
+      ['2026-07-14', '2026-01-14'],
+    )
+  })
+
+  it('answers most recent day first', () => {
+    const database = migratedDatabase()
+    recordLlmCall(database, aCall({ startedAt: noon }))
+    recordLlmCall(database, aCall({ startedAt: noon + 2 * day }))
+
+    expect(llmUsageByDay(database, { timeZone: 'UTC' }).map((entry) => entry.day)).toEqual([
+      '2026-01-17',
+      '2026-01-15',
+    ])
   })
 
   it('adds up each purpose separately, which is the per-job view', () => {
