@@ -74,9 +74,17 @@ export const classification: Migration = {
         -- proposal and no error would be a record that says nothing happened.
         check ((proposed_status is null) = (error is not null)),
         check ((proposed_status is null) = (confidence is null)),
-        -- An applied row is one the model answered, and an accepted one is a proposal that was
-        -- not applied. Both being true would mean the status was set twice by two rules.
+        -- A row records one decision, and these are the states that would be two. An applied row
+        -- is one the model decided, so neither stamp belongs on it; a failed row was never a
+        -- proposal, so there was nothing for the user to answer; and a row carrying both stamps
+        -- would say the user accepted and dismissed the same suggestion. The repository refuses all
+        -- of them, and this is the guarantee an audit table should not be relying on it for.
         check (not (applied = 1 and accepted_at is not null)),
+        check (not (applied = 1 and dismissed_at is not null)),
+        check (not (accepted_at is not null and dismissed_at is not null)),
+        check (
+          not (error is not null and (accepted_at is not null or dismissed_at is not null))
+        ),
         check (not (applied = 1 and error is not null))
       )
     `)
