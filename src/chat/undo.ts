@@ -87,8 +87,15 @@ function apply(database: Database, operation: ChatInverse): void {
 
     restoreTask(database, task)
     setTaskTags(database, task.id, operation.tags)
-    // Only where the change cleared them, which is a delete. An edit never touched the links, and
-    // reasserting them would be a write nobody asked for.
+    /*
+     * Only where the change cleared them, which is a delete. An edit never touched the links, and
+     * reasserting them would be a write nobody asked for.
+     *
+     * A link whose row has gone is tolerated, unlike the lifecycle restore below: the source or the
+     * plan entry is the thing that would hold the link, so if it is not there there is no link to
+     * put back and nothing about the restored task is wrong. The lifecycle restore is the other half
+     * of a move, which is a different matter.
+     */
     for (const sourceId of operation.sourceIds ?? []) relinkSource(database, sourceId, task.id)
     for (const entryId of operation.planEntryIds ?? []) relinkPlanEntry(database, entryId, task.id)
     return
@@ -117,11 +124,25 @@ function apply(database: Database, operation: ChatInverse): void {
   }
 
   if (operation.kind === 'restore-source-lifecycle') {
-    restoreSourceLifecycle(database, operation.id, {
+    const restored = restoreSourceLifecycle(database, operation.id, {
       lifecycleState: operation.lifecycleState,
       actedAt: operation.actedAt,
       actedAtMarker: operation.actedAtMarker,
     })
+
+    /*
+     * This half is not optional. Undoing a mark-reviewed means putting the task back *and* putting
+     * the connector's state machine back; with only the first, the next sync fifteen minutes later
+     * reads a review that never happened as discharged. So a source that is not there to restore
+     * fails the undo rather than being stamped as done, for the same reason an unreadable snapshot
+     * does. Nothing in Caroline deletes a source row today, which makes this a guard rather than a
+     * case, and a guard is what it should be either way.
+     */
+    if (restored === null) {
+      throw new Error(
+        `the source ${operation.id} named by a stored inverse no longer exists, so nothing was undone`,
+      )
+    }
     return
   }
 

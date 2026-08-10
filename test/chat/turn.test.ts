@@ -709,6 +709,44 @@ describe('undo', () => {
     })
   })
 
+  /**
+   * The lifecycle restore is the other half of a mark-reviewed, not an extra: with only the task put
+   * back, the next sync reads a review that never happened as discharged. So a missing source fails
+   * the undo rather than leaving the batch stamped and unretryable.
+   */
+  it('leaves the batch retryable when the source of a lifecycle inverse has gone', async () => {
+    const harness = chatHarness({
+      answers: [
+        toolAnswer([{ name: 'mark_reviewed', arguments: { id: 'task-1' } }]),
+        textAnswer('Marked.'),
+      ],
+    })
+    createTask(
+      harness.database,
+      { id: 'task-1', title: 'Review the helper', status: 'review', statusSetBy: 'sync' },
+      CHAT_NOW,
+    )
+    upsertSource(
+      harness.database,
+      {
+        provider: 'github',
+        externalId: 'example-org/service#42',
+        taskId: 'task-1',
+        lifecycleState: 'awaiting_review',
+        metadata: { headSha: 'abc123', author: 'ana' },
+      },
+      CHAT_NOW,
+    )
+
+    const { conversation, message } = doneEvent(await harness.turn('I have reviewed it'))
+    harness.database.prepare('delete from sources').run()
+
+    expect(() => harness.service.undo(conversation.id, message.id)).toThrow(/no longer exists/)
+    expect(harness.database.prepare('select undone_at from chat_changes').get()).toMatchObject({
+      undone_at: null,
+    })
+  })
+
   it('marks the batch undone, and refuses to undo it twice', async () => {
     const harness = chatHarness({
       answers: [
