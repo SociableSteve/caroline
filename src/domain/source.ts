@@ -39,6 +39,13 @@ export interface Source {
   readonly lastSeenAt: number
   /** Set when the upstream item closes. Sync never deletes; it resolves. */
   readonly resolvedAt: number | null
+  /**
+   * Set when the item turned out to be a second telling of an item another connector already covers:
+   * a GitHub notification email about a pull request on the board. The row stays, and is linked
+   * to that item's task as its provenance, but it carries no task of its own and is no longer
+   * followed. Not a completion, and not a resolution: nothing upstream has ended. Spec 02.
+   */
+  readonly suppressedAt: number | null
   /** Connector-owned state machine position. Spec 02. */
   readonly lifecycleState: string | null
   /** When the user last discharged their part. For a pull request, reviewed it. */
@@ -73,6 +80,15 @@ export function markActed(source: Source, acted: ActedRecord): Source {
  */
 export function markResolved(source: Source, at: number): Source {
   return { ...source, resolvedAt: source.resolvedAt ?? at }
+}
+
+/**
+ * The item is a second telling of an item another connector covers. As with resolution the first
+ * moment is the one kept: seeing the same redundant notification every fifteen minutes is not
+ * suppressing it again.
+ */
+export function markSuppressed(source: Source, at: number): Source {
+  return { ...source, suppressedAt: source.suppressedAt ?? at }
 }
 
 /** Sync would like the linked task completed. Whether it may is the caller's decision. */

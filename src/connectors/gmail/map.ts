@@ -19,6 +19,13 @@ export interface ThreadMetadata {
   readonly messageCount: number
   readonly lastMessageAt: number | null
   readonly labels: readonly string[]
+  /**
+   * The `Message-ID` of each message, in the order the thread holds them, angle brackets stripped.
+   * Retained because it is the one machine-written identifier a notification carries: GitHub's are
+   * of the form `owner/repo/pull/<number>@github.com`, which is what the backup-source rule in
+   * spec 02 recognises a pull request notification from without ever reading a body.
+   */
+  readonly messageIds: readonly string[]
 }
 
 function header(message: GmailMessage, name: string): string | null {
@@ -64,6 +71,14 @@ export function toThreadMetadata(thread: GmailThread): ThreadMetadata {
     for (const label of message.labelIds ?? []) labels.add(label)
   }
 
+  const messageIds: string[] = []
+  for (const message of messages) {
+    // The header is written `<id>`; the brackets are transport syntax rather than part of the
+    // identifier, so what is kept is what a reader would compare.
+    const id = header(message, 'Message-ID')?.trim().replace(/^<|>$/g, '')
+    if (id !== undefined && id !== '' && !messageIds.includes(id)) messageIds.push(id)
+  }
+
   return {
     threadId: thread.id,
     subject: first === undefined ? null : header(first, 'Subject'),
@@ -72,6 +87,7 @@ export function toThreadMetadata(thread: GmailThread): ThreadMetadata {
     messageCount: messages.length,
     lastMessageAt: last === undefined ? null : internalDate(last),
     labels: [...labels].sort(),
+    messageIds,
   }
 }
 

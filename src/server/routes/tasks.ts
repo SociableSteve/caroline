@@ -127,6 +127,7 @@ function toSourceResponse(source: Source): SourceResponse {
     title: source.title,
     metadata: source.metadata,
     resolvedAt: source.resolvedAt,
+    suppressedAt: source.suppressedAt,
     lifecycleState: source.lifecycleState,
     actedAt: source.actedAt,
     actedAtMarker: source.actedAtMarker,

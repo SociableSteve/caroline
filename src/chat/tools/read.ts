@@ -140,6 +140,9 @@ function sourceSummary(source: Source) {
     lifecycleState: source.lifecycleState,
     actedAt: asIso(source.actedAt),
     resolvedAt: asIso(source.resolvedAt),
+    // Why an email might be listed against a pull request: it is the notification about it, kept as
+    // provenance rather than as work of its own. Spec 02.
+    suppressedAt: asIso(source.suppressedAt),
   }
 }
 

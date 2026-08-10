@@ -552,3 +552,42 @@ describe('a pull request that closed upstream', () => {
     expect(screen.getByText('Closed upstream. Complete it?')).toBeInTheDocument()
   })
 })
+
+/**
+ * Spec 02, notification emails as a backup source: the notification produced no task of its own,
+ * so the pull request's card is the only place it can be accounted for. Suppressing a duplicate
+ * must not mean it silently vanished.
+ */
+describe('a pull request whose notification email was suppressed', () => {
+  const notification: SourceView = {
+    id: 'source-2',
+    provider: 'gmail',
+    externalId: 'thread-github-review-request',
+    url: 'https://mail.google.com/mail/u/0/#all/thread-github-review-request',
+    title: '[example-org/example-service] Add a retry to the fetch helper (PR #42)',
+    lifecycleState: null,
+    actedAt: null,
+    actedAtMarker: null,
+    resolvedAt: null,
+    suppressedAt: NOW - DAY,
+    requeuedAt: null,
+    completionProposedAt: null,
+    metadata: {},
+  }
+
+  it('shows the notification on the card, linked, as its provenance', () => {
+    renderBoard({ tasks: [aReviewTask({ sources: [aPullRequestSource(), notification] })] })
+
+    expect(screen.getByText('Also notified')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: notification.title as string })).toHaveAttribute(
+      'href',
+      notification.url,
+    )
+  })
+
+  it('says nothing about the ordinary sources a task came from', () => {
+    renderBoard({ tasks: [aReviewTask({ sources: [aPullRequestSource()] })] })
+
+    expect(screen.queryByText('Also notified')).not.toBeInTheDocument()
+  })
+})

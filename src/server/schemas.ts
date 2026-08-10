@@ -68,6 +68,8 @@ export const sourceResponseSchema = {
     actedAt: nullableInteger,
     actedAtMarker: nullableString(200),
     resolvedAt: nullableInteger,
+    // A second telling of another item's work, kept on that item's card as provenance. Spec 02.
+    suppressedAt: nullableInteger,
     requeuedAt: nullableInteger,
     completionProposedAt: nullableInteger,
     // The shape is the connector's, not this layer's, so it is passed through whole rather
@@ -327,6 +329,13 @@ const jobCountsSchema = {
     tasksUpdated: { type: 'integer' },
     resolved: { type: 'integer' },
     requeued: { type: 'integer' },
+    suppressed: { type: 'integer' },
+    // The calendar's own counts. Absent here until M8, which meant `additionalProperties: false`
+    // stripped them from every response and the jobs surface showed a calendar pass as having done
+    // nothing at all.
+    eventsStored: { type: 'integer' },
+    eventsRemoved: { type: 'integer' },
+    plansGenerated: { type: 'integer' },
     classified: { type: 'integer' },
     proposals: { type: 'integer' },
     llmCalls: { type: 'integer' },

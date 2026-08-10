@@ -3,6 +3,7 @@ import {
   applyStatusChange,
   githubTrackedStatuses,
   isDeferred,
+  isUntriaged,
   newTask,
   taskStatuses,
   type Task,
@@ -259,4 +260,24 @@ describe('isDeferred', () => {
   it('never defers a task with no deferUntil', () => {
     expect(isDeferred(existingTask({ deferUntil: null }), now)).toBe(false)
   })
+})
+
+describe('isUntriaged', () => {
+  // What licenses sync to retire a duplicate card: nobody has decided anything about it yet.
+  // Spec 02, notification emails as a backup source.
+  it('is a task still in the inbox that the user did not put there', () => {
+    expect(isUntriaged(existingTask({ status: 'inbox', statusSetBy: 'sync' }))).toBe(true)
+    expect(isUntriaged(existingTask({ status: 'inbox', statusSetBy: 'llm' }))).toBe(true)
+  })
+
+  it('is not a task the user put in the inbox, which is a decision like any other', () => {
+    expect(isUntriaged(existingTask({ status: 'inbox', statusSetBy: 'user' }))).toBe(false)
+  })
+
+  it.each(taskStatuses.filter((status) => status !== 'inbox'))(
+    'is not a task filed in %s',
+    (status) => {
+      expect(isUntriaged(existingTask({ status, statusSetBy: 'llm' }))).toBe(false)
+    },
+  )
 })

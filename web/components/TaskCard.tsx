@@ -17,6 +17,7 @@ import {
   isStale,
   pullRequestSource,
   statusLabel,
+  suppressedSources,
   waitingAge,
 } from '../format.js'
 
@@ -58,6 +59,9 @@ export function TaskCard({
   const waiting = task.status === 'waiting'
   const stale = waiting && isStale(task, now, staleDays)
   const pullRequest = pullRequestSource(task)
+  // Notifications about this work that produced no task of their own. On the card because
+  // suppressing a duplicate must not mean it silently vanished. Spec 02.
+  const suppressed = suppressedSources(task)
   const pushedSince = waiting && hasPushedSinceReview(task)
   const optedOut = hasOptedOutOfSync(task)
   const completionProposed = isCompletionProposed(task)
@@ -134,6 +138,26 @@ export function TaskCard({
                 <a href={pullRequest.url} target="_blank" rel="noreferrer">
                   {pullRequest.externalId}
                 </a>
+              </dd>
+            </>
+          )}
+
+          {suppressed.length > 0 && (
+            <>
+              <dt>Also notified</dt>
+              <dd>
+                {suppressed.map((source, index) => (
+                  <span key={source.id}>
+                    {index > 0 && ', '}
+                    {source.url === null ? (
+                      (source.title ?? source.externalId)
+                    ) : (
+                      <a href={source.url} target="_blank" rel="noreferrer">
+                        {source.title ?? source.externalId}
+                      </a>
+                    )}
+                  </span>
+                ))}
               </dd>
             </>
           )}

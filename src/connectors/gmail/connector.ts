@@ -6,7 +6,7 @@
  * and only the whole result set says what has left it. An incremental query would answer with
  * what has arrived, which is the other question.
  */
-import type { Connector, SourceItem } from '../types.js'
+import type { BackupReference, Connector, SourceItem } from '../types.js'
 import type { GmailApi, ThreadFormat } from './api.js'
 import { toSourceItem } from './map.js'
 
@@ -32,6 +32,14 @@ export interface GmailConnectorOptions {
   readonly needsBody: () => boolean
   /** The unresolved Gmail sources, read at the moment the pass runs. */
   readonly known: () => readonly KnownThread[]
+  /**
+   * Recognises a thread as a second telling of an item another connector owns, from its metadata.
+   * Injected rather than imported so that this connector knows nothing about pull requests: what a
+   * GitHub notification looks like is GitHub's business, and the two are wired together in
+   * `src/jobs/registry.ts`. Absent means nothing is recognised, and every thread is captured as
+   * mail. Spec 02.
+   */
+  readonly backupFor?: (metadata: unknown) => BackupReference | null
 }
 
 export function createGmailConnector({
@@ -40,6 +48,7 @@ export function createGmailConnector({
   query,
   needsBody,
   known,
+  backupFor,
 }: GmailConnectorOptions): Connector {
   return {
     provider: 'gmail',
@@ -60,7 +69,11 @@ export function createGmailConnector({
       const present = new Set(ids)
 
       for (const id of ids) {
-        yield toSourceItem(await api.getThread(id, format, pass))
+        const item = toSourceItem(await api.getThread(id, format, pass))
+        // The item says what it is and the engine decides what to do about it. The connector's job
+        // ends at describing the thread, here as everywhere else.
+        const reference = backupFor?.(item.metadata) ?? null
+        yield reference === null ? item : { ...item, backupFor: reference }
       }
 
       // A thread Caroline is following that the query no longer matches has been archived or

@@ -6,6 +6,7 @@ import {
   markActed,
   markRequeued,
   markResolved,
+  markSuppressed,
   proposeCompletion,
   type ActedRecord,
   type Source,
@@ -38,7 +39,8 @@ export interface UpsertSourceInput {
 
 const columns = `id, provider, external_id, url, title, metadata, content, content_level,
   content_stored_at, content_hash, task_id, first_seen_at, last_seen_at, resolved_at,
-  lifecycle_state, acted_at, acted_at_marker, requeued_at, completion_proposed_at`
+  suppressed_at, lifecycle_state, acted_at, acted_at_marker, requeued_at,
+  completion_proposed_at`
 
 function toSource(row: Row): Source {
   const metadata = row.metadata
@@ -57,6 +59,7 @@ function toSource(row: Row): Source {
     firstSeenAt: Number(row.first_seen_at),
     lastSeenAt: Number(row.last_seen_at),
     resolvedAt: nullableNumber(row.resolved_at),
+    suppressedAt: nullableNumber(row.suppressed_at),
     lifecycleState: nullableText(row.lifecycle_state),
     actedAt: nullableNumber(row.acted_at),
     actedAtMarker: nullableText(row.acted_at_marker),
@@ -96,8 +99,8 @@ function writeSource(database: Database, source: Source): void {
       `insert into sources (${columns}) values (
          :id, :provider, :external_id, :url, :title, :metadata, :content, :content_level,
          :content_stored_at, :content_hash, :task_id, :first_seen_at, :last_seen_at,
-         :resolved_at, :lifecycle_state, :acted_at, :acted_at_marker, :requeued_at,
-         :completion_proposed_at
+         :resolved_at, :suppressed_at, :lifecycle_state, :acted_at, :acted_at_marker,
+         :requeued_at, :completion_proposed_at
        )
        on conflict (id) do update set
          url = excluded.url,
@@ -110,6 +113,7 @@ function writeSource(database: Database, source: Source): void {
          task_id = excluded.task_id,
          last_seen_at = excluded.last_seen_at,
          resolved_at = excluded.resolved_at,
+         suppressed_at = excluded.suppressed_at,
          lifecycle_state = excluded.lifecycle_state,
          acted_at = excluded.acted_at,
          acted_at_marker = excluded.acted_at_marker,
@@ -131,6 +135,7 @@ function writeSource(database: Database, source: Source): void {
       first_seen_at: source.firstSeenAt,
       last_seen_at: source.lastSeenAt,
       resolved_at: source.resolvedAt,
+      suppressed_at: source.suppressedAt,
       lifecycle_state: source.lifecycleState,
       acted_at: source.actedAt,
       acted_at_marker: source.actedAtMarker,
@@ -182,6 +187,7 @@ export function upsertSource(database: Database, input: UpsertSourceInput, now: 
     firstSeenAt: existing?.firstSeenAt ?? now,
     lastSeenAt: now,
     resolvedAt: existing?.resolvedAt ?? null,
+    suppressedAt: existing?.suppressedAt ?? null,
     lifecycleState: supplied(input.lifecycleState, existing?.lifecycleState),
     actedAt: supplied(input.actedAt, existing?.actedAt),
     actedAtMarker: supplied(input.actedAtMarker, existing?.actedAtMarker),
@@ -221,12 +227,16 @@ export function listSourcesForTask(database: Database, taskId: string): Source[]
 /**
  * The set the refresh pass follows: everything of this provider that has not closed,
  * whether or not the provider's own discovery query still returns it. Spec 02, criterion 18.
+ *
+ * A suppressed source is excluded. It is a second telling of an item another connector owns, and
+ * following it would mean two things: a needless fetch, and worse, for Gmail, a thread later
+ * archived would be read as handled and propose completing the pull request it points at. Spec 02.
  */
 export function listUnresolvedSources(database: Database, provider: SourceProvider): Source[] {
   return database
     .prepare(
       `select ${columns} from sources
-       where provider = ? and resolved_at is null
+       where provider = ? and resolved_at is null and suppressed_at is null
        order by first_seen_at, id`,
     )
     .all(provider)
@@ -274,6 +284,21 @@ export function markSourceResolved(database: Database, id: string, at: number): 
   writeSource(database, resolved)
 
   return resolved
+}
+
+/**
+ * The item is a second telling of an item another connector already covers. The row stays and keeps
+ * its own title, link and metadata; what it loses is a task of its own and a place in the set
+ * sync follows. Spec 02, notification emails as a backup source.
+ */
+export function markSourceSuppressed(database: Database, id: string, at: number): Source | null {
+  const existing = getSource(database, id)
+  if (existing === null) return null
+
+  const source = markSuppressed(existing, at)
+  writeSource(database, source)
+
+  return source
 }
 
 /** The user discharged their part. The marker pins where upstream was when they did. */

@@ -225,7 +225,15 @@ export function updateTask(
   return updated
 }
 
-/** Hard delete, only ever from an explicit user action. Sync never calls this. Spec 01. */
+/**
+ * Hard delete. Almost always an explicit user action, and never sync deciding a piece of work is
+ * over: sync resolves and proposes, it does not delete. Spec 01.
+ *
+ * The one exception is retiring an untriaged task that turned out to be a duplicate of something
+ * already on the board, which is a card that should never have existed rather than work being
+ * thrown away. Its source row survives and moves to the task that owns the work, so the provenance
+ * is kept. Spec 02, notification emails as a backup source.
+ */
 export function deleteTask(database: Database, id: string): boolean {
   return database.prepare('delete from tasks where id = ?').run(id).changes > 0
 }
