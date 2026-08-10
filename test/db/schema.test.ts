@@ -247,10 +247,23 @@ describe('a classification row', () => {
     ).toThrow(/constraint/i)
   })
 
-  it('rejects a confidence outside 0 to 1', () => {
+  it.each([1.5, -0.1])('rejects a confidence of %s, outside 0 to 1', (confidence) => {
     expect(() =>
-      insertClassification('proposed_status, confidence, applied', "'next_action', 1.5, 0"),
+      insertClassification(
+        'proposed_status, confidence, applied',
+        `'next_action', ${confidence}, 0`,
+      ),
     ).toThrow(/constraint/i)
+  })
+
+  /** Both ends are real answers, so the bound must not drift inwards either. */
+  it.each([0, 1])('accepts a confidence of %s, which is an answer', (confidence) => {
+    expect(() =>
+      insertClassification(
+        'proposed_status, confidence, applied',
+        `'next_action', ${confidence}, 0`,
+      ),
+    ).not.toThrow()
   })
 
   it('rejects an applied row that was also accepted', () => {
