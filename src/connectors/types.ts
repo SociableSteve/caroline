@@ -47,7 +47,7 @@ export interface SourceItem {
   readonly actedAt?: number | null
   readonly actedAtMarker?: string | null
   /**
-   * Set when this item is a second telling of one another connector owns. The engine decides it
+   * Set when this item is a second telling of an item another connector owns. The engine decides it
    * by the backup-source rule rather than the ordinary upsert rules: it is not work of its own.
    */
   readonly backupFor?: BackupReference

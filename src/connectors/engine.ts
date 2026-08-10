@@ -265,7 +265,7 @@ function applyLifecycle(
 }
 
 /**
- * An item that is a second telling of one another connector owns: a GitHub notification email
+ * An item that is a second telling of an item another connector owns: a GitHub notification email
  * about a pull request. It is not work of its own, so it does not go through the ordinary upsert
  * rules. Spec 02, notification emails as a backup source.
  *

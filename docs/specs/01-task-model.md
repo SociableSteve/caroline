@@ -81,7 +81,7 @@ never becomes a task) and a task may exist without a source (manual capture).
 | `task_id` | text | Nullable FK |
 | `first_seen_at`, `last_seen_at` | integer | |
 | `resolved_at` | integer | Nullable. Set when the upstream item closes |
-| `suppressed_at` | integer | Nullable. Set when the item is a second telling of one another connector already covers. See spec 02 |
+| `suppressed_at` | integer | Nullable. Set when the item is a second telling of an item another connector already covers. See spec 02 |
 | `lifecycle_state` | text | Nullable. Connector-owned state machine position. See spec 02 |
 | `acted_at` | integer | Nullable. When the user last discharged their part (for a PR, reviewed it) |
 | `acted_at_marker` | text | Nullable. Upstream position at `acted_at`, so later change is detectable |
@@ -140,8 +140,11 @@ proposed for completion rather than removed.
 
 There is one exception, and it is not work being thrown away. An untriaged inbox task that
 turns out to be a duplicate of something already on the board is retired: deleted, with its
-source relinked to the task that owns the work, so the card goes and the provenance stays. It
-applies only while the task is untriaged, which is `status = 'inbox'` and
+source relinked to the task that owns the work where there is one, so the card goes and the
+provenance stays. Where there is not, the source keeps `task_id` null and stays that way;
+retiring a duplicate never creates a task to hold the link.
+
+It applies only while the task is untriaged, which is `status = 'inbox'` and
 `status_set_by != 'user'`; a task the user has decided on is theirs, and the rule steps aside.
 Spec 02 defines the one case that reaches it, a GitHub notification email about a pull request
 Caroline already has.

@@ -287,7 +287,7 @@ export function markSourceResolved(database: Database, id: string, at: number): 
 }
 
 /**
- * The item is a second telling of one another connector already covers. The row stays and keeps
+ * The item is a second telling of an item another connector already covers. The row stays and keeps
  * its own title, link and metadata; what it loses is a task of its own and a place in the set
  * sync follows. Spec 02, notification emails as a backup source.
  */

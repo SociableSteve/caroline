@@ -2,7 +2,7 @@ import type { Migration } from '../migrate.js'
 
 /**
  * What a backup source needs: somewhere to record that an item turned out to be a second telling
- * of one another connector already covers. A GitHub notification email about a pull request on the
+ * of an item another connector already covers. A GitHub notification email about a pull request on the
  * board is the case. Spec 02, notification emails as a backup source.
  */
 export const backupSources: Migration = {

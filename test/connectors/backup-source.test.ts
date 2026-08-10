@@ -285,6 +285,30 @@ describe('a notification for a pull request the discovery query missed', () => {
     expect(thread?.suppressedAt).toBe(RUN)
     expect(thread?.taskId).toBeNull()
   })
+
+  it('retires the email task even when there is no card for the thread to move to', async () => {
+    // The email arrived while GitHub was down, so it was captured as mail. By the time GitHub
+    // answers, the pull request turns out to be nobody's work: there is no task to relink to, and
+    // retiring the duplicate must not invent one to hold the link. Spec 01, deletion.
+    const { database, sync, github } = world({
+      listings: [[NOTIFICATION]],
+      githubConfigured: false,
+    })
+
+    await sync()
+    const emailTask = board(database)[0]?.id as string
+
+    github.configured = true
+    github.fetchable = [pullRequestNode({ requestedReviewers: [], reviewRequestedAt: null })]
+    await sync(LATER)
+
+    expect(getTask(database, emailTask)).toBeNull()
+    expect(board(database)).toHaveLength(0)
+
+    const thread = getSourceByExternalId(database, 'gmail', NOTIFICATION)
+    expect(thread?.suppressedAt).toBe(LATER)
+    expect(thread?.taskId).toBeNull()
+  })
 })
 
 describe('a notification the backup source cannot place', () => {
