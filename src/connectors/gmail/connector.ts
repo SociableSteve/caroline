@@ -51,11 +51,16 @@ export function createGmailConnector({
       // ask Google for. Spec 09.
       const format: ThreadFormat = needsBody() ? 'full' : 'metadata'
 
-      const ids = await api.listThreadIds(query)
+      // One budget for the whole pass, threaded through every call. A budget per call would bound
+      // each request and leave the pass itself unbounded, and a pass that never ends is a pass the
+      // overlap guard answers "already running" to for the rest of the process's life.
+      const pass = api.beginPass()
+
+      const ids = await api.listThreadIds(query, pass)
       const present = new Set(ids)
 
       for (const id of ids) {
-        yield toSourceItem(await api.getThread(id, format))
+        yield toSourceItem(await api.getThread(id, format, pass))
       }
 
       // A thread Caroline is following that the query no longer matches has been archived or

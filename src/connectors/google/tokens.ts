@@ -2,7 +2,7 @@
  * The token file: the one thing Caroline writes outside the database. Mode 0600, beside the
  * database, never in the config and never in git. Spec 09.
  */
-import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
 /** What is kept between runs. The access token is cached with it to save a needless refresh. */
@@ -28,7 +28,16 @@ export function readTokens(path: string): StoredTokens | null {
     throw error
   }
 
-  const parsed: unknown = JSON.parse(raw)
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    // A file that is not JSON is no more use than no file, and it must not stop the process
+    // starting: `createGoogleAuth` reads this during construction, so throwing here would mean a
+    // Caroline that cannot boot until somebody deletes a file by hand. Reconnecting rewrites it.
+    return null
+  }
+
   if (parsed === null || typeof parsed !== 'object') return null
 
   const { refreshToken, accessToken, expiresAt, scope, connectedAt } = parsed as Record<
@@ -49,14 +58,23 @@ export function readTokens(path: string): StoredTokens | null {
 }
 
 /**
- * Written with the mode set at creation, and set again afterwards: `writeFileSync`'s mode is
- * masked by the process umask on creation and ignored entirely for a file that already exists,
- * so neither on its own guarantees 0600.
+ * Written to a sibling temporary file and renamed over the target, because `writeFileSync`
+ * truncates before it writes: interrupted, that leaves a half-written file where a token file
+ * should be. A rename within one directory is atomic, so a reader sees either the old tokens or
+ * the new ones and never half of either.
+ *
+ * The mode is set at creation and again afterwards: `writeFileSync`'s mode is masked by the
+ * process umask on creation and ignored entirely for a file that already exists, so neither on its
+ * own guarantees 0600. It is applied to the temporary file, which is the one that becomes the
+ * target, so the wider mode never exists even briefly.
  */
 export function writeTokens(path: string, tokens: StoredTokens): void {
   mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path, `${JSON.stringify(tokens, null, 2)}\n`, { mode: FILE_MODE })
-  chmodSync(path, FILE_MODE)
+
+  const temporary = `${path}.tmp`
+  writeFileSync(temporary, `${JSON.stringify(tokens, null, 2)}\n`, { mode: FILE_MODE })
+  chmodSync(temporary, FILE_MODE)
+  renameSync(temporary, path)
 }
 
 /** Disconnecting. Removing the file is exactly what revoking Caroline's access locally means. */

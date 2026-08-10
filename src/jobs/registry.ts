@@ -115,15 +115,18 @@ export function buildConnectors(
   }
 }
 
+/**
+ * The connectors' counts, added up. Accumulated key by key rather than rebuilt from entries: a cast
+ * back to `JobCounts` would hide a missing key, and a missing key makes the sum `NaN` with nothing
+ * to say it happened.
+ */
 function total(results: readonly ConnectorRunResult[]): JobCounts {
   return results.reduce<JobCounts>((sum, result) => {
-    const counts = result.counts
-    return Object.fromEntries(
-      Object.keys(noCounts).map((key) => [
-        key,
-        sum[key as keyof JobCounts] + counts[key as keyof JobCounts],
-      ]),
-    ) as unknown as JobCounts
+    const next = { ...sum }
+    for (const key of Object.keys(noCounts) as Array<keyof JobCounts>) {
+      next[key] = sum[key] + result.counts[key]
+    }
+    return next
   }, noCounts)
 }
 
@@ -168,8 +171,6 @@ export interface CarolineJobs {
    * what a call would carry, rather than a second answer to the same question. Spec 09, criterion 9.
    */
   readonly content: ContentFetchers
-  /** The steps, exposed so the jobs route can say which names it will accept. */
-  readonly jobNames: readonly string[]
 }
 
 export interface BuildJobsOptions {
@@ -256,5 +257,5 @@ export function buildJobs({
     ...(onError === undefined ? {} : { onError }),
   })
 
-  return { scheduler, google, llm, content, jobNames: steps.map((step) => step.name) }
+  return { scheduler, google, llm, content }
 }

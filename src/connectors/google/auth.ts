@@ -74,12 +74,22 @@ export function createGoogleAuth({
   /** The flow in progress. One at a time: there is one user and one browser. */
   let pending: { state: string; verifier: string } | null = null
 
+  /**
+   * The refresh in flight, if any. Concurrent callers share it rather than each POSTing their own:
+   * two refreshes would write the file twice and leave the earlier access token discarded while a
+   * caller still held it. Gmail fetches one thread at a time today, so this is not reachable yet;
+   * the calendar consumer in M6 runs alongside it and makes it so.
+   */
+  let refreshing: Promise<string> | null = null
+
   function register(stored: StoredTokens | null): void {
     if (stored === null) return
     // Neither token is in the configuration, so the log scrubber has to be told about them or
-    // it could not scrub what it has never seen. Spec 09, criterion 6.
-    registerRuntimeSecret(config, stored.refreshToken)
-    registerRuntimeSecret(config, stored.accessToken)
+    // it could not scrub what it has never seen. Spec 09, criterion 6. The refresh token lasts
+    // until consent is withdrawn; the access tokens it produces are replaced hourly, so they are
+    // registered as rotating and the list of them is bounded rather than growing all day.
+    registerRuntimeSecret(config, stored.refreshToken, 'lasting')
+    registerRuntimeSecret(config, stored.accessToken, 'rotating')
   }
 
   function credentials(): { clientId: string; clientSecret: string } {
@@ -145,17 +155,27 @@ export function createGoogleAuth({
         return current.accessToken
       }
 
-      const { clientId, clientSecret } = credentials()
-      const refreshed = await refreshAccessToken({
-        refreshToken: current.refreshToken,
-        clientId,
-        clientSecret,
-        now,
-        ...(fetch === undefined ? {} : { fetch }),
-      })
+      refreshing ??= (async () => {
+        const { clientId, clientSecret } = credentials()
 
-      persist(refreshed, current)
-      return refreshed.accessToken
+        try {
+          const refreshed = await refreshAccessToken({
+            refreshToken: current.refreshToken,
+            clientId,
+            clientSecret,
+            now,
+            ...(fetch === undefined ? {} : { fetch }),
+          })
+
+          persist(refreshed, current)
+          return refreshed.accessToken
+        } finally {
+          // Cleared either way: a failed refresh must not be the answer every later caller gets.
+          refreshing = null
+        }
+      })()
+
+      return refreshing
     },
 
     begin() {

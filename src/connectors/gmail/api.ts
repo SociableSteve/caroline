@@ -36,9 +36,16 @@ export interface GmailPart {
 export type ThreadFormat = 'metadata' | 'full'
 
 export interface GmailApi {
+  /**
+   * Opens a budget for one pass and hands it back to be passed to every call the pass makes. The
+   * caller owns it because the caller is what knows where a pass begins and ends: a budget created
+   * per call would bound each request and not the pass, which is the thing the overlap guard is
+   * waiting on.
+   */
+  beginPass(): AbortSignal
   /** Every thread the query matches, newest first, as Gmail orders them. */
-  listThreadIds(query: string): Promise<string[]>
-  getThread(id: string, format: ThreadFormat): Promise<GmailThread>
+  listThreadIds(query: string, pass?: AbortSignal): Promise<string[]>
+  getThread(id: string, format: ThreadFormat, pass?: AbortSignal): Promise<GmailThread>
 }
 
 /** A Gmail call that failed. Its message is what ends up in the run history. */
@@ -82,12 +89,45 @@ interface ListResponse {
 }
 
 /**
- * Rate limiting is handled by respecting Google's own answer rather than by sleeping a fixed
- * amount: the run fails saying so, and the scheduler's backoff decides when to try again.
- * Spec 02.
+ * Why Gmail refused, in its own words. A 403 covers both a quota the scheduler should back off
+ * from and a scope it will never be granted, and the two want opposite answers: waiting fixes the
+ * first and only the user can fix the second. The `reason` in the body is what tells them apart.
  */
-function rateLimited(response: Response): boolean {
-  return response.status === 429 || response.status === 403
+interface ErrorResponse {
+  readonly error?: {
+    readonly message?: unknown
+    readonly errors?: readonly { readonly reason?: unknown }[]
+  }
+}
+
+const quotaReasons = new Set([
+  'rateLimitExceeded',
+  'userRateLimitExceeded',
+  'dailyLimitExceeded',
+  'quotaExceeded',
+  'backendError',
+])
+
+async function refusal(response: Response): Promise<string> {
+  const body = (await response.json().catch(() => null)) as ErrorResponse | null
+  const reasons = (body?.error?.errors ?? [])
+    .map((entry) => (typeof entry.reason === 'string' ? entry.reason : null))
+    .filter((reason): reason is string => reason !== null)
+
+  // Rate limiting is handled by respecting Google's own answer rather than by sleeping a fixed
+  // amount: the run fails saying so, and the scheduler's backoff decides when to try again
+  // (spec 02).
+  if (response.status === 429 || reasons.some((reason) => quotaReasons.has(reason))) {
+    return `Gmail rate limit reached (${reasons.join(', ') || response.status}). The next scheduled run will try again.`
+  }
+
+  // A permission failure is permanent, and backing off from it would retry it forever. The run
+  // history should say what would actually fix it.
+  const detail = typeof body?.error?.message === 'string' ? body.error.message : response.statusText
+
+  return `Gmail refused the request with ${response.status}${
+    reasons.length === 0 ? '' : ` (${reasons.join(', ')})`
+  }: ${detail}. Caroline may not have the scope it needs, so reconnect the Google account from Settings.`
 }
 
 export function createGmailApi({
@@ -123,10 +163,8 @@ export function createGmailApi({
       throw error
     }
 
-    if (rateLimited(response)) {
-      throw new GmailApiError(
-        `Gmail refused the request with ${response.status}, which is usually its rate limit or a scope Caroline has not been granted`,
-      )
+    if (response.status === 429 || response.status === 403) {
+      throw new GmailApiError(await refusal(response))
     }
 
     if (response.status === 401) {
@@ -143,11 +181,14 @@ export function createGmailApi({
   }
 
   return {
-    async listThreadIds(query) {
+    beginPass: budget,
+
+    async listThreadIds(query, pass = budget()) {
       const ids: string[] = []
-      const pass = budget()
       let pageToken: string | null = null
 
+      // Bounded rather than open: the guard below is what ends the loop, and the trailing return
+      // exists only because TypeScript cannot see that.
       for (let page = 0; page < LIST_MAX_PAGES; page += 1) {
         const search = new URLSearchParams({ q: query, maxResults: String(LIST_PAGE) })
         if (pageToken !== null) search.set('pageToken', pageToken)
@@ -175,10 +216,10 @@ export function createGmailApi({
       return ids
     },
 
-    async getThread(id, format) {
+    async getThread(id, format, pass = budget()) {
       const body = (await get(
         `/threads/${encodeURIComponent(id)}?format=${format}`,
-        budget(),
+        pass,
       )) as GmailThread
 
       if (typeof body?.id !== 'string') {

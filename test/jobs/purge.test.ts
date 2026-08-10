@@ -145,6 +145,70 @@ describe('the retention window', () => {
   })
 })
 
+describe('the interaction between the two purges', () => {
+  /**
+   * Cutting a body back is not writing a new one. Stamping it afresh would push the retention
+   * window out every time the policy was lowered, so a body written 29 days ago under a 30-day
+   * window would suddenly have another 30 to live. Spec 09, criterion 5.
+   */
+  it('does not restart the retention clock when a downgrade cuts a body back', () => {
+    const database = migratedDatabase()
+    const storedAt = NOW - 29 * DAY
+    const externalId = aStoredThread(database, { level: 'full', storedAt })
+
+    const snippetPolicy = config({
+      privacy: { storeContent: 'snippet', snippetChars: 10, retainContentDays: 30 },
+    })
+
+    runPurge({ database, config: snippetPolicy, now: () => NOW })
+
+    expect(getSourceByExternalId(database, 'gmail', externalId)).toMatchObject({
+      content: 'Could you ',
+      contentStoredAt: storedAt,
+    })
+
+    // Two days later it is past the window, measured from when the body arrived.
+    runPurge({ database, config: snippetPolicy, now: () => NOW + 2 * DAY })
+
+    expect(getSourceByExternalId(database, 'gmail', externalId)?.content).toBeNull()
+  })
+})
+
+describe('a body stored before the policy columns existed', () => {
+  /**
+   * The migration backfills the two facts. Without them every policy allows what the row claims to
+   * hold, and a null stamp has no age, so neither purge would ever touch the body again.
+   */
+  it('is labelled and stamped by the migration, so a purge can still reach it', () => {
+    const database = migratedDatabase()
+    const task = createTask(database, { title: 'Legacy', statusSetBy: 'sync' }, NOW - 40 * DAY)
+
+    // A row as an earlier migration would have left it: a body, no level, no stamp.
+    database
+      .prepare(
+        `insert into sources (id, provider, external_id, title, content, task_id, first_seen_at,
+           last_seen_at, content_level, content_stored_at)
+         values ('source-legacy', 'gmail', 'thread-legacy', 'Legacy', ?, ?, ?, ?, 'none', null)`,
+      )
+      .run(BODY, task.id, NOW - 40 * DAY, NOW - 40 * DAY)
+
+    // Re-running the backfill is what the migration does on a database that predates the columns.
+    database.exec(
+      `update sources set content_level = 'full', content_stored_at = last_seen_at
+       where content is not null and content_stored_at is null`,
+    )
+
+    const result = runPurge({
+      database,
+      config: config({ privacy: { storeContent: 'metadata', retainContentDays: 30 } }),
+      now: () => NOW,
+    })
+
+    expect(result.counts.contentPurged).toBe(1)
+    expect(getSourceByExternalId(database, 'gmail', 'thread-legacy')?.content).toBeNull()
+  })
+})
+
 describe('the run history', () => {
   it('drops runs older than the retention window and keeps the rest', () => {
     const database = migratedDatabase()

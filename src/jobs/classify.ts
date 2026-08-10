@@ -235,26 +235,35 @@ async function classifyOne(
     const proposal = toProposal(result.structured)
     const confident = isConfident(proposal.confidence, config.classification.confidenceThreshold)
     const at = now()
-    const applied = confident && apply(database, task, source, proposal, at)
 
-    recordClassification(
-      database,
-      {
-        taskId: task.id,
-        proposedStatus: proposal.status,
-        confidence: proposal.confidence,
-        reasoning: proposal.reasoning,
-        suggestedTitle: proposal.suggestedTitle,
-        estimateMinutes: proposal.estimateMinutes,
-        waitingOn: proposal.waitingOn,
-        projectSuggestion: proposal.projectSuggestion,
-        provider: provider.name,
-        model: provider.model,
-        promptVersion: CLASSIFICATION_PROMPT_VERSION,
-        applied,
-      },
-      at,
-    )
+    // The status change and the row that records it are one write. Apart, a failure between them
+    // would leave a task the classifier had moved with an audit trail saying it failed, and a
+    // reader of `classifications` could not take the pair as a single fact. `withTransaction`
+    // nests, so `apply`'s own transaction becomes a savepoint inside this one.
+    const applied = withTransaction(database, () => {
+      const changed = confident && apply(database, task, source, proposal, at)
+
+      recordClassification(
+        database,
+        {
+          taskId: task.id,
+          proposedStatus: proposal.status,
+          confidence: proposal.confidence,
+          reasoning: proposal.reasoning,
+          suggestedTitle: proposal.suggestedTitle,
+          estimateMinutes: proposal.estimateMinutes,
+          waitingOn: proposal.waitingOn,
+          projectSuggestion: proposal.projectSuggestion,
+          provider: provider.name,
+          model: provider.model,
+          promptVersion: CLASSIFICATION_PROMPT_VERSION,
+          applied: changed,
+        },
+        at,
+      )
+
+      return changed
+    })
 
     return applied ? { kind: 'applied' } : { kind: 'proposed' }
   } catch (error) {

@@ -82,6 +82,21 @@ describe('the schedule', () => {
     ).toBeInTheDocument()
   })
 
+  /**
+   * A sync that discovered items without creating tasks has done something. Leaving the count out
+   * of the summary made that read as "nothing to do".
+   */
+  it('counts sources created as work done', () => {
+    renderJobs({
+      jobs: [aJob({ lastRun: aRun({ counts: { ...noCounts, sourcesCreated: 2 } }) })],
+    })
+
+    const jobs = panel(/background jobs/i)
+
+    expect(within(jobs).getByText('2 sources created')).toBeInTheDocument()
+    expect(within(jobs).queryByText('nothing to do')).not.toBeInTheDocument()
+  })
+
   it('says a run that did nothing did nothing', () => {
     renderJobs({ jobs: [aJob()] })
 

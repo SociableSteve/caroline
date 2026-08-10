@@ -53,7 +53,16 @@ export function runPurge({ database, config, now }: PurgeOptions): PurgeResult {
       const purgedTo = purgedContent(source.content, source.contentLevel, privacy)
       if (purgedTo === null) continue
 
-      setSourceContent(database, source.id, purgedTo.content, purgedTo.level, at)
+      // The row's own stamp, not now: cutting a body back is not writing a new one, and stamping it
+      // afresh would restart the retention window every time the policy was lowered. Spec 09,
+      // criterion 5 measures from when the body was written.
+      setSourceContent(
+        database,
+        source.id,
+        purgedTo.content,
+        purgedTo.level,
+        source.contentStoredAt ?? at,
+      )
       purged += 1
     }
 

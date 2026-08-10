@@ -23,6 +23,17 @@ export const classification: Migration = {
     // measuring from that would mean a body was never old enough to purge. Spec 09, criterion 5.
     database.exec('alter table sources add column content_stored_at integer')
 
+    // A body already on disk needs both facts, or neither purge would ever touch it: every policy
+    // allows `none`, so the downgrade would find nothing above the line, and a null stamp has no
+    // age for retention to judge. `full` is the safe label, since it means "cut this back to
+    // whatever the policy now allows", and `last_seen_at` is the closest thing to a write time
+    // the row has.
+    database.exec(`
+      update sources
+      set content_level = 'full', content_stored_at = last_seen_at
+      where content is not null
+    `)
+
     /*
      * One row per answer, applied or not, including the ones that failed. Spec 04, criterion 6:
      * this is the audit trail and the evaluation set, so a run that could not reach the

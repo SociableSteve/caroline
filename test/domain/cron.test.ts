@@ -60,6 +60,8 @@ describe('parsing a cron expression', () => {
     ['30-10 * * * *', 'a range that ends before it starts'],
     ['1-2-3 * * * *', 'two dashes'],
     ['abc * * * *', 'text where a number belongs'],
+    ['*/2/3 * * * *', 'two steps in one part'],
+    ['0/5/7 * * * *', 'a value with two steps'],
     ['', 'nothing at all'],
   ])('rejects %s (%s)', (expression) => {
     expect(() => parseCron(expression)).toThrow(CronError)
@@ -68,6 +70,17 @@ describe('parsing a cron expression', () => {
   it('reports validity without throwing, which is what the config schema needs', () => {
     expect(isValidCron('*/15 * * * *')).toBe(true)
     expect(isValidCron('every quarter hour')).toBe(false)
+  })
+
+  /**
+   * Parsing is not enough for the configuration schema: an expression that never fires would be
+   * accepted at load and then throw out of the scheduler's `start` and out of every read of the job
+   * status. The validator answers the question the caller is really asking.
+   */
+  it('rejects an expression that parses but never fires', () => {
+    expect(() => parseCron('0 0 30 2 *')).not.toThrow()
+    expect(isValidCron('0 0 30 2 *')).toBe(false)
+    expect(isValidCron('0 0 29 2 *')).toBe(true)
   })
 })
 

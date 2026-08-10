@@ -127,6 +127,10 @@ export interface FailureStreak {
  * The current run of failures. Skipped runs are not counted and do not break the streak: a job
  * that was skipped attempted nothing, so it is neither evidence that the trouble has passed nor
  * more of the trouble. Spec 06, criterion 3.
+ *
+ * Counted over the last hundred attempts only, so `count` saturates there. The backoff ceiling is
+ * reached long before that, which is why a cap costs nothing: the delay for a streak of a hundred
+ * and the delay for a streak of a thousand are the same delay.
  */
 export function failureStreak(database: Database, job: string): FailureStreak {
   const rows = database

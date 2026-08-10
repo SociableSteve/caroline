@@ -150,15 +150,20 @@ function metadataFields(item: ClassificationItem): Partial<ClassificationPayload
   const metadata = (item.metadata ?? {}) as Record<string, unknown>
 
   if (item.provider === 'github') {
-    return {
-      pullRequest: compact({
-        repository: text(metadata.repository),
-        author: text(metadata.author),
-        changedFiles: count(metadata.changedFiles),
-        additions: count(metadata.additions),
-        deletions: count(metadata.deletions),
-      }),
-    }
+    const pullRequest = compact<Record<string, unknown>>({
+      repository: text(metadata.repository),
+      author: text(metadata.author),
+      changedFiles: count(metadata.changedFiles),
+      additions: count(metadata.additions),
+      deletions: count(metadata.deletions),
+    })
+
+    // An item with no recognised statistics contributes no key at all. `{ pullRequest: {} }` would
+    // survive the outer compact, because an empty object is not undefined, and would put a field on
+    // the wire that states nothing.
+    return Object.keys(pullRequest).length === 0
+      ? {}
+      : { pullRequest: pullRequest as NonNullable<ClassificationPayload['pullRequest']> }
   }
 
   return compact({

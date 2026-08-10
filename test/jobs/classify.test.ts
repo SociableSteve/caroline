@@ -388,6 +388,28 @@ describe('the audit trail', () => {
   })
 })
 
+describe('one write per task', () => {
+  /**
+   * The status change and the row that records it are one transaction. Apart, a failure between them
+   * would leave a task the classifier had moved with an audit trail saying the call failed, and
+   * nothing to say which of the two to believe.
+   */
+  it('rolls the status change back when the audit row cannot be written', async () => {
+    const database = migratedDatabase()
+    const taskId = anIngestedThread(database)
+    const { llm } = runtime([
+      answer({ status: 'next_action', confidence: 0.99, reasoning: 'One action.' }),
+    ])
+
+    // The one failure that lands between the two writes and nothing else.
+    database.exec('drop table classifications')
+
+    await run(database, llm).catch(() => undefined)
+
+    expect(getTask(database, taskId)).toMatchObject({ status: 'inbox', statusSetBy: 'sync' })
+  })
+})
+
 describe('answers the schema refuses', () => {
   /** Spec 04, criterion 4. */
   it('treats a proposed done as a validation failure and does not complete anything', async () => {

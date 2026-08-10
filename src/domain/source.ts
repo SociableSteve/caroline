@@ -4,7 +4,7 @@
  * Spec 01.
  */
 
-import type { ContentLevel } from '../config/schema.js'
+import type { ContentLevel } from './content.js'
 
 export const sourceProviders = ['github', 'gmail', 'gcal'] as const
 export type SourceProvider = (typeof sourceProviders)[number]

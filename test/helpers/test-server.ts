@@ -42,7 +42,11 @@ afterEach(async () => {
  * the routes are worth testing precisely where they meet the database.
  */
 export interface TestServerOptions {
-  /** Jobs the routes should use instead of the set built from the config. */
+  /**
+   * Jobs the routes should use instead of the set built from the config. Supply `database` with it:
+   * jobs hold the database they were built with, and leaving this one to its default would have the
+   * routes reading a different file from the jobs.
+   */
   readonly jobs?: CarolineJobs
   /** An already-migrated database to serve, for a test that seeded one before the server existed. */
   readonly database?: Database
@@ -53,7 +57,7 @@ export interface TestServerOptions {
   readonly fetch?: typeof globalThis.fetch
   /**
    * Steps to run in place of the real ones, for a test about the route rather than about the job.
-   * The schedules are the configured ones, so a replaced step keeps its own name.
+   * The replacement scheduler registers no schedules, so these run on demand and never on a tick.
    */
   readonly steps?: readonly JobStep[]
   /** The Google connection the integration routes should see. */
@@ -83,6 +87,7 @@ export async function testServer({
 
   // The steps are replaced by rebuilding the scheduler around them rather than by reaching into
   // one, so the overlap guard, the recording and the announcements under test are the real ones.
+  // No schedules are registered: nothing here fires on a tick, and every run is a manual one.
   const withSteps: CarolineJobs =
     steps === undefined
       ? built

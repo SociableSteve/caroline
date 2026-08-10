@@ -27,6 +27,10 @@ export interface FakeGmailApi extends GmailApi {
   readonly queries: string[]
   /** Which format each thread was fetched in, which is what the content policy decides. */
   readonly formats: ThreadFormat[]
+  /** The pass budget each call was given, so a test can assert one pass shares one budget. */
+  readonly passes: Array<AbortSignal | undefined>
+  /** How many budgets were opened. One per pass, however many calls the pass makes. */
+  readonly passesBegun: () => number
 }
 
 export interface FakeGmailApiOptions {
@@ -44,23 +48,35 @@ export function fakeGmailApi({
 }: FakeGmailApiOptions): FakeGmailApi {
   const queries: string[] = []
   const formats: ThreadFormat[] = []
+  const passes: Array<AbortSignal | undefined> = []
   let listed = 0
+  let begun = 0
 
   return {
     queries,
     formats,
+    passes,
+    passesBegun: () => begun,
 
-    async listThreadIds(query) {
+    beginPass() {
+      begun += 1
+      // A real signal, so a test that asserts one budget per pass is comparing the real thing.
+      return AbortSignal.timeout(60_000)
+    },
+
+    async listThreadIds(query, pass) {
       if (failWith !== undefined) throw failWith
 
       queries.push(query)
+      passes.push(pass)
       const ids = listings[Math.min(listed, listings.length - 1)] ?? []
       listed += 1
       return [...ids]
     },
 
-    async getThread(id, format) {
+    async getThread(id, format, pass) {
       formats.push(format)
+      passes.push(pass)
       const thread = threads.get(id)
       if (thread === undefined) throw new Error(`No recorded thread ${id}`)
       return thread

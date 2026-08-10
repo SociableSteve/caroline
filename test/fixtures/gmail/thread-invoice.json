@@ -18,15 +18,23 @@
         "parts": [
           {
             "mimeType": "text/plain",
+            "filename": "invoice-2026-118.txt",
             "body": {
-              "size": 60,
-              "data": "SW52b2ljZSAyMDI2LTExOCBpcyBhdHRhY2hlZC4gTm8gYWN0aW9uIG5lZWRlZCwgZmlsaW5nIG9ubHku"
+              "size": 44,
+              "data": "QmFuayBkZXRhaWxzOiBzb3J0IGNvZGUgMDAtMDAtMDAsIGFjY291bnQgMTIzNDU2Nzgu"
             }
           },
           {
             "mimeType": "application/pdf",
             "filename": "invoice-2026-118.pdf",
             "body": { "attachmentId": "attachment-1", "size": 18244 }
+          },
+          {
+            "mimeType": "text/plain",
+            "body": {
+              "size": 60,
+              "data": "SW52b2ljZSAyMDI2LTExOCBpcyBhdHRhY2hlZC4gTm8gYWN0aW9uIG5lZWRlZCwgZmlsaW5nIG9ubHku"
+            }
           }
         ]
       }

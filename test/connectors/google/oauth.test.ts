@@ -2,8 +2,8 @@
  * The Google OAuth desktop flow and the token file. Spec 09: read-only scopes, PKCE, and a token
  * file at mode 0600 beside the database. Nothing here reaches Google.
  */
-import { statSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { loadConfig } from '../../../src/config/load.js'
 import { secretValues } from '../../../src/config/redact.js'
@@ -199,6 +199,38 @@ describe('the token file', () => {
     expect(readTokens(join(temporaryDatabasePath(), '..', 'google-tokens.json'))).toBeNull()
   })
 
+  /**
+   * An interrupted write used to leave a file `JSON.parse` threw on, and `createGoogleAuth` reads
+   * this during construction, so the process could not start until somebody deleted it by hand.
+   */
+  it('is treated as absent when it is not valid JSON', () => {
+    const config = configuredAt(temporaryDatabasePath())
+    const path = config.integrations.google.tokenPath
+    mkdirSync(dirname(path), { recursive: true })
+    // Truncated exactly as an interrupted write would leave it.
+    writeFileSync(path, '{"refreshToken": "refresh-1"')
+
+    expect(readTokens(path)).toBeNull()
+    // The process still starts, which is the point: this is read during construction.
+    expect(() => createGoogleAuth({ config, now: () => NOW })).not.toThrow()
+    expect(createGoogleAuth({ config, now: () => NOW }).isConnected()).toBe(false)
+  })
+
+  it('is written by rename, so no half-written file is left behind', () => {
+    const path = join(temporaryDatabasePath(), '..', 'google-tokens.json')
+
+    writeTokens(path, {
+      refreshToken: 'refresh-1',
+      accessToken: 'access-1',
+      expiresAt: NOW,
+      scope: null,
+      connectedAt: NOW,
+    })
+
+    expect(existsSync(`${path}.tmp`)).toBe(false)
+    expect(readTokens(path)).not.toBeNull()
+  })
+
   it('is treated as absent when it holds no refresh token, since it could get nothing', () => {
     const path = join(temporaryDatabasePath(), '..', 'google-tokens.json')
     writeTokens(path, {
@@ -373,5 +405,72 @@ describe('the connection', () => {
     const config = configuredAt(temporaryDatabasePath())
 
     expect(redirectUriFor(config)).toBe('http://127.0.0.1:5123/api/integrations/google/callback')
+  })
+
+  /**
+   * An unbracketed IPv6 host is not a URL Google will accept, and it fails at consent time rather
+   * than at startup, which is the hard place to diagnose it.
+   */
+  it('brackets an IPv6 host', () => {
+    const config = configuredAt(temporaryDatabasePath())
+
+    expect(redirectUriFor({ ...config, server: { ...config.server, host: '::1' } })).toBe(
+      'http://[::1]:5123/api/integrations/google/callback',
+    )
+  })
+
+  it('says what to do when Google returns no refresh token to keep', async () => {
+    const config = configuredAt(temporaryDatabasePath())
+    const stub = stubTokenEndpoint([{ body: { access_token: 'access-1', expires_in: 3600 } }])
+    const auth = createGoogleAuth({ config, fetch: stub.fetch, now: () => NOW })
+
+    const { state } = auth.begin()
+
+    await expect(auth.complete('code-1', state)).rejects.toThrow(/no refresh token/i)
+    expect(auth.isConnected()).toBe(false)
+  })
+
+  /**
+   * Two callers arriving on an expired token would each POST a refresh, write the file twice, and
+   * leave the earlier access token discarded while a caller still held it.
+   */
+  it('shares one refresh between concurrent callers', async () => {
+    const config = configuredAt(temporaryDatabasePath())
+    writeTokens(config.integrations.google.tokenPath, {
+      refreshToken: 'refresh-1',
+      accessToken: 'stale',
+      expiresAt: NOW - 1000,
+      scope: null,
+      connectedAt: NOW,
+    })
+
+    const stub = stubTokenEndpoint([{ body: { access_token: 'access-2', expires_in: 3600 } }])
+    const auth = createGoogleAuth({ config, fetch: stub.fetch, now: () => NOW })
+
+    const [first, second] = await Promise.all([auth.accessToken(), auth.accessToken()])
+
+    expect([first, second]).toEqual(['access-2', 'access-2'])
+    expect(stub.requests).toHaveLength(1)
+  })
+
+  it('tries again after a refresh that failed rather than answering with the failure forever', async () => {
+    const config = configuredAt(temporaryDatabasePath())
+    writeTokens(config.integrations.google.tokenPath, {
+      refreshToken: 'refresh-1',
+      accessToken: 'stale',
+      expiresAt: NOW - 1000,
+      scope: null,
+      connectedAt: NOW,
+    })
+
+    const stub = stubTokenEndpoint([
+      { status: 500, body: { error: 'backend_error' } },
+      { body: { access_token: 'access-2', expires_in: 3600 } },
+    ])
+    const auth = createGoogleAuth({ config, fetch: stub.fetch, now: () => NOW })
+
+    await expect(auth.accessToken()).rejects.toThrow(GoogleAuthError)
+
+    expect(await auth.accessToken()).toBe('access-2')
   })
 })

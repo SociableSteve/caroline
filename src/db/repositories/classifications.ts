@@ -208,6 +208,13 @@ export function listPendingProposals(
   return pending
 }
 
+/**
+ * A row is decided once. Both updates require an undecided row, so a repeat accept cannot move the
+ * stamp and an accept cannot follow a dismissal: a row carrying both would say the user made two
+ * different decisions about the same suggestion.
+ */
+const undecided = 'applied = 0 and accepted_at is null and dismissed_at is null'
+
 /** The user accepted the proposal. The status change itself is the caller's to make. */
 export function markProposalAccepted(
   database: Database,
@@ -215,7 +222,7 @@ export function markProposalAccepted(
   at: number,
 ): Classification | null {
   database
-    .prepare('update classifications set accepted_at = ? where id = ? and applied = 0')
+    .prepare(`update classifications set accepted_at = ? where id = ? and ${undecided}`)
     .run(at, id)
   return getClassification(database, id)
 }
@@ -227,7 +234,7 @@ export function markProposalDismissed(
   at: number,
 ): Classification | null {
   database
-    .prepare('update classifications set dismissed_at = ? where id = ? and applied = 0')
+    .prepare(`update classifications set dismissed_at = ? where id = ? and ${undecided}`)
     .run(at, id)
   return getClassification(database, id)
 }

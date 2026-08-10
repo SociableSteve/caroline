@@ -524,6 +524,33 @@ describe('backoff after failure', () => {
   })
 })
 
+/**
+ * `setTimeout` treats a delay above about 24.8 days as 1ms. Unclamped, a schedule further out than
+ * that fires at once, finds nothing due, re-arms with the same overflowing delay, and spins for the
+ * life of the process. Under fake timers that spin is an unfinished test rather than a busy CPU,
+ * which is what makes this assertable at all.
+ */
+describe('a schedule further out than a timer can express', () => {
+  it('waits rather than spinning', async () => {
+    const database = migratedDatabase()
+    const purge = succeeding('purge')
+    // The 29th of February 2028, from August 2026: about eighteen months.
+    const { scheduler } = build(
+      database,
+      [purge.step],
+      [{ job: 'purge', cron: '0 3 29 2 *', chain: ['purge'] }],
+    )
+
+    recent(database, 'purge')
+
+    scheduler.start()
+    await vi.advanceTimersByTimeAsync(30 * 24 * 60 * MINUTE)
+
+    expect(purge.calls).toEqual([])
+    expect(scheduler.status()[0]?.nextRunAt).toBe(Date.UTC(2028, 1, 29, 3, 0, 0))
+  })
+})
+
 describe('stopping', () => {
   it('fires nothing more once stopped', async () => {
     const database = migratedDatabase()

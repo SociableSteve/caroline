@@ -52,8 +52,15 @@ function parseField(raw: string, range: FieldRange): Set<number> {
   const values = new Set<number>()
 
   for (const part of raw.split(',')) {
-    const [spec, stepText] = part.split('/')
-    if (spec === undefined || spec === '' || (stepText !== undefined && stepText === '')) {
+    // A part carries at most one step. Reading the first two pieces and discarding the rest would
+    // accept `*/2/3` as a plain step of two, so the job would run on a schedule nobody wrote.
+    const [spec, stepText, ...extra] = part.split('/')
+    if (
+      spec === undefined ||
+      spec === '' ||
+      extra.length > 0 ||
+      (stepText !== undefined && stepText === '')
+    ) {
       throw new CronError(`The ${range.name} field of a cron expression is malformed: "${raw}"`)
     }
 
@@ -136,10 +143,18 @@ export function parseCron(expression: string): CronFields {
   }
 }
 
-/** True when the expression parses. Used by the configuration schema. */
-export function isValidCron(expression: string): boolean {
+/**
+ * True when the expression parses **and** names a moment that arrives. Used by the configuration
+ * schema, where both halves matter: `0 0 30 2 *` parses cleanly and never fires, and the scheduler
+ * would otherwise meet it as a `CronError` thrown out of `start()` and out of every read of
+ * `/api/jobs/status`. A configuration problem belongs at configuration load.
+ *
+ * Reachability is checked in UTC. Which zone it is read in cannot make an unreachable date
+ * reachable, and a daily minute that one zone skips on one day still arrives on the next.
+ */
+export function isValidCron(expression: string, from = Date.now()): boolean {
   try {
-    parseCron(expression)
+    nextCronTime(parseCron(expression), from, 'UTC')
     return true
   } catch {
     return false

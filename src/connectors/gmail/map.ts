@@ -88,7 +88,14 @@ export function threadBody(thread: GmailThread): string | null {
   const last = thread.messages?.at(-1)
   if (last === undefined) return null
 
-  const text = last.payload === undefined ? null : findText(last.payload)
+  // Two whole passes rather than one with a fallback inside it. A single pass that fell back to
+  // HTML wherever plain text ran out would return the first HTML part it reached, and a plain
+  // alternative in a later branch of the tree would never be visited.
+  const payload = last.payload
+  const text =
+    payload === undefined
+      ? null
+      : (findText(payload, 'text/plain') ?? findText(payload, 'text/html'))
   if (text !== null) return text
 
   const snippet = last.snippet
@@ -96,26 +103,23 @@ export function threadBody(thread: GmailThread): string | null {
 }
 
 /**
- * Walks the MIME tree for something readable. Attachments are skipped whatever their type:
- * spec 02 makes attachment contents a non-goal, and a text attachment is still an attachment.
+ * Walks the MIME tree for a part of one type. Attachments are skipped whatever their type: spec 02
+ * makes attachment contents a non-goal, and a text attachment is still an attachment.
  */
-function findText(part: GmailPart, preferred = 'text/plain'): string | null {
+function findText(part: GmailPart, wanted: string): string | null {
   if (part.filename !== undefined && part.filename !== '') return null
 
-  if (part.mimeType === preferred) {
+  if (part.mimeType === wanted) {
     const decoded = decode(part.body?.data)
     if (decoded !== null) return decoded
   }
 
   for (const child of part.parts ?? []) {
-    const found = findText(child, preferred)
+    const found = findText(child, wanted)
     if (found !== null) return found
   }
 
-  // Nothing plain anywhere in the tree, so HTML is better than nothing. Tried as a second whole
-  // pass rather than inline, so a plain part further down still wins over an HTML part nearer
-  // the top.
-  return preferred === 'text/plain' ? findText(part, 'text/html') : null
+  return null
 }
 
 function decode(data: string | undefined): string | null {

@@ -11,5 +11,8 @@ is driven by.
 | `thread-hub-numbers.json` | A two-message thread with plain text and HTML alternatives, and a second sender |
 | `thread-invoice.json`     | A one-message thread with a PDF attachment, which the body extraction skips     |
 
-The bodies are base64url as Gmail sends them. `node -e "Buffer.from(data, 'base64url').toString()"`
-reads one back if you need to check what a test is asserting about.
+The bodies are base64url as Gmail sends them. To read one back:
+
+```sh
+node -p "Buffer.from(process.argv[1], 'base64url').toString()" '<data>'
+```

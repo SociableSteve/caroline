@@ -82,6 +82,8 @@ export function useCarolineData(): CarolineData {
    * tasks back on the screen until something else happened to reload.
    */
   const generation = useRef(0)
+  /** The same, for the settings reads, which are on their own schedule. */
+  const settingsGeneration = useRef(0)
 
   const reload = useCallback(async () => {
     generation.current += 1
@@ -121,10 +123,18 @@ export function useCarolineData(): CarolineData {
    * does. Kept out of `reload` so that every board write does not fetch a Gmail thread.
    */
   const reloadSettings = useCallback(async () => {
+    settingsGeneration.current += 1
+    const mine = settingsGeneration.current
+
     const [connection, payload] = await Promise.all([
       api.getGoogleStatus().catch(() => null),
       api.getPrivacyPreview().catch(() => null),
     ])
+
+    // The same guard `reload` uses, for the same reason: opening Settings and pressing Refresh can
+    // have two of these in flight, and the slower one finishing last would put the older answer
+    // back on the screen.
+    if (mine !== settingsGeneration.current) return
 
     setGoogle(connection)
     setPreview(payload)

@@ -558,23 +558,33 @@ export function registerTaskRoutes(
       if (task === null) return notFound(reply, 'task')
 
       const proposal = pendingProposal(database, id)
-      if (proposal === null || proposal.proposedStatus === null) {
+      // Narrowed into locals rather than asserted below: the checks are here, and a cast further
+      // down would only restate them while hiding a later change to `Classification`.
+      const proposedStatus = proposal?.proposedStatus ?? null
+      if (proposal === null || proposedStatus === null) {
         return badRequest(reply, 'There is no proposal waiting on this task')
       }
 
       const at = now()
       const source = listSourcesForTask(database, id)[0] ?? null
+      const suggestedTitle = proposal.suggestedTitle
       const retitling =
-        proposal.suggestedTitle !== null &&
-        proposal.suggestedTitle.trim() !== '' &&
-        proposal.suggestedTitle !== task.title &&
+        suggestedTitle !== null &&
+        suggestedTitle.trim() !== '' &&
+        suggestedTitle !== task.title &&
         mayRetitle(task.title, source?.title ?? null)
+
+      // The same tracked statuses every other user status change passes. Accepting a suggestion is
+      // the user deciding where the task goes, so filing it outside its connector's set is the same
+      // permanent opt-out it would be from the status control. Spec 01, sync tracking.
+      const statuses = trackedStatuses(database, task)
 
       withTransaction(database, () => {
         changeTaskStatus(database, id, {
-          status: proposal.proposedStatus as TaskStatus,
+          status: proposedStatus,
           by: 'user',
           at,
+          ...(statuses === undefined ? {} : { trackedStatuses: statuses }),
         })
         updateTask(
           database,
@@ -582,14 +592,14 @@ export function registerTaskRoutes(
           {
             ...(retitling
               ? {
-                  title: proposal.suggestedTitle as string,
+                  title: suggestedTitle,
                   notes: notesWithOriginalTitle(task.notes, task.title),
                 }
               : {}),
             ...(task.estimateMinutes === null && proposal.estimateMinutes !== null
               ? { estimateMinutes: proposal.estimateMinutes }
               : {}),
-            ...(proposal.proposedStatus === 'waiting' ? { waitingOn: proposal.waitingOn } : {}),
+            ...(proposedStatus === 'waiting' ? { waitingOn: proposal.waitingOn } : {}),
           },
           at,
         )

@@ -309,3 +309,106 @@ describe('the store boundary over a thread with a body', () => {
     expect(api.formats).toEqual(['full'])
   })
 })
+
+describe('a nested MIME tree', () => {
+  /**
+   * The HTML fallback is a second whole pass, not a fallback taken wherever plain text runs out. A
+   * single pass would return the HTML alternative it reached first and never visit the plain part
+   * in a later branch, and the stored and classified body would be raw markup.
+   */
+  it('prefers a plain part in a later branch over an HTML part in an earlier one', () => {
+    const html = Buffer.from('<p>Markup, not words</p>', 'utf8').toString('base64url')
+    const plain = Buffer.from('Words, not markup', 'utf8').toString('base64url')
+
+    const thread = {
+      id: 'thread-nested',
+      messages: [
+        {
+          id: 'message-1',
+          payload: {
+            mimeType: 'multipart/mixed',
+            parts: [
+              {
+                mimeType: 'multipart/alternative',
+                parts: [{ mimeType: 'text/html', body: { data: html } }],
+              },
+              { mimeType: 'text/plain', body: { data: plain } },
+            ],
+          },
+        },
+      ],
+    }
+
+    expect(threadBody(thread)).toBe('Words, not markup')
+  })
+
+  it('falls back to HTML when the tree holds no plain text anywhere', () => {
+    const html = Buffer.from('<p>Markup is all there is</p>', 'utf8').toString('base64url')
+
+    expect(
+      threadBody({
+        id: 'thread-html-only',
+        messages: [
+          {
+            id: 'message-1',
+            payload: {
+              mimeType: 'multipart/alternative',
+              parts: [{ mimeType: 'text/html', body: { data: html } }],
+            },
+          },
+        ],
+      }),
+    ).toBe('<p>Markup is all there is</p>')
+  })
+
+  it('falls back to the snippet when every text part is an attachment', () => {
+    const attached = Buffer.from('Attached, so not the message', 'utf8').toString('base64url')
+
+    expect(
+      threadBody({
+        id: 'thread-attachments-only',
+        messages: [
+          {
+            id: 'message-1',
+            snippet: 'Gmail’s own preview',
+            payload: {
+              mimeType: 'multipart/mixed',
+              parts: [{ mimeType: 'text/plain', filename: 'notes.txt', body: { data: attached } }],
+            },
+          },
+        ],
+      }),
+    ).toBe('Gmail’s own preview')
+  })
+})
+
+/**
+ * Spec 02: a pass is bounded as a whole, not per request. A budget per call would leave a pass over
+ * three hundred threads bounded by three hundred times the deadline, and a run that never ends is
+ * one the overlap guard answers "already running" to for the rest of the process's life.
+ */
+describe('the pass budget', () => {
+  it('opens one budget per pass and gives it to every call', async () => {
+    const database = migratedDatabase()
+    const api = fakeGmailApi({ listings: [['thread-hub-numbers', 'thread-invoice']] })
+
+    await sync(database, api)
+
+    expect(api.passesBegun()).toBe(1)
+    // The listing and both thread fetches: three calls, one budget between them.
+    expect(api.passes).toHaveLength(3)
+    expect(new Set(api.passes).size).toBe(1)
+    expect(api.passes[0]).toBeInstanceOf(AbortSignal)
+  })
+
+  it('opens a fresh one for the next pass', async () => {
+    const database = migratedDatabase()
+    const api = fakeGmailApi({ listings: [['thread-hub-numbers']] })
+
+    await sync(database, api)
+    await sync(database, api, { now: RUN + 900_000 })
+
+    expect(api.passesBegun()).toBe(2)
+    expect(new Set(api.passes).size).toBe(2)
+  })
+})

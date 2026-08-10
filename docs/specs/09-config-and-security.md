@@ -71,8 +71,10 @@ call would contain, using a real item, before it is used.
   once per feature. Client id and secret come from a Google Cloud project the user creates; the
   setup guide walks through it. Access and refresh tokens are stored in `google-tokens.json`
   with mode 0600 outside the repo, alongside the database, never in config or git. The redirect
-  is the loopback address Caroline is already listening on, and no part of the callback's query
-  string is logged or echoed, since one part of it is an authorisation code.
+  is the loopback address Caroline is already listening on. The authorisation code in the callback is
+  neither logged nor echoed. Google's own `error` word is carried into the redirect so the settings
+  screen can say what went wrong, which is safe because it comes from a fixed vocabulary and the
+  screen maps it to a sentence of its own rather than rendering it.
 - **GitHub**: a fine-grained personal access token, read-only, from the environment.
 - **LLM keys**: environment variables only. A key present in the config file is a startup
   error.

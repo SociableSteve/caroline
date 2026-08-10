@@ -152,7 +152,12 @@ function writeSource(database: Database, source: Source): void {
 export function upsertSource(database: Database, input: UpsertSourceInput, now: number): Source {
   const existing = getSourceByExternalId(database, input.provider, input.externalId)
   const content = supplied(input.content, existing?.content)
-  const contentLevel = supplied(input.contentLevel, existing?.contentLevel) ?? 'none'
+  // A caller supplying a body without its level would otherwise leave the stored level describing
+  // a body that is no longer there. A body and its label travel together, so a body with no label
+  // is `none` rather than whatever the row said last.
+  const contentLevel =
+    input.contentLevel ??
+    (input.content === undefined ? (existing?.contentLevel ?? 'none') : 'none')
 
   const source: Source = {
     id: existing?.id ?? randomUUID(),
@@ -316,25 +321,29 @@ export function listSourcesWithContent(database: Database): Source[] {
 }
 
 /**
- * Replaces a stored body with what the policy now allows, or clears it. Only the body and its
- * two labels are touched: the source row, its task and its metadata survive a purge, which is
- * the whole distinction spec 09 criterion 5 draws.
+ * Replaces a stored body with what the policy now allows, or clears it. Only the body and its two
+ * labels are touched: the source row, its task and its metadata survive a purge, which is the whole
+ * distinction spec 09 criterion 5 draws.
+ *
+ * `storedAt` is the caller's to choose, and cutting a body back is not writing a new one: a
+ * downgrade passes the row's own stamp, so the retention window still runs from when the body
+ * arrived rather than from when the policy changed.
  */
 export function setSourceContent(
   database: Database,
   id: string,
   content: string | null,
   level: ContentLevel,
-  now: number,
+  storedAt: number,
 ): void {
   database
     .prepare(
       `update sources
        set content = :content, content_level = :level,
-           content_stored_at = case when :content is null then null else :now end
+           content_stored_at = case when :content is null then null else :stored_at end
        where id = :id`,
     )
-    .run({ id, content, level, now })
+    .run({ id, content, level, stored_at: storedAt })
 }
 
 /** Sets the connector's state machine position without touching anything else on the row. */

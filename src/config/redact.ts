@@ -26,35 +26,72 @@ function writePath(target: Mutable, path: readonly string[], value: unknown): vo
 }
 
 /**
- * Secret-looking values found in the environment that the effective config does not use:
- * an OpenAI key while running Anthropic, a GitHub token while GitHub is disabled. They are
- * still scrubbed, so the "no secret in a log line" guarantee does not depend on which
- * provider happens to be selected. Held beside the config rather than on it, so they can
+ * How long a secret the configuration does not hold is expected to last.
+ *
+ * `lasting` values are few and are kept for the life of the process: the environment keys, and a
+ * refresh token, which survives until consent is withdrawn. `rotating` values are replaced on a
+ * schedule the provider chooses, so they accumulate, and the list of them is bounded.
+ */
+export type SecretLifetime = 'lasting' | 'rotating'
+
+/**
+ * How many rotating secrets are kept. An access token lasts an hour and is replaced by a refresh,
+ * so a handful covers every token that could still turn up in a log line, and the ones dropped are
+ * long expired. Without a bound the list would grow for the life of the process and the scrubber
+ * would scan all of it for every line.
+ */
+const ROTATING_LIMIT = 8
+
+interface ExtraSecrets {
+  readonly lasting: readonly string[]
+  readonly rotating: readonly string[]
+}
+
+const noExtras: ExtraSecrets = { lasting: [], rotating: [] }
+
+/**
+ * Secrets the effective config does not hold, which are scrubbed all the same. Two kinds arrive
+ * here: values found in the environment that this configuration does not use (an OpenAI key while
+ * running Anthropic, a GitHub token while GitHub is disabled), so the "no secret in a log line"
+ * guarantee does not depend on which provider happens to be selected; and the OAuth tokens, which
+ * exist only once the process is running. Held beside the config rather than on it, so they can
  * never be serialised into an API response.
  */
-const unusedEnvironmentSecrets = new WeakMap<Config, readonly string[]>()
+const extraSecrets = new WeakMap<Config, ExtraSecrets>()
 
 export function registerEnvironmentSecrets(config: Config, values: readonly string[]): void {
-  unusedEnvironmentSecrets.set(
-    config,
-    values.filter((value) => value.length > 0),
-  )
+  extraSecrets.set(config, {
+    ...(extraSecrets.get(config) ?? noExtras),
+    lasting: values.filter((value) => value.length > 0),
+  })
 }
 
 /**
- * A secret that only exists once the process is running: an OAuth access or refresh token,
- * which arrives from Google rather than from the environment and is written to the token file
- * rather than to the config. It is registered so that the "no secret in a log line" guarantee
- * covers it as well, which it could not do by reading the configuration alone. Spec 09,
- * criterion 6.
+ * A secret that only exists once the process is running: an OAuth access or refresh token, which
+ * arrives from Google rather than from the environment and is written to the token file rather
+ * than to the config. It is registered so that the "no secret in a log line" guarantee covers it
+ * as well, which it could not do by reading the configuration alone. Spec 09, criterion 6.
+ *
+ * The lifetime decides whether the value is kept or eventually dropped. The refresh token is
+ * `lasting` on purpose: it is the more sensitive of the pair and the one that would still be worth
+ * scrubbing an hour later, so it must not be evicted by the access tokens it goes on producing.
  */
-export function registerRuntimeSecret(config: Config, value: string | null | undefined): void {
+export function registerRuntimeSecret(
+  config: Config,
+  value: string | null | undefined,
+  lifetime: SecretLifetime = 'lasting',
+): void {
   if (typeof value !== 'string' || value.length === 0) return
 
-  const existing = unusedEnvironmentSecrets.get(config) ?? []
-  if (existing.includes(value)) return
+  const existing = extraSecrets.get(config) ?? noExtras
+  if (existing.lasting.includes(value) || existing.rotating.includes(value)) return
 
-  unusedEnvironmentSecrets.set(config, [...existing, value])
+  extraSecrets.set(
+    config,
+    lifetime === 'lasting'
+      ? { ...existing, lasting: [...existing.lasting, value] }
+      : { ...existing, rotating: [...existing.rotating, value].slice(-ROTATING_LIMIT) },
+  )
 }
 
 /** Every secret value that is actually set. Empty values are excluded: scrubbing "" would
@@ -64,7 +101,9 @@ export function secretValues(config: Config): string[] {
     .map((path) => readPath(config, path))
     .filter((value): value is string => typeof value === 'string' && value.length > 0)
 
-  return [...new Set([...fromConfig, ...(unusedEnvironmentSecrets.get(config) ?? [])])]
+  const extras = extraSecrets.get(config) ?? noExtras
+
+  return [...new Set([...fromConfig, ...extras.lasting, ...extras.rotating])]
 }
 
 /**

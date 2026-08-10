@@ -11,14 +11,15 @@ of what ran and what it did.
 | --- | --- | --- |
 | `sync` | Every 15 minutes | Runs every configured connector (spec 02) |
 | `classify` | Hourly, at five past | Sorts the inbox (spec 04) |
-| `plan` | Daily at a configurable local time | Generates the day's plan (spec 05) |
+| `plan` | Daily at a configurable local time | Generates the day's plan (spec 05). Arrives with the planner; not yet registered |
 | `purge` | Daily, early | Drops content past its retention window, and old run history (spec 09) |
 
 `classify` depends on `sync` and `plan` depends on both. The scheduler runs a chain rather
 than racing them: the hourly tick runs sync then classify; the daily tick runs sync, then
-classify, then plan. A step that fails does not stop the chain: items already ingested are
-still worth sorting, and a classification that never ran because GitHub was unreachable would
-be a second failure caused by the first.
+classify, then plan. Until the planner exists, the registry provides `sync`, `classify` and
+`purge`, and the daily chain is the planner's to add. A step that fails does not stop the chain:
+items already ingested are still worth sorting, and a classification that never ran because GitHub
+was unreachable would be a second failure caused by the first.
 
 `classify` defaults to five past the hour rather than on it, so that its tick and the
 quarter-hourly sync tick do not coincide. They would otherwise have the chain's own sync step

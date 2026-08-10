@@ -51,16 +51,23 @@ async function start(): Promise<void> {
       // failed close cannot leave the file locked behind an unhandled rejection.
       void (async () => {
         let exitCode = 0
+        jobs.scheduler.stop()
+
         try {
-          jobs.scheduler.stop()
           await app.close()
-          // A job in flight is still writing. Closing the handle underneath it turns an orderly
-          // stop into a stack trace and a half-applied pass, so it is given a bounded moment to
-          // finish first. `drain` resolves either way.
-          await jobs.scheduler.drain()
         } catch (error) {
           exitCode = 1
           app.log.error(error, 'Server shutdown failed')
+        }
+
+        try {
+          // Its own step, so a server that failed to close still waits. A job in flight is still
+          // writing, and closing the handle underneath it turns an orderly stop into a stack trace
+          // and a half-applied pass. `drain` resolves either way.
+          await jobs.scheduler.drain()
+        } catch (error) {
+          exitCode = 1
+          app.log.error(error, 'Waiting for jobs to finish failed')
         } finally {
           database.close()
         }

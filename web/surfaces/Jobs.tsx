@@ -24,6 +24,7 @@ const descriptions: Record<string, string> = {
 /** The counts worth showing, in the order they read as a sentence about what a run did. */
 const countLabels: ReadonlyArray<{ key: keyof JobRun['counts']; label: string }> = [
   { key: 'itemsSeen', label: 'items seen' },
+  { key: 'sourcesCreated', label: 'sources created' },
   { key: 'tasksCreated', label: 'tasks created' },
   { key: 'tasksUpdated', label: 'tasks moved' },
   { key: 'resolved', label: 'resolved' },

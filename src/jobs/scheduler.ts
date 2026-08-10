@@ -106,6 +106,13 @@ interface Registered extends Schedule {
   nextAt: number
 }
 
+/**
+ * `setTimeout` treats a delay above this as 1ms, so a long wait is taken in stages. A monthly
+ * schedule such as `0 3 1 * *` exceeds it, and without the clamp the timer would fire at once,
+ * find nothing due, re-arm with the same overflowing delay, and spin for the life of the process.
+ */
+const MAX_TIMEOUT_MS = 2_147_483_647
+
 /** Whether a run changed anything a tab might be showing. */
 function changedAnything(counts: Partial<JobCounts>): boolean {
   return (
@@ -266,11 +273,12 @@ export function createScheduler({
     const at = now()
     const soonest = Math.min(...registered.map((schedule) => schedule.nextAt))
 
+    // A clamped wake-up is harmless: `tick` finds nothing due and re-arms with what is left.
     timer = setTimeout(
       () => {
         void tick()
       },
-      Math.max(0, soonest - at),
+      Math.min(Math.max(0, soonest - at), MAX_TIMEOUT_MS),
     )
     // The process should not be held open by a schedule alone; the server is what keeps it alive.
     timer.unref?.()

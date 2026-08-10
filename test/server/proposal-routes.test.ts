@@ -146,6 +146,49 @@ describe('POST /api/tasks/:id/proposal/accept', () => {
     expect(getTask(database, taskId)?.estimateMinutes).toBe(15)
   })
 
+  /**
+   * Accepting is the user deciding where the task goes, so it carries the same permanent opt-out
+   * every other user status change does: a pull request filed outside Review, Waiting for and Done
+   * stops being followed. Spec 01, sync tracking.
+   */
+  it('turns sync tracking off when the status is outside the connector’s set', async () => {
+    const database = migratedDatabase()
+    const task = createTask(
+      database,
+      { title: 'example-org/service#42 Add a retry', status: 'review', statusSetBy: 'sync' },
+      REQUEST_TIME - 60_000,
+    )
+    upsertSource(
+      database,
+      {
+        provider: 'github',
+        externalId: 'example-org/service#42',
+        title: 'example-org/service#42 Add a retry',
+        taskId: task.id,
+      },
+      REQUEST_TIME - 60_000,
+    )
+    // A proposal on a tracked pull request task, as a run that could not apply it would leave one.
+    database
+      .prepare(
+        `insert into classifications (id, task_id, proposed_status, confidence, prompt_version,
+           applied, created_at)
+         values ('classification-9', ?, 'someday', 0.4, '2026-08-10', 0, ?)`,
+      )
+      .run(task.id, REQUEST_TIME - 30_000)
+    database.prepare("update tasks set status = 'inbox' where id = ?").run(task.id)
+
+    const { app } = await testServer({ database })
+
+    await app.inject({ method: 'POST', url: `/api/tasks/${task.id}/proposal/accept` })
+
+    expect(getTask(database, task.id)).toMatchObject({
+      status: 'someday',
+      statusSetBy: 'user',
+      syncTracked: false,
+    })
+  })
+
   it('cannot be accepted twice', async () => {
     const database = migratedDatabase()
     const taskId = aProposedTask(database)

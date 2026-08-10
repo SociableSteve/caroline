@@ -57,8 +57,10 @@ export function registerPrivacyRoutes(
       const at = now()
       const task =
         request.query.taskId === undefined
-          ? // The item the classifier would take next, so the preview is of real correspondence
-            // rather than of an example nobody has.
+          ? // The first inbox task in the task list's own order, so the preview is of real
+            // correspondence rather than of an example nobody has. Close to what the classifier
+            // would take next, and deliberately not the same query: this is an illustration, and
+            // reusing the selection rule would tie the screen to it.
             (listTasks(database, { status: ['inbox'], limit: 1 }, at).tasks[0] ?? null)
           : getTask(database, request.query.taskId)
 

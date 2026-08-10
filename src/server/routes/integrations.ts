@@ -22,9 +22,12 @@ function notConfigured(reply: FastifyReply, message: string): FastifyReply {
  * Connecting the Google account: the desktop OAuth flow, driven from Settings. Spec 09.
  *
  * The redirect comes back to this server, because a loopback redirect is the one address a local
- * tool can offer and Caroline is already listening on it. Nothing from the callback's query string
- * is echoed or logged: every byte of it is the caller's, and one of those bytes is an
- * authorisation code.
+ * tool can offer and Caroline is already listening on it. The authorisation code is neither echoed
+ * nor logged: every byte of the query string is the caller's to choose, and that one is a
+ * credential. Google's own `error` word is the exception, and it is carried into the redirect as
+ * `reason` so the screen can say what went wrong; it comes from a fixed vocabulary, the router
+ * reads only `google`, and Settings maps that through a fixed set of sentences rather than
+ * rendering either value.
  */
 export function registerIntegrationRoutes(
   app: FastifyInstance,
@@ -62,8 +65,7 @@ export function registerIntegrationRoutes(
 
   /**
    * Where Google sends the browser. It answers with a redirect into the settings screen rather than
-   * with JSON, because what is looking at it is a browser tab the user was sent away in, and it
-   * says which of the two things happened without repeating anything the query string said.
+   * with JSON, because what is looking at it is a browser tab the user was sent away in.
    */
   app.get<{ Querystring: { code?: string; state?: string; error?: string } }>(
     '/api/integrations/google/callback',
