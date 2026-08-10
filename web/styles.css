@@ -393,6 +393,138 @@ label {
   white-space: nowrap;
 }
 
+/* A pull request the author has answered is a different kind of wait from one they have not. */
+.chase-pushed {
+  color: var(--ink-quiet);
+  font-size: 0.85rem;
+}
+
+/* The daily plan (spec 05) */
+
+.plan-list,
+.calendar-column,
+.plan-history,
+.plan-warnings {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plan-entry {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.plan-rank {
+  color: var(--ink-quiet);
+  font-variant-numeric: tabular-nums;
+  min-width: 1.2rem;
+}
+
+.plan-title {
+  font-weight: 500;
+}
+
+.plan-why,
+.plan-estimate,
+.plan-state {
+  color: var(--ink-quiet);
+  font-size: 0.85rem;
+}
+
+.plan-estimate {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+/* Done is carried by the text as well as by the styling: colour is never the only signal
+   of a state. Spec 08. */
+.plan-done .plan-title {
+  text-decoration: line-through;
+  color: var(--ink-quiet);
+}
+
+.plan-summary {
+  margin: 0 0 0.5rem;
+}
+
+.plan-warnings li {
+  color: var(--ink-quiet);
+  font-size: 0.85rem;
+  padding: 0.2rem 0;
+}
+
+/* The capacity bar. Its numbers are the ones the API gave, never recomputed here. Spec 08. */
+
+.capacity {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0 0 0.75rem;
+}
+
+.capacity-bar {
+  display: block;
+  width: 100%;
+  height: 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.capacity-used {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.capacity-detail,
+.capacity-unverified {
+  color: var(--ink-quiet);
+  font-size: 0.85rem;
+}
+
+.calendar-column li {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.event-time {
+  color: var(--ink-quiet);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* An event that takes no time off the day is quieter, and says why in words beside it. */
+.event-free .event-summary {
+  color: var(--ink-quiet);
+}
+
+.event-free-reason {
+  margin-left: auto;
+  color: var(--ink-quiet);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.plan-history li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.2rem 0;
+  font-size: 0.85rem;
+}
+
+.history-date {
+  color: var(--ink-quiet);
+  font-variant-numeric: tabular-nums;
+}
+
 /* A failed job is called out in the panel as well as in its own words. */
 .job-failed {
   background: var(--alarm-surface);

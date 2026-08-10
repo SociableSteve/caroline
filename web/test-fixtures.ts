@@ -2,7 +2,17 @@
  * Fixtures for the component tests. Named fields rather than partial objects, so a test that
  * cares about an estimate says so and a test that does not is not quietly relying on one.
  */
-import type { ProjectView, ProposalView, SourceView, TaskStatus, TaskView } from './api.js'
+import type {
+  CalendarDay,
+  CapacityView,
+  PlanEntryView,
+  PlanView,
+  ProjectView,
+  ProposalView,
+  SourceView,
+  TaskStatus,
+  TaskView,
+} from './api.js'
 
 export const NOW = Date.UTC(2026, 5, 10, 9, 0, 0)
 export const DAY = 24 * 60 * 60 * 1000
@@ -67,6 +77,79 @@ export function aReviewTask(overrides: Partial<TaskView> = {}): TaskView {
     sources: [aPullRequestSource()],
     ...overrides,
   })
+}
+
+/** One line of a plan. Spec 05. */
+export function aPlanEntry(overrides: Partial<PlanEntryView> = {}): PlanEntryView {
+  return {
+    id: 'entry-1',
+    kind: 'plan',
+    rank: 1,
+    taskId: 'task-a',
+    title: 'Hub numbers',
+    rationale: 'It is the next thing.',
+    estimateMinutes: 30,
+    waitingOn: null,
+    waitingSince: null,
+    pushedSinceReview: false,
+    taskStatus: 'next_action',
+    done: false,
+    ...overrides,
+  }
+}
+
+/** A day's plan, drawn against a window with an hour of meetings in it. */
+export function aPlan(overrides: Partial<PlanView> = {}): PlanView {
+  return {
+    id: 'plan-1',
+    planDate: '2026-06-10',
+    generatedAt: NOW,
+    timeZone: 'Europe/London',
+    windowMinutes: 510,
+    busyMinutes: 60,
+    reserveMinutes: 102,
+    capacityMinutes: 348,
+    capacityVerified: true,
+    provider: 'ollama',
+    model: 'a-model',
+    promptVersion: '2026-08-10',
+    summary: 'A steady day.',
+    warnings: [],
+    entries: [],
+    overflow: [],
+    nudges: [],
+    ...overrides,
+  }
+}
+
+/**
+ * The day as `GET /api/calendar` answers. `capacity` is merged field by field so a test can
+ * vary one number without restating the other eight.
+ */
+export function aCalendarDay(
+  overrides: Partial<Omit<CalendarDay, 'capacity'>> & { capacity?: Partial<CapacityView> } = {},
+): CalendarDay {
+  const { capacity, ...rest } = overrides
+
+  return {
+    date: '2026-06-10',
+    connected: true,
+    events: [],
+    ...rest,
+    capacity: {
+      windowMinutes: 510,
+      busyMinutes: 60,
+      reserveMinutes: 102,
+      capacityMinutes: 348,
+      verified: true,
+      workingDay: true,
+      windowStart: NOW,
+      windowEnd: NOW + 8.5 * 60 * 60_000,
+      busy: [],
+      free: [],
+      ...capacity,
+    },
+  }
 }
 
 export function aProject(

@@ -7,6 +7,8 @@ import { levelAllows } from '../config/content.js'
 import type { Config } from '../config/schema.js'
 import type { Database } from '../db/connection.js'
 import { runSync, type ConnectorRunResult } from '../connectors/engine.js'
+import { createCalendarApi, type CalendarApi } from '../connectors/gcal/api.js'
+import { calendarWindowFor, runCalendarSync } from '../connectors/gcal/sync.js'
 import { createGmailApi, type GmailApi } from '../connectors/gmail/api.js'
 import { createGmailConnector, type KnownThread } from '../connectors/gmail/connector.js'
 import { threadBody } from '../connectors/gmail/map.js'
@@ -17,9 +19,11 @@ import type { Connector } from '../connectors/types.js'
 import { listUnresolvedSources } from '../db/repositories/sources.js'
 import { noCounts, type JobCounts } from '../domain/job.js'
 import { reviewStates, type ReviewState } from '../domain/review.js'
+import type { LocalDate as PlanDate } from '../domain/time.js'
 import { createLlmRuntime, type LlmRuntime } from '../llm/index.js'
 import type { ChangeFeed } from '../server/changes.js'
 import { CLASSIFY_JOB, runClassification, type ContentFetchers } from './classify.js'
+import { PLAN_JOB, runPlanning, type PlanResult } from './plan.js'
 import { PURGE_JOB, runPurge } from './purge.js'
 import { createScheduler, type JobStep, type Schedule, type Scheduler } from './scheduler.js'
 
@@ -70,6 +74,12 @@ export function needsBody(config: Config): boolean {
 export interface ConnectorSet {
   readonly connectors: readonly Connector[]
   readonly gmail: GmailApi
+  /**
+   * Kept apart from `connectors` because it does not produce `SourceItem`s: a calendar event
+   * is a fact about a day rather than a piece of work, and it goes to `calendar_events`
+   * without ever passing through the engine's task creation. Spec 02, criterion 7.
+   */
+  readonly calendar: CalendarApi
 }
 
 /**
@@ -90,6 +100,10 @@ export function buildConnectors(
 
   return {
     gmail,
+    calendar: createCalendarApi({
+      accessToken: () => google.accessToken(),
+      ...(fetch === undefined ? {} : { fetch }),
+    }),
     connectors: [
       createGitHubConnector({
         api: createGitHubApi({
@@ -167,6 +181,14 @@ export interface CarolineJobs {
   readonly google: GoogleAuth
   readonly llm: LlmRuntime
   /**
+   * Draws a plan for a day, outside the scheduler. The regenerate route uses the scheduler for
+   * today, so a manual run is recorded and guarded against overlap like any other; this is for
+   * a date that is not today, which is a read of history being redrawn rather than a job.
+   */
+  readonly plan: (date?: PlanDate) => Promise<PlanResult>
+  /** True when a calendar can actually be read. What makes a plan's capacity verified. */
+  readonly calendarConnected: () => boolean
+  /**
    * How a body is obtained at send time. Shared with the settings preview so that what it shows is
    * what a call would carry, rather than a second answer to the same question. Spec 09, criterion 9.
    */
@@ -192,7 +214,7 @@ export function buildJobs({
   onError,
 }: BuildJobsOptions): CarolineJobs {
   const google = createGoogleAuth({ config, now, ...(fetch === undefined ? {} : { fetch }) })
-  const { connectors, gmail } = buildConnectors(config, database, google, fetch)
+  const { connectors, gmail, calendar } = buildConnectors(config, database, google, fetch)
 
   const llm = createLlmRuntime({
     config,
@@ -212,6 +234,20 @@ export function buildJobs({
     gmail: async (source) => threadBody(await gmail.getThread(source.externalId, 'full')),
   }
 
+  /** Whether the calendar can actually be read, which is what makes a capacity verified. */
+  const calendarConnected = (): boolean =>
+    config.integrations.google.configured && google.isConnected()
+
+  const plan = (date?: PlanDate): Promise<PlanResult> =>
+    runPlanning({
+      database,
+      config,
+      llm,
+      calendarConnected,
+      now,
+      ...(date === undefined ? {} : { date }),
+    })
+
   const steps: readonly JobStep[] = [
     {
       name: SYNC_JOB,
@@ -223,12 +259,34 @@ export function buildJobs({
           policy: config.privacy,
           now,
         })
-        return summariseSync(summary.results)
+
+        // The calendar is part of the sync pass, and its own row in the history, but it writes
+        // to `calendar_events` rather than to `sources`, so it runs beside the engine rather
+        // than inside it. Its result joins the others in the aggregate all the same.
+        const events = await runCalendarSync({
+          database,
+          api: calendar,
+          isConfigured: calendarConnected,
+          calendarIds: config.integrations.google.calendarIds,
+          timeZone: config.jobs.timezone,
+          range: calendarWindowFor(now(), config.jobs.timezone, {
+            lookbackDays: config.integrations.google.calendarLookbackDays,
+            lookaheadDays: config.integrations.google.calendarLookaheadDays,
+          }),
+          trigger,
+          now,
+        })
+
+        return summariseSync([...summary.results, events])
       },
     },
     {
       name: CLASSIFY_JOB,
       run: () => runClassification({ database, config, llm, content, now }),
+    },
+    {
+      name: PLAN_JOB,
+      run: () => plan(),
     },
     {
       name: PURGE_JOB,
@@ -239,8 +297,15 @@ export function buildJobs({
   const schedules: readonly Schedule[] = [
     { job: SYNC_JOB, cron: config.jobs.schedules.sync, chain: [SYNC_JOB] },
     // Classification depends on sync, so the tick runs the pair in order rather than racing them.
-    // Spec 06. The planner joins this chain in M6.
+    // Spec 06.
     { job: CLASSIFY_JOB, cron: config.jobs.schedules.classify, chain: [SYNC_JOB, CLASSIFY_JOB] },
+    // The planner depends on both, so the daily tick runs all three in order: a plan drawn
+    // before the morning's sync would be a plan of yesterday's work. Spec 06.
+    {
+      job: PLAN_JOB,
+      cron: config.jobs.schedules.plan,
+      chain: [SYNC_JOB, CLASSIFY_JOB, PLAN_JOB],
+    },
     { job: PURGE_JOB, cron: config.jobs.schedules.purge, chain: [PURGE_JOB] },
   ]
 
@@ -257,5 +322,5 @@ export function buildJobs({
     ...(onError === undefined ? {} : { onError }),
   })
 
-  return { scheduler, google, llm, content }
+  return { scheduler, google, llm, content, plan, calendarConnected }
 }

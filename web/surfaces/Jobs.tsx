@@ -16,8 +16,9 @@ export interface JobsProps {
 
 /** What each job does, in the words a person would use. Keyed by the scheduler's own names. */
 const descriptions: Record<string, string> = {
-  sync: 'Pulls review requests from GitHub and threads from Gmail.',
+  sync: 'Pulls review requests from GitHub, threads from Gmail and events from your calendar.',
   classify: 'Sorts the inbox, and asks you about anything it is unsure of.',
+  plan: 'Draws the day’s plan against the time your calendar leaves free.',
   purge: 'Drops stored message bodies past their retention window, and old run history.',
 }
 
@@ -29,7 +30,10 @@ const countLabels: ReadonlyArray<{ key: keyof JobRun['counts']; label: string }>
   { key: 'tasksUpdated', label: 'tasks moved' },
   { key: 'resolved', label: 'resolved' },
   { key: 'requeued', label: 'requeued' },
+  { key: 'eventsStored', label: 'calendar events' },
+  { key: 'eventsRemoved', label: 'events dropped' },
   { key: 'classified', label: 'classified' },
+  { key: 'plansGenerated', label: 'plans drawn' },
   { key: 'proposals', label: 'suggestions' },
   { key: 'llmCalls', label: 'model calls' },
   { key: 'failed', label: 'failed' },

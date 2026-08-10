@@ -28,6 +28,12 @@ export interface JobCounts {
   readonly resolved: number
   /** Inbox tasks returned to the classification queue by an upstream content change. */
   readonly requeued: number
+  /** Calendar events written or updated. They are not sources, so they have their own count. */
+  readonly eventsStored: number
+  /** Calendar events dropped because the pass no longer found them upstream. */
+  readonly eventsRemoved: number
+  /** Daily plans generated. One per run of the planner, or none when it was skipped. */
+  readonly plansGenerated: number
   /** Answers the classifier received, whether applied or left as a proposal. Spec 04. */
   readonly classified: number
   /** Answers below the confidence threshold, left for the user to accept. Spec 04. */
@@ -49,6 +55,9 @@ export const noCounts: JobCounts = {
   tasksUpdated: 0,
   resolved: 0,
   requeued: 0,
+  eventsStored: 0,
+  eventsRemoved: 0,
+  plansGenerated: 0,
   classified: 0,
   proposals: 0,
   llmCalls: 0,

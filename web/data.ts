@@ -10,10 +10,13 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   api,
   ApiFailure,
+  type CalendarDay,
   type GoogleStatus,
   type Health,
   type JobRun,
   type JobStatus,
+  type PlanHistoryDay,
+  type PlanView,
   type PrivacyPreview,
   type ProjectView,
   type TaskView,
@@ -27,6 +30,14 @@ export interface CarolineData {
   readonly jobRuns: readonly JobRun[]
   /** One row per scheduled job: last run, next run, and whether backoff is holding it. */
   readonly jobStatus: readonly JobStatus[]
+  /** Today's plan, or null when none has been drawn. Spec 05. */
+  readonly plan: PlanView | null
+  /** Planned against completed for the last fortnight. */
+  readonly planHistory: readonly PlanHistoryDay[]
+  /** Today's diary and its capacity. Null until the first read answers. */
+  readonly calendar: CalendarDay | null
+  /** The date the plan and the calendar are for, which the regenerate button needs. */
+  readonly planDate: string | null
   /** The Google connection, and what a classification call would send. Both read on demand. */
   readonly google: GoogleStatus | null
   readonly preview: PrivacyPreview | null
@@ -70,6 +81,10 @@ export function useCarolineData(): CarolineData {
   const [health, setHealth] = useState<Health | null>(null)
   const [jobRuns, setJobRuns] = useState<readonly JobRun[]>([])
   const [jobStatus, setJobStatus] = useState<readonly JobStatus[]>([])
+  const [plan, setPlan] = useState<PlanView | null>(null)
+  const [planHistory, setPlanHistory] = useState<readonly PlanHistoryDay[]>([])
+  const [planDate, setPlanDate] = useState<string | null>(null)
+  const [calendar, setCalendar] = useState<CalendarDay | null>(null)
   const [google, setGoogle] = useState<GoogleStatus | null>(null)
   const [preview, setPreview] = useState<PrivacyPreview | null>(null)
   const [staleDays, setStaleDays] = useState(DEFAULT_STALE_DAYS)
@@ -92,17 +107,28 @@ export function useCarolineData(): CarolineData {
     try {
       // The run history is reloaded alongside the tasks: a sync that just finished changed
       // both, and the dashboard should not be a refresh behind on either.
-      const [taskCollection, projectList, runs, status] = await Promise.all([
+      // The plan and the calendar reload alongside the tasks: completing something from the
+      // plan changes how the entry renders, and a sync that just finished may have changed the
+      // diary. Each is defended on its own, so one failing panel does not blank the board.
+      const [taskCollection, projectList, runs, status, day, diary] = await Promise.all([
         api.listTasks(),
         api.listProjects(),
         api.listJobRuns().catch(() => ({ runs: [] })),
         api.listJobStatus().catch(() => ({ jobs: [] })),
+        api.getPlan().catch(() => null),
+        api.getCalendar().catch(() => null),
       ])
       if (mine !== generation.current) return
 
       setTasks(taskCollection.tasks)
       setProjects(projectList.projects)
       setJobRuns(runs.runs)
+      setPlan(day?.plan ?? null)
+      setPlanHistory(day?.history ?? [])
+      // The server's idea of today, not the browser's: they can differ across midnight, and the
+      // regenerate button has to name the date the plan was actually read for.
+      setPlanDate(day?.date ?? diary?.date ?? null)
+      setCalendar(diary)
       // Defended rather than trusted: the board must not go blank because one panel's answer was
       // not the shape it should have been.
       setJobStatus(status.jobs ?? [])
@@ -163,6 +189,10 @@ export function useCarolineData(): CarolineData {
     health,
     jobRuns,
     jobStatus,
+    plan,
+    planHistory,
+    planDate,
+    calendar,
     google,
     preview,
     staleDays,

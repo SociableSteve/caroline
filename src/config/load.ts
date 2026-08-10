@@ -279,6 +279,7 @@ export function loadConfig({ file, env }: LoadOptions): Config {
     tasks: parsed.tasks,
     jobs: parsed.jobs,
     classification: parsed.classification,
+    planning: parsed.planning,
     privacy: parsed.privacy,
     llm: {
       ...base,
@@ -299,6 +300,9 @@ export function loadConfig({ file, env }: LoadOptions): Config {
         clientId: googleClientId,
         clientSecret: googleClientSecret,
         gmailQuery: parsed.integrations.google.gmailQuery,
+        calendarIds: parsed.integrations.google.calendarIds,
+        calendarLookbackDays: parsed.integrations.google.calendarLookbackDays,
+        calendarLookaheadDays: parsed.integrations.google.calendarLookaheadDays,
         tokenPath: googleTokenPath(databasePath),
         configured:
           parsed.integrations.google.enabled &&

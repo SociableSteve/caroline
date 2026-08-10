@@ -1,0 +1,73 @@
+{
+  "kind": "calendar#events",
+  "summary": "person@example.com",
+  "timeZone": "Europe/London",
+  "updated": "2026-06-08T06:00:00.000Z",
+  "items": [
+    {
+      "kind": "calendar#event",
+      "id": "event-standup",
+      "status": "confirmed",
+      "htmlLink": "https://calendar.example.com/event?eid=event-standup",
+      "summary": "Team standup",
+      "start": { "dateTime": "2026-06-08T09:30:00+01:00", "timeZone": "Europe/London" },
+      "end": { "dateTime": "2026-06-08T09:45:00+01:00", "timeZone": "Europe/London" },
+      "organizer": { "email": "colleague-one@example.com", "displayName": "Colleague One" },
+      "attendees": [
+        { "email": "colleague-one@example.com", "responseStatus": "accepted" },
+        { "email": "person@example.com", "self": true, "responseStatus": "accepted" }
+      ]
+    },
+    {
+      "kind": "calendar#event",
+      "id": "event-focus",
+      "status": "confirmed",
+      "summary": "Focus block",
+      "transparency": "transparent",
+      "start": { "dateTime": "2026-06-08T10:00:00+01:00", "timeZone": "Europe/London" },
+      "end": { "dateTime": "2026-06-08T12:00:00+01:00", "timeZone": "Europe/London" },
+      "organizer": { "email": "person@example.com", "self": true }
+    },
+    {
+      "kind": "calendar#event",
+      "id": "event-vendor-call",
+      "status": "confirmed",
+      "summary": "Vendor call",
+      "start": { "dateTime": "2026-06-08T14:00:00+01:00", "timeZone": "Europe/London" },
+      "end": { "dateTime": "2026-06-08T15:00:00+01:00", "timeZone": "Europe/London" },
+      "attendees": [
+        { "email": "vendor@example.net", "responseStatus": "accepted" },
+        { "email": "person@example.com", "self": true, "responseStatus": "declined" }
+      ]
+    },
+    {
+      "kind": "calendar#event",
+      "id": "event-invite-unanswered",
+      "status": "confirmed",
+      "summary": "Architecture review",
+      "start": { "dateTime": "2026-06-08T16:00:00+01:00", "timeZone": "Europe/London" },
+      "end": { "dateTime": "2026-06-08T17:00:00+01:00", "timeZone": "Europe/London" },
+      "attendees": [
+        { "email": "colleague-two@example.com", "responseStatus": "accepted" },
+        { "email": "person@example.com", "self": true, "responseStatus": "needsAction" },
+        { "email": "room-one@resource.example.com", "resource": true, "responseStatus": "accepted" }
+      ]
+    },
+    {
+      "kind": "calendar#event",
+      "id": "event-bank-holiday",
+      "status": "confirmed",
+      "summary": "Public holiday",
+      "start": { "date": "2026-06-09" },
+      "end": { "date": "2026-06-10" }
+    },
+    {
+      "kind": "calendar#event",
+      "id": "event-cancelled",
+      "status": "cancelled",
+      "summary": "Cancelled sync",
+      "start": { "dateTime": "2026-06-09T11:00:00+01:00", "timeZone": "Europe/London" },
+      "end": { "dateTime": "2026-06-09T11:30:00+01:00", "timeZone": "Europe/London" }
+    }
+  ]
+}

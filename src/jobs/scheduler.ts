@@ -122,7 +122,10 @@ function changedAnything(counts: Partial<JobCounts>): boolean {
     (counts.resolved ?? 0) > 0 ||
     (counts.requeued ?? 0) > 0 ||
     (counts.proposals ?? 0) > 0 ||
-    (counts.contentPurged ?? 0) > 0
+    (counts.contentPurged ?? 0) > 0 ||
+    (counts.eventsStored ?? 0) > 0 ||
+    (counts.eventsRemoved ?? 0) > 0 ||
+    (counts.plansGenerated ?? 0) > 0
   )
 }
 

@@ -124,7 +124,48 @@ degradation when the model cannot call tools, conversation persistence.
 
 Exit: spec 07 in full.
 
-### M8. Release readiness
+### M8. GitHub notification emails as a backup source
+
+A GitHub notification email about a pull request is not work in its own right: it is a second
+telling of something the GitHub connector already covers. Today it lands in the inbox and the
+classifier has to guess at it, which produces a duplicate of a card that is already on the
+board, or worse a task for a pull request nobody is being asked to review.
+
+Treated instead as a backup source for the GitHub connector, whose discovery query can miss a
+pull request: a review requested through a team whose membership the token cannot see, a
+repository outside the search's reach, a request made while a sync was failing.
+
+The rule, in the order it is applied to a Gmail thread identified as a pull request
+notification:
+
+1. The pull request is already a `github` source. The email is redundant. Suppress it: no
+   task, and an existing inbox task for the thread is retired rather than left as a duplicate.
+2. It is not. Fetch that pull request by id through the GitHub connector's refresh path and
+   let the ordinary review lifecycle decide whether it belongs in Review at all. Then suppress
+   the email exactly as above.
+3. It is not a pull request Caroline can resolve, or GitHub refuses the fetch. Leave the
+   thread alone and let it be classified as any other email would be. A backup source that
+   swallows mail when it cannot do its job is worse than no backup source.
+
+Design questions to settle before building it:
+
+- **Identification without a body.** The default content policy stores no message body
+  (spec 09), so detection has to work from what the metadata carries: the sender, the
+  `List-ID`, and the subject. Whether that is enough to recover the repository and number, or
+  whether the connector has to fetch the thread transiently the way classification does, is
+  the first thing to establish.
+- **Suppression is not completion.** Retiring the email task must not read as work done. It is
+  nearer to the Gmail resolution path than to a user completing something, and it needs to be
+  visible on the pull request's card as its provenance rather than silently vanishing.
+- **The user's own decisions still win.** A thread the user has already triaged themselves is
+  not something a later sync gets to retire, which is spec 01's rule and applies here whole.
+
+Exit: a notification email for a pull request already on the board creates nothing; one for a
+pull request the discovery query missed puts that pull request in Review with its GitHub
+provenance and no email task beside it; and a notification Caroline cannot resolve is
+classified normally. Spec 02 gains the connector's rule and a criterion per case.
+
+### M9. Release readiness
 
 Setup guide covering the Google Cloud project and OAuth consent, the GitHub token scopes
 and provider configuration. Content-policy documentation with the payload preview. Deletion

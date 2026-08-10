@@ -11,15 +11,14 @@ of what ran and what it did.
 | --- | --- | --- |
 | `sync` | Every 15 minutes | Runs every configured connector (spec 02) |
 | `classify` | Hourly, at five past | Sorts the inbox (spec 04) |
-| `plan` | Daily at a configurable local time | Generates the day's plan (spec 05). Arrives with the planner; not yet registered |
+| `plan` | Daily at a configurable local time, default 07:30 | Generates the day's plan (spec 05) |
 | `purge` | Daily, early | Drops content past its retention window, and old run history (spec 09) |
 
 `classify` depends on `sync` and `plan` depends on both. The scheduler runs a chain rather
 than racing them: the hourly tick runs sync then classify; the daily tick runs sync, then
-classify, then plan. Until the planner exists, the registry provides `sync`, `classify` and
-`purge`, and the daily chain is the planner's to add. A step that fails does not stop the chain:
-items already ingested are still worth sorting, and a classification that never ran because GitHub
-was unreachable would be a second failure caused by the first.
+classify, then plan. A step that fails does not stop the chain: items already ingested are
+still worth sorting, and a classification that never ran because GitHub was unreachable would
+be a second failure caused by the first.
 
 `classify` defaults to five past the hour rather than on it, so that its tick and the
 quarter-hourly sync tick do not coincide. They would otherwise have the chain's own sync step
@@ -56,7 +55,9 @@ The sync job writes a row per connector, named `sync:<provider>`, and one aggreg
 `sync`. The aggregate answers "did the pass work at all", so it fails only when every
 configured connector failed, which is the case where holding the whole job back is right; a
 single broken connector names itself in its own row and in the aggregate's error message
-without slowing the others down.
+without slowing the others down. The calendar is one of those connectors and writes
+`sync:gcal` like the rest, even though it writes to `calendar_events` rather than to
+`sources`: it is a pass over a provider, and the history should read that way.
 
 ## Startup
 

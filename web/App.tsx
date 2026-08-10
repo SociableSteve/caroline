@@ -32,6 +32,10 @@ export function App() {
     health,
     jobRuns,
     jobStatus,
+    plan,
+    planHistory,
+    planDate,
+    calendar,
     google,
     preview,
     staleDays,
@@ -106,6 +110,13 @@ export function App() {
   const onAcceptProposal = (id: string) => void write(() => api.acceptProposal(id))
   const onDismissProposal = (id: string) => void write(() => api.dismissProposal(id))
   const onSync = () => void write(() => api.runJob('sync'))
+  /**
+   * Redrawing today's plan. The date comes from the server's answer rather than from this
+   * browser's clock: the two can differ across midnight, and the route only regenerates today.
+   */
+  const onRegeneratePlan = () => {
+    if (planDate !== null) void write(() => api.regeneratePlan(planDate))
+  }
   const onRunJob = (job: string) => void write(() => api.runJob(job))
   // These two answer their forms, which keep what was typed until the write lands.
   const onCapture = (input: TaskInput) => write(() => api.createTask(input))
@@ -237,8 +248,13 @@ export function App() {
             projects={projects}
             health={health}
             jobRuns={jobRuns}
+            plan={plan}
+            history={planHistory}
+            calendar={calendar}
             staleDays={staleDays}
             now={now}
+            onRegeneratePlan={onRegeneratePlan}
+            onComplete={onComplete}
           />
         )}
       </main>
