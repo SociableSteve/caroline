@@ -1,7 +1,8 @@
-import { readFileSync, readdirSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 /**
  * Spec 03, criterion 4: no vendor SDK type appears outside `src/llm/adapters/`.
@@ -26,15 +27,30 @@ function sourceFiles(directory: string): string[] {
   })
 }
 
+/**
+ * Static and dynamic alike. A guard that only saw `import x from 'openai'` would be one
+ * `await import('openai')` away from being bypassed, which for a test whose whole purpose is
+ * that the boundary cannot be crossed quietly is the one gap that matters.
+ */
 function importsIn(path: string): string[] {
   const contents = readFileSync(join(repositoryRoot, path), 'utf8')
-  return [...contents.matchAll(/(?:from|import)\s*['"]([^'"]+)['"]/g)].map(
+  return [...contents.matchAll(/(?:from|import|require)\s*\(?\s*['"]([^'"]+)['"]/g)].map(
     (match) => match[1] as string,
   )
 }
 
 describe('the vendor boundary', () => {
   const files = [...sourceFiles('src'), ...sourceFiles('web')]
+
+  // Somewhere to write the samples that prove the reader sees what it claims to see. Outside
+  // the repository, so a sample importing a vendor SDK cannot be picked up as an offender.
+  let scratch: string
+  beforeAll(() => {
+    scratch = mkdtempSync(join(tmpdir(), 'caroline-boundary-'))
+  })
+  afterAll(() => {
+    rmSync(scratch, { recursive: true, force: true })
+  })
 
   it('finds the source tree, so an empty pass cannot read as a pass', () => {
     expect(files.length).toBeGreaterThan(20)
@@ -50,6 +66,20 @@ describe('the vendor boundary', () => {
     )
 
     expect(offenders).toEqual([])
+  })
+
+  it.each([
+    ['a static import', "import Anthropic from '@anthropic-ai/sdk'"],
+    ['a dynamic import', "const sdk = await import('openai')"],
+    ['a require', "const sdk = require('@anthropic-ai/sdk')"],
+    ['a dynamic import with odd spacing', "await import (\n  'openai'\n)"],
+  ])('reads %s, so neither form can slip past the boundary check', (_form, source) => {
+    const path = join(scratch, 'sample.ts')
+    writeFileSync(path, source)
+
+    expect(importsIn(relative(repositoryRoot, path))).toEqual([
+      expect.stringMatching(/@anthropic-ai\/sdk|openai/),
+    ])
   })
 
   it('has adapters that do import them, so the check is looking at the right thing', () => {

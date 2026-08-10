@@ -43,17 +43,34 @@ export const credentialFreeUrl = z
   }, 'must not embed credentials: set the API key in the environment instead')
 
 /**
+ * The bounds on the LLM settings, declared once. The base config and a per-job override
+ * accept the same field twice over, and a bound tightened in one place only would leave an
+ * override able to ask for something the base config would have refused.
+ */
+const llmField = {
+  provider: () => z.enum(llmProviders),
+  model: () => z.string().min(1).nullable(),
+  baseUrl: () => credentialFreeUrl.nullable(),
+  maxTokens: () => z.number().int().min(1).max(200_000),
+  timeoutMs: () => z.number().int().min(1_000).max(600_000),
+}
+
+/**
  * What a job may vary from the base LLM settings. Spec 03: a cheap fast model for hourly
  * sorting and a stronger one for chat is the expected setup. `apiKey` is absent by design,
  * as everywhere else in the file config: it follows from the provider and the environment.
+ *
+ * Every field is optional rather than defaulted, because absent has to stay distinguishable
+ * from set: an override that says nothing about a field inherits it, and one that names it
+ * does not.
  */
 const llmOverrideSchema = z
   .object({
-    provider: z.enum(llmProviders).optional(),
-    model: z.string().min(1).nullable().optional(),
-    baseUrl: credentialFreeUrl.nullable().optional(),
-    maxTokens: z.number().int().min(1).max(200_000).optional(),
-    timeoutMs: z.number().int().min(1_000).max(600_000).optional(),
+    provider: llmField.provider().optional(),
+    model: llmField.model().optional(),
+    baseUrl: llmField.baseUrl().optional(),
+    maxTokens: llmField.maxTokens().optional(),
+    timeoutMs: llmField.timeoutMs().optional(),
   })
   .strict()
 
@@ -99,11 +116,11 @@ export const fileConfigSchema = z
       .default({}),
     llm: z
       .object({
-        provider: z.enum(llmProviders).default('none'),
-        model: z.string().min(1).nullable().default(null),
-        baseUrl: credentialFreeUrl.nullable().default(null),
-        maxTokens: z.number().int().min(1).max(200_000).default(4096),
-        timeoutMs: z.number().int().min(1_000).max(600_000).default(60_000),
+        provider: llmField.provider().default('none'),
+        model: llmField.model().default(null),
+        baseUrl: llmField.baseUrl().default(null),
+        maxTokens: llmField.maxTokens().default(4096),
+        timeoutMs: llmField.timeoutMs().default(60_000),
         /**
          * Per-job partial configs. Spec 03 names classification and chat; the planner runs
          * on the base settings, because a plan is drawn once a day and is the one place

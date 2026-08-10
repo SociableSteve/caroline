@@ -127,6 +127,28 @@ describe('deciding whether OpenAI strict mode can be used', () => {
     expect(isStrictCompatible({ type: ['object', 'null'] })).toBe(false)
   })
 
+  /**
+   * A recognised keyword holding nonsense is malformed rather than unsupported, but it is no
+   * more sendable for that. Checking names alone would wave these through on the grounds
+   * that the keyword is one the table knows about.
+   */
+  it.each([
+    ['$ref', { $ref: 1 }],
+    ['properties', { properties: 1 }],
+    ['properties holding a non-schema', { type: 'object', properties: { id: 1 } }],
+    ['$defs', { $defs: 1 }],
+    ['items', { items: 1 }],
+    ['items in tuple form', { type: 'array', items: [1] }],
+    ['anyOf', { anyOf: [1] }],
+    ['an empty anyOf', { anyOf: [] }],
+    ['required', { required: [1] }],
+    ['additionalProperties', { type: 'object', additionalProperties: {} }],
+    ['enum', { enum: 'next' }],
+    ['description', { description: 1 }],
+  ])('refuses a malformed %s, not only an unrecognised keyword', (_keyword, schema) => {
+    expect(isStrictCompatible(schema as Record<string, unknown>)).toBe(false)
+  })
+
   it('accepts anyOf, which is the one composition keyword strict mode supports', () => {
     expect(isStrictCompatible({ anyOf: [{ type: 'string' }, { type: 'number' }] })).toBe(true)
   })

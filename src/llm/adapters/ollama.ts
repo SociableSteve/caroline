@@ -174,6 +174,11 @@ export function createOllamaAdapter({
     const response = await post({ ...requestBody(request, model, { schemaInFormat }), stream })
     if (response.ok) return response
 
+    // Nothing here reads the body of a failed response, and an unread body holds its
+    // connection open until the collector gets to it. On the retry path that is a connection
+    // held for the whole of the second request.
+    await response.body?.cancel()
+
     // A server too old for a schema in `format` answers 400. Anything else, and any failure
     // on a request that was not asking for a schema, is a real failure.
     if (response.status !== 400 || request.schema === undefined || !schemaInFormat) {
@@ -183,6 +188,7 @@ export function createOllamaAdapter({
     schemaInFormat = false
     const retried = await post({ ...requestBody(request, model, { schemaInFormat }), stream })
     if (!retried.ok) {
+      await retried.body?.cancel()
       throw new LlmError(`Ollama answered ${retried.status} ${retried.statusText}`)
     }
     return retried

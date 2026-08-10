@@ -3,7 +3,13 @@ import { createFakeProvider } from '../../src/llm/fake.js'
 import { withSchemaValidation } from '../../src/llm/structured.js'
 import { LlmSchemaError, type CompletionRequest, type JsonSchema } from '../../src/llm/types.js'
 
-const classificationSchema: JsonSchema = {
+/**
+ * Deliberately not the shared `classificationSchema` from `test/helpers/llm.ts`, and named
+ * so the two cannot be mistaken for each other. These tests are about the retry rule rather
+ * than about any particular schema, so they want the smallest one that can fail in an
+ * interesting way.
+ */
+const statusAndConfidenceSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['status', 'confidence'],
@@ -16,7 +22,7 @@ const classificationSchema: JsonSchema = {
 const request: CompletionRequest = {
   system: 'Sort this item.',
   messages: [{ role: 'user', content: 'Invoice from the venue' }],
-  schema: classificationSchema,
+  schema: statusAndConfidenceSchema,
   maxTokens: 256,
 }
 

@@ -26,6 +26,14 @@ const request: CompletionRequest = {
 
 const answer = 'Three things are waiting on somebody else.'
 
+/** The turn the tool-call fixtures answer: one call, with its arguments spread over chunks. */
+const toolRequest: CompletionRequest = {
+  system: 'Answer questions about the board.',
+  messages: [{ role: 'user', content: 'Complete the venue task.' }],
+  maxTokens: 1024,
+  tools: [{ name: 'complete_task', description: 'Complete a task', parameters: {} }],
+}
+
 /** The three recorded streams all carry the same answer, so the assertions can be shared. */
 const cases = [
   {
@@ -39,6 +47,7 @@ const cases = [
         body: 'event: message_start\ndata: {"type":"message_start","message":{"id":"m","type":"message","role":"assistant","model":"m","content":[],"stop_reason":null,"usage":{"input_tokens":1,"output_tokens":1}}}\n\nevent: content_block_delta\ndata: {not json\n\n',
       },
     } satisfies StubReply,
+    toolCall: { sse: recordedStream('anthropic-tool-call') } satisfies StubReply,
   },
   {
     name: 'openai',
@@ -50,6 +59,7 @@ const cases = [
         body: 'data: {"id":"c","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"content":"Three "},"finish_reason":null}]}\n\ndata: {not json\n\n',
       },
     } satisfies StubReply,
+    toolCall: { sse: recordedStream('openai-tool-call') } satisfies StubReply,
   },
   {
     name: 'ollama',
@@ -74,6 +84,18 @@ const cases = [
         contentType: 'application/json',
         body: '{"message":{"role":"assistant","content":"Three "}}\n{"message":',
       },
+    } satisfies StubReply,
+    // Ollama sends a tool call complete, in a chunk of its own, before the totals arrive.
+    toolCall: {
+      lines: [
+        {
+          message: {
+            role: 'assistant',
+            tool_calls: [{ function: { name: 'complete_task', arguments: { id: 'task-1' } } }],
+          },
+        },
+        { message: { role: 'assistant', content: '' }, done: true, done_reason: 'stop' },
+      ],
     } satisfies StubReply,
   },
 ] as const
@@ -136,5 +158,23 @@ describe.each(cases)('streaming from $name', (testCase) => {
     expect(done?.type === 'done' && done.result.stopReason).toBe(
       testCase.name === 'anthropic' ? 'end_turn' : 'stop',
     )
+  })
+
+  /**
+   * Each provider dribbles a tool call out differently: OpenAI in argument deltas addressed
+   * by index, Anthropic in `input_json_delta` blocks, Ollama complete in one chunk. All three
+   * have to arrive on the done chunk as one normalised call, or chat can stream an answer
+   * but never make a change.
+   */
+  it('collects a tool call spread across the stream', async () => {
+    const stub = stubFetch([testCase.toolCall])
+    const provider = createAdapter(testCase.settings, { fetch: stub.fetch })
+
+    const chunks = await collect(provider.stream(toolRequest))
+
+    const done = chunks.at(-1)
+    const calls = done?.type === 'done' ? done.result.toolCalls : []
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({ name: 'complete_task', arguments: { id: 'task-1' } })
   })
 })

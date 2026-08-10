@@ -152,7 +152,7 @@ describe('recording what every call cost', () => {
 
   it('records the answer that failed validation as well as the retry that worked', async () => {
     const database = migratedDatabase()
-    const rejected = recordedPayload('ollama-classification') as { message: { content: string } }
+    const rejected = recordedPayload('ollama-classification') as Record<string, unknown>
     const stub = stubFetch([
       { body: { ...rejected, message: { role: 'assistant', content: '{"status":"somewhere"}' } } },
       { body: recordedPayload('ollama-classification') },
@@ -203,6 +203,31 @@ describe('recording what every call cost', () => {
       .complete(request)
 
     expect(listLlmCalls(database)[0]?.purpose).toBe('planning')
+  })
+
+  /**
+   * Recording is bookkeeping. Losing a whole mailbox's classification because the cost table
+   * would not take a row is the wrong trade, so the write is allowed to fail quietly and the
+   * failure is reported out of band.
+   */
+  it('completes the call even when the usage row cannot be written', async () => {
+    const database = migratedDatabase()
+    database.exec('drop table llm_calls')
+    const stub = stubFetch([{ body: recordedPayload('ollama-classification') }])
+    const reported: unknown[] = []
+
+    const result = await createLlmRuntime({
+      config,
+      database,
+      fetch: stub.fetch,
+      onRecordingError: (error) => reported.push(error),
+    })
+      .for('classification')
+      .complete(request)
+
+    expect(result.structured).toEqual(expectedClassification)
+    expect(reported).toHaveLength(1)
+    expect(String(reported[0])).toMatch(/llm_calls/)
   })
 
   it('makes the call even with nowhere to record it', async () => {
