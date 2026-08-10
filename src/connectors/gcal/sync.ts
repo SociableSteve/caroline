@@ -120,8 +120,10 @@ async function readCalendar(
     const input = toCalendarEventInput(event, calendarId, timeZone)
     if (input === null) continue
 
-    upsertCalendarEvent(database, input, startedAt)
-    tally.eventsStored += 1
+    // Only an event that actually moved is counted. The change feed publishes on a non-zero
+    // count, so counting every event the pass saw would reload every open tab every quarter of
+    // an hour for a diary nobody had touched.
+    if (upsertCalendarEvent(database, input, startedAt).changed) tally.eventsStored += 1
   }
 
   // Only after a calendar has been read in full. An event deleted upstream simply stops being

@@ -15,6 +15,7 @@ import { computeCapacity, workingWindowFor, type Interval } from '../../domain/c
 import type { CalendarEvent } from '../../domain/calendar.js'
 import { consumesCapacity } from '../../domain/capacity.js'
 import {
+  addDays,
   formatLocalDate,
   instantAt,
   localDateAt,
@@ -86,9 +87,10 @@ export function registerPlanRoutes(
   /** The plan for a date, with the fortnight the dashboard draws beside it. */
   const answerFor = (date: LocalDate) => {
     const planDate = formatLocalDate(date)
-    const from = formatLocalDate(
-      localDateAt(dayBounds(date, timeZone).start - HISTORY_DAYS * DAY_MS, timeZone),
-    )
+    // Calendar days, not elapsed hours: subtracting fourteen times twenty-four hours from a
+    // local midnight lands a day early across a spring-forward, and the fortnight would quietly
+    // become fifteen days once a year.
+    const from = formatLocalDate(addDays(date, -HISTORY_DAYS))
 
     return {
       date: planDate,

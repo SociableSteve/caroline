@@ -200,6 +200,18 @@ describe('today’s plan', () => {
 
     expect(onRegeneratePlan).toHaveBeenCalled()
   })
+
+  /** One regeneration at a time: a second click would only earn a 409 from the scheduler. */
+  it('refuses a second regeneration while one is in flight', async () => {
+    const onRegeneratePlan = vi.fn()
+    renderDashboard({ plan: aPlan({}), regenerating: true, onRegeneratePlan })
+
+    const button = screen.getByRole('button', { name: /regenerating/i })
+
+    expect(button).toBeDisabled()
+    await userEvent.click(button)
+    expect(onRegeneratePlan).not.toHaveBeenCalled()
+  })
 })
 
 /** Criteria 11 and 12, on the dashboard. */
@@ -282,6 +294,20 @@ describe('the capacity bar', () => {
     expect(
       capacityPanel().getByText(/1 hour 30 min planned of 5 hours 48 min/i),
     ).toBeInTheDocument()
+  })
+
+  /**
+   * A meter whose minimum and maximum are both zero is not a range, and assistive technology
+   * has nothing to announce for it. The text carries the answer on its own.
+   */
+  it('renders no meter at all on a day with no free capacity', () => {
+    renderDashboard({
+      calendar: aCalendarDay({ capacity: { capacityMinutes: 0, busyMinutes: 408 } }),
+      plan: aPlan({ capacityMinutes: 0 }),
+    })
+
+    expect(capacityPanel().queryByRole('meter')).not.toBeInTheDocument()
+    expect(capacityPanel().getByText(/0 min planned of 0 min free/i)).toBeInTheDocument()
   })
 
   it('says the capacity is unverified when no calendar is connected', () => {

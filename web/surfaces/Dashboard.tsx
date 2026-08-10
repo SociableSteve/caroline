@@ -47,6 +47,8 @@ export interface DashboardProps {
   readonly staleDays: number
   readonly now: number
   readonly onRegeneratePlan: () => void
+  /** True while a regeneration is in flight, so a second click cannot start another. */
+  readonly regenerating?: boolean
   readonly onComplete: (taskId: string) => void
 }
 
@@ -127,9 +129,6 @@ function CapacityBar({
   }
 
   const free = Math.max(0, capacity.capacityMinutes)
-  // A day with no capacity in it reads as entirely spent rather than as a bar of nothing:
-  // dividing by it would be a division by zero, and an empty bar would look like a free day.
-  const used = free === 0 ? 100 : Math.min(100, (planned / free) * 100)
 
   return (
     <p className="capacity">
@@ -138,16 +137,24 @@ function CapacityBar({
       <span>
         {formatEstimate(planned)} planned of {formatEstimate(free)} free
       </span>
-      <span
-        role="meter"
-        aria-label="Capacity used"
-        aria-valuenow={planned}
-        aria-valuemin={0}
-        aria-valuemax={free}
-        className="capacity-bar"
-      >
-        <span className="capacity-used" style={{ width: `${used}%` }} />
-      </span>
+      {/* A day with no free capacity gets no meter. A meter whose minimum and maximum are both
+          zero is not a range, and a screen reader announcing it has nothing to say; the text
+          above and the detail below carry the whole answer on their own. */}
+      {free > 0 && (
+        <span
+          role="meter"
+          aria-label="Capacity used"
+          aria-valuenow={planned}
+          aria-valuemin={0}
+          aria-valuemax={free}
+          className="capacity-bar"
+        >
+          <span
+            className="capacity-used"
+            style={{ width: `${Math.min(100, (planned / free) * 100)}%` }}
+          />
+        </span>
+      )}
       <span className="capacity-detail">
         {formatEstimate(capacity.windowMinutes)} of working day, less{' '}
         {formatEstimate(capacity.busyMinutes)} of meetings and{' '}
@@ -168,6 +175,7 @@ export function Dashboard({
   staleDays,
   now,
   onRegeneratePlan,
+  regenerating = false,
   onComplete,
 }: DashboardProps) {
   const latestRuns = latestRunPerJob(jobRuns)
@@ -195,8 +203,8 @@ export function Dashboard({
 
       <section aria-labelledby="plan-heading">
         <h2 id="plan-heading">Today’s plan</h2>
-        <button type="button" onClick={onRegeneratePlan}>
-          Regenerate
+        <button type="button" onClick={onRegeneratePlan} disabled={regenerating}>
+          {regenerating ? 'Regenerating' : 'Regenerate'}
         </button>
 
         {plan === null ? (

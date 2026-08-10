@@ -7,6 +7,7 @@
  * request; these are guarantees, so they live where they can be asserted without a model.
  */
 import type { Task, TaskStatus } from './task.js'
+import { isStaleWait, waitingAge } from './waiting.js'
 
 const DAY_MS = 24 * 60 * 60_000
 
@@ -313,11 +314,16 @@ export function chaseNudges(
   now: number,
   staleDays: number,
 ): ChaseNudge[] {
+  // The age and the threshold are `waiting.ts`'s rule, not a second copy of it. The caller has
+  // already resolved which moment the wait runs from, so it is handed over as `statusSetAt`
+  // with no source: a change to what counts as stale reaches the plan as well as the board.
+  const basis = (item: WaitingItem) => ({ statusSetAt: item.waitingSince })
+
   return items
+    .filter((item) => isStaleWait(basis(item), null, now, staleDays))
     .map((item) => {
-      const waitingMs = Math.max(0, now - item.waitingSince)
+      const waitingMs = waitingAge(basis(item), null, now)
       return { ...item, waitingMs, waitingDays: Math.floor(waitingMs / DAY_MS) }
     })
-    .filter((nudge) => nudge.waitingMs >= staleDays * DAY_MS)
     .toSorted((first, second) => first.waitingSince - second.waitingSince)
 }

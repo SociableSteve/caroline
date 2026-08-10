@@ -139,7 +139,9 @@ The rule, in the order it is applied to a Gmail thread identified as a pull requ
 notification:
 
 1. The pull request is already a `github` source. The email is redundant. Suppress it: no
-   task, and an existing inbox task for the thread is retired rather than left as a duplicate.
+   task, and an existing inbox task for the thread is retired rather than left as a duplicate,
+   but only while that task is still untriaged. A thread the user has filed themselves is their
+   decision, and rule 3 below applies to it whole.
 2. It is not. Fetch that pull request by id through the GitHub connector's refresh path and
    let the ordinary review lifecycle decide whether it belongs in Review at all. Then suppress
    the email exactly as above.
@@ -161,9 +163,10 @@ Design questions to settle before building it:
   not something a later sync gets to retire, which is spec 01's rule and applies here whole.
 
 Exit: a notification email for a pull request already on the board creates nothing; one for a
-pull request the discovery query missed puts that pull request in Review with its GitHub
-provenance and no email task beside it; and a notification Caroline cannot resolve is
-classified normally. Spec 02 gains the connector's rule and a criterion per case.
+pull request the discovery query missed brings that pull request in with its GitHub provenance
+and no email task beside it, in whatever status its refreshed lifecycle puts it, which is
+Review when it is awaiting the user and not otherwise; and a notification Caroline cannot
+resolve is classified normally. Spec 02 gains the connector's rule and a criterion per case.
 
 ### M9. Release readiness
 

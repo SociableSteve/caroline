@@ -16,6 +16,7 @@ import {
   type Interval,
 } from '../../src/domain/capacity.js'
 import type { CalendarEventFacts } from '../../src/domain/calendar.js'
+import { addDays } from '../../src/domain/time.js'
 
 const LONDON = 'Europe/London'
 
@@ -81,6 +82,47 @@ describe('the working window', () => {
 
   it('is absent on a day the configuration does not call a working day', () => {
     expect(workingWindowFor({ year: 2026, month: 6, day: 7 }, LONDON, workingHours)).toBeNull()
+  })
+})
+
+/**
+ * Calendar days, not elapsed hours. The fortnight the dashboard draws is counted with this,
+ * and subtracting fourteen times twenty-four hours from a local midnight lands a day early on
+ * any window that contains a spring-forward.
+ */
+describe('counting days back', () => {
+  it('counts back across a spring-forward without losing a day', () => {
+    // The UK clocks went forward on 29 March 2026. Fourteen days before the 6th of April is
+    // the 23rd of March; elapsed-hours arithmetic would answer the 22nd.
+    expect(addDays({ year: 2026, month: 4, day: 6 }, -14)).toEqual({
+      year: 2026,
+      month: 3,
+      day: 23,
+    })
+  })
+
+  it('crosses a month boundary', () => {
+    expect(addDays({ year: 2026, month: 6, day: 8 }, -14)).toEqual({
+      year: 2026,
+      month: 5,
+      day: 25,
+    })
+  })
+
+  it('crosses a year boundary', () => {
+    expect(addDays({ year: 2026, month: 1, day: 5 }, -14)).toEqual({
+      year: 2025,
+      month: 12,
+      day: 22,
+    })
+  })
+
+  it('counts forwards too, and knows February has 29 days in a leap year', () => {
+    expect(addDays({ year: 2028, month: 2, day: 28 }, 1)).toEqual({
+      year: 2028,
+      month: 2,
+      day: 29,
+    })
   })
 })
 

@@ -89,3 +89,79 @@ describe('overlapping reloads', () => {
     await waitFor(() => expect(screen.getByTestId('loading')).toHaveTextContent('ready'))
   })
 })
+
+/**
+ * The plan and the calendar are asked for independently, so a reload can straddle the server's
+ * midnight and get two different days back. A capacity bar comparing one day's plan against
+ * another day's calendar is silently wrong, which is worse than a panel that is one beat late.
+ */
+function PlanProbe() {
+  const { plan, calendar, planDate } = useCarolineData()
+
+  return (
+    <>
+      <p data-testid="plan-date">{planDate ?? 'none'}</p>
+      <p data-testid="plan-summary">{plan?.summary ?? 'no plan'}</p>
+      <p data-testid="calendar-date">{calendar?.date ?? 'no calendar'}</p>
+    </>
+  )
+}
+
+interface DayStubOptions {
+  readonly planDate: string
+  /** What the unqualified `/api/calendar` answers, which may be a different day. */
+  readonly calendarDate: string
+}
+
+/** Serves a plan and a calendar, recording every calendar URL asked for. */
+function stubDay({ planDate, calendarDate }: DayStubOptions) {
+  const calendarUrls: string[] = []
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) => {
+      const answer = (body: unknown) =>
+        ({ ok: true, status: 200, json: async () => body }) as unknown as Response
+
+      if (url.startsWith('/api/tasks')) {
+        return answer({ tasks: [], total: 0, limit: 500, offset: 0 })
+      }
+      if (url.startsWith('/api/projects')) return answer({ projects: [] })
+      if (url.startsWith('/api/health')) return answer({ integrations: {} })
+
+      if (url.startsWith('/api/plan')) {
+        return answer({ date: planDate, plan: { summary: `plan for ${planDate}` }, history: [] })
+      }
+
+      if (url.startsWith('/api/calendar')) {
+        calendarUrls.push(url)
+        // A qualified request answers for the date it was asked about; the bare one answers
+        // with whatever the server thinks today is, which is the case under test.
+        const asked = new URL(url, 'http://localhost').searchParams.get('date')
+        return answer({ date: asked ?? calendarDate, connected: true, events: [], capacity: {} })
+      }
+
+      return answer({ tasks: { waitingStaleDays: 7 } })
+    }),
+  )
+
+  return { calendarUrls }
+}
+
+describe('the plan and the calendar describing one day', () => {
+  it('re-reads the calendar for the plan’s date when the two disagree', async () => {
+    const { calendarUrls } = stubDay({ planDate: '2026-06-08', calendarDate: '2026-06-09' })
+    render(<PlanProbe />)
+
+    await waitFor(() => expect(screen.getByTestId('calendar-date')).toHaveTextContent('2026-06-08'))
+    expect(calendarUrls.some((url) => url.includes('date=2026-06-08'))).toBe(true)
+  })
+
+  it('asks only once when they already agree', async () => {
+    const { calendarUrls } = stubDay({ planDate: '2026-06-08', calendarDate: '2026-06-08' })
+    render(<PlanProbe />)
+
+    await waitFor(() => expect(screen.getByTestId('plan-date')).toHaveTextContent('2026-06-08'))
+    expect(calendarUrls).toHaveLength(1)
+  })
+})

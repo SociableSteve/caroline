@@ -47,17 +47,52 @@ function toCalendarEvent(row: Row): CalendarEvent {
   }
 }
 
+export interface UpsertedCalendarEvent {
+  readonly event: CalendarEvent
+  /**
+   * Whether anything a reader would notice changed: a new event, or one whose time, summary,
+   * response or status moved. `synced_at` is excluded, because every pass restamps every event
+   * it saw and a diary nobody has touched must not read as a diary that changed.
+   */
+  readonly changed: boolean
+}
+
+/** The fields that make one event different from another, `synced_at` deliberately absent. */
+function isSameEvent(existing: CalendarEvent, input: CalendarEventInput): boolean {
+  return (
+    existing.summary === input.summary &&
+    existing.startsAt === input.startsAt &&
+    existing.endsAt === input.endsAt &&
+    existing.allDay === input.allDay &&
+    existing.responseStatus === input.responseStatus &&
+    existing.transparency === input.transparency &&
+    existing.status === input.status &&
+    existing.attendeeCount === input.attendeeCount &&
+    existing.url === input.url
+  )
+}
+
 /**
  * Writes the event, or updates the one already there. A meeting that moved is the same
  * meeting, so the key is the calendar and the provider's own id rather than anything about
  * when it happens. `synced_at` is stamped on every pass, which is what later lets a pass
  * sweep up whatever it did not see.
+ *
+ * Reports whether the event actually changed. The sync tally counts only those, because the
+ * change feed publishes on a non-zero count: counting every event a pass saw would have every
+ * open tab reload every quarter of an hour for a diary that had not moved.
  */
 export function upsertCalendarEvent(
   database: Database,
   input: CalendarEventInput,
   now: number,
-): CalendarEvent {
+): UpsertedCalendarEvent {
+  const before = database
+    .prepare(`select ${columns} from calendar_events where calendar_id = ? and external_id = ?`)
+    .get(input.calendarId, input.externalId)
+
+  const existing = before === undefined ? null : toCalendarEvent(before as Row)
+
   database
     .prepare(
       `insert into calendar_events (${columns}) values (
@@ -96,7 +131,10 @@ export function upsertCalendarEvent(
     .prepare(`select ${columns} from calendar_events where calendar_id = ? and external_id = ?`)
     .get(input.calendarId, input.externalId)
 
-  return toCalendarEvent(row as Row)
+  return {
+    event: toCalendarEvent(row as Row),
+    changed: existing === null || !isSameEvent(existing, input),
+  }
 }
 
 export interface CalendarRange {

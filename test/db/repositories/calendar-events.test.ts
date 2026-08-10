@@ -38,7 +38,7 @@ describe('storing an event', () => {
   it('reads back everything capacity turns on', () => {
     const database = migratedDatabase()
 
-    const stored = upsertCalendarEvent(database, anEvent(), NOW)
+    const { event: stored } = upsertCalendarEvent(database, anEvent(), NOW)
 
     expect(stored).toMatchObject({
       calendarId: 'primary',
@@ -60,7 +60,7 @@ describe('storing an event', () => {
     const database = migratedDatabase()
     upsertCalendarEvent(database, anEvent(), NOW)
 
-    const moved = upsertCalendarEvent(
+    const { event: moved } = upsertCalendarEvent(
       database,
       anEvent({ startsAt: NOW + HOUR, endsAt: NOW + 2 * HOUR, responseStatus: 'declined' }),
       NOW + 60_000,
@@ -68,6 +68,40 @@ describe('storing an event', () => {
 
     expect(countCalendarEvents(database)).toBe(1)
     expect(moved).toMatchObject({ startsAt: NOW + HOUR, responseStatus: 'declined' })
+  })
+
+  /**
+   * The change feed publishes on a non-zero count of stored events, so "stored" has to mean
+   * "moved" rather than "seen": every pass restamps every event it read, and a diary nobody has
+   * touched must not reload every open tab every quarter of an hour.
+   */
+  describe('whether it says anything changed', () => {
+    it('says a new event changed', () => {
+      const database = migratedDatabase()
+
+      expect(upsertCalendarEvent(database, anEvent(), NOW).changed).toBe(true)
+    })
+
+    it('says an event seen again unchanged did not', () => {
+      const database = migratedDatabase()
+      upsertCalendarEvent(database, anEvent(), NOW)
+
+      expect(upsertCalendarEvent(database, anEvent(), NOW + 60_000).changed).toBe(false)
+    })
+
+    it.each([
+      ['it moved', { startsAt: NOW + HOUR }],
+      ['it was renamed', { summary: 'Renamed' }],
+      ['it was declined', { responseStatus: 'declined' as const }],
+      ['it was marked free', { transparency: 'transparent' as const }],
+      ['it was cancelled', { status: 'cancelled' as const }],
+      ['somebody was invited', { attendeeCount: 5 }],
+    ])('says it changed when %s', (_why, overrides) => {
+      const database = migratedDatabase()
+      upsertCalendarEvent(database, anEvent(), NOW)
+
+      expect(upsertCalendarEvent(database, anEvent(overrides), NOW + 60_000).changed).toBe(true)
+    })
   })
 
   it('keeps the same id for two calendars using the same event id', () => {
@@ -144,6 +178,27 @@ describe('sweeping up what a pass did not see', () => {
     expect(
       listCalendarEvents(database, { from: NOW - HOUR, to: NOW + HOUR }).map((e) => e.externalId),
     ).toEqual(['still-there'])
+  })
+
+  /**
+   * The boundary is strict, and it has to be. A pass stamps every event it stores with its own
+   * `startedAt` and then sweeps with that same moment as `syncedBefore`. Widening the
+   * comparison to `<=` would have the sweep delete everything the pass had just written: the
+   * whole diary rather than the stale part of it.
+   */
+  it('never deletes what the pass itself just wrote', () => {
+    const database = migratedDatabase()
+    upsertCalendarEvent(database, anEvent({ externalId: 'written-by-this-pass' }), NOW)
+
+    const swept = purgeUnseenCalendarEvents(database, {
+      calendarId: 'primary',
+      from: NOW - HOUR,
+      to: NOW + HOUR,
+      syncedBefore: NOW,
+    })
+
+    expect(swept).toBe(0)
+    expect(countCalendarEvents(database)).toBe(1)
   })
 
   it('leaves another calendar’s events alone', () => {

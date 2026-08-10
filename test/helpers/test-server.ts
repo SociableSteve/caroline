@@ -10,8 +10,20 @@ import { createScheduler, type JobStep } from '../../src/jobs/scheduler.js'
 import type { GoogleAuth } from '../../src/connectors/google/auth.js'
 import { migratedDatabase } from './temp-database.js'
 
-/** A clean checkout with no credentials, which is what the API tests care about. */
-export const testConfig = loadConfig({ file: null, env: {} as NodeJS.ProcessEnv })
+/**
+ * A clean checkout with no credentials, which is what the API tests care about.
+ *
+ * The timezone is pinned rather than left to default. `jobs.timezone` defaults to whatever the
+ * machine thinks it is in, which is the right answer for a single-user tool and the wrong one
+ * for a test suite: anything that resolves a local working window or a calendar day then passes
+ * in one zone and fails in another, and CI does not run where the author does. Europe/London
+ * rather than UTC on purpose, so that a test written across a British Summer Time offset
+ * exercises an offset at all.
+ */
+export const testConfig = loadConfig({
+  file: { jobs: { timezone: 'Europe/London' } },
+  env: {} as NodeJS.ProcessEnv,
+})
 
 /** Every write the API makes is stamped with this, so assertions can name the moment. */
 export const REQUEST_TIME = Date.UTC(2026, 5, 1, 9, 0, 0)

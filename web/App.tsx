@@ -113,9 +113,18 @@ export function App() {
   /**
    * Redrawing today's plan. The date comes from the server's answer rather than from this
    * browser's clock: the two can differ across midnight, and the route only regenerates today.
+   *
+   * One at a time. The scheduler's overlap guard already refuses a second concurrent run with a
+   * 409, so a double click cannot draw two plans or spend two model calls; this is so the
+   * second click does not put that 409 on the screen as though something had gone wrong.
    */
+  const [regenerating, setRegenerating] = useState(false)
+
   const onRegeneratePlan = () => {
-    if (planDate !== null) void write(() => api.regeneratePlan(planDate))
+    if (planDate === null || regenerating) return
+
+    setRegenerating(true)
+    void write(() => api.regeneratePlan(planDate)).finally(() => setRegenerating(false))
   }
   const onRunJob = (job: string) => void write(() => api.runJob(job))
   // These two answer their forms, which keep what was typed until the write lands.
@@ -254,6 +263,7 @@ export function App() {
             staleDays={staleDays}
             now={now}
             onRegeneratePlan={onRegeneratePlan}
+            regenerating={regenerating}
             onComplete={onComplete}
           />
         )}

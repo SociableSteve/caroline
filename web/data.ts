@@ -105,11 +105,10 @@ export function useCarolineData(): CarolineData {
     const mine = generation.current
 
     try {
-      // The run history is reloaded alongside the tasks: a sync that just finished changed
-      // both, and the dashboard should not be a refresh behind on either.
-      // The plan and the calendar reload alongside the tasks: completing something from the
-      // plan changes how the entry renders, and a sync that just finished may have changed the
-      // diary. Each is defended on its own, so one failing panel does not blank the board.
+      // The run history, the plan and the calendar reload alongside the tasks: a sync that just
+      // finished changed several of them at once, and completing something from the plan
+      // changes how the entry renders. Each is defended on its own, so one failing panel does
+      // not blank the board.
       const [taskCollection, projectList, runs, status, day, diary] = await Promise.all([
         api.listTasks(),
         api.listProjects(),
@@ -123,12 +122,29 @@ export function useCarolineData(): CarolineData {
       setTasks(taskCollection.tasks)
       setProjects(projectList.projects)
       setJobRuns(runs.runs)
-      setPlan(day?.plan ?? null)
-      setPlanHistory(day?.history ?? [])
-      // The server's idea of today, not the browser's: they can differ across midnight, and the
-      // regenerate button has to name the date the plan was actually read for.
-      setPlanDate(day?.date ?? diary?.date ?? null)
-      setCalendar(diary)
+
+      // The two were asked independently, so they can straddle the server's midnight and
+      // describe different days. The plan's date wins and the diary is re-read for it: a
+      // capacity bar comparing one day's plan against another day's calendar is worse than a
+      // panel that is one beat late.
+      const diaryForPlanDay =
+        day !== null && diary !== null && diary.date !== day.date
+          ? await api.getCalendar(day.date).catch(() => null)
+          : diary
+      if (mine !== generation.current) return
+
+      // A failed request is not an empty day. Blanking on failure would report "No plan yet"
+      // for a route that is merely unreachable, so the last good answer stands and the banner
+      // above says the server could not be reached.
+      if (day !== null) {
+        setPlan(day.plan)
+        setPlanHistory(day.history)
+        // The server's idea of today, not the browser's: they can differ across midnight, and
+        // the regenerate button has to name the date the plan was actually read for.
+        setPlanDate(day.date)
+      }
+      if (diaryForPlanDay !== null) setCalendar(diaryForPlanDay)
+      if (day === null && diary !== null) setPlanDate(diary.date)
       // Defended rather than trusted: the board must not go blank because one panel's answer was
       // not the shape it should have been.
       setJobStatus(status.jobs ?? [])

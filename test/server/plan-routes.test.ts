@@ -139,6 +139,22 @@ describe('GET /api/plan/:date', () => {
     expect(history).toEqual([{ planDate: TODAY, planned: 1, completed: 0 }])
   })
 
+  /**
+   * The fortnight is fourteen calendar days, not fourteen times twenty-four hours. The UK
+   * clocks went forward on 29 March 2026, so elapsed-hours arithmetic would open the window on
+   * the 22nd and quietly make it fifteen days once a year.
+   */
+  it('counts the fortnight back in calendar days across a spring-forward', async () => {
+    const database = migratedDatabase()
+    aPlanOn(database, '2026-03-23', 'the earliest day still in the fortnight')
+    aPlanOn(database, '2026-03-22', 'the day before it, which is out')
+    const { app } = await testServer({ database })
+
+    const { history } = (await app.inject({ method: 'GET', url: '/api/plan/2026-04-06' })).json()
+
+    expect(history.map((day: { planDate: string }) => day.planDate)).toEqual(['2026-03-23'])
+  })
+
   it.each(['not-a-date', '2026-6-1', '2026-02-30', '20260601'])(
     'refuses "%s", which is not a date',
     async (date) => {

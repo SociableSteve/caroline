@@ -443,7 +443,9 @@ export const api = {
 
   /** The plan for a day, and the fortnight beside it. Defaults to today. Spec 05. */
   getPlan(date?: string): Promise<PlanDay> {
-    return request<PlanDay>(date === undefined ? '/api/plan' : `/api/plan/${date}`)
+    return request<PlanDay>(
+      date === undefined ? '/api/plan' : `/api/plan/${encodeURIComponent(date)}`,
+    )
   },
 
   /** Redraws today's plan. The previous one stays in history. Spec 05, criterion 8. */

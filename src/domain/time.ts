@@ -178,6 +178,22 @@ export function parseLocalDate(text: string): LocalDate | null {
 }
 
 /**
+ * A whole number of calendar days before or after a date. Calendar arithmetic rather than
+ * elapsed milliseconds: fourteen days before the 6th of April is the 23rd of March, and
+ * subtracting fourteen times twenty-four hours from a local midnight lands on the 22nd in any
+ * zone that put its clocks forward in between.
+ */
+export function addDays(date: LocalDate, days: number): LocalDate {
+  const shifted = new Date(Date.UTC(date.year, date.month - 1, date.day + days))
+
+  return {
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth() + 1,
+    day: shifted.getUTCDate(),
+  }
+}
+
+/**
  * The instant a wall-clock time on that date corresponds to, resolved forwards through a
  * spring-forward gap. A working day that starts at 01:00 in a zone where 01:00 does not exist
  * that morning still has to start somewhere, and the first minute that does exist is the

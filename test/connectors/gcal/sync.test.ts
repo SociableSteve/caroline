@@ -159,6 +159,42 @@ describe('a pass over the recorded fortnight', () => {
     expect(api.calendarsRead).toEqual(['primary', 'team@example.com'])
   })
 
+  /**
+   * The change feed publishes on a non-zero count, so a pass that re-read an unchanged diary
+   * must count nothing: otherwise every open tab reloads every quarter of an hour for a day
+   * that has not moved.
+   */
+  it('counts nothing stored on a second pass over an unchanged diary', async () => {
+    const database = migratedDatabase()
+    await sync({ database }).result
+
+    const { result } = sync({ database, now: NOW + 60_000 })
+
+    expect((await result).counts).toMatchObject({ itemsSeen: 6, eventsStored: 0 })
+  })
+
+  it('counts the one event that moved, and no others', async () => {
+    const database = migratedDatabase()
+    await sync({ database }).result
+
+    const moved = recordedEvents().map((event) =>
+      event.id === 'event-standup'
+        ? {
+            ...event,
+            start: { dateTime: '2026-06-08T11:30:00+01:00' },
+            end: { dateTime: '2026-06-08T11:45:00+01:00' },
+          }
+        : event,
+    )
+    const { result } = sync({
+      database,
+      api: fakeCalendarApi({ primary: moved }),
+      now: NOW + 60_000,
+    })
+
+    expect((await result).counts.eventsStored).toBe(1)
+  })
+
   it('running twice over the same payload leaves one row per event', async () => {
     const database = migratedDatabase()
     await sync({ database }).result
