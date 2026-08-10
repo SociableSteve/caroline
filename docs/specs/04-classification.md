@@ -17,9 +17,22 @@ at a configurable batch size per run (default 50). A task the user has touched i
 candidate, even if it is still in the inbox: leaving something in the inbox on purpose is a
 decision.
 
+A task the classifier has already answered about is not a candidate either, until the item
+changes upstream. Three cases arrive at the same rule: a proposal below the threshold is
+already on the screen waiting for the user, a dismissed proposal was a decision to leave the
+task where it is, and a confident answer of `inbox` is the model saying it cannot tell. Asking
+again would spend a call to produce the same row. A row that failed does not count, because
+nothing was answered, so the next run retries it. What makes a task a candidate again is the
+requeue an upstream content change causes (spec 02).
+
 The payload sent per task is assembled under the LLM content policy (spec 09). At the
 default policy that is: title, sender or author, source type, a snippet, and the age of the
 item. Never more than the policy allows, regardless of what is stored.
+
+Because `llmContent` may exceed `storeContent`, the body is not always in the database when the
+call is made. Where the policy allows more to be sent than is kept, the connector is asked for
+the item's body at the moment of sending, and nothing is persisted from it. That is what makes
+the default pair, a snippet sent with no bodies at rest, mean what it says.
 
 ## Output
 

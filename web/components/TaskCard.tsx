@@ -7,6 +7,7 @@ import { boardStatuses, type TaskStatus, type TaskView } from '../api.js'
 import {
   canMarkReviewed,
   formatAge,
+  formatConfidence,
   formatDate,
   formatEstimate,
   hasOptedOutOfSync,
@@ -29,6 +30,9 @@ export interface TaskCardProps {
   readonly onDelete: (id: string) => void
   /** Absent on surfaces that do not offer the action, such as a project drill-in. */
   readonly onMarkReviewed?: ((id: string) => void) | undefined
+  /** The one-click accept spec 04 asks for. Absent where a proposal cannot be acted on. */
+  readonly onAcceptProposal?: ((id: string) => void) | undefined
+  readonly onDismissProposal?: ((id: string) => void) | undefined
   /** The board hands this in to drive its own keyboard grid. */
   readonly onKeyDown?: ((event: KeyboardEvent<HTMLElement>) => void) | undefined
   readonly registerRef?: ((id: string, element: HTMLElement | null) => void) | undefined
@@ -43,6 +47,8 @@ export function TaskCard({
   onComplete,
   onDelete,
   onMarkReviewed,
+  onAcceptProposal,
+  onDismissProposal,
   onKeyDown,
   registerRef,
 }: TaskCardProps) {
@@ -57,6 +63,9 @@ export function TaskCard({
   const completionProposed = isCompletionProposed(task)
   // The primary action on a Review card, because it is the one taken most often. Spec 08.
   const offerMarkReviewed = onMarkReviewed !== undefined && canMarkReviewed(task)
+  // A proposal the classifier was not confident enough to apply. Shown with its reasoning and its
+  // confidence, because accepting somebody else's guess unseen is not triage. Spec 04.
+  const proposal = onAcceptProposal === undefined ? null : task.proposal
 
   return (
     <li className="card-slot">
@@ -149,6 +158,50 @@ export function TaskCard({
             )}
             {optedOut && <li className="badge badge-untracked">Sync tracking off</li>}
           </ul>
+        )}
+
+        {proposal !== null && (
+          <section className="card-proposal" aria-label={`Suggestion for ${task.title}`}>
+            <p className="proposal-headline">
+              Caroline suggests <strong>{statusLabel(proposal.status)}</strong>
+              {proposal.status === 'waiting' && proposal.waitingOn !== null && (
+                <span>, waiting on {proposal.waitingOn}</span>
+              )}
+              {/* Said as a number as well as a word: "not confident" is the reason it is a
+                  suggestion rather than a decision, and how unconfident is the useful part. */}
+              <span className="proposal-confidence">
+                {' '}
+                ({formatConfidence(proposal.confidence)} confident)
+              </span>
+            </p>
+
+            {proposal.reasoning !== null && <p className="proposal-reason">{proposal.reasoning}</p>}
+
+            {proposal.suggestedTitle !== null && (
+              <p className="proposal-retitle">Would retitle it “{proposal.suggestedTitle}”</p>
+            )}
+
+            {proposal.projectSuggestion?.newProjectTitle != null && (
+              <p className="proposal-project">
+                Thinks this belongs to a project called “
+                {proposal.projectSuggestion.newProjectTitle}
+                ”. Creating one is your call.
+              </p>
+            )}
+
+            <div className="proposal-actions">
+              <button
+                type="button"
+                className="card-primary"
+                onClick={() => onAcceptProposal?.(task.id)}
+              >
+                Accept
+              </button>
+              <button type="button" onClick={() => onDismissProposal?.(task.id)}>
+                Dismiss
+              </button>
+            </div>
+          </section>
         )}
 
         <div className="card-actions">

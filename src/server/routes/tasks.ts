@@ -1,5 +1,11 @@
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import { withTransaction } from '../../db/connection.js'
+import {
+  listPendingProposals,
+  markProposalAccepted,
+  markProposalDismissed,
+  pendingProposal,
+} from '../../db/repositories/classifications.js'
 import { getProject } from '../../db/repositories/projects.js'
 import {
   listSourcesForTask,
@@ -23,6 +29,12 @@ import {
   type TaskQuery,
 } from '../../db/repositories/tasks.js'
 import type { Database } from '../../db/index.js'
+import {
+  mayRetitle,
+  notesWithOriginalTitle,
+  type Classification,
+  type ProjectSuggestion,
+} from '../../domain/classification.js'
 import { markReviewedOutcome } from '../../domain/review.js'
 import type { Source } from '../../domain/source.js'
 import { trackedStatusesFor } from '../../domain/tracking.js'
@@ -53,13 +65,61 @@ export interface RouteContext {
  */
 export type SourceResponse = Omit<
   Source,
-  'content' | 'contentHash' | 'taskId' | 'firstSeenAt' | 'lastSeenAt'
+  | 'content'
+  | 'contentLevel'
+  | 'contentStoredAt'
+  | 'contentHash'
+  | 'taskId'
+  | 'firstSeenAt'
+  | 'lastSeenAt'
 >
 
-/** The task as the API returns it: the stored row, its tags, and where it came from. */
+/**
+ * A pending classifier proposal as the API returns it. The audit fields the UI has no use for are
+ * left off: `applied` is false by definition here, and the acceptance stamps are null.
+ */
+export interface ProposalResponse {
+  readonly id: string
+  readonly status: TaskStatus
+  readonly confidence: number
+  readonly reasoning: string | null
+  readonly suggestedTitle: string | null
+  readonly estimateMinutes: number | null
+  readonly waitingOn: string | null
+  readonly projectSuggestion: ProjectSuggestion | null
+  readonly model: string | null
+  readonly promptVersion: string
+  readonly createdAt: number
+}
+
+/** The task as the API returns it: the stored row, its tags, where it came from, and what the
+ * classifier thinks, when it is not confident enough to have acted. */
 export interface TaskResponse extends Task {
   readonly tags: string[]
   readonly sources: SourceResponse[]
+  readonly proposal: ProposalResponse | null
+}
+
+/**
+ * Only a proposal with a status and a confidence can be one: a row without them is a record of a
+ * failed call, which is audit and not something to offer the user a button for.
+ */
+function toProposalResponse(classification: Classification): ProposalResponse | null {
+  if (classification.proposedStatus === null || classification.confidence === null) return null
+
+  return {
+    id: classification.id,
+    status: classification.proposedStatus,
+    confidence: classification.confidence,
+    reasoning: classification.reasoning,
+    suggestedTitle: classification.suggestedTitle,
+    estimateMinutes: classification.estimateMinutes,
+    waitingOn: classification.waitingOn,
+    projectSuggestion: classification.projectSuggestion,
+    model: classification.model,
+    promptVersion: classification.promptVersion,
+    createdAt: classification.createdAt,
+  }
 }
 
 /** Named rather than subtracted, so a field added to `Source` is not published by default. */
@@ -89,8 +149,14 @@ export function toTaskResponse(
   task: Task,
   tags: readonly string[],
   sources: readonly Source[],
+  proposal: Classification | null = null,
 ): TaskResponse {
-  return { ...task, tags: [...tags], sources: sources.map(toSourceResponse) }
+  return {
+    ...task,
+    tags: [...tags],
+    sources: sources.map(toSourceResponse),
+    proposal: proposal === null ? null : toProposalResponse(proposal),
+  }
 }
 
 function notFound(reply: FastifyReply, what: string): FastifyReply {
@@ -192,7 +258,12 @@ export function registerTaskRoutes(
     const task = getTask(database, id)
     return task === null
       ? null
-      : toTaskResponse(task, getTaskTags(database, id), listSourcesForTask(database, id))
+      : toTaskResponse(
+          task,
+          getTaskTags(database, id),
+          listSourcesForTask(database, id),
+          pendingProposal(database, id),
+        )
   }
 
   app.get<{ Querystring: TaskListQuery }>(
@@ -222,10 +293,16 @@ export function registerTaskRoutes(
       const ids = page.tasks.map((task) => task.id)
       const tags = listTags(database, ids)
       const sources = listSourcesForTasks(database, ids)
+      const proposals = listPendingProposals(database, ids)
 
       return {
         tasks: page.tasks.map((task) =>
-          toTaskResponse(task, tags.get(task.id) ?? [], sources.get(task.id) ?? []),
+          toTaskResponse(
+            task,
+            tags.get(task.id) ?? [],
+            sources.get(task.id) ?? [],
+            proposals.get(task.id) ?? null,
+          ),
         ),
         total: page.total,
         limit,
@@ -453,6 +530,100 @@ export function registerTaskRoutes(
         )
       })
 
+      announce(at)
+
+      return responseFor(id)
+    },
+  )
+
+  /**
+   * Accepting the classifier's proposal. The status becomes the one it suggested, attributed to the
+   * user rather than to the model: they read it and agreed, which is a decision of theirs and locks
+   * the classifier out of the task from here on. Spec 04, criterion 9.
+   *
+   * The suggested title is applied on the same terms the classifier itself would have: only while
+   * the item's own title has not been rewritten, with the original kept in the notes.
+   */
+  app.post<{ Params: { id: string } }>(
+    '/api/tasks/:id/proposal/accept',
+    {
+      schema: {
+        params: idParamsSchema,
+        response: { 200: taskResponseSchema },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params
+      const task = getTask(database, id)
+      if (task === null) return notFound(reply, 'task')
+
+      const proposal = pendingProposal(database, id)
+      if (proposal === null || proposal.proposedStatus === null) {
+        return badRequest(reply, 'There is no proposal waiting on this task')
+      }
+
+      const at = now()
+      const source = listSourcesForTask(database, id)[0] ?? null
+      const retitling =
+        proposal.suggestedTitle !== null &&
+        proposal.suggestedTitle.trim() !== '' &&
+        proposal.suggestedTitle !== task.title &&
+        mayRetitle(task.title, source?.title ?? null)
+
+      withTransaction(database, () => {
+        changeTaskStatus(database, id, {
+          status: proposal.proposedStatus as TaskStatus,
+          by: 'user',
+          at,
+        })
+        updateTask(
+          database,
+          id,
+          {
+            ...(retitling
+              ? {
+                  title: proposal.suggestedTitle as string,
+                  notes: notesWithOriginalTitle(task.notes, task.title),
+                }
+              : {}),
+            ...(task.estimateMinutes === null && proposal.estimateMinutes !== null
+              ? { estimateMinutes: proposal.estimateMinutes }
+              : {}),
+            ...(proposal.proposedStatus === 'waiting' ? { waitingOn: proposal.waitingOn } : {}),
+          },
+          at,
+        )
+        markProposalAccepted(database, proposal.id, at)
+      })
+
+      announce(at)
+
+      return responseFor(id)
+    },
+  )
+
+  /**
+   * Dismissing it. The task stays exactly where it is, and the row records that the user looked:
+   * that is what stops the classifier asking the same question again next hour, and it is the
+   * correction the evaluation set is for. Spec 04.
+   */
+  app.post<{ Params: { id: string } }>(
+    '/api/tasks/:id/proposal/dismiss',
+    {
+      schema: {
+        params: idParamsSchema,
+        response: { 200: taskResponseSchema },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params
+      if (getTask(database, id) === null) return notFound(reply, 'task')
+
+      const proposal = pendingProposal(database, id)
+      if (proposal === null) return badRequest(reply, 'There is no proposal waiting on this task')
+
+      const at = now()
+      markProposalDismissed(database, proposal.id, at)
       announce(at)
 
       return responseFor(id)

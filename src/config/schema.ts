@@ -1,17 +1,12 @@
 import { z } from 'zod'
+import { contentLevelRank, contentLevels, type ContentLevel } from '../domain/content.js'
+import { isValidCron, isValidTimeZone } from '../domain/cron.js'
 
 /**
- * Content policy levels, ordered from least to most exposure. Spec 09.
+ * The content policy vocabulary is the domain's, and is re-exported here because this is where
+ * the rest of the process reads its configuration from. Spec 09.
  */
-export const contentLevels = ['none', 'metadata', 'snippet', 'full'] as const
-export type ContentLevel = (typeof contentLevels)[number]
-
-export const contentLevelRank: Record<ContentLevel, number> = {
-  none: 0,
-  metadata: 1,
-  snippet: 2,
-  full: 3,
-}
+export { contentLevels, contentLevelRank, type ContentLevel }
 
 export const llmProviders = ['none', 'anthropic', 'openai', 'ollama'] as const
 /**
@@ -74,6 +69,31 @@ const llmOverrideSchema = z
   })
   .strict()
 
+const cronExpression = z.string().refine(isValidCron, {
+  message:
+    'must be a five-field cron expression: minute hour day-of-month month day-of-week, for example "*/15 * * * *"',
+})
+
+/**
+ * The jobs the scheduler runs, and the names their schedules and their history are keyed by.
+ * `plan` is deliberately absent until the planner exists (M6): a schedule for a job nothing
+ * can run is a setting that does nothing, which is worse than one that is not there yet.
+ */
+export const scheduledJobs = ['sync', 'classify', 'purge'] as const
+export type ScheduledJobName = (typeof scheduledJobs)[number]
+
+/**
+ * The defaults from spec 06, with one addition it does not name: `classify` runs at five past
+ * rather than on the hour. The two schedules would otherwise coincide every hour, and the
+ * chain's own sync step would be skipped as already running for no reason but arithmetic.
+ * Purge is nightly and early, because it deletes and nothing waits on it.
+ */
+const defaultSchedules: Record<ScheduledJobName, string> = {
+  sync: '*/15 * * * *',
+  classify: '5 * * * *',
+  purge: '20 3 * * *',
+}
+
 /**
  * The configuration as it may be written in `caroline.config.json`. Secrets are absent by
  * design: they only ever come from the environment, and their presence here is a startup
@@ -101,6 +121,53 @@ export const fileConfigSchema = z
          * on the dashboard and in the daily plan. Spec 02 sets the default at seven days.
          */
         waitingStaleDays: z.number().int().min(1).max(365).default(7),
+      })
+      .strict()
+      .default({}),
+    jobs: z
+      .object({
+        /**
+         * The zone every schedule is read in, so a daily 07:30 stays at 07:30 across a DST
+         * change (spec 06, criterion 4). Defaults to whatever this machine thinks it is in,
+         * which for a single-user local tool is the answer the user meant.
+         */
+        timezone: z
+          .string()
+          .min(1)
+          .refine(isValidTimeZone, {
+            message: 'must be an IANA timezone name, such as Europe/London',
+          })
+          .default(() => Intl.DateTimeFormat().resolvedOptions().timeZone),
+        schedules: z
+          .object({
+            sync: cronExpression.default(defaultSchedules.sync),
+            classify: cronExpression.default(defaultSchedules.classify),
+            purge: cronExpression.default(defaultSchedules.purge),
+          })
+          .strict()
+          .default({}),
+        /** The ceiling on the backoff after consecutive failures. Spec 06 says one hour. */
+        backoffCeilingMinutes: z.number().int().min(1).max(1440).default(60),
+        /** The first step of the backoff. Doubles per consecutive failure up to the ceiling. */
+        backoffBaseMinutes: z.number().int().min(1).max(1440).default(1),
+        /** How long `job_runs` rows are kept. Spec 06 says thirty days. */
+        retainRunDays: z.number().int().min(1).max(3650).default(30),
+        /** The gap between catch-up runs on a cold start, so they do not all fire at once. */
+        startupStaggerSeconds: z.number().int().min(0).max(600).default(5),
+      })
+      .strict()
+      .default({}),
+    classification: z
+      .object({
+        /** How many inbox tasks one run will sort. Spec 04 says fifty. */
+        batchSize: z.number().int().min(1).max(500).default(50),
+        /**
+         * At or above this, the classifier applies its answer; below it, the answer is a
+         * proposal for the user to accept. Spec 04 says 0.75.
+         */
+        confidenceThreshold: z.number().min(0).max(1).default(0.75),
+        /** How many classification calls are in flight at once. Spec 04: bounded. */
+        concurrency: z.number().int().min(1).max(20).default(3),
       })
       .strict()
       .default({}),
@@ -154,6 +221,16 @@ export const fileConfigSchema = z
           .object({
             enabled: z.boolean().default(true),
             clientId: z.string().min(1).nullable().default(null),
+            /**
+             * The Gmail search that decides what is in scope. Spec 02's default leaves out the
+             * two categories that are never anybody's next action. A thread leaving this result
+             * set is what "handled in Gmail" means, so narrowing it retires tasks.
+             */
+            gmailQuery: z
+              .string()
+              .min(1)
+              .max(500)
+              .default('in:inbox -category:promotions -category:social'),
           })
           .strict()
           .default({}),
@@ -199,6 +276,19 @@ export interface Config {
   readonly tasks: {
     readonly waitingStaleDays: number
   }
+  readonly jobs: {
+    readonly timezone: string
+    readonly schedules: Readonly<Record<ScheduledJobName, string>>
+    readonly backoffCeilingMinutes: number
+    readonly backoffBaseMinutes: number
+    readonly retainRunDays: number
+    readonly startupStaggerSeconds: number
+  }
+  readonly classification: {
+    readonly batchSize: number
+    readonly confidenceThreshold: number
+    readonly concurrency: number
+  }
   readonly privacy: {
     readonly llmContent: ContentLevel
     readonly storeContent: ContentLevel
@@ -224,6 +314,14 @@ export interface Config {
       readonly enabled: boolean
       readonly clientId: string | null
       readonly clientSecret: string | null
+      readonly gmailQuery: string
+      /**
+       * Where the OAuth tokens live: beside the database, mode 0600, never in config and never
+       * in git (spec 09). Derived from the database path rather than configured, so that the
+       * deletion command in spec 09 has one directory to remove.
+       */
+      readonly tokenPath: string
+      /** A client id and secret are present. Whether anyone has consented is a separate fact. */
       readonly configured: boolean
     }
   }

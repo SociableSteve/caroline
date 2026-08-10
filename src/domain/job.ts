@@ -1,6 +1,6 @@
 /**
- * The record of a job attempt. Pure: the scheduler that decides when to run one arrives in
- * M5, but sync already produces these and the UI already needs to read them. Spec 06.
+ * The record of a job attempt. Pure: the scheduler decides when one happens (`src/jobs`), and this
+ * is the shape of what it leaves behind for the database and the UI to share. Spec 06.
  */
 
 /** Every attempt ends in one of these, including the ones that never did any work. */
@@ -28,6 +28,18 @@ export interface JobCounts {
   readonly resolved: number
   /** Inbox tasks returned to the classification queue by an upstream content change. */
   readonly requeued: number
+  /** Answers the classifier received, whether applied or left as a proposal. Spec 04. */
+  readonly classified: number
+  /** Answers below the confidence threshold, left for the user to accept. Spec 04. */
+  readonly proposals: number
+  /** Model calls the run made, including the ones that failed. Spec 06. */
+  readonly llmCalls: number
+  /** Items the run could not process, each of which is recorded in its own right. */
+  readonly failed: number
+  /** Stored bodies cleared or cut back by the content purge. Spec 09, criteria 4 and 5. */
+  readonly contentPurged: number
+  /** `job_runs` rows dropped as older than the retention window. Spec 06. */
+  readonly runsPurged: number
 }
 
 export const noCounts: JobCounts = {
@@ -37,6 +49,12 @@ export const noCounts: JobCounts = {
   tasksUpdated: 0,
   resolved: 0,
   requeued: 0,
+  classified: 0,
+  proposals: 0,
+  llmCalls: 0,
+  failed: 0,
+  contentPurged: 0,
+  runsPurged: 0,
 }
 
 export interface JobRun {

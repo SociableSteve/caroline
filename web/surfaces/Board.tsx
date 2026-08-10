@@ -16,6 +16,8 @@ export interface BoardProps {
   readonly onComplete: (id: string) => void
   readonly onDelete: (id: string) => void
   readonly onMarkReviewed: (id: string) => void
+  readonly onAcceptProposal: (id: string) => void
+  readonly onDismissProposal: (id: string) => void
 }
 
 /**
@@ -29,6 +31,7 @@ const shortcuts = [
   { keys: `1 to ${boardStatuses.length}`, does: 'move the focused task to that column' },
   { keys: 'd', does: 'complete the focused task' },
   { keys: 'r', does: 'mark the focused review done, moving it to Waiting for' },
+  { keys: 'a', does: 'accept the suggestion on the focused inbox task' },
   { keys: 'c', does: 'quick capture, from anywhere' },
 ]
 
@@ -55,6 +58,8 @@ export function Board({
   onComplete,
   onDelete,
   onMarkReviewed,
+  onAcceptProposal,
+  onDismissProposal,
 }: BoardProps) {
   const grouped = group(tasks)
   const columns = boardStatuses.map((status) => grouped.get(status) ?? [])
@@ -112,6 +117,12 @@ export function Board({
         // disagree about which tasks the action applies to.
         event.preventDefault()
         if (canMarkReviewed(task)) onMarkReviewed(task.id)
+        return
+      case 'a':
+        // Spec 04 asks for a one-click accept; from the keyboard it is one key. Silent on a task
+        // with nothing suggested, rather than doing something else instead.
+        event.preventDefault()
+        if (task.proposal !== null) onAcceptProposal(task.id)
         return
       default:
         break
@@ -173,6 +184,8 @@ export function Board({
                       onComplete={onComplete}
                       onDelete={onDelete}
                       onMarkReviewed={onMarkReviewed}
+                      onAcceptProposal={onAcceptProposal}
+                      onDismissProposal={onDismissProposal}
                       onKeyDown={(event) => handleKeyDown(event, columnIndex, rowIndex)}
                       registerRef={(id, element) => {
                         if (element === null) cards.current.delete(id)

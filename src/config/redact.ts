@@ -41,6 +41,22 @@ export function registerEnvironmentSecrets(config: Config, values: readonly stri
   )
 }
 
+/**
+ * A secret that only exists once the process is running: an OAuth access or refresh token,
+ * which arrives from Google rather than from the environment and is written to the token file
+ * rather than to the config. It is registered so that the "no secret in a log line" guarantee
+ * covers it as well, which it could not do by reading the configuration alone. Spec 09,
+ * criterion 6.
+ */
+export function registerRuntimeSecret(config: Config, value: string | null | undefined): void {
+  if (typeof value !== 'string' || value.length === 0) return
+
+  const existing = unusedEnvironmentSecrets.get(config) ?? []
+  if (existing.includes(value)) return
+
+  unusedEnvironmentSecrets.set(config, [...existing, value])
+}
+
 /** Every secret value that is actually set. Empty values are excluded: scrubbing "" would
  * replace every character boundary in a string. */
 export function secretValues(config: Config): string[] {

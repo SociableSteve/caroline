@@ -10,8 +10,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   api,
   ApiFailure,
+  type GoogleStatus,
   type Health,
   type JobRun,
+  type JobStatus,
+  type PrivacyPreview,
   type ProjectView,
   type TaskView,
 } from './api.js'
@@ -22,6 +25,13 @@ export interface CarolineData {
   readonly health: Health | null
   /** Recent job runs, most recent first. Empty until something has run. */
   readonly jobRuns: readonly JobRun[]
+  /** One row per scheduled job: last run, next run, and whether backoff is holding it. */
+  readonly jobStatus: readonly JobStatus[]
+  /** The Google connection, and what a classification call would send. Both read on demand. */
+  readonly google: GoogleStatus | null
+  readonly preview: PrivacyPreview | null
+  /** Reloads the two settings answers, which no other write invalidates. */
+  readonly reloadSettings: () => Promise<void>
   /** The configured waiting staleness threshold, defaulted until the config arrives. */
   readonly staleDays: number
   readonly loading: boolean
@@ -59,6 +69,9 @@ export function useCarolineData(): CarolineData {
   const [projects, setProjects] = useState<readonly ProjectView[]>([])
   const [health, setHealth] = useState<Health | null>(null)
   const [jobRuns, setJobRuns] = useState<readonly JobRun[]>([])
+  const [jobStatus, setJobStatus] = useState<readonly JobStatus[]>([])
+  const [google, setGoogle] = useState<GoogleStatus | null>(null)
+  const [preview, setPreview] = useState<PrivacyPreview | null>(null)
   const [staleDays, setStaleDays] = useState(DEFAULT_STALE_DAYS)
   const [loading, setLoading] = useState(true)
   const [failure, setFailure] = useState<string | null>(null)
@@ -77,16 +90,20 @@ export function useCarolineData(): CarolineData {
     try {
       // The run history is reloaded alongside the tasks: a sync that just finished changed
       // both, and the dashboard should not be a refresh behind on either.
-      const [taskCollection, projectList, runs] = await Promise.all([
+      const [taskCollection, projectList, runs, status] = await Promise.all([
         api.listTasks(),
         api.listProjects(),
         api.listJobRuns().catch(() => ({ runs: [] })),
+        api.listJobStatus().catch(() => ({ jobs: [] })),
       ])
       if (mine !== generation.current) return
 
       setTasks(taskCollection.tasks)
       setProjects(projectList.projects)
       setJobRuns(runs.runs)
+      // Defended rather than trusted: the board must not go blank because one panel's answer was
+      // not the shape it should have been.
+      setJobStatus(status.jobs ?? [])
       setUnfetchedTaskTotal(taskCollection.truncated ? taskCollection.total : null)
       setFailure(null)
     } catch (error) {
@@ -96,6 +113,21 @@ export function useCarolineData(): CarolineData {
       // Loading is about the first answer arriving, so a superseded reload still ends it.
       setLoading(false)
     }
+  }, [])
+
+  /**
+   * The settings answers, which nothing else invalidates: the Google connection changes only when
+   * somebody connects or disconnects, and the payload preview only when the policy or the inbox
+   * does. Kept out of `reload` so that every board write does not fetch a Gmail thread.
+   */
+  const reloadSettings = useCallback(async () => {
+    const [connection, payload] = await Promise.all([
+      api.getGoogleStatus().catch(() => null),
+      api.getPrivacyPreview().catch(() => null),
+    ])
+
+    setGoogle(connection)
+    setPreview(payload)
   }, [])
 
   useEffect(() => {
@@ -120,10 +152,14 @@ export function useCarolineData(): CarolineData {
     projects,
     health,
     jobRuns,
+    jobStatus,
+    google,
+    preview,
     staleDays,
     loading,
     failure,
     unfetchedTaskTotal,
     reload,
+    reloadSettings,
   }
 }

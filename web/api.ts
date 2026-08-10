@@ -22,7 +22,13 @@ export { taskStatuses }
  */
 export type SourceView = Omit<
   Source,
-  'content' | 'contentHash' | 'taskId' | 'firstSeenAt' | 'lastSeenAt'
+  | 'content'
+  | 'contentLevel'
+  | 'contentStoredAt'
+  | 'contentHash'
+  | 'taskId'
+  | 'firstSeenAt'
+  | 'lastSeenAt'
 >
 
 /** What the GitHub connector puts in a source's metadata. Spec 02. */
@@ -45,10 +51,70 @@ export const boardStatuses: readonly TaskStatus[] = taskStatuses.filter(
   (status) => status !== 'done',
 )
 
-/** A task as the API returns it: the stored row, its tags, and where it came from. */
+/**
+ * A classifier answer waiting on the user: below the confidence threshold when it was made, so the
+ * task stayed in the inbox with this attached. Spec 04.
+ */
+export interface ProposalView {
+  readonly id: string
+  readonly status: TaskStatus
+  readonly confidence: number
+  readonly reasoning: string | null
+  readonly suggestedTitle: string | null
+  readonly estimateMinutes: number | null
+  readonly waitingOn: string | null
+  readonly projectSuggestion: {
+    readonly existingProjectId: string | null
+    readonly newProjectTitle: string | null
+  } | null
+  readonly model: string | null
+  readonly promptVersion: string
+  readonly createdAt: number
+}
+
+/** A task as the API returns it: the stored row, its tags, where it came from, and any proposal. */
 export interface TaskView extends Task {
   readonly tags: string[]
   readonly sources: SourceView[]
+  readonly proposal: ProposalView | null
+}
+
+/** One scheduled job, as the jobs surface reads it. Spec 06. */
+export interface JobStatus {
+  readonly job: string
+  readonly cron: string
+  readonly running: boolean
+  readonly nextRunAt: number | null
+  readonly lastRun: JobRun | null
+  readonly consecutiveFailures: number
+  readonly backoffUntil: number | null
+}
+
+/** The Google connection, as Settings reads it. No token ever reaches here. Spec 09. */
+export interface GoogleStatus {
+  readonly connected: boolean
+  readonly configured: boolean
+  readonly connectedAt: number | null
+  readonly scopes: string[]
+  readonly redirectUri: string
+}
+
+/** What a classification call would contain for a real item under the current policy. Spec 09. */
+export interface PrivacyPreview {
+  readonly policy: {
+    readonly llmContent: string
+    readonly storeContent: string
+    readonly snippetChars: number
+    readonly llmConsequence?: string
+    readonly storeConsequence?: string
+  }
+  readonly item: {
+    readonly taskId: string
+    readonly title: string
+    readonly provider: string | null
+  } | null
+  readonly payload: Record<string, unknown> | null
+  readonly promptVersion?: string
 }
 
 /** A project as the API returns it, with the two fields spec 01 derives rather than stores. */
@@ -256,12 +322,42 @@ export const api = {
     return send<TaskView>('POST', taskPath(id, '/mark-reviewed'))
   },
 
+  /** Accept the classifier's proposal. The status becomes the user's own. Spec 04, criterion 9. */
+  acceptProposal(id: string): Promise<TaskView> {
+    return send<TaskView>('POST', taskPath(id, '/proposal/accept'))
+  },
+
+  /** Dismiss it. The task stays where it is and stops being asked about. */
+  dismissProposal(id: string): Promise<TaskView> {
+    return send<TaskView>('POST', taskPath(id, '/proposal/dismiss'))
+  },
+
   listJobRuns(limit = 20): Promise<{ runs: JobRun[] }> {
     return request(`/api/jobs?limit=${limit}`)
   },
 
+  listJobStatus(): Promise<{ jobs: JobStatus[] }> {
+    return request('/api/jobs/status')
+  },
+
   runJob(name: string): Promise<unknown> {
     return send('POST', `/api/jobs/${encodeURIComponent(name)}/run`)
+  },
+
+  getGoogleStatus(): Promise<GoogleStatus> {
+    return request<GoogleStatus>('/api/integrations/google')
+  },
+
+  connectGoogle(): Promise<{ url: string }> {
+    return send('POST', '/api/integrations/google/connect')
+  },
+
+  disconnectGoogle(): Promise<void> {
+    return send<void>('DELETE', '/api/integrations/google')
+  },
+
+  getPrivacyPreview(): Promise<PrivacyPreview> {
+    return request<PrivacyPreview>('/api/privacy/preview')
   },
 
   bulkTasks(input: {

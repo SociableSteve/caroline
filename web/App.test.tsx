@@ -30,16 +30,36 @@ interface StubOptions {
   tasks?: unknown[]
   projects?: unknown[]
   jobRuns?: unknown[]
+  jobStatus?: unknown[]
+  google?: unknown
+  preview?: unknown
   failListing?: boolean
   failWrites?: boolean
   /** Reported by the server as the total, when it is more than the stubbed rows. */
   taskTotal?: number
 }
 
+const noGoogle = {
+  connected: false,
+  configured: false,
+  connectedAt: null,
+  scopes: [],
+  redirectUri: 'http://127.0.0.1:5123/api/integrations/google/callback',
+}
+
+const nothingToPreview = {
+  policy: { llmContent: 'snippet', storeContent: 'metadata', snippetChars: 300 },
+  item: null,
+  payload: null,
+}
+
 function stubApi({
   tasks = [],
   projects = [],
   jobRuns = [],
+  jobStatus = [],
+  google = noGoogle,
+  preview = nothingToPreview,
   failListing,
   failWrites,
   taskTotal,
@@ -84,7 +104,10 @@ function stubApi({
         return answer({ tasks: offset === 0 ? tasks : [], total, limit: 500, offset })
       }
       if (url.startsWith('/api/projects')) return answer({ projects })
+      if (url.startsWith('/api/jobs/status')) return answer({ jobs: jobStatus })
       if (url.startsWith('/api/jobs')) return answer({ runs: jobRuns })
+      if (url.startsWith('/api/integrations/google')) return answer(google)
+      if (url.startsWith('/api/privacy/preview')) return answer(preview)
       if (url.startsWith('/api/health')) return answer(health)
       if (url.startsWith('/api/config')) return answer({ tasks: { waitingStaleDays: 7 } })
 
@@ -380,7 +403,7 @@ describe('writes from the board', () => {
     )
   })
 
-  /** No scheduler until M5, so this is how a sync happens. Spec 06: manual is first-class. */
+  /** Spec 06: a manual run is first-class, and takes the same path a scheduled one does. */
   it('triggers a sync from the header and refetches when it finishes', async () => {
     const calls = stubApi()
 
@@ -479,5 +502,78 @@ describe('the dashboard through the shell', () => {
 
     expect(within(panel).getByText('GitHub')).toBeInTheDocument()
     expect(within(panel).getAllByText('not configured')).toHaveLength(3)
+  })
+})
+
+describe('the jobs surface through the shell', () => {
+  it('shows what the scheduler reported and runs a job on demand', async () => {
+    const calls = stubApi({
+      jobStatus: [
+        {
+          job: 'classify',
+          cron: '5 * * * *',
+          running: false,
+          nextRunAt: Date.now() + 300_000,
+          lastRun: null,
+          consecutiveFailures: 0,
+          backoffUntil: null,
+        },
+      ],
+    })
+    window.location.hash = '#/jobs'
+
+    render(<App />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Run now' }))
+
+    await waitFor(() =>
+      expect(calls).toContainEqual({
+        method: 'POST',
+        url: '/api/jobs/classify/run',
+        body: undefined,
+      }),
+    )
+  })
+})
+
+describe('settings through the shell', () => {
+  /** Spec 09, criterion 9: the preview is fetched for the screen that shows it, and not before. */
+  it('reads the connection and the payload preview only when Settings is open', async () => {
+    const calls = stubApi()
+
+    render(<App />)
+    await screen.findByRole('region', { name: /where everything is/i })
+    expect(calls.some((call) => call.url.startsWith('/api/privacy/preview'))).toBe(false)
+
+    window.location.hash = '#/settings'
+    window.dispatchEvent(new HashChangeEvent('hashchange'))
+
+    await waitFor(() =>
+      expect(calls.some((call) => call.url.startsWith('/api/privacy/preview'))).toBe(true),
+    )
+    expect(calls.some((call) => call.url.startsWith('/api/integrations/google'))).toBe(true)
+  })
+
+  it('disconnects the account and reads the connection back', async () => {
+    const calls = stubApi({
+      google: {
+        connected: true,
+        configured: true,
+        connectedAt: Date.now(),
+        scopes: ['https://www.googleapis.com/auth/gmail.readonly'],
+        redirectUri: 'http://127.0.0.1:5123/api/integrations/google/callback',
+      },
+    })
+    window.location.hash = '#/settings'
+
+    render(<App />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Disconnect' }))
+
+    await waitFor(() =>
+      expect(calls).toContainEqual({
+        method: 'DELETE',
+        url: '/api/integrations/google',
+        body: undefined,
+      }),
+    )
   })
 })

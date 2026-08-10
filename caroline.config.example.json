@@ -9,6 +9,23 @@
   "tasks": {
     "waitingStaleDays": 7
   },
+  "jobs": {
+    "timezone": "Europe/London",
+    "schedules": {
+      "sync": "*/15 * * * *",
+      "classify": "5 * * * *",
+      "purge": "20 3 * * *"
+    },
+    "backoffBaseMinutes": 1,
+    "backoffCeilingMinutes": 60,
+    "retainRunDays": 30,
+    "startupStaggerSeconds": 5
+  },
+  "classification": {
+    "batchSize": 50,
+    "confidenceThreshold": 0.75,
+    "concurrency": 3
+  },
   "privacy": {
     "llmContent": "snippet",
     "storeContent": "metadata",
@@ -26,6 +43,10 @@
   },
   "integrations": {
     "github": { "enabled": true, "returnToReviewOnNewCommits": true },
-    "google": { "enabled": true, "clientId": null }
+    "google": {
+      "enabled": true,
+      "clientId": null,
+      "gmailQuery": "in:inbox -category:promotions -category:social"
+    }
   }
 }

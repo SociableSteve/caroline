@@ -1,0 +1,11 @@
+{
+  "threads": [
+    {
+      "id": "thread-hub-numbers",
+      "snippet": "Could you take a look at the hub numbers",
+      "historyId": "884411"
+    },
+    { "id": "thread-invoice", "snippet": "Invoice 2026-118 attached", "historyId": "884392" }
+  ],
+  "resultSizeEstimate": 2
+}

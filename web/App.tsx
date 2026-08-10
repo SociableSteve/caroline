@@ -9,7 +9,9 @@ import { useCarolineData } from './data.js'
 import { routeLinks, useRoute } from './router.js'
 import { Board } from './surfaces/Board.js'
 import { Dashboard } from './surfaces/Dashboard.js'
+import { Jobs } from './surfaces/Jobs.js'
 import { ProjectDetail, Projects } from './surfaces/Projects.js'
+import { Settings } from './surfaces/Settings.js'
 import { QuickCapture } from './components/QuickCapture.js'
 
 /** A shortcut typed into a field is text, not a command. */
@@ -29,11 +31,15 @@ export function App() {
     projects,
     health,
     jobRuns,
+    jobStatus,
+    google,
+    preview,
     staleDays,
     loading,
     failure,
     unfetchedTaskTotal,
     reload,
+    reloadSettings,
   } = useCarolineData()
   const route = useRoute()
   const [capturing, setCapturing] = useState(false)
@@ -97,7 +103,10 @@ export function App() {
   const onComplete = (id: string) => void write(() => api.completeTask(id))
   const onDelete = (id: string) => void write(() => api.deleteTask(id))
   const onMarkReviewed = (id: string) => void write(() => api.markReviewed(id))
+  const onAcceptProposal = (id: string) => void write(() => api.acceptProposal(id))
+  const onDismissProposal = (id: string) => void write(() => api.dismissProposal(id))
   const onSync = () => void write(() => api.runJob('sync'))
+  const onRunJob = (job: string) => void write(() => api.runJob(job))
   // These two answer their forms, which keep what was typed until the write lands.
   const onCapture = (input: TaskInput) => write(() => api.createTask(input))
   const onCreateProject = (title: string) => write(() => api.createProject({ title }))
@@ -106,6 +115,32 @@ export function App() {
   const onDeleteProject = (id: string) => void write(() => api.deleteProject(id))
 
   const cardHandlers = { onStatusChange, onComplete, onDelete }
+
+  /**
+   * The settings answers are read when Settings is opened rather than on every load: the payload
+   * preview fetches a Gmail thread, and doing that behind the board would be a request nobody asked
+   * for. Re-read after connecting or disconnecting, which is the one thing that changes them.
+   */
+  useEffect(() => {
+    if (route.name === 'settings') void reloadSettings()
+  }, [route.name, reloadSettings])
+
+  const onConnectGoogle = () =>
+    void (async () => {
+      try {
+        const { url } = await api.connectGoogle()
+        // Google is opened in this tab: the flow comes back to this server, and the callback
+        // redirects to Settings, so the user ends up where they started.
+        window.location.assign(url)
+      } catch (error) {
+        setWriteFailure(error instanceof Error ? error.message : 'That did not work')
+      }
+    })()
+
+  const onDisconnectGoogle = () =>
+    void (async () => {
+      if (await write(() => api.disconnectGoogle())) await reloadSettings()
+    })()
 
   return (
     <>
@@ -122,8 +157,8 @@ export function App() {
             ))}
           </ul>
         </nav>
-        {/* The scheduler arrives in M5. Until then this is how a sync happens, and it stays
-            afterwards as the manual trigger spec 06 asks be first-class. */}
+        {/* The scheduler runs sync on its own; this is the manual trigger spec 06 asks be
+            first-class, for when you know something has just landed. */}
         <button type="button" onClick={onSync}>
           Sync now
         </button>
@@ -166,6 +201,8 @@ export function App() {
             staleDays={staleDays}
             now={now}
             onMarkReviewed={onMarkReviewed}
+            onAcceptProposal={onAcceptProposal}
+            onDismissProposal={onDismissProposal}
             {...cardHandlers}
           />
         ) : route.name === 'projects' ? (
@@ -182,6 +219,17 @@ export function App() {
             staleDays={staleDays}
             now={now}
             {...cardHandlers}
+          />
+        ) : route.name === 'jobs' ? (
+          <Jobs jobs={jobStatus} runs={jobRuns} now={now} onRun={onRunJob} />
+        ) : route.name === 'settings' ? (
+          <Settings
+            google={google}
+            preview={preview}
+            googleOutcome={route.outcome}
+            onConnectGoogle={onConnectGoogle}
+            onDisconnectGoogle={onDisconnectGoogle}
+            onRefreshPreview={() => void reloadSettings()}
           />
         ) : (
           <Dashboard

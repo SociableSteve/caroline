@@ -10,12 +10,19 @@ of what ran and what it did.
 | Job | Default schedule | Does |
 | --- | --- | --- |
 | `sync` | Every 15 minutes | Runs every configured connector (spec 02) |
-| `classify` | Hourly | Sorts the inbox (spec 04) |
+| `classify` | Hourly, at five past | Sorts the inbox (spec 04) |
 | `plan` | Daily at a configurable local time | Generates the day's plan (spec 05) |
+| `purge` | Daily, early | Drops content past its retention window, and old run history (spec 09) |
 
 `classify` depends on `sync` and `plan` depends on both. The scheduler runs a chain rather
 than racing them: the hourly tick runs sync then classify; the daily tick runs sync, then
-classify, then plan.
+classify, then plan. A step that fails does not stop the chain: items already ingested are
+still worth sorting, and a classification that never ran because GitHub was unreachable would
+be a second failure caused by the first.
+
+`classify` defaults to five past the hour rather than on it, so that its tick and the
+quarter-hourly sync tick do not coincide. They would otherwise have the chain's own sync step
+skipped as already running, for no reason but arithmetic.
 
 Schedules are configurable per job, in cron syntax, resolved in the configured local
 timezone so that a daily 07:30 stays at 07:30 across a DST change.
@@ -28,7 +35,10 @@ timezone so that a daily 07:30 stays at 07:30 across a DST change.
   not once per missed slot. Being offline for a day does not produce twenty-four
   classification runs.
 - **Backoff on failure.** Consecutive failures push the next attempt back exponentially, up
-  to a configurable ceiling (default 1 hour), and reset on success.
+  to a configurable ceiling (default 1 hour), and reset on success. Backoff moves the next
+  attempt rather than skipping ticks, so it writes no rows: a skip means a run that was
+  attempted and found the job already going. Skipped runs neither count towards a failure
+  streak nor break one, because nothing was attempted.
 - **Manual runs are first-class.** Triggering a job from the UI uses the same path and is
   recorded with `trigger: 'manual'`.
 - **Silent by default.** Jobs do not notify. Results are discoverable in the UI: last-run
@@ -40,6 +50,12 @@ Every attempt writes a `job_runs` row: job name, trigger, started-at, finished-a
 (`success` | `failure` | `skipped`), a counts object (items ingested, tasks created, tasks
 reclassified, LLM calls), and the error message and stack on failure. Retained for a
 configurable window, default 30 days.
+
+The sync job writes a row per connector, named `sync:<provider>`, and one aggregate row named
+`sync`. The aggregate answers "did the pass work at all", so it fails only when every
+configured connector failed, which is the case where holding the whole job back is right; a
+single broken connector names itself in its own row and in the aggregate's error message
+without slowing the others down.
 
 ## Startup
 

@@ -1,7 +1,7 @@
 import { resolve } from 'node:path'
 import { ConfigError, loadConfig, readConfigFile } from '../config/load.js'
 import { openCarolineDatabase } from '../db/index.js'
-import { buildConnectors, createSyncRunner } from '../jobs/sync.js'
+import { buildJobs } from '../jobs/registry.js'
 import { buildServer } from './app.js'
 import { createChangeFeed } from './changes.js'
 import { version } from './version.js'
@@ -14,14 +14,10 @@ async function start(): Promise<void> {
   // rather than leaving it serving requests against a half-migrated database.
   const database = openCarolineDatabase(config)
   const changes = createChangeFeed()
-  // The routes and the startup run share one runner, so its "already running" guard covers
-  // both: a manual sync while the startup one is still going is answered, not queued.
-  const sync = createSyncRunner({
-    database,
-    connectors: buildConnectors(config, database),
-    changes,
-  })
-  const app = await buildServer({ config, database, changes, sync })
+  // The routes and the scheduler share one set of jobs, so the overlap guard covers both: a manual
+  // run while a scheduled one is still going is answered rather than queued.
+  const jobs = buildJobs({ database, config, changes })
+  const app = await buildServer({ config, database, changes, jobs })
 
   await app.listen({ host: config.server.host, port: config.server.port })
 
@@ -30,24 +26,24 @@ async function start(): Promise<void> {
       version,
       database: config.database.path,
       github: config.integrations.github.configured ? 'configured' : 'not configured',
-      google: config.integrations.google.configured ? 'configured' : 'not configured',
+      google: jobs.google.isConnected()
+        ? 'connected'
+        : config.integrations.google.configured
+          ? 'configured, not connected'
+          : 'not configured',
       llm: config.llm.configured ? config.llm.provider : 'not configured',
       llmContent: config.privacy.llmContent,
       storeContent: config.privacy.storeContent,
+      timezone: config.jobs.timezone,
+      schedules: config.jobs.schedules,
     },
     'Caroline is running',
   )
 
-  // One sync as soon as the server is up, so a freshly started Caroline has something on the
-  // board rather than an empty one until somebody presses a button. Deliberately not awaited:
-  // it must not hold up serving, and `runSync` isolates every connector's failure into that
-  // connector's own run record. The scheduler that keeps it going arrives in M5 (spec 06).
-  void sync
-    .run('startup')
-    .then((outcome) => {
-      if (outcome.status === 'ran') app.log.info({ results: outcome.summary.results }, 'Sync ran')
-    })
-    .catch((error: unknown) => app.log.error({ err: error }, 'Startup sync failed'))
+  // Only once the server is listening: the scheduler's cold-start catch-up runs a job whose last
+  // success is older than one interval, which on a fresh checkout is all of them, and none of that
+  // should hold up serving. Spec 06, startup.
+  jobs.scheduler.start()
 
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => {
@@ -56,11 +52,12 @@ async function start(): Promise<void> {
       void (async () => {
         let exitCode = 0
         try {
+          jobs.scheduler.stop()
           await app.close()
-          // A sync in flight is still writing. Closing the handle underneath it turns an
-          // orderly stop into a stack trace and a half-applied pass, so it is given a
-          // bounded moment to finish first. `drain` resolves either way.
-          await sync.drain()
+          // A job in flight is still writing. Closing the handle underneath it turns an orderly
+          // stop into a stack trace and a half-applied pass, so it is given a bounded moment to
+          // finish first. `drain` resolves either way.
+          await jobs.scheduler.drain()
         } catch (error) {
           exitCode = 1
           app.log.error(error, 'Server shutdown failed')

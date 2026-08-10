@@ -7,6 +7,7 @@ import { render, screen, within } from '@testing-library/react'
 import { Dashboard } from './surfaces/Dashboard.js'
 import type { Health } from './api.js'
 import { aProject, aTask, DAY, NOW } from './test-fixtures.js'
+import { noCounts } from '../src/domain/job.js'
 
 const nothingConfigured: Health = {
   status: 'ok',
@@ -186,14 +187,7 @@ describe('the background jobs panel', () => {
     trigger: 'manual' as const,
     startedAt: NOW - 2 * 60_000,
     finishedAt: NOW - 60_000,
-    counts: {
-      itemsSeen: 3,
-      sourcesCreated: 1,
-      tasksCreated: 1,
-      tasksUpdated: 0,
-      resolved: 0,
-      requeued: 0,
-    },
+    counts: { ...noCounts, itemsSeen: 3, sourcesCreated: 1, tasksCreated: 1 },
     error: null,
     errorStack: null,
   }

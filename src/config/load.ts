@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { dirname, resolve as resolvePath } from 'node:path'
 import type { z } from 'zod'
 import { registerEnvironmentSecrets } from './redact.js'
 import {
@@ -216,6 +217,15 @@ function assertContentPolicyIsAllowed(config: Config): void {
   }
 }
 
+/**
+ * Where the Google tokens live: beside the database, absolute, so that nothing depends on the
+ * process's working directory at the moment a refresh happens. Not configurable, because spec
+ * 09's deletion command should have one directory to remove and not a list.
+ */
+export function googleTokenPath(databasePath: string): string {
+  return resolvePath(dirname(databasePath), 'google-tokens.json')
+}
+
 function assertBindIsSafe(config: Config): void {
   if (!loopbackHosts.has(config.server.host) && config.server.accessToken === null) {
     throw new ConfigError(
@@ -255,6 +265,8 @@ export function loadConfig({ file, env }: LoadOptions): Config {
   const googleClientId = nonEmpty(env.GOOGLE_CLIENT_ID) ?? parsed.integrations.google.clientId
   const googleClientSecret = nonEmpty(env.GOOGLE_CLIENT_SECRET)
 
+  const databasePath = nonEmpty(env.CAROLINE_DB_PATH) ?? parsed.database.path
+
   const config: Config = {
     server: {
       host: nonEmpty(env.CAROLINE_HOST) ?? parsed.server.host,
@@ -262,9 +274,11 @@ export function loadConfig({ file, env }: LoadOptions): Config {
       accessToken: nonEmpty(env.CAROLINE_ACCESS_TOKEN),
     },
     database: {
-      path: nonEmpty(env.CAROLINE_DB_PATH) ?? parsed.database.path,
+      path: databasePath,
     },
     tasks: parsed.tasks,
+    jobs: parsed.jobs,
+    classification: parsed.classification,
     privacy: parsed.privacy,
     llm: {
       ...base,
@@ -284,6 +298,8 @@ export function loadConfig({ file, env }: LoadOptions): Config {
         enabled: parsed.integrations.google.enabled,
         clientId: googleClientId,
         clientSecret: googleClientSecret,
+        gmailQuery: parsed.integrations.google.gmailQuery,
+        tokenPath: googleTokenPath(databasePath),
         configured:
           parsed.integrations.google.enabled &&
           googleClientId !== null &&

@@ -153,3 +153,16 @@ export function hasOptedOutOfSync(task: Pick<TaskView, 'sources' | 'syncTracked'
 export function isDeferred(task: Pick<TaskView, 'deferUntil'>, now: number): boolean {
   return task.deferUntil !== null && task.deferUntil > now
 }
+
+/**
+ * A confidence as a percentage. Rounded, because the difference between 0.42 and 0.418 is not
+ * something anybody is going to act on, and two decimal places would suggest it is.
+ */
+export function formatConfidence(confidence: number): string {
+  return `${Math.round(Math.min(1, Math.max(0, confidence)) * 100)}%`
+}
+
+/** The tasks carrying a suggestion nobody has answered yet. The inbox's own to-do list. */
+export function withProposals(tasks: readonly TaskView[]): TaskView[] {
+  return tasks.filter((task) => task.proposal !== null)
+}

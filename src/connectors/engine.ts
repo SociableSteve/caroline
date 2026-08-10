@@ -5,6 +5,7 @@
  *
  * A connector produces items. Nothing else about a connector reaches the database.
  */
+import { contentToStore, type ContentPolicy } from '../config/content.js'
 import { withTransaction, type Database } from '../db/connection.js'
 import { recordJobRun } from '../db/repositories/job-runs.js'
 import {
@@ -46,6 +47,12 @@ export interface RunSyncOptions {
   readonly database: Database
   readonly connectors: readonly Connector[]
   readonly trigger: JobTrigger
+  /**
+   * The store boundary, applied here rather than in each connector: spec 09 criterion 3 is a
+   * guarantee about every connector, and a guarantee each connector implemented for itself
+   * would be a guarantee only until the next connector.
+   */
+  readonly policy: ContentPolicy
   /** Injected so a test can name the moment rather than wait for one. */
   readonly now: () => number
 }
@@ -66,13 +73,23 @@ export function applyItem(
   database: Database,
   provider: SourceProvider,
   item: SourceItem,
+  policy: ContentPolicy,
   now: number,
   tally: Tally,
 ): void {
   withTransaction(database, () => {
     const existing = getSourceByExternalId(database, provider, item.externalId)
+    // Hashed from the body as fetched rather than as stored, so a change beyond the stored
+    // snippet is still a change. The consequence is that altering the content policy can look
+    // like an upstream change once, which requeues inbox items for classification and nothing
+    // more.
     const hash = contentHash(item)
     const contentChanged = existing !== null && existing.contentHash !== hash
+
+    // The store boundary. An item that carries no body says nothing about the stored one, so the
+    // fields are omitted and the row keeps what it has; an item that does carry one has it cut
+    // to the policy, and `none` cuts it to nothing. Spec 09, criterion 3.
+    const stored = item.content === undefined ? null : contentToStore(item.content, policy)
 
     const source = upsertSource(
       database,
@@ -82,7 +99,7 @@ export function applyItem(
         url: item.url,
         title: item.title,
         metadata: item.metadata,
-        content: item.content ?? null,
+        ...(stored === null ? {} : { content: stored.content, contentLevel: stored.level }),
         contentHash: hash,
         lifecycleState: item.lifecycleState ?? null,
         ...(item.actedAt === undefined ? {} : { actedAt: item.actedAt }),
@@ -240,7 +257,7 @@ function applyLifecycle(
 }
 
 async function runConnector(
-  { database, trigger, now }: RunSyncOptions,
+  { database, trigger, policy, now }: RunSyncOptions,
   connector: Connector,
 ): Promise<ConnectorRunResult> {
   const job = syncJobName(connector.provider)
@@ -264,7 +281,7 @@ async function runConnector(
   try {
     const since = getSyncCursor(database, connector.provider)
     for await (const item of connector.fetch(since)) {
-      applyItem(database, connector.provider, item, now(), tally)
+      applyItem(database, connector.provider, item, policy, now(), tally)
     }
 
     // Only a successful run advances the cursor, and it advances to when the run *started*,

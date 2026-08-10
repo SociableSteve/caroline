@@ -1,0 +1,60 @@
+{
+  "id": "thread-hub-numbers",
+  "historyId": "884411",
+  "messages": [
+    {
+      "id": "message-1",
+      "threadId": "thread-hub-numbers",
+      "labelIds": ["INBOX", "IMPORTANT", "UNREAD"],
+      "snippet": "Could you take a look at the hub numbers before Thursday?",
+      "internalDate": "1786100400000",
+      "payload": {
+        "mimeType": "multipart/alternative",
+        "headers": [
+          { "name": "From", "value": "Sam Reed <sam.reed@example.com>" },
+          { "name": "To", "value": "you@example.com" },
+          { "name": "Subject", "value": "Hub numbers before Thursday" },
+          { "name": "Date", "value": "Wed, 05 Aug 2026 08:00:00 +0000" }
+        ],
+        "parts": [
+          {
+            "mimeType": "text/plain",
+            "body": {
+              "size": 62,
+              "data": "Q291bGQgeW91IHRha2UgYSBsb29rIGF0IHRoZSBodWIgbnVtYmVycyBiZWZvcmUgVGh1cnNkYXk_"
+            }
+          },
+          {
+            "mimeType": "text/html",
+            "body": {
+              "size": 74,
+              "data": "PHA-Q291bGQgeW91IHRha2UgYSBsb29rIGF0IHRoZSBodWIgbnVtYmVycyBiZWZvcmUgVGh1cnNkYXk_PC9wPg"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "message-2",
+      "threadId": "thread-hub-numbers",
+      "labelIds": ["INBOX", "SENT"],
+      "snippet": "Yes, I will pull them together",
+      "internalDate": "1786104000000",
+      "payload": {
+        "mimeType": "text/plain",
+        "headers": [
+          { "name": "From", "value": "you@example.com" },
+          {
+            "name": "To",
+            "value": "Sam Reed <sam.reed@example.com>, Priya Nair <priya.nair@example.com>"
+          },
+          { "name": "Subject", "value": "Re: Hub numbers before Thursday" }
+        ],
+        "body": {
+          "size": 47,
+          "data": "WWVzLCBJIHdpbGwgcHVsbCB0aGVtIHRvZ2V0aGVyIHRoaXMgYWZ0ZXJub29uLg"
+        }
+      }
+    }
+  ]
+}

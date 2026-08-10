@@ -128,7 +128,7 @@ describe('applyStatusChange by the classifier', () => {
   const changedAt = createdAt + 60_000
 
   // Criterion 2, the half that is a domain rule. Recording the rejected proposal in
-  // `classifications` belongs to spec 04 and lands with the classifier in M5.
+  // `classifications` is spec 04's, and is asserted in `test/jobs/classify.test.ts`.
   it('refuses to touch a task whose status the user set', () => {
     const task = existingTask({ status: 'inbox', statusSetBy: 'user', statusSetAt: createdAt })
     const result = applyStatusChange(task, { status: 'reference', by: 'llm', at: changedAt })

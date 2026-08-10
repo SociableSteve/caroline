@@ -1,12 +1,10 @@
 /**
- * `GET /api/jobs` and `POST /api/jobs/:name/run`. The manual trigger takes the same path a
- * scheduled run will (spec 06), and the history is where a connector's failure surfaces
- * (spec 02, criterion 5).
+ * `GET /api/jobs`, `GET /api/jobs/status` and `POST /api/jobs/:name/run`. The manual trigger takes
+ * the same path a scheduled run does (spec 06), and the history is where a connector's failure
+ * surfaces (spec 02, criterion 5).
  */
 import { describe, expect, it } from 'vitest'
 import { recordJobRun } from '../../src/db/repositories/job-runs.js'
-import { createSyncRunner, type SyncRunner } from '../../src/jobs/sync.js'
-import { migratedDatabase } from '../helpers/temp-database.js'
 import { REQUEST_TIME, testServer } from '../helpers/test-server.js'
 
 describe('GET /api/jobs', () => {
@@ -91,61 +89,115 @@ describe('GET /api/jobs', () => {
   })
 })
 
+describe('GET /api/jobs/status', () => {
+  it('names every scheduled job, its schedule and when it next runs', async () => {
+    const { app } = await testServer()
+
+    const { jobs } = (await app.inject({ method: 'GET', url: '/api/jobs/status' })).json()
+
+    expect(jobs.map((job: { job: string }) => job.job)).toEqual(['sync', 'classify', 'purge'])
+    expect(jobs[0]).toMatchObject({
+      cron: '*/15 * * * *',
+      running: false,
+      consecutiveFailures: 0,
+      backoffUntil: null,
+    })
+    expect(jobs[0].nextRunAt).toBeGreaterThan(0)
+  })
+
+  it('reports the last run and the failure streak', async () => {
+    const { app, database } = await testServer()
+    recordJobRun(database, {
+      job: 'classify',
+      trigger: 'scheduled',
+      startedAt: REQUEST_TIME,
+      finishedAt: REQUEST_TIME + 100,
+      status: 'failure',
+      error: 'the provider is down',
+    })
+
+    const { jobs } = (await app.inject({ method: 'GET', url: '/api/jobs/status' })).json()
+    const classify = jobs.find((job: { job: string }) => job.job === 'classify')
+
+    expect(classify).toMatchObject({
+      consecutiveFailures: 1,
+      lastRun: { status: 'failure', error: 'the provider is down' },
+    })
+  })
+})
+
 describe('POST /api/jobs/:name/run', () => {
-  it('runs sync and reports what each connector did', async () => {
+  it('runs sync and answers with the row it wrote', async () => {
     const { app } = await testServer()
 
     const response = await app.inject({ method: 'POST', url: '/api/jobs/sync/run' })
 
     expect(response.statusCode).toBe(200)
-    // No credentials in a test config, so the connector is skipped rather than failed.
+    // No credentials in a test config, so every connector is skipped rather than failed.
     expect(response.json()).toMatchObject({
       job: 'sync',
-      results: [{ provider: 'github', status: 'skipped' }],
+      run: { job: 'sync', trigger: 'manual', status: 'skipped' },
     })
 
     const { runs } = (await app.inject({ method: 'GET', url: '/api/jobs' })).json()
-    expect(runs).toMatchObject([{ job: 'sync:github', trigger: 'manual', status: 'skipped' }])
+    expect(runs.map((run: { job: string }) => run.job).sort()).toEqual([
+      'sync',
+      'sync:github',
+      'sync:gmail',
+    ])
+  })
+
+  it('runs classify, which is skipped with no provider configured', async () => {
+    const { app } = await testServer()
+
+    const response = await app.inject({ method: 'POST', url: '/api/jobs/classify/run' })
+
+    expect(response.json()).toMatchObject({
+      run: { job: 'classify', status: 'skipped', error: expect.stringMatching(/No LLM provider/) },
+    })
+  })
+
+  it('runs purge', async () => {
+    const { app } = await testServer()
+
+    const response = await app.inject({ method: 'POST', url: '/api/jobs/purge/run' })
+
+    expect(response.json()).toMatchObject({ run: { job: 'purge', status: 'success' } })
   })
 
   it('is a 404 for a job that does not exist', async () => {
     const { app } = await testServer()
 
-    const response = await app.inject({ method: 'POST', url: '/api/jobs/classify/run' })
+    const response = await app.inject({ method: 'POST', url: '/api/jobs/plan/run' })
 
     expect(response.statusCode).toBe(404)
     expect(response.json()).toMatchObject({ error: { code: 'not_found' } })
   })
 
+  /** Spec 06, criterion 6. */
   it('answers a second trigger while one is in flight rather than queueing another', async () => {
     let release: () => void = () => {}
     const blocked = new Promise<void>((resolve) => {
       release = resolve
     })
     let reportStarted: () => void = () => {}
-    // The connector says when it has actually begun, so the second request is fired against a
-    // run that is genuinely in flight rather than against whichever promise settled first.
     const started = new Promise<void>((resolve) => {
       reportStarted = resolve
     })
 
-    const runner: SyncRunner = createSyncRunner({
-      database: migratedDatabase(),
-      connectors: [
+    const { app, jobs } = await testServer({
+      steps: [
         {
-          provider: 'github',
-          isConfigured: () => true,
-          // eslint-disable-next-line require-yield -- it holds the run open, it does not feed it.
-          async *fetch() {
+          name: 'sync',
+          run: async () => {
             reportStarted()
             await blocked
+            return { status: 'success' }
           },
         },
       ],
-      now: () => REQUEST_TIME,
     })
 
-    const { app } = await testServer({ sync: runner })
     const first = app.inject({ method: 'POST', url: '/api/jobs/sync/run' })
     await started
 
@@ -156,85 +208,14 @@ describe('POST /api/jobs/:name/run', () => {
 
     release()
     expect((await first).statusCode).toBe(200)
-    expect(runner.isRunning()).toBe(false)
-  })
-})
-
-/**
- * Shutdown closes the database. A run still applying items to a closed handle turns an
- * orderly stop into a stack trace and a half-applied pass, so it is waited for first.
- */
-describe('draining a sync in flight', () => {
-  function blockingRunner() {
-    let release: () => void = () => {}
-    const blocked = new Promise<void>((resolve) => {
-      release = resolve
-    })
-    let reportStarted: () => void = () => {}
-    const started = new Promise<void>((resolve) => {
-      reportStarted = resolve
-    })
-
-    const runner = createSyncRunner({
-      database: migratedDatabase(),
-      connectors: [
-        {
-          provider: 'github',
-          isConfigured: () => true,
-          // eslint-disable-next-line require-yield -- it holds the run open, it does not feed it.
-          async *fetch() {
-            reportStarted()
-            await blocked
-          },
-        },
-      ],
-      now: () => REQUEST_TIME,
-    })
-
-    return { runner, release, started }
-  }
-
-  it('returns at once when nothing is running', async () => {
-    const runner = createSyncRunner({
-      database: migratedDatabase(),
-      connectors: [],
-      now: () => REQUEST_TIME,
-    })
-
-    await expect(runner.drain()).resolves.toBeUndefined()
+    expect(jobs.scheduler.isRunning('sync')).toBe(false)
   })
 
-  it('waits for the run to finish', async () => {
-    const { runner, release, started } = blockingRunner()
-    const run = runner.run('startup')
-    await started
+  it('announces the run so an open tab reloads', async () => {
+    const { app, published } = await testServer()
 
-    let drained = false
-    const draining = runner.drain().then(() => {
-      drained = true
-    })
+    await app.inject({ method: 'POST', url: '/api/jobs/purge/run' })
 
-    // Past a macrotask, not just a microtask: read in the same turn, this would also pass
-    // for a `drain` that resolved on the next tick without waiting for anything.
-    await new Promise((resolve) => setTimeout(resolve, 5))
-    expect(drained).toBe(false)
-    release()
-    await draining
-    await run
-
-    expect(runner.isRunning()).toBe(false)
-  })
-
-  it('gives up after the timeout rather than refusing to shut down', async () => {
-    const { runner, release, started } = blockingRunner()
-    const run = runner.run('startup')
-    await started
-
-    await runner.drain(5)
-
-    // Still going: the point is that waiting ended, not that the run did.
-    expect(runner.isRunning()).toBe(true)
-    release()
-    await run
+    expect(published.map((event) => event.kind)).toContain('jobs')
   })
 })

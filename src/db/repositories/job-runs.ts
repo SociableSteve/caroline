@@ -98,3 +98,66 @@ export function listJobRuns(database: Database, query: JobRunQuery = {}): JobRun
 export function latestJobRun(database: Database, job: string): JobRun | null {
   return listJobRuns(database, { job, limit: 1 })[0] ?? null
 }
+
+/**
+ * The last run of this job that worked. What the scheduler measures downtime against on a cold
+ * start: a job whose last success is older than one interval is due, and runs once rather than
+ * once per missed slot. Spec 06, criterion 2.
+ */
+export function lastSuccessfulRun(database: Database, job: string): JobRun | null {
+  const row = database
+    .prepare(
+      `select ${columns} from job_runs
+       where job = ? and status = 'success'
+       order by started_at desc, id limit 1`,
+    )
+    .get(job)
+
+  return row === undefined ? null : toJobRun(row as Row)
+}
+
+export interface FailureStreak {
+  /** How many failures in a row, most recent first, before the last success. */
+  readonly count: number
+  /** When the most recent of them finished, which the backoff is measured from. */
+  readonly lastFailureAt: number | null
+}
+
+/**
+ * The current run of failures. Skipped runs are not counted and do not break the streak: a job
+ * that was skipped attempted nothing, so it is neither evidence that the trouble has passed nor
+ * more of the trouble. Spec 06, criterion 3.
+ */
+export function failureStreak(database: Database, job: string): FailureStreak {
+  const rows = database
+    .prepare(
+      `select status, finished_at from job_runs
+       where job = ? and status in ('success', 'failure')
+       order by started_at desc, id limit 100`,
+    )
+    .all(job)
+
+  let count = 0
+  let lastFailureAt: number | null = null
+
+  for (const row of rows) {
+    const { status, finished_at: finishedAt } = row as Row
+    if (String(status) !== 'failure') break
+
+    count += 1
+    lastFailureAt ??= Number(finishedAt)
+  }
+
+  return { count, lastFailureAt }
+}
+
+/**
+ * Retention for the run history. Spec 06 keeps it for a configurable window, thirty days by
+ * default: a history nobody prunes becomes the largest table in the database and answers no
+ * question that the last few weeks do not.
+ */
+export function purgeJobRunsBefore(database: Database, cutoff: number): number {
+  // `changes` is a bigint on a build with big integers enabled, and a count of deleted rows is
+  // never large enough for the conversion to lose anything.
+  return Number(database.prepare('delete from job_runs where started_at < ?').run(cutoff).changes)
+}

@@ -1,0 +1,35 @@
+{
+  "id": "thread-invoice",
+  "historyId": "884392",
+  "messages": [
+    {
+      "id": "message-3",
+      "threadId": "thread-invoice",
+      "labelIds": ["INBOX"],
+      "snippet": "Invoice 2026-118 is attached",
+      "internalDate": "1786013000000",
+      "payload": {
+        "mimeType": "multipart/mixed",
+        "headers": [
+          { "name": "From", "value": "billing@supplier.example" },
+          { "name": "To", "value": "you@example.com" },
+          { "name": "Subject", "value": "Invoice 2026-118" }
+        ],
+        "parts": [
+          {
+            "mimeType": "text/plain",
+            "body": {
+              "size": 60,
+              "data": "SW52b2ljZSAyMDI2LTExOCBpcyBhdHRhY2hlZC4gTm8gYWN0aW9uIG5lZWRlZCwgZmlsaW5nIG9ubHku"
+            }
+          },
+          {
+            "mimeType": "application/pdf",
+            "filename": "invoice-2026-118.pdf",
+            "body": { "attachmentId": "attachment-1", "size": 18244 }
+          }
+        ]
+      }
+    }
+  ]
+}

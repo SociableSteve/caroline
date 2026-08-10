@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { runSync, syncJobName } from '../../src/connectors/engine.js'
+import type { ContentPolicy } from '../../src/config/content.js'
 import type { Connector, SourceItem } from '../../src/connectors/types.js'
 import type { Database } from '../../src/db/connection.js'
 import { listJobRuns } from '../../src/db/repositories/job-runs.js'
@@ -81,12 +82,16 @@ const email: SourceItem = {
   task: { status: 'inbox' },
 }
 
+/** The default policy: metadata stored, a snippet sent. Spec 09. */
+const testPolicy = { llmContent: 'snippet', storeContent: 'metadata', snippetChars: 300 } as const
+
 async function sync(
   database: Database,
   connectors: readonly Connector[],
   now: () => number = () => FIRST_RUN,
+  policy: ContentPolicy = testPolicy,
 ) {
-  return runSync({ database, connectors, trigger: 'scheduled', now })
+  return runSync({ database, connectors, trigger: 'scheduled', policy, now })
 }
 
 /**
