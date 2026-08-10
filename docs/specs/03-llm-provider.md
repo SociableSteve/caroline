@@ -106,8 +106,8 @@ not make is not. That is the graceful degradation spec 07 criterion 7 asks for.
     "model": "claude-sonnet-5",
     "baseUrl": null,              // override for proxies or self-hosted gateways
     "maxTokens": 4096,
-    "timeoutMs": 60000,
-    "supportsTools": true       // ollama only: does this model call tools?
+    "timeoutMs": 60000
+    // "supportsTools": true     // ollama only, false by default: does this model call tools?
   }
 }
 ```

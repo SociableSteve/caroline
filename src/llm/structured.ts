@@ -16,6 +16,7 @@ import {
   type CompletionRequest,
   type CompletionResult,
   type LlmProvider,
+  type TokenUsage,
 } from './types.js'
 import { validateAgainstSchema } from './validate.js'
 
@@ -144,44 +145,33 @@ export function withSchemaValidation(
      */
     async *stream(request: CompletionRequest): AsyncIterable<CompletionChunk> {
       const startedAt = now()
-      let finished = false
+      let reported = false
+
+      const report = (status: 'success' | 'error', usage: TokenUsage, error: string | null) => {
+        if (reported) return
+        reported = true
+        onAttempt?.({ startedAt, durationMs: now() - startedAt, usage, status, error })
+      }
 
       try {
         for await (const chunk of provider.stream(request)) {
-          if (chunk.type === 'done') {
-            finished = true
-            onAttempt?.({
-              startedAt,
-              durationMs: now() - startedAt,
-              usage: chunk.result.usage,
-              status: 'success',
-              error: null,
-            })
-          }
+          // Reported before the chunk is handed over, so a caller that stops reading the moment it
+          // has the result cannot end the generator before the row is written.
+          if (chunk.type === 'done') report('success', chunk.result.usage, null)
           yield chunk
         }
-
-        // A stream that stopped without a final chunk answered nothing and still cost whatever it
-        // had produced. The caller decides what to make of that; this records that it happened,
-        // because a call with no row is a call the cost view says was never made.
-        if (!finished) {
-          onAttempt?.({
-            startedAt,
-            durationMs: now() - startedAt,
-            usage: noTokens,
-            status: 'error',
-            error: 'the stream ended without a final chunk',
-          })
-        }
       } catch (error) {
-        onAttempt?.({
-          startedAt,
-          durationMs: now() - startedAt,
-          usage: noTokens,
-          status: 'error',
-          error: error instanceof Error ? error.message : String(error),
-        })
+        report('error', noTokens, error instanceof Error ? error.message : String(error))
         throw error
+      } finally {
+        /*
+         * A stream that ended without a final chunk answered nothing, and one the caller abandoned
+         * part-way still cost whatever it had produced. Either way the call happened, and a call
+         * with no row is a call the cost view says was never made. In a `finally` because
+         * abandonment is a `return` into the generator rather than an error out of it, and nothing
+         * else would run.
+         */
+        report('error', noTokens, 'the stream ended without a final chunk')
       }
     },
   }

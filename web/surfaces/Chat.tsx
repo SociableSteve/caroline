@@ -241,8 +241,11 @@ export function Chat({
               />
             ))}
 
+            {/* Deliberately not a live region as a whole: a screen reader would read the answer
+                again from the top on every chunk that arrived. The progress line below is live
+                instead, and the finished turn is read in the ordinary way. */}
             {draft !== null && (
-              <li className="chat-turn chat-assistant" aria-live="polite">
+              <li className="chat-turn chat-assistant">
                 <p className="chat-role">Caroline</p>
                 {draft.text === '' ? (
                   <p className="chat-text">Thinking.</p>
@@ -255,7 +258,9 @@ export function Chat({
                 )}
 
                 {draft.tools.length > 0 && (
-                  <p className="change-note">Looked at: {draft.tools.join(', ')}</p>
+                  <p className="change-note" role="status">
+                    Looked at: {draft.tools.join(', ')}
+                  </p>
                 )}
 
                 {draft.changes.length > 0 && (

@@ -65,6 +65,11 @@ confirmation prompts for deletes and bulk operations. Earlier conversations are 
 it, with what each one has cost. Read-only is stated before anything is typed, and so is a
 turn that stopped at its tool-call limit.
 
+**Jobs.** What each background job is for, when it last ran and how that went, when it runs
+next, whether a run of failures is holding it back, and a button to run it now. Spec 06 owns
+the behaviour; this is where it is discoverable, because a scheduler that says nothing needs a
+surface that does.
+
 **Settings.** Integration status and connect flows, schedules, LLM provider and model,
 content policies (spec 09) with their consequences spelled out in plain language, working
 hours and reserve, classification threshold.

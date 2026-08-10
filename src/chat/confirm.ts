@@ -85,8 +85,18 @@ export async function resolveConfirmation(
 
   const changes: ChatChangeRecord[] = []
   const failures: string[] = []
+  const operations = operationsOf(confirmation)
 
-  for (const operation of operationsOf(confirmation)) {
+  // Nothing to run means the stored batch did not read back as one: the row has been consumed by the
+  // decision above and cannot be offered again, so this is said out loud. Reporting success for an
+  // operation that never ran would be the one outcome worse than reporting the failure.
+  if (operations.length === 0) {
+    failures.push(
+      'What was proposed could not be read back, so nothing was carried out. Ask again in a new turn.',
+    )
+  }
+
+  for (const operation of operations) {
     const tool = registry.get(operation.tool)
     if (tool === undefined) {
       failures.push(`${operation.tool} is no longer available, so it was not carried out.`)

@@ -11,7 +11,11 @@ function load(file: unknown, env: Record<string, string> = {}) {
 
 describe('the chat settings', () => {
   it('default to spec 07’s numbers', () => {
-    expect(load(null).chat).toMatchObject({ maxToolCalls: 25, bulkConfirmThreshold: 10 })
+    expect(load(null).chat).toEqual({
+      maxToolCalls: 25,
+      bulkConfirmThreshold: 10,
+      contextMessages: 40,
+    })
   })
 
   it('can be changed', () => {
@@ -88,24 +92,45 @@ describe('whether a model can be given tools', () => {
     expect(config.llm.overrides.chat?.supportsTools).toBe(true)
   })
 
-  /** As for the base URL: it is a fact about a provider's models, not about the configuration. */
+  /**
+   * As for the base URL: it is a fact about a provider's models, not about the configuration. Read in
+   * the direction that can tell the two apart: a base that says false with an override onto a hosted
+   * provider must come out true, which inheritance would not produce.
+   */
   it('is not inherited across a change of provider', () => {
     const config = load(
       {
         llm: {
           provider: 'ollama',
           model: 'a-model',
-          supportsTools: true,
+          supportsTools: false,
           overrides: { chat: { provider: 'anthropic', model: 'a-hosted-model' } },
         },
       },
       { ANTHROPIC_API_KEY: 'key' },
     )
 
+    expect(config.llm.supportsTools).toBe(false)
     expect(config.llm.overrides.chat).toMatchObject({
       provider: 'anthropic',
       supportsTools: true,
     })
+  })
+
+  it('is not inherited the other way either', () => {
+    const config = load(
+      {
+        llm: {
+          provider: 'anthropic',
+          model: 'a-hosted-model',
+          overrides: { chat: { provider: 'ollama', model: 'a-local-model' } },
+        },
+      },
+      { ANTHROPIC_API_KEY: 'key' },
+    )
+
+    expect(config.llm.supportsTools).toBe(true)
+    expect(config.llm.overrides.chat?.supportsTools).toBe(false)
   })
 
   it('can be declared on the chat override alone', () => {

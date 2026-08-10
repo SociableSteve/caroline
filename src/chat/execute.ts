@@ -4,6 +4,7 @@
  * operation the user confirms has to have exactly the effect it would have had, including the
  * record and the inverse, or undo would not cover it.
  */
+import { withTransaction } from '../db/connection.js'
 import { recordChange, type ChatChangeRecord } from '../db/repositories/chat.js'
 import { validateAgainstSchema } from '../llm/validate.js'
 import type { ChatTool, ChatToolContext, ToolOutcome } from './types.js'
@@ -39,7 +40,19 @@ export function argumentsProblem(tool: ChatTool, args: unknown): string | null {
   return `The arguments for ${tool.name} did not match its schema: ${outcome.message}. Call it again with arguments that do.`
 }
 
-/** Validates the arguments and, if they are good, runs the tool and records its changes. */
+/**
+ * Validates the arguments and, if they are good, runs the tool and records what it changed.
+ *
+ * The write and its record land together. A change that happened with no inverse beside it is not
+ * undoable and cannot be made undoable afterwards, so for a tool that writes synchronously, which is
+ * every tool that changes a task or a project, both go in one transaction: the repositories nest
+ * through savepoints, so the tool's own transaction sits inside this one.
+ *
+ * The exception is a tool that answers a promise, which is `regenerate_daily_plan` and nothing else.
+ * Holding a transaction open across an `await` would hold it across a model call, and the plan it
+ * draws has no inverse to lose: its record is a note that the day was redrawn, and the plan it
+ * replaced is still in history either way.
+ */
 export async function executeTool(
   context: ChatToolContext,
   tool: ChatTool,
@@ -50,28 +63,33 @@ export async function executeTool(
   const problem = argumentsProblem(tool, args)
   if (problem !== null) return { ok: false, message: problem }
 
-  const answer: ToolOutcome = await tool.execute(context, args)
-  if (!answer.ok) return { ok: false, message: answer.message }
+  const record = (answer: ToolOutcome): ExecutionResult => {
+    if (!answer.ok) return { ok: false, message: answer.message }
 
-  const changes = (answer.mutations ?? []).map((mutation) =>
-    recordChange(
-      context.database,
-      {
-        messageId,
-        tool: tool.name,
-        summary: mutation.summary,
-        entity: mutation.entity,
-        entityId: mutation.entityId,
-        inverse: mutation.inverse,
-      },
-      context.now,
-    ),
-  )
-
-  return {
-    ok: true,
-    data: answer.data,
-    changes,
-    taskIds: (answer.mutations ?? []).flatMap((mutation) => [...mutation.taskIds]),
+    return {
+      ok: true,
+      data: answer.data,
+      changes: (answer.mutations ?? []).map((mutation) =>
+        recordChange(
+          context.database,
+          {
+            messageId,
+            tool: tool.name,
+            summary: mutation.summary,
+            entity: mutation.entity,
+            entityId: mutation.entityId,
+            inverse: mutation.inverse,
+          },
+          context.now,
+        ),
+      ),
+      taskIds: (answer.mutations ?? []).flatMap((mutation) => [...mutation.taskIds]),
+    }
   }
+
+  const outcome = tool.execute(context, args)
+
+  return outcome instanceof Promise
+    ? record(await outcome)
+    : withTransaction(context.database, () => record(outcome))
 }

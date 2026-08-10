@@ -204,7 +204,11 @@ export function useChat({
               return
             }
 
-            // Done. The stored turn replaces the draft, so what is on screen is what was recorded.
+            // Tested rather than assumed: an event this client does not know is dropped by the
+            // parser, and one it knows but does not handle here is not a finished turn either.
+            if (event.type !== 'done') return
+
+            // The stored turn replaces the draft, so what is on screen is what was recorded.
             setMessages((current) => [
               ...current.filter((existing) => existing.id !== event.message.id),
               event.message,
@@ -217,9 +221,17 @@ export function useChat({
         .finally(() => {
           setSending(false)
           if (changed) onDataChanged()
-          // Last, so the route change does not restart the read while the turn is still arriving.
-          if (startedConversation !== null) onConversationStarted(startedConversation)
-          void refresh()
+
+          if (startedConversation === null) {
+            void refresh()
+            return
+          }
+
+          // A turn that started a conversation must not be refreshed from here: this closure is
+          // still bound to no conversation, so the read would answer with an empty transcript and
+          // blank the turn that just finished. The route change carries the new id, and the read it
+          // triggers is the one that belongs to it.
+          onConversationStarted(startedConversation)
         })
     },
     [conversationId, onConversationStarted, onDataChanged, refresh, sending],

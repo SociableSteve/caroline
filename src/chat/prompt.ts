@@ -154,8 +154,17 @@ That is all you are given. Anything more specific, including any task's title, y
 ${options.readOnly ? READ_ONLY_RULES : writeRules(options)}`
 }
 
+/** Exactly what is sent about the day. Named fields, so nothing reaches a model by inheritance. */
+export interface ChatContextPayload {
+  readonly taskCountsByStatus: Readonly<Record<string, number>>
+  readonly todaysPlan: ChatContext['plan']
+  readonly todaysCapacity: ChatContext['capacity']
+  readonly waiting: ChatContext['waiting']
+  readonly stalledProjects: number
+}
+
 /** The context as it is sent: named fields, so nothing arrives here by inheritance. Spec 09. */
-export function contextPayload(context: ChatContext) {
+export function contextPayload(context: ChatContext): ChatContextPayload {
   return {
     taskCountsByStatus: context.counts,
     todaysPlan: context.plan,

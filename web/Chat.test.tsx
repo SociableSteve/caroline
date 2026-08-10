@@ -267,7 +267,11 @@ describe('what a turn changed', () => {
       ],
     })
 
-    expect(screen.getAllByRole('button', { name: 'Undo these changes' })).toHaveLength(1)
+    const controls = screen.getAllByRole('button', { name: 'Undo these changes' })
+    expect(controls).toHaveLength(1)
+    // Named rather than counted: one control in the wrong place would pass a count on its own.
+    const turn = controls[0]?.closest('li') as HTMLElement
+    expect(within(turn).getByText('Created “Draft the agenda” in inbox')).toBeInTheDocument()
   })
 
   /** The record is that it happened and was put back, so it stays on the screen, struck through. */

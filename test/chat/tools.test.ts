@@ -492,6 +492,34 @@ describe('update_task', () => {
     })
   })
 
+  /**
+   * A user asking for a deadline to be taken off has to have a tool that can do it, and
+   * `describeUpdate` renders 'due date cleared', which would otherwise be unreachable.
+   */
+  it('clears a deadline and a deferral when told null', async () => {
+    const database = migratedDatabase()
+    createTask(
+      database,
+      {
+        id: 'task-1',
+        title: 'Book the venue',
+        dueAt: Date.UTC(2026, 5, 3, 9, 0, 0),
+        deferUntil: Date.UTC(2026, 5, 2, 9, 0, 0),
+      },
+      CHAT_NOW,
+    )
+
+    const answer = await run(database, 'update_task', {
+      id: 'task-1',
+      dueAt: null,
+      deferUntil: null,
+    })
+
+    expect(getTask(database, 'task-1')).toMatchObject({ dueAt: null, deferUntil: null })
+    expect(answer.mutations?.[0]?.summary).toContain('due date cleared')
+    expect(answer.mutations?.[0]?.summary).toContain('deferral cleared')
+  })
+
   it('reports a patch that changed nothing as having changed nothing', async () => {
     const database = migratedDatabase()
     createTask(database, { id: 'task-1', title: 'Book the venue' }, CHAT_NOW)

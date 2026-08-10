@@ -301,6 +301,35 @@ describe('api.streamChat', () => {
     })
   })
 
+  it('ignores an event name it does not know, rather than reading it as the last type tested', async () => {
+    stubStream([event('surprise', { message: null }), event('text', { text: 'after' })])
+    const seen: unknown[] = []
+
+    await api.streamChat({ message: 'Hello' }, (received) => seen.push(received))
+
+    expect(seen).toEqual([{ type: 'text', text: 'after' }])
+  })
+
+  it('reads a stream whose line endings are CRLF, as the standard allows', async () => {
+    stubStream(['event: text\r\ndata: {"text":"windows"}\r\n\r\n'])
+    const seen: unknown[] = []
+
+    await api.streamChat({ message: 'Hello' }, (received) => seen.push(received))
+
+    expect(seen).toEqual([{ type: 'text', text: 'windows' }])
+  })
+
+  it('fails plainly when the response carries no stream at all', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, status: 200, body: null }) as unknown as Response),
+    )
+
+    await expect(api.streamChat({ message: 'Hello' }, () => {})).rejects.toThrow(
+      'The turn sent no stream',
+    )
+  })
+
   it('fails with the standard error when the request is refused before the stream starts', async () => {
     stubStream([], 400)
 

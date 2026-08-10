@@ -263,6 +263,33 @@ describe('useChat', () => {
     await waitFor(() => expect(onConversationStarted).toHaveBeenCalledWith('conversation-1'))
   })
 
+  /**
+   * The refresh that follows a turn is bound to the conversation the surface was opened with. For a
+   * turn that created one, that is no conversation at all, so refreshing from here would answer with
+   * an empty transcript and blank the turn that just finished. The route change owns that read.
+   */
+  it('does not blank the finished turn when it created the conversation', async () => {
+    const user = userEvent.setup()
+    const { calls } = stubApi({
+      events: [
+        { type: 'conversation', conversation },
+        { type: 'text', text: 'Streamed text' },
+        { type: 'done', message: aMessage(), conversation },
+      ] as unknown as ChatStreamEvent[],
+    })
+    render(<Probe />)
+
+    await user.click(screen.getByRole('button', { name: 'Send' }))
+
+    await waitFor(() => expect(screen.getByTestId('draft')).toHaveTextContent('none'))
+    expect(screen.getByTestId('messages')).toHaveTextContent('Recorded answer.')
+    // No transcript read from this closure: it would have been for the conversation that did not
+    // exist when the turn started.
+    expect(calls.filter((call) => call.url === '/api/chat/conversations/conversation-1')).toEqual(
+      [],
+    )
+  })
+
   it('reports a turn that could not be started', async () => {
     const user = userEvent.setup()
     stubApi({ failStream: true })

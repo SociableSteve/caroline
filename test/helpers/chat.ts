@@ -70,8 +70,12 @@ export function chatHarness({
   configured = true,
   regeneratePlan = () => Promise.resolve<PlanRegeneration>({ status: 'drawn', summary: 'A plan.' }),
 }: ChatHarnessOptions): ChatHarness {
+  // The zone is pinned as it is everywhere else in the suite, and merged one level down: a test
+  // overriding `jobs` with a spread would otherwise drop the timezone and pass or fail by where CI
+  // happens to think it is.
+  const { jobs, ...rest } = file as { jobs?: Record<string, unknown> }
   const config = loadConfig({
-    file: { jobs: { timezone: 'Europe/London' }, ...file },
+    file: { ...rest, jobs: { timezone: 'Europe/London', ...(jobs ?? {}) } },
     env: {} as NodeJS.ProcessEnv,
   })
 

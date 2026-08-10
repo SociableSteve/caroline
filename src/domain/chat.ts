@@ -65,8 +65,3 @@ export type ChatInverse =
       readonly actedAt: number | null
       readonly actedAtMarker: string | null
     }
-
-/** Several inverses, applied in the reverse of the order they were recorded in. */
-export interface ChatInverseBatch {
-  readonly operations: readonly ChatInverse[]
-}

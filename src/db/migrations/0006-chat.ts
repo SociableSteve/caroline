@@ -66,6 +66,8 @@ export const chat: Migration = {
         -- beside it: a turn that streamed three sentences and then lost the provider said those
         -- three sentences, and blanking them would be a second inaccuracy on top of the first.
         error text,
+        -- One turn per position. The unique index this creates is also the one every read of a
+        -- conversation uses, so there is no second index on the same two columns.
         unique (conversation_id, seq),
         check (
           role = 'assistant' or (
@@ -76,8 +78,6 @@ export const chat: Migration = {
         )
       )
     `)
-
-    database.exec('create index chat_messages_conversation on chat_messages (conversation_id, seq)')
 
     /*
      * What a turn changed, one row per mutation, in the order they happened. Two things read
@@ -105,11 +105,10 @@ export const chat: Migration = {
         inverse text,
         created_at integer not null,
         undone_at integer,
+        -- One change per position in a turn. As above, this index is the one the reads use.
         unique (message_id, position)
       )
     `)
-
-    database.exec('create index chat_changes_message on chat_changes (message_id, position)')
 
     /*
      * An operation the model proposed and did not perform: a delete, or a write past the point

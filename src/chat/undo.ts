@@ -71,14 +71,19 @@ export function undoTurn(
 }
 
 /**
- * One inverse operation. A snapshot that does not read back as a row is skipped rather than
- * written: it is Caroline's own JSON and should always be one, and writing a half-understood row
- * into `tasks` would be a worse outcome than an undo that could not finish.
+ * One inverse operation. A snapshot that does not read back as a row raises rather than being
+ * skipped: it is Caroline's own JSON and should always be one, and the two ways of being wrong about
+ * that are not equal. Writing a half-understood row into `tasks` is worse than an undo that could
+ * not finish, and marking a change undone without undoing it is worse still, because the batch is
+ * then unretryable and the task keeps what the turn wrote. Raising inside the transaction rolls the
+ * whole undo back and leaves the batch exactly as it was.
  */
 function apply(database: Database, operation: ChatInverse): void {
   if (operation.kind === 'restore-task') {
     const task = taskFromSnapshot(operation.task)
-    if (task === null) return
+    if (task === null) {
+      throw new Error(`the stored snapshot of a task could not be read back, so nothing was undone`)
+    }
 
     restoreTask(database, task)
     setTaskTags(database, task.id, operation.tags)
@@ -96,7 +101,13 @@ function apply(database: Database, operation: ChatInverse): void {
 
   if (operation.kind === 'restore-project') {
     const project = projectFromSnapshot(operation.project)
-    if (project !== null) restoreProject(database, project)
+    if (project === null) {
+      throw new Error(
+        `the stored snapshot of a project could not be read back, so nothing was undone`,
+      )
+    }
+
+    restoreProject(database, project)
     return
   }
 
@@ -105,9 +116,17 @@ function apply(database: Database, operation: ChatInverse): void {
     return
   }
 
-  restoreSourceLifecycle(database, operation.id, {
-    lifecycleState: operation.lifecycleState,
-    actedAt: operation.actedAt,
-    actedAtMarker: operation.actedAtMarker,
-  })
+  if (operation.kind === 'restore-source-lifecycle') {
+    restoreSourceLifecycle(database, operation.id, {
+      lifecycleState: operation.lifecycleState,
+      actedAt: operation.actedAt,
+      actedAtMarker: operation.actedAtMarker,
+    })
+    return
+  }
+
+  // Named rather than left as the last `else`, so a kind added to `ChatInverse` later fails to
+  // compile here instead of being silently applied as whatever this branch happened to be.
+  const unhandled: never = operation
+  throw new Error(`unknown inverse operation: ${JSON.stringify(unhandled)}`)
 }

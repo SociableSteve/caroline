@@ -31,12 +31,18 @@ import {
   snapshotTask,
 } from '../snapshot.js'
 import { defineTool, type ChatTool, type ChatToolContext } from '../types.js'
-import { dateFrom, taskSummary } from './shared.js'
+import { dateFrom, taskSummary, type DayArgument } from './shared.js'
 
 /** The statuses a task may be filed into from chat. Completing has its own tool. */
 const fileableStatuses = taskStatuses.filter((status) => status !== 'done')
 
 const localDate = { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' } as const
+
+/** A local date, or `null` to clear the field. Every nullable field a tool sets is clearable. */
+const clearableDate = {
+  type: ['string', 'null'],
+  pattern: '^\\d{4}-\\d{2}-\\d{2}$',
+} as unknown as Record<string, unknown>
 
 /** The fields a caller may set on a task, as JSON Schema. Shared by create and update. */
 const taskFields = {
@@ -45,10 +51,14 @@ const taskFields = {
   status: { type: 'string', enum: fileableStatuses },
   projectId: { type: ['string', 'null'], maxLength: 64 },
   estimateMinutes: { type: ['integer', 'null'], minimum: 1, maximum: 1440 },
-  dueAt: { ...localDate, description: 'A local date. The deadline is the end of that day.' },
+  dueAt: {
+    ...clearableDate,
+    description: 'A local date, or null to remove the deadline. A deadline is the end of that day.',
+  },
   deferUntil: {
-    ...localDate,
-    description: 'A local date. The task is hidden from Next actions until that morning.',
+    ...clearableDate,
+    description:
+      'A local date, or null to remove the deferral. A deferred task is hidden from Next actions until that morning.',
   },
   waitingOn: { type: ['string', 'null'], maxLength: 500 },
 } as unknown as Record<string, unknown>
@@ -59,31 +69,45 @@ interface TaskFieldArguments {
   readonly status?: TaskStatus
   readonly projectId?: string | null
   readonly estimateMinutes?: number | null
-  readonly dueAt?: string
-  readonly deferUntil?: string
+  readonly dueAt?: string | null
+  readonly deferUntil?: string | null
   readonly waitingOn?: string | null
 }
 
-/** The two date fields, read into instants, or the message saying which one is not a date. */
+/**
+ * The two date fields, read into instants, or the message saying which one is not a date.
+ *
+ * Three cases each, not two: absent leaves the field alone, a date sets it, and `null` clears it.
+ * Without the third there would be no tool that could take a deadline off a task, which is a plain
+ * thing to ask for.
+ */
 function readDates(
   context: ChatToolContext,
   args: TaskFieldArguments,
-): { readonly dueAt?: number; readonly deferUntil?: number } | string {
-  const due = args.dueAt === undefined ? null : dateFrom(context, args.dueAt)
-  if (args.dueAt !== undefined && due === null) {
-    return `"${args.dueAt}" is not a date. Use YYYY-MM-DD.`
-  }
+): { readonly dueAt?: number | null; readonly deferUntil?: number | null } | string {
+  const due = readDate(context, args.dueAt)
+  if (typeof due === 'string') return due
 
-  const defer = args.deferUntil === undefined ? null : dateFrom(context, args.deferUntil)
-  if (args.deferUntil !== undefined && defer === null) {
-    return `"${args.deferUntil}" is not a date. Use YYYY-MM-DD.`
-  }
+  const defer = readDate(context, args.deferUntil)
+  if (typeof defer === 'string') return defer
 
   return {
     // A deadline is the end of the day named; a deferral lifts at the start of it.
-    ...(due === null ? {} : { dueAt: due.endOfDay }),
-    ...(defer === null ? {} : { deferUntil: defer.startOfDay }),
+    ...(due === undefined ? {} : { dueAt: due === null ? null : due.endOfDay }),
+    ...(defer === undefined ? {} : { deferUntil: defer === null ? null : defer.startOfDay }),
   }
+}
+
+/** One of them: the day, `null` to clear, `undefined` to leave alone, or the complaint. */
+function readDate(
+  context: ChatToolContext,
+  raw: string | null | undefined,
+): DayArgument | null | undefined | string {
+  if (raw === undefined) return undefined
+  if (raw === null) return null
+
+  const day = dateFrom(context, raw)
+  return day === null ? `"${raw}" is not a date. Use YYYY-MM-DD.` : day
 }
 
 /** A project id that names nothing is the model's mistake, and is worth saying so plainly. */

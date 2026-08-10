@@ -463,20 +463,23 @@ export function registerTaskRoutes(
       const result = markTaskReviewed(database, id, at)
 
       if (!result.applied) {
-        if (result.reason === 'no-task') return notFound(reply, 'task')
-        // Already discharged, so the task as it stands is the answer: a repeated request is a
-        // no-op rather than a fresh stamp.
-        if (result.reason === 'already-reviewed') return responseFor(id)
-        if (result.reason === 'not-a-review') {
-          return badRequest(reply, 'This task is not an open pull request awaiting your review')
+        switch (result.reason) {
+          case 'no-task':
+            return notFound(reply, 'task')
+          // Already discharged, so the task as it stands is the answer: a repeated request is a
+          // no-op rather than a fresh stamp.
+          case 'already-reviewed':
+            return responseFor(id)
+          case 'not-a-review':
+            return badRequest(reply, 'This task is not an open pull request awaiting your review')
+          case 'not-tracked':
+            return badRequest(
+              reply,
+              'Sync tracking is off for this task. Turn it back on to follow the review again.',
+            )
+          case 'unsynced':
+            return badRequest(reply, 'This pull request has not been synced yet')
         }
-        if (result.reason === 'not-tracked') {
-          return badRequest(
-            reply,
-            'Sync tracking is off for this task. Turn it back on to follow the review again.',
-          )
-        }
-        return badRequest(reply, 'This pull request has not been synced yet')
       }
 
       announce(at)

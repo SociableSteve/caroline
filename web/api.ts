@@ -446,9 +446,24 @@ function projectPath(id: string): string {
   return `/api/projects/${encodeURIComponent(id)}`
 }
 
+/** The event names a turn sends. Anything else is not something this client knows how to render. */
+const chatEventTypes: readonly string[] = [
+  'conversation',
+  'user-message',
+  'turn',
+  'text',
+  'tool',
+  'change',
+  'confirmation',
+  'done',
+  'error',
+]
+
 /**
  * One server-sent event, as a chat event. Comments and keep-alives have no `data:` line and are
- * skipped; so is an event whose data will not parse, because half an event is not one.
+ * skipped; so is an event whose data will not parse, because half an event is not one, and so is
+ * one whose name this client does not know: passing it on would have the reader treat it as
+ * whichever type it tests for last.
  */
 function parseEvent(block: string): ChatStreamEvent | null {
   let name = ''
@@ -460,7 +475,7 @@ function parseEvent(block: string): ChatStreamEvent | null {
     if (line.startsWith('data:')) data.push(line.slice('data:'.length).trimStart())
   }
 
-  if (name === '' || data.length === 0) return null
+  if (name === '' || data.length === 0 || !chatEventTypes.includes(name)) return null
 
   try {
     return { type: name, ...(JSON.parse(data.join('\n')) as object) } as ChatStreamEvent
@@ -654,7 +669,9 @@ export const api = {
       const { value, done } = await reader.read()
       if (done) break
 
-      buffered += value ?? ''
+      // Normalised, because SSE allows CRLF and a boundary of `\r\n\r\n` contains no `\n\n` to
+      // split on: a stream through something that rewrote the line endings would never yield an event.
+      buffered += (value ?? '').replace(/\r\n/g, '\n')
 
       // Events are separated by a blank line. Anything after the last one is a partial event and
       // stays in the buffer until the rest of it arrives.

@@ -51,6 +51,17 @@ export interface ChatRouteContext {
   readonly jobs: CarolineJobs
 }
 
+/**
+ * How often a comment line is written while a turn is quiet. Shorter than the change feed's, because
+ * a turn is a request somebody is waiting on rather than a stream they left open.
+ */
+export const TURN_HEARTBEAT_MS = 15_000
+
+export interface ChatRouteOptions {
+  /** Shortened by the tests. Nothing else has a reason to change it. */
+  readonly heartbeatMs?: number
+}
+
 /** Only the fields the schemas publish. Named, so a field added to a record is not published. */
 function toChange(change: ChatChangeRecord) {
   return {
@@ -147,6 +158,7 @@ function toWireEvent(event: ChatEvent): { name: string; data: unknown } {
 export function registerChatRoutes(
   app: FastifyInstance,
   { config, database, changes, now, jobs }: ChatRouteContext,
+  { heartbeatMs = TURN_HEARTBEAT_MS }: ChatRouteOptions = {},
 ): void {
   /**
    * Redrawing the plan from a chat tool takes the same path the regenerate route takes: through the
@@ -271,18 +283,30 @@ export function registerChatRoutes(
         open = false
       })
 
-      const emit = (event: ChatEvent) => {
+      const write = (payload: string) => {
         if (!open) return
-        const { name, data } = toWireEvent(event)
 
         try {
-          reply.raw.write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`)
+          reply.raw.write(payload)
         } catch {
           // The browser has gone. The turn carries on regardless: it is being recorded, and a
           // half-applied turn would be worse than one nobody watched.
           open = false
         }
       }
+
+      const emit = (event: ChatEvent) => {
+        const { name, data } = toWireEvent(event)
+        write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`)
+      }
+
+      /**
+       * A comment line while the turn is quiet. A turn thinking about a long tool loop can say
+       * nothing for minutes, and a proxy is entitled to drop a connection that has gone silent; a
+       * comment is the cheapest thing that counts as saying something. As in the change feed.
+       */
+      const heartbeat = setInterval(() => write(': thinking\n\n'), heartbeatMs)
+      heartbeat.unref()
 
       try {
         const refusal = await chat.turn(
@@ -301,6 +325,7 @@ export function registerChatRoutes(
         emit({ type: 'error', message: 'The turn could not be completed.' })
       }
 
+      clearInterval(heartbeat)
       if (open) reply.raw.end()
     },
   )
@@ -353,7 +378,7 @@ export function registerChatRoutes(
       },
     },
     async (request, reply) => {
-      if (getTranscript(database, request.params.id) === null) {
+      if (getConversation(database, request.params.id) === null) {
         return notFound(reply, 'conversation')
       }
 

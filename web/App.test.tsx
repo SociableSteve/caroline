@@ -235,9 +235,11 @@ describe('the shell', () => {
     window.location.hash = '#/chat'
     window.dispatchEvent(new HashChangeEvent('hashchange'))
 
-    await waitFor(() =>
-      expect(calls.some((call) => call.url.startsWith('/api/chat/conversations'))).toBe(true),
-    )
+    await waitFor(() => {
+      expect(calls.some((call) => call.url.startsWith('/api/chat/conversations'))).toBe(true)
+      // Both, so the test would notice either read being dropped rather than only the list.
+      expect(calls.some((call) => call.url.startsWith('/api/chat/status'))).toBe(true)
+    })
   })
 
   it('follows a hash change without a reload', async () => {

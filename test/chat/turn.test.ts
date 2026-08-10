@@ -265,8 +265,10 @@ describe('a turn that uses tools', () => {
   })
 
   /**
-   * The turn gets one more request once its budget is spent, so that the model can say what it did,
-   * and that request carries no tools: there is nothing left it may call.
+   * The turn gets one more request once its budget is spent, so that the model can say what it did.
+   * It is told so in a message, and the tools stay declared: Anthropic refuses a request whose
+   * messages carry tool blocks and no `tools` field, so withdrawing them would turn a capped turn
+   * into a failed one on that provider alone.
    */
   it('tells the model its budget is spent, and keeps the tools declared while it answers', async () => {
     const harness = chatHarness({
@@ -284,8 +286,6 @@ describe('a turn that uses tools', () => {
       role: 'user',
       content: expect.stringContaining('used all 1 tool calls'),
     })
-    // Still declared: Anthropic refuses a request carrying tool blocks with no tools field, so
-    // withdrawing them here would turn a capped turn into a failed one on that provider alone.
     expect(harness.requests[1]?.tools).toBeDefined()
     expect(doneEvent(events).message.content).toContain('I added the first one.')
     expect(doneEvent(events).message.content).toContain('limit of 1 tool calls')
@@ -384,6 +384,29 @@ describe('a delete a turn proposes', () => {
    * reported rather than escaping: a 500 against a confirmation that can never be retried would
    * leave the user unable to find out what happened.
    */
+  /**
+   * The row is consumed by the decision, so a batch that does not read back cannot be offered again.
+   * Saying nothing ran is the only honest answer; reporting success would leave the user believing a
+   * delete happened.
+   */
+  it('reports a failure when what was proposed cannot be read back', async () => {
+    const harness = deleteHarness()
+    const events = await harness.turn('Delete the venue task')
+    const id = eventsOfType(events, 'confirmation')[0]?.confirmation.id ?? ''
+    harness.database
+      .prepare('update chat_confirmations set arguments = ? where id = ?')
+      .run('{"operations":"not a list"}', id)
+
+    const result = await harness.service.confirm(id, true)
+
+    expect(result).toMatchObject({
+      resolved: true,
+      changes: [],
+      failures: [expect.stringContaining('could not be read back')],
+    })
+    expect(getTask(harness.database, 'task-1')).not.toBeNull()
+  })
+
   it('reports a failure inside the operation rather than escaping', async () => {
     const harness = deleteHarness()
     const events = await harness.turn('Delete the venue task')
@@ -652,6 +675,38 @@ describe('undo', () => {
     harness.service.undo(doneEvent(events).conversation.id, doneEvent(events).message.id)
 
     expect(getProject(harness.database, projectId)).toBeNull()
+  })
+
+  /**
+   * The snapshot is Caroline's own JSON and should always read back. If it does not, the batch has to
+   * stay exactly as it was: marking it undone without undoing it would leave the task holding what
+   * the turn wrote with no way left to put it back.
+   */
+  it('leaves the batch retryable when a stored snapshot cannot be read back', async () => {
+    const harness = chatHarness({
+      answers: [
+        toolAnswer([{ name: 'update_task', arguments: { id: 'task-1', status: 'next_action' } }]),
+        textAnswer('Moved it.'),
+      ],
+    })
+    createTask(harness.database, { id: 'task-1', title: 'Book the venue' }, CHAT_NOW)
+
+    const { conversation, message } = doneEvent(await harness.turn('Move it'))
+    // As though the inverse had been written by a version that stored a different shape.
+    harness.database
+      .prepare(
+        'update chat_changes set inverse = \'[{"kind":"restore-task","task":{},"tags":[]}]\'',
+      )
+      .run()
+
+    expect(() => harness.service.undo(conversation.id, message.id)).toThrow(
+      /could not be read back/,
+    )
+    expect(getTask(harness.database, 'task-1')?.status).toBe('next_action')
+    // Still on offer, because nothing was recorded as having been put back.
+    expect(harness.database.prepare('select undone_at from chat_changes').get()).toMatchObject({
+      undone_at: null,
+    })
   })
 
   it('marks the batch undone, and refuses to undo it twice', async () => {

@@ -142,25 +142,26 @@ export function createConversation(
 const noUsage = { messageCount: 0, inputTokens: 0, outputTokens: 0 }
 
 /**
- * The conversation, with its message count and token usage read from its messages rather than
- * kept as running totals on the row. One query either way, and two places holding the same
- * number is how the two come to disagree.
+ * The conversation's own columns, qualified, and the three figures derived from its messages: how
+ * many turns it holds and what it has cost. Written once and read by both queries below, because two
+ * copies of the same arithmetic is how one of them comes to be wrong.
+ *
+ * Derived rather than kept as running totals on the row, for the same reason.
  */
+const conversationSelect = `${conversationColumns
+  .split(', ')
+  .map((column) => `chat_conversations.${column}`)
+  .join(', ')},
+  (select count(*) from chat_messages where conversation_id = chat_conversations.id)
+    as message_count,
+  (select coalesce(sum(input_tokens), 0) from chat_messages
+    where conversation_id = chat_conversations.id) as input_tokens,
+  (select coalesce(sum(output_tokens), 0) from chat_messages
+    where conversation_id = chat_conversations.id) as output_tokens`
+
 export function getConversation(database: Database, id: string): Conversation | null {
   const row = database
-    .prepare(
-      `select ${conversationColumns
-        .split(', ')
-        .map((column) => `chat_conversations.${column}`)
-        .join(', ')},
-         (select count(*) from chat_messages where conversation_id = chat_conversations.id)
-           as message_count,
-         (select coalesce(sum(input_tokens), 0) from chat_messages
-           where conversation_id = chat_conversations.id) as input_tokens,
-         (select coalesce(sum(output_tokens), 0) from chat_messages
-           where conversation_id = chat_conversations.id) as output_tokens
-       from chat_conversations where chat_conversations.id = ?`,
-    )
+    .prepare(`select ${conversationSelect} from chat_conversations where chat_conversations.id = ?`)
     .get(id)
 
   return row === undefined ? null : toConversation(row as Row)
@@ -182,14 +183,7 @@ function toConversation(row: Row): Conversation {
 export function listConversations(database: Database, limit = 50): Conversation[] {
   return database
     .prepare(
-      `select chat_conversations.id, chat_conversations.title, chat_conversations.created_at,
-         chat_conversations.updated_at,
-         (select count(*) from chat_messages where conversation_id = chat_conversations.id)
-           as message_count,
-         (select coalesce(sum(input_tokens), 0) from chat_messages
-           where conversation_id = chat_conversations.id) as input_tokens,
-         (select coalesce(sum(output_tokens), 0) from chat_messages
-           where conversation_id = chat_conversations.id) as output_tokens
+      `select ${conversationSelect}
        from chat_conversations
        order by chat_conversations.updated_at desc, chat_conversations.id
        limit ?`,
@@ -305,11 +299,14 @@ export function finishMessage(
     }
 
     const message = messageOrThrow(database, id)
+    // The only write between here and the return touches the conversation's own row, which is not
+    // part of a message, so reading the message a second time would repeat every nested query to
+    // answer with what is already in hand.
     database
       .prepare('update chat_conversations set updated_at = ? where id = ?')
       .run(now, message.conversationId)
 
-    return messageOrThrow(database, id)
+    return message
   })
 }
 
@@ -361,6 +358,18 @@ export function getTranscript(database: Database, conversationId: string): Trans
 }
 
 /**
+ * What a turn is sent as context: who said what, and nothing else. A narrower shape than the
+ * transcript's on purpose. Spec 07 sends the model the text of the conversation and has it fetch
+ * detail through tools, so loading each turn's changes and confirmations here would be two queries
+ * per message for data the next line throws away, forty messages at a time.
+ */
+export interface ContextMessage {
+  readonly id: string
+  readonly role: ChatRole
+  readonly content: string
+}
+
+/**
  * The turns a new turn is given as context, oldest first. Bounded by the caller, because what a
  * turn can afford to carry is a configuration question and not this layer's.
  *
@@ -371,16 +380,23 @@ export function contextMessages(
   database: Database,
   conversationId: string,
   limit: number,
-): ChatMessageRecord[] {
+): ContextMessage[] {
   return database
     .prepare(
-      `select ${messageColumns} from chat_messages
+      `select id, role, content from chat_messages
        where conversation_id = ?
        order by seq desc
        limit ?`,
     )
     .all(conversationId, limit)
-    .map((row) => toMessage(database, row as Row))
+    .map((raw) => {
+      const row = raw as Row
+      return {
+        id: String(row.id),
+        role: String(row.role) as ChatRole,
+        content: String(row.content),
+      }
+    })
     .reverse()
 }
 
