@@ -27,6 +27,32 @@ describe('redactConfig', () => {
     expect(redacted.server.accessToken).toBe(REDACTED)
   })
 
+  /** An override may name a hosted provider the base config never did. Spec 09, criterion 8. */
+  it('replaces the key an override resolved, not only the base one', () => {
+    const config = loadConfig({
+      file: {
+        llm: {
+          provider: 'ollama',
+          model: 'llama',
+          overrides: { chat: { provider: 'anthropic', model: 'claude' } },
+        },
+      },
+      env: configuredEnv,
+    })
+
+    const redacted = redactConfig(config)
+
+    expect(config.llm.overrides.chat?.apiKey).toBe('sk-ant-supersecret')
+    expect(redacted.llm.overrides.chat?.apiKey).toBe(REDACTED)
+    expect(JSON.stringify(redacted)).not.toContain('sk-ant-supersecret')
+  })
+
+  it('leaves an override that is not configured absent rather than half-built', () => {
+    const config = loadConfig({ file: null, env: configuredEnv })
+
+    expect(redactConfig(config).llm.overrides).toEqual({ classification: null, chat: null })
+  })
+
   it('leaves unset secrets as null rather than pretending they exist', () => {
     const config = loadConfig({ file: null, env: {} as NodeJS.ProcessEnv })
 

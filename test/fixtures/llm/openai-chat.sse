@@ -1,0 +1,14 @@
+data: {"id":"chatcmpl_recorded_0002","object":"chat.completion.chunk","created":1750000000,"model":"gpt-recorded","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+data: {"id":"chatcmpl_recorded_0002","object":"chat.completion.chunk","created":1750000000,"model":"gpt-recorded","choices":[{"index":0,"delta":{"content":"Three things "},"finish_reason":null}]}
+
+data: {"id":"chatcmpl_recorded_0002","object":"chat.completion.chunk","created":1750000000,"model":"gpt-recorded","choices":[{"index":0,"delta":{"content":"are waiting "},"finish_reason":null}]}
+
+data: {"id":"chatcmpl_recorded_0002","object":"chat.completion.chunk","created":1750000000,"model":"gpt-recorded","choices":[{"index":0,"delta":{"content":"on somebody else."},"finish_reason":null}]}
+
+data: {"id":"chatcmpl_recorded_0002","object":"chat.completion.chunk","created":1750000000,"model":"gpt-recorded","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: {"id":"chatcmpl_recorded_0002","object":"chat.completion.chunk","created":1750000000,"model":"gpt-recorded","choices":[],"usage":{"prompt_tokens":128,"completion_tokens":11,"total_tokens":139}}
+
+data: [DONE]
+

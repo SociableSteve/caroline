@@ -1,0 +1,24 @@
+{
+  "id": "chatcmpl_recorded_0001",
+  "object": "chat.completion",
+  "created": 1750000000,
+  "model": "gpt-recorded",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\"status\":\"next\",\"confidence\":0.82,\"reason\":\"It asks for a decision from you and nobody else is blocking it.\"}",
+        "refusal": null,
+        "annotations": []
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 412,
+    "completion_tokens": 37,
+    "total_tokens": 449
+  }
+}

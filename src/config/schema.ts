@@ -14,10 +14,15 @@ export const contentLevelRank: Record<ContentLevel, number> = {
 }
 
 export const llmProviders = ['none', 'anthropic', 'openai', 'ollama'] as const
-export type LlmProvider = (typeof llmProviders)[number]
+/**
+ * Which provider is configured, not the provider itself. `src/llm/types.ts` owns the
+ * interface that has the shorter name, and the two appear together often enough that
+ * leaving both as `LlmProvider` would make every import site ambiguous.
+ */
+export type LlmProviderName = (typeof llmProviders)[number]
 
 /** Providers that send content off this machine. Spec 09 guards `full` content for these. */
-export const remoteLlmProviders: readonly LlmProvider[] = ['anthropic', 'openai']
+export const remoteLlmProviders: readonly LlmProviderName[] = ['anthropic', 'openai']
 
 /**
  * A URL with no user info in it. `baseUrl` is not a secret field, so it is returned
@@ -36,6 +41,38 @@ export const credentialFreeUrl = z
     const { username, password } = new URL(value)
     return username === '' && password === ''
   }, 'must not embed credentials: set the API key in the environment instead')
+
+/**
+ * The bounds on the LLM settings, declared once. The base config and a per-job override
+ * accept the same field twice over, and a bound tightened in one place only would leave an
+ * override able to ask for something the base config would have refused.
+ */
+const llmField = {
+  provider: () => z.enum(llmProviders),
+  model: () => z.string().min(1).nullable(),
+  baseUrl: () => credentialFreeUrl.nullable(),
+  maxTokens: () => z.number().int().min(1).max(200_000),
+  timeoutMs: () => z.number().int().min(1_000).max(600_000),
+}
+
+/**
+ * What a job may vary from the base LLM settings. Spec 03: a cheap fast model for hourly
+ * sorting and a stronger one for chat is the expected setup. `apiKey` is absent by design,
+ * as everywhere else in the file config: it follows from the provider and the environment.
+ *
+ * Every field is optional rather than defaulted, because absent has to stay distinguishable
+ * from set: an override that says nothing about a field inherits it, and one that names it
+ * does not.
+ */
+const llmOverrideSchema = z
+  .object({
+    provider: llmField.provider().optional(),
+    model: llmField.model().optional(),
+    baseUrl: llmField.baseUrl().optional(),
+    maxTokens: llmField.maxTokens().optional(),
+    timeoutMs: llmField.timeoutMs().optional(),
+  })
+  .strict()
 
 /**
  * The configuration as it may be written in `caroline.config.json`. Secrets are absent by
@@ -79,9 +116,23 @@ export const fileConfigSchema = z
       .default({}),
     llm: z
       .object({
-        provider: z.enum(llmProviders).default('none'),
-        model: z.string().min(1).nullable().default(null),
-        baseUrl: credentialFreeUrl.nullable().default(null),
+        provider: llmField.provider().default('none'),
+        model: llmField.model().default(null),
+        baseUrl: llmField.baseUrl().default(null),
+        maxTokens: llmField.maxTokens().default(4096),
+        timeoutMs: llmField.timeoutMs().default(60_000),
+        /**
+         * Per-job partial configs. Spec 03 names classification and chat; the planner runs
+         * on the base settings, because a plan is drawn once a day and is the one place
+         * where paying for the better model is obviously worth it.
+         */
+        overrides: z
+          .object({
+            classification: llmOverrideSchema.optional(),
+            chat: llmOverrideSchema.optional(),
+          })
+          .strict()
+          .default({}),
       })
       .strict()
       .default({}),
@@ -115,6 +166,24 @@ export const fileConfigSchema = z
 export type FileConfig = z.infer<typeof fileConfigSchema>
 
 /**
+ * Everything needed to talk to one model. The base settings and each override resolve to
+ * one of these at load time, so `src/llm` is handed a complete answer rather than a partial
+ * one it would have to merge itself, and so the key each provider needs is looked up in the
+ * environment exactly once, where the environment is still in scope.
+ */
+export interface LlmSettings {
+  readonly provider: LlmProviderName
+  readonly model: string | null
+  readonly baseUrl: string | null
+  readonly apiKey: string | null
+  readonly maxTokens: number
+  readonly timeoutMs: number
+  /** True only for ollama, which is the whole of the "does content leave the machine" test. */
+  readonly isLocal: boolean
+  readonly configured: boolean
+}
+
+/**
  * The effective configuration the rest of the process reads: the validated file config
  * plus the secrets from the environment and the derived "is this usable yet" flags.
  */
@@ -137,13 +206,12 @@ export interface Config {
     readonly retainContentDays: number
     readonly allowFullContentToRemoteProvider: boolean
   }
-  readonly llm: {
-    readonly provider: LlmProvider
-    readonly model: string | null
-    readonly baseUrl: string | null
-    readonly apiKey: string | null
-    readonly isLocal: boolean
-    readonly configured: boolean
+  readonly llm: LlmSettings & {
+    /** Null where no override is configured, which is the normal case for both. */
+    readonly overrides: {
+      readonly classification: LlmSettings | null
+      readonly chat: LlmSettings | null
+    }
   }
   readonly integrations: {
     readonly github: {
@@ -168,6 +236,11 @@ export interface Config {
 export const secretPaths = [
   ['server', 'accessToken'],
   ['llm', 'apiKey'],
+  // An override may name a different provider, and so may resolve a different key. Both are
+  // listed, so an override pointing at a hosted provider cannot leak a key the base config
+  // never held.
+  ['llm', 'overrides', 'classification', 'apiKey'],
+  ['llm', 'overrides', 'chat', 'apiKey'],
   ['integrations', 'github', 'token'],
   ['integrations', 'google', 'clientSecret'],
 ] as const satisfies readonly (readonly string[])[]
