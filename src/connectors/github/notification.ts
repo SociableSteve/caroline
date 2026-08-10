@@ -27,10 +27,10 @@ const PULL_REQUEST_MESSAGE_ID = /^([^/@\s]+)\/([^/@\s]+)\/pull\/(\d+)(?:\/[^@\s]
  * A sender at github.com, including its subdomains: notifications come from
  * `notifications@github.com`, and the reply and no-reply addresses are on `*.github.com`.
  *
- * A `Message-ID` is written by whoever composed the message, so it is corroborated rather than
- * trusted on its own. This is not a security boundary and cannot be one without DKIM, which Gmail
- * has already checked and does not report through the metadata; it is what keeps a forwarded or
- * quoted notification from being mistaken for one GitHub sent.
+ * A `Message-ID` is written by whoever composed the message, so it is corroborated by who sent the
+ * thread rather than trusted on its own. This is not a security boundary and cannot be one without
+ * DKIM, which Gmail has already checked and does not report through the metadata; it is what keeps
+ * a forwarded or quoted notification from being mistaken for one GitHub sent.
  */
 const GITHUB_SENDER = /@(?:[a-z0-9-]+\.)*github\.com>?\s*$/i
 
@@ -38,7 +38,6 @@ const GITHUB_SENDER = /@(?:[a-z0-9-]+\.)*github\.com>?\s*$/i
 interface NotificationMetadata {
   readonly messageIds?: unknown
   readonly from?: unknown
-  readonly participants?: unknown
 }
 
 function strings(value: unknown): string[] {
@@ -47,14 +46,17 @@ function strings(value: unknown): string[] {
     : []
 }
 
-/** Whether anyone on the thread is a github.com address. `from` is the sender of its first message. */
+/**
+ * Whether the thread was *sent* by GitHub. `from` only, which is the sender of the thread's first
+ * message, and for a notification thread is `notifications@github.com` on every message in it.
+ *
+ * Deliberately not the participant list, which carries To and Cc as well. Anyone can put a
+ * `github.com` address in a Cc line and a GitHub-shaped `Message-ID` on their own mail, and the
+ * effect would be their email being suppressed instead of triaged, which is the one outcome this
+ * rule must not produce by accident.
+ */
 function hasGitHubSender(metadata: NotificationMetadata): boolean {
-  const senders = [
-    ...(typeof metadata.from === 'string' ? [metadata.from] : []),
-    ...strings(metadata.participants),
-  ]
-
-  return senders.some((sender) => GITHUB_SENDER.test(sender.trim()))
+  return typeof metadata.from === 'string' && GITHUB_SENDER.test(metadata.from.trim())
 }
 
 /**

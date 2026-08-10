@@ -69,6 +69,32 @@ describe('what is not a pull request notification', () => {
     expect(identifyPullRequestNotification(forwarded)).toBeNull()
   })
 
+  // Who sent it, not who is on it. Anyone can put a github.com address in a Cc line and a
+  // GitHub-shaped message id on their own mail, and the effect would be their email suppressed
+  // rather than triaged, which is the one outcome this rule must not produce by accident.
+  it('is not somebody else’s mail with a github.com address merely copied in', () => {
+    const copiedIn = {
+      ...metadataOf('thread-hub-numbers'),
+      from: 'Sam Reed <sam.reed@example.com>',
+      participants: [
+        'Sam Reed <sam.reed@example.com>',
+        'example-org/example-service <example-service@noreply.github.com>',
+      ],
+      messageIds: ['example-org/example-service/pull/42@github.com'],
+    }
+
+    expect(identifyPullRequestNotification(copiedIn)).toBeNull()
+  })
+
+  it('is not a thread with no sender at all, which a bare metadata row can be', () => {
+    expect(
+      identifyPullRequestNotification({
+        from: null,
+        messageIds: ['example-org/example-service/pull/42@github.com'],
+      }),
+    ).toBeNull()
+  })
+
   it('is not a GitHub sender with nothing to identify a pull request by', () => {
     expect(identifyPullRequestNotification({ ...reviewRequest(), messageIds: [] })).toBeNull()
   })
@@ -88,5 +114,11 @@ describe('what is not a pull request notification', () => {
     expect(identifyPullRequestNotification(null)).toBeNull()
     expect(identifyPullRequestNotification('a string')).toBeNull()
     expect(identifyPullRequestNotification({ messageIds: 'not a list', from: 1 })).toBeNull()
+    expect(
+      identifyPullRequestNotification({
+        messageIds: [42, null],
+        from: 'Ada Byron <notifications@github.com>',
+      }),
+    ).toBeNull()
   })
 })

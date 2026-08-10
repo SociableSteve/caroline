@@ -14,8 +14,11 @@ is driven by.
 | `thread-github-issue.json`          | A GitHub notification about an _issue_, which is not a pull request and must not be recognised                              |
 
 The `Message-ID` headers are part of what is read, not decoration: GitHub writes
-`owner/repo/pull/<number>@github.com`, which is how a notification is recognised without a body.
-They are scrubbed like everything else, but their shape is GitHub's own.
+`owner/repo/pull/<number>@github.com` for the pull request itself, and the same prefix followed by
+what the notification is about for the rest, such as `/c<id>` for a comment, `/review/<id>` for a
+review or `/push/<sha>` for new commits. The prefix is what identifies the pull request, and it is
+how a notification is recognised without a body. `src/connectors/github/notification.ts` holds the
+pattern and the reasoning; these are scrubbed like everything else, but their shape is GitHub's own.
 
 The bodies are base64url as Gmail sends them. To read one back:
 

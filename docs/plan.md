@@ -162,8 +162,10 @@ How the three design questions were settled, now written into spec 02:
 - **Suppression is not completion.** `suppressed_at` is its own column rather than a reuse of
   `resolved_at`, because resolution is what proposes completing a task and this must never do
   that. The thread's source is relinked to the pull request's task, so the notification appears
-  on that card as provenance; where an untriaged inbox task already existed for the thread it is
-  deleted, which removes the duplicate card and not the record of where it came from.
+  on that card as provenance, or keeps `task_id` null where the lifecycle gave the pull request no
+  task at all. Where an untriaged inbox task already existed for the thread it is retired: deleted,
+  which removes the duplicate card and not the record of where it came from. That is the one
+  exception to spec 01's rule that sync never deletes a task, and spec 01 now names it as such.
 - **The user's own decisions still win.** A thread whose task the user has triaged is neither
   retired nor suppressed. The pull request is still brought in, because that half of the rule is
   about GitHub rather than about their mail.

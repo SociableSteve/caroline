@@ -134,9 +134,17 @@ complete its tasks; it is flagged in the UI if open tasks remain.
 
 ### Deletion
 
-Tasks are hard-deleted only by explicit user action. Sync never deletes. A source whose
-upstream item disappears is marked `resolved_at`, and its task, if any, is proposed for
-completion rather than removed.
+Tasks are hard-deleted only by explicit user action. Sync never deletes a piece of work: a
+source whose upstream item disappears is marked `resolved_at`, and its task, if any, is
+proposed for completion rather than removed.
+
+There is one exception, and it is not work being thrown away. An untriaged inbox task that
+turns out to be a duplicate of something already on the board is retired: deleted, with its
+source relinked to the task that owns the work, so the card goes and the provenance stays. It
+applies only while the task is untriaged, which is `status = 'inbox'` and
+`status_set_by != 'user'`; a task the user has decided on is theirs, and the rule steps aside.
+Spec 02 defines the one case that reaches it, a GitHub notification email about a pull request
+Caroline already has.
 
 ## Non-goals
 

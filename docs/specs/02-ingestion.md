@@ -200,10 +200,18 @@ card as provenance, and no task of its own is created. A suppressed source is al
 followed: it leaves the set the Gmail resolution pass reads, so archiving the mail later cannot
 propose completing the pull request.
 
+Where the lifecycle gave the pull request no task, which is the case in rule 2 where nobody is
+asking the user to review it, there is no card for the provenance to go on and the suppressed
+source keeps `task_id = null`. Suppression is not conditional on there being a task: what it
+means is that the thread is a second telling, and that is true either way. The one thing it must
+never do is create a task to hold the link.
+
 Where an untriaged inbox task for the thread already exists it is retired: the task is deleted
 and the thread's source relinked to the pull request's task, so what goes is the duplicate card
 and not the record of where it came from. Untriaged means what it means to the classifier (spec
-04): in `inbox`, and not put there by the user.
+04): in `inbox`, and not put there by the user. This is the one exception to spec 01's rule that
+sync never deletes a task, and spec 01 names it as such: a duplicate card nobody has triaged is
+not work being thrown away, and its source survives to prove it.
 
 A thread the user has triaged themselves is neither retired nor suppressed. That is spec 01's
 rule about sync not overturning a decision the user made, and it applies here whole. The pull
