@@ -162,6 +162,19 @@ export function enableSyncTracking(task: Task, at: number): Task {
 }
 
 /**
+ * A task nobody has decided on: still in the inbox, and not put there by the user. It is the same
+ * question the classifier asks when it picks candidates, and `listClassificationCandidates` asks it
+ * in SQL for the same reason: `status = 'inbox' and status_set_by != 'user'`.
+ *
+ * What it licenses is narrow. Sync may retire an untriaged task that turned out to be a duplicate
+ * of something already on the board (spec 02, backup sources); it may never touch a triaged one,
+ * because that status is a decision somebody made.
+ */
+export function isUntriaged(task: Pick<Task, 'status' | 'statusSetBy'>): boolean {
+  return task.status === 'inbox' && task.statusSetBy !== 'user'
+}
+
+/**
  * A deferred task is hidden from Next actions and from daily planning until the moment
  * passes. `deferUntil` equal to now has passed, so the task is visible.
  */

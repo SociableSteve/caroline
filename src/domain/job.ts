@@ -28,6 +28,11 @@ export interface JobCounts {
   readonly resolved: number
   /** Inbox tasks returned to the classification queue by an upstream content change. */
   readonly requeued: number
+  /**
+   * Items suppressed as a second telling of something another connector already covers, such as a
+   * GitHub notification email about a pull request on the board. Spec 02.
+   */
+  readonly suppressed: number
   /** Calendar events written or updated. They are not sources, so they have their own count. */
   readonly eventsStored: number
   /** Calendar events dropped because the pass no longer found them upstream. */
@@ -55,6 +60,7 @@ export const noCounts: JobCounts = {
   tasksUpdated: 0,
   resolved: 0,
   requeued: 0,
+  suppressed: 0,
   eventsStored: 0,
   eventsRemoved: 0,
   plansGenerated: 0,

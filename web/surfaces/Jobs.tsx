@@ -30,6 +30,7 @@ const countLabels: ReadonlyArray<{ key: keyof JobRun['counts']; label: string }>
   { key: 'tasksUpdated', label: 'tasks moved' },
   { key: 'resolved', label: 'resolved' },
   { key: 'requeued', label: 'requeued' },
+  { key: 'suppressed', label: 'duplicate notifications suppressed' },
   { key: 'eventsStored', label: 'calendar events' },
   { key: 'eventsRemoved', label: 'events dropped' },
   { key: 'classified', label: 'classified' },

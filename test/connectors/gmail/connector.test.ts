@@ -75,7 +75,17 @@ describe('mapping a recorded thread', () => {
       messageCount: 2,
       lastMessageAt: 1786104000000,
       labels: ['IMPORTANT', 'INBOX', 'SENT', 'UNREAD'],
+      messageIds: [
+        'CAF2rk9-hub-numbers-1@mail.example.com',
+        'CAF2rk9-hub-numbers-2@mail.example.com',
+      ],
     })
+  })
+
+  it('strips the angle brackets from a message id, which are transport rather than identity', () => {
+    const metadata = toThreadMetadata(gmailFixture('thread-invoice'))
+
+    expect(metadata.messageIds).toEqual(['inv-2026-118@supplier.example'])
   })
 
   it('reads the body of the last message, which is what needs doing about', () => {

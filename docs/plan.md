@@ -151,18 +151,22 @@ notification:
    thread alone and let it be classified as any other email would be. A backup source that
    swallows mail when it cannot do its job is worse than no backup source.
 
-Design questions to settle before building it:
+How the three design questions were settled, now written into spec 02:
 
-- **Identification without a body.** The default content policy stores no message body
-  (spec 09), so detection has to work from what the metadata carries: the sender, the
-  `List-ID`, and the subject. Whether that is enough to recover the repository and number, or
-  whether the connector has to fetch the thread transiently the way classification does, is
-  the first thing to establish.
-- **Suppression is not completion.** Retiring the email task must not read as work done. It is
-  nearer to the Gmail resolution path than to a user completing something, and it needs to be
-  visible on the pull request's card as its provenance rather than silently vanishing.
-- **The user's own decisions still win.** A thread the user has already triaged themselves is
-  not something a later sync gets to retire, which is spec 01's rule and applies here whole.
+- **Identification without a body.** Metadata is enough, and no transient fetch is needed. A
+  GitHub notification carries a `Message-ID` of the form `owner/repo/pull/<number>@github.com`,
+  which names the repository and the number, says `pull` rather than `issues`, and is not a
+  subject line that a reply prefix or a translation rewrites. The thread's `Message-ID` headers
+  joined the retained metadata; recognition requires one of them and a sender at `github.com`.
+  GitHub Enterprise stays out of scope, as it already was.
+- **Suppression is not completion.** `suppressed_at` is its own column rather than a reuse of
+  `resolved_at`, because resolution is what proposes completing a task and this must never do
+  that. The thread's source is relinked to the pull request's task, so the notification appears
+  on that card as provenance; where an untriaged inbox task already existed for the thread it is
+  deleted, which removes the duplicate card and not the record of where it came from.
+- **The user's own decisions still win.** A thread whose task the user has triaged is neither
+  retired nor suppressed. The pull request is still brought in, because that half of the rule is
+  about GitHub rather than about their mail.
 
 Exit: a notification email for a pull request already on the board creates nothing; one for a
 pull request the discovery query missed brings that pull request in with its GitHub provenance

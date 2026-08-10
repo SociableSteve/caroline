@@ -96,6 +96,15 @@ export function pullRequestSource(task: Pick<TaskView, 'sources'>): SourceView |
   return task.sources.find((source) => source.provider === 'github')
 }
 
+/**
+ * The items that turned out to be a second telling of this task's work: the GitHub notification
+ * email for a pull request already on the board. They carry no task of their own, and the card is
+ * where they are accounted for. Suppressing something must not mean it silently vanished. Spec 02.
+ */
+export function suppressedSources(task: Pick<TaskView, 'sources'>): SourceView[] {
+  return task.sources.filter((source) => source.suppressedAt !== null)
+}
+
 export function pullRequestMetadata(source: SourceView): PullRequestMetadata {
   return (source.metadata ?? {}) as PullRequestMetadata
 }

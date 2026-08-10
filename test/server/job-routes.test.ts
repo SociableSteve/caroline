@@ -5,6 +5,12 @@
  */
 import { describe, expect, it } from 'vitest'
 import { recordJobRun } from '../../src/db/repositories/job-runs.js'
+import { noCounts, type JobCounts } from '../../src/domain/job.js'
+
+/** Every count the domain defines, each set to one, so a dropped field is a failed comparison. */
+const everyCountAtOne = Object.fromEntries(
+  Object.keys(noCounts).map((key) => [key, 1]),
+) as unknown as JobCounts
 import { REQUEST_TIME, testServer } from '../helpers/test-server.js'
 
 describe('GET /api/jobs', () => {
@@ -42,6 +48,24 @@ describe('GET /api/jobs', () => {
       { status: 'failure', trigger: 'manual', error: 'GitHub answered 401 Unauthorized' },
       { status: 'success', counts: { itemsSeen: 2 } },
     ])
+  })
+
+  // The response schema names every count. One left out of it is stripped on the way out and the
+  // jobs surface reads a pass that did work as having done nothing.
+  it('returns every count the domain defines, none of them dropped in serialisation', async () => {
+    const { app, database } = await testServer()
+    recordJobRun(database, {
+      job: 'sync',
+      trigger: 'scheduled',
+      startedAt: REQUEST_TIME,
+      finishedAt: REQUEST_TIME + 500,
+      status: 'success',
+      counts: everyCountAtOne,
+    })
+
+    const { runs } = (await app.inject({ method: 'GET', url: '/api/jobs' })).json()
+
+    expect(runs[0].counts).toEqual(everyCountAtOne)
   })
 
   it('never returns the stack, which is of no use in a browser', async () => {

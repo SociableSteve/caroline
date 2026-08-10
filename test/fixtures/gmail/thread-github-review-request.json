@@ -1,0 +1,82 @@
+{
+  "id": "thread-github-review-request",
+  "historyId": "884502",
+  "messages": [
+    {
+      "id": "message-4",
+      "threadId": "thread-github-review-request",
+      "labelIds": ["INBOX", "UNREAD"],
+      "snippet": "@reviewer-you has been requested to review this pull request",
+      "internalDate": "1786107600000",
+      "payload": {
+        "mimeType": "multipart/alternative",
+        "headers": [
+          { "name": "From", "value": "Ada Byron <notifications@github.com>" },
+          {
+            "name": "To",
+            "value": "example-org/example-service <example-service@noreply.github.com>"
+          },
+          { "name": "Cc", "value": "Review requested <review_requested@noreply.github.com>" },
+          {
+            "name": "Reply-To",
+            "value": "example-org/example-service <reply+AAAAAAAABBBBBBBB@reply.github.com>"
+          },
+          {
+            "name": "Subject",
+            "value": "[example-org/example-service] Add a retry to the fetch helper (PR #42)"
+          },
+          { "name": "Date", "value": "Wed, 05 Aug 2026 09:00:00 +0000" },
+          { "name": "Message-ID", "value": "<example-org/example-service/pull/42@github.com>" },
+          {
+            "name": "List-ID",
+            "value": "example-org/example-service <example-service.example-org.github.com>"
+          },
+          { "name": "X-GitHub-Reason", "value": "review_requested" }
+        ],
+        "parts": [
+          {
+            "mimeType": "text/plain",
+            "body": {
+              "size": 136,
+              "data": "QHJldmlld2VyLXlvdSBoYXMgYmVlbiByZXF1ZXN0ZWQgdG8gcmV2aWV3IHRoaXMgcHVsbCByZXF1ZXN0LgoKVmlldyBpdCBvbiBHaXRIdWI6IGh0dHBzOi8vZ2l0aHViLmNvbS9leGFtcGxlLW9yZy9leGFtcGxlLXNlcnZpY2UvcHVsbC80Mg"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "message-5",
+      "threadId": "thread-github-review-request",
+      "labelIds": ["INBOX"],
+      "snippet": "Thanks, I have pushed the change you asked for",
+      "internalDate": "1786111200000",
+      "payload": {
+        "mimeType": "text/plain",
+        "headers": [
+          { "name": "From", "value": "Ada Byron <notifications@github.com>" },
+          {
+            "name": "To",
+            "value": "example-org/example-service <example-service@noreply.github.com>"
+          },
+          {
+            "name": "Subject",
+            "value": "Re: [example-org/example-service] Add a retry to the fetch helper (PR #42)"
+          },
+          {
+            "name": "Message-ID",
+            "value": "<example-org/example-service/pull/42/c2211334455@github.com>"
+          },
+          {
+            "name": "In-Reply-To",
+            "value": "<example-org/example-service/pull/42@github.com>"
+          },
+          { "name": "X-GitHub-Reason", "value": "review_requested" }
+        ],
+        "body": {
+          "size": 99,
+          "data": "VGhhbmtzLCBJIGhhdmUgcHVzaGVkIHRoZSBjaGFuZ2UgeW91IGFza2VkIGZvci4KClJlcGx5IHRvIHRoaXMgZW1haWwgZGlyZWN0bHkgb3IgdmlldyBpdCBvbiBHaXRIdWIu"
+        }
+      }
+    }
+  ]
+}

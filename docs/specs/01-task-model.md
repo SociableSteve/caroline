@@ -81,6 +81,7 @@ never becomes a task) and a task may exist without a source (manual capture).
 | `task_id` | text | Nullable FK |
 | `first_seen_at`, `last_seen_at` | integer | |
 | `resolved_at` | integer | Nullable. Set when the upstream item closes |
+| `suppressed_at` | integer | Nullable. Set when the item is a second telling of one another connector already covers. See spec 02 |
 | `lifecycle_state` | text | Nullable. Connector-owned state machine position. See spec 02 |
 | `acted_at` | integer | Nullable. When the user last discharged their part (for a PR, reviewed it) |
 | `acted_at_marker` | text | Nullable. Upstream position at `acted_at`, so later change is detectable |

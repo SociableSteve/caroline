@@ -10,6 +10,7 @@ import {
   markSourceActed,
   markSourceRequeued,
   markSourceResolved,
+  markSourceSuppressed,
   proposeSourceCompletion,
   setSourceLifecycle,
   upsertSource,
@@ -262,6 +263,59 @@ describe('the refresh set', () => {
     expect(listUnresolvedSources(database, 'github').map((source) => source.externalId)).toEqual([
       'octo/widgets#42',
     ])
+  })
+
+  // A suppressed source is a second telling of another item's work. Following it would fetch what
+  // is already known, and for Gmail would read a later archive as the thread being handled, which
+  // proposes completing the pull request it points at. Spec 02.
+  it('leaves out a source suppressed as a second telling of another item', () => {
+    const source = upsertSource(
+      database,
+      pullRequest({ provider: 'gmail', externalId: 'thread-1' }),
+      firstSeenAt,
+    )
+    markSourceSuppressed(database, source.id, later)
+
+    expect(listUnresolvedSources(database, 'gmail')).toEqual([])
+  })
+})
+
+describe('suppression', () => {
+  it('records the moment, and keeps the row and everything on it', () => {
+    const source = upsertSource(database, pullRequest(), firstSeenAt)
+
+    const suppressed = markSourceSuppressed(database, source.id, later)
+
+    expect(suppressed).toMatchObject({
+      suppressedAt: later,
+      title: 'Cache the widget index',
+      // Not a resolution and not a completion: nothing upstream has ended. Spec 02.
+      resolvedAt: null,
+      completionProposedAt: null,
+    })
+    expect(getSource(database, source.id)?.suppressedAt).toBe(later)
+  })
+
+  it('keeps the first moment, so seeing the same redundant item again is not a second one', () => {
+    const source = upsertSource(database, pullRequest(), firstSeenAt)
+    markSourceSuppressed(database, source.id, later)
+
+    markSourceSuppressed(database, source.id, later + 60_000)
+
+    expect(getSource(database, source.id)?.suppressedAt).toBe(later)
+  })
+
+  it('survives a later upsert of the same item, which is what every pass does', () => {
+    const source = upsertSource(database, pullRequest(), firstSeenAt)
+    markSourceSuppressed(database, source.id, later)
+
+    upsertSource(database, pullRequest({ title: 'Cache the widget index, take two' }), later)
+
+    expect(getSource(database, source.id)?.suppressedAt).toBe(later)
+  })
+
+  it('reports null for a source that does not exist', () => {
+    expect(markSourceSuppressed(database, 'nope', later)).toBeNull()
   })
 })
 

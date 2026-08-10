@@ -24,6 +24,10 @@ interface SourceItem {
   content?: string          // subject to the storage content policy
   resolved?: boolean        // upstream item is closed/merged/handled
   occurredAt: number
+  backupFor?: {             // a second telling of an item another connector owns
+    provider: 'github' | 'gmail' | 'gcal'
+    externalId: string
+  }
 }
 ```
 
@@ -45,6 +49,9 @@ Proposing completion means recording the proposal on the source, and applying it
 sync still owns the answer: a task whose status the user set themselves is left where they
 put it, with the proposal shown on the card for them to accept or ignore. A task sync has
 been opted out of is not touched at all.
+
+An item carrying `backupFor` is a second telling of something another connector owns, and is
+decided by the backup-source rule below rather than by the upsert rules here.
 
 A connector applies a transition to an existing task only inside the set of statuses it
 declares, and only while the task is already in that set. A connector that declares no set,
@@ -157,6 +164,52 @@ prompt.
 An item with no source has no `acted_at`, so for a manually created `waiting` task the age is
 measured from `status_set_at`: the moment it became somebody else's turn.
 
+### Notification emails as a backup source
+
+The discovery query can miss a pull request: a review requested through a team whose membership
+the token cannot see, a repository outside the search's reach, a request made while a sync was
+failing. A GitHub notification email about that pull request is a second telling of it, and in
+those cases it is the only telling Caroline gets. So it is treated as an input to this connector.
+
+It is not work in its own right. Left to the inbox it produces a duplicate of a card already on
+the board, or a task for a pull request nobody is asking the user to review.
+
+**Recognition** works from thread metadata alone, so no body is fetched to decide it and the
+default content policy (spec 09) is untouched. A GitHub notification carries an RFC 5322
+`Message-ID` of the form `owner/repo/pull/<number>[/…]@github.com`. That is the identifier to
+read: it names the repository and the number, it says `pull` rather than `issues`, and unlike a
+subject line no mail client or translation rewrites it. Recognition requires both such a message
+id and a sender at `github.com`. GitHub Enterprise is out of scope, as one account on github.com
+is the whole scope of this connector.
+
+The rule, in the order it is applied to a recognised thread:
+
+1. **The pull request is already a `github` source.** The email is redundant: the pull request is
+   already followed, or has already resolved. Suppress the thread.
+2. **It is not.** Fetch that pull request by id through the refresh pass and let the ordinary
+   review lifecycle decide where it belongs, which for a pull request nobody is asking the user
+   to review is nowhere: the last lifecycle rule resolves it without ever creating a task. Then
+   suppress the thread exactly as above.
+3. **It cannot be resolved, or GitHub refuses the fetch, or GitHub is not configured.** Leave the
+   thread alone and let it be classified as any other email would be. A backup source that
+   swallows mail when it cannot do its job is worse than no backup source.
+
+**Suppressing a thread** is not completing it, and must not read as work done. `suppressed_at`
+records it, the thread's source is linked to the pull request's task so that it appears on that
+card as provenance, and no task of its own is created. A suppressed source is also no longer
+followed: it leaves the set the Gmail resolution pass reads, so archiving the mail later cannot
+propose completing the pull request.
+
+Where an untriaged inbox task for the thread already exists it is retired: the task is deleted
+and the thread's source relinked to the pull request's task, so what goes is the duplicate card
+and not the record of where it came from. Untriaged means what it means to the classifier (spec
+04): in `inbox`, and not put there by the user.
+
+A thread the user has triaged themselves is neither retired nor suppressed. That is spec 01's
+rule about sync not overturning a decision the user made, and it applies here whole. The pull
+request is still brought in, because that half of the rule is about GitHub rather than about the
+user's mail; the email task stays where they filed it, duplicate or not, because it is theirs.
+
 ## Gmail connector
 
 **Scope: one account, read-only, thread level.**
@@ -165,14 +218,16 @@ measured from `status_set_at`: the moment it became somebody else's turn.
 - Query: configurable Gmail search string, defaulting to `in:inbox -category:promotions
   -category:social`. Thread level, not message level: one task per thread.
 - Items become tasks with `status = 'inbox'` and `status_set_by = 'sync'`, awaiting
-  classification (spec 04).
+  classification (spec 04). The exception is a thread recognised as a GitHub pull request
+  notification, which the backup-source rule above decides instead.
 - What is stored, and what is later sent to an LLM, is governed by the content policies in
   spec 09. The connector always retrieves enough to compute the configured policy and
   never persists more than the storage policy allows.
 - Resolution: the thread leaves the query result set (archived or otherwise handled in
   Gmail directly). Proposes completion so that triaging in Gmail is not lost work.
 - Metadata retained: thread id, participants, subject, message count, last message time,
-  Gmail labels.
+  Gmail labels, and the messages' `Message-ID` headers, which is what the backup-source rule
+  recognises a pull request notification from.
 
 ## Calendar connector
 
@@ -192,7 +247,8 @@ measured from `status_set_at`: the moment it became somebody else's turn.
 
 - Any write operation: no labels, no archiving, no PR comments, no calendar entries.
 - Multiple accounts per provider.
-- GitHub issues, assigned PRs, mentions or notifications. Review requests only.
+- GitHub issues, assigned PRs or mentions. Review requests only. Notification emails are read
+  only as a backup route to a review request, never as work in their own right.
 - Attachment or document contents.
 - Real-time push (webhooks, Gmail watch). Polling on a schedule is sufficient at this
   scale and avoids exposing an inbound endpoint.
@@ -229,3 +285,16 @@ measured from `status_set_at`: the moment it became somebody else's turn.
 17. A user moving a tracked PR task to `someday` stops tracking, and a later re-request does
     not move it back.
 18. The refresh pass fetches PRs that the discovery query no longer returns.
+19. A notification email for a pull request already held as a `github` source creates no task,
+    and its thread's source is recorded suppressed and linked to that pull request's task.
+20. An untriaged inbox task already created for such a thread is retired when the thread is
+    recognised, and the thread remains on the pull request's card as provenance.
+21. A notification email for a pull request the discovery query never returned fetches it by id
+    through the refresh path and brings it in with its GitHub provenance, in the status its
+    lifecycle gives it, with no email task beside it.
+22. A notification email for a pull request nobody is asking the user to review creates no task
+    for it, in `review` or anywhere else.
+23. A thread whose metadata names no pull request, one whose pull request GitHub will not return,
+    and one recognised while GitHub is unconfigured are all left to ordinary classification.
+24. A thread whose task the user has already triaged is neither retired nor suppressed, and a
+    suppressed thread later archived in Gmail does not propose completing the pull request.

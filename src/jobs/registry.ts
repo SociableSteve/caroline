@@ -14,6 +14,7 @@ import { createGmailConnector, type KnownThread } from '../connectors/gmail/conn
 import { threadBody } from '../connectors/gmail/map.js'
 import { createGitHubApi } from '../connectors/github/api.js'
 import { createGitHubConnector, type KnownPullRequest } from '../connectors/github/connector.js'
+import { identifyPullRequestNotification } from '../connectors/github/notification.js'
 import { createGoogleAuth, type GoogleAuth } from '../connectors/google/auth.js'
 import type { Connector } from '../connectors/types.js'
 import { listUnresolvedSources } from '../db/repositories/sources.js'
@@ -124,6 +125,11 @@ export function buildConnectors(
         query: config.integrations.google.gmailQuery,
         needsBody: () => needsBody(config),
         known: () => knownThreads(database),
+        // Where the two connectors meet. A notification email about a pull request is a second
+        // telling of GitHub's work rather than mail to deal with, and this is the only place that
+        // knows both: the Gmail connector recognises nothing on its own, and the GitHub connector
+        // knows nothing about mail. Spec 02.
+        backupFor: identifyPullRequestNotification,
       }),
     ],
   }

@@ -52,6 +52,7 @@ export function aPullRequestSource(overrides: Partial<SourceView> = {}): SourceV
     actedAt: null,
     actedAtMarker: null,
     resolvedAt: null,
+    suppressedAt: null,
     requeuedAt: null,
     completionProposedAt: null,
     metadata: {

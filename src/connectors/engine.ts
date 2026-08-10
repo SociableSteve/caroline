@@ -12,17 +12,25 @@ import {
   getSourceByExternalId,
   markSourceRequeued,
   markSourceResolved,
+  markSourceSuppressed,
   proposeSourceCompletion,
+  relinkSource,
   upsertSource,
 } from '../db/repositories/sources.js'
 import { getSyncCursor, setSyncCursor } from '../db/repositories/sync-state.js'
-import { changeTaskStatus, createTask, getTask, updateTask } from '../db/repositories/tasks.js'
+import {
+  changeTaskStatus,
+  createTask,
+  deleteTask,
+  getTask,
+  updateTask,
+} from '../db/repositories/tasks.js'
 import { noCounts, type JobCounts, type JobRunStatus, type JobTrigger } from '../domain/job.js'
 import type { SourceProvider } from '../domain/source.js'
-import type { Task } from '../domain/task.js'
+import { isUntriaged, type Task } from '../domain/task.js'
 import { trackedStatusesFor } from '../domain/tracking.js'
 import { contentHash } from './hash.js'
-import type { Connector, SourceItem } from './types.js'
+import { isAddressable, type BackupReference, type Connector, type SourceItem } from './types.js'
 
 /** The job name a connector's run is recorded under, so the history reads per connector. */
 export function syncJobName(provider: SourceProvider): string {
@@ -256,6 +264,148 @@ function applyLifecycle(
   if (updated) tally.tasksUpdated += 1
 }
 
+/**
+ * An item that is a second telling of one another connector owns: a GitHub notification email
+ * about a pull request. It is not work of its own, so it does not go through the ordinary upsert
+ * rules. Spec 02, notification emails as a backup source.
+ *
+ * Returns true when the item was suppressed and there is nothing further to do with it, and false
+ * when the backup source could not do its job, which puts the item back on the ordinary path to be
+ * captured and classified like any other. A backup source that swallowed mail it could not place
+ * would be worse than no backup source at all.
+ */
+async function cover(
+  options: RunSyncOptions,
+  provider: SourceProvider,
+  item: SourceItem,
+  reference: BackupReference,
+  tally: Tally,
+): Promise<boolean> {
+  const { database } = options
+
+  const existing = getSourceByExternalId(database, provider, item.externalId)
+  const existingTask =
+    existing === null || existing.taskId === null ? null : getTask(database, existing.taskId)
+
+  // The user's own decision stands: a thread they have filed themselves is not something a later
+  // sync gets to retire or take the task away from. Spec 01's rule, applied here whole. The pull
+  // request is still fetched below, because that half is about GitHub rather than about their mail.
+  //
+  // Skipped once the thread is already suppressed, where the linked task is the pull request's own
+  // and its status says nothing about this thread.
+  const alreadySuppressed = existing !== null && existing.suppressedAt !== null
+  const ownDecision = !alreadySuppressed && existingTask !== null && !isUntriaged(existingTask)
+
+  let owner = getSourceByExternalId(database, reference.provider, reference.externalId)
+
+  // Rule 2: the discovery query missed it, which is the whole reason this email is worth reading.
+  // Fetched by id and applied like any other item, so the review lifecycle decides where it goes,
+  // including deciding it goes nowhere when nobody is asking the user to review it.
+  if (owner === null) {
+    if (!(await bringIn(options, reference, tally))) return false
+    owner = getSourceByExternalId(database, reference.provider, reference.externalId)
+    if (owner === null) return false
+  }
+
+  // Checked here rather than at the top so that the fetch above still happens: what the user
+  // decided was where their email goes, not whether Caroline may know about the pull request.
+  if (ownDecision) return false
+
+  suppress(options, provider, item, owner.taskId, tally)
+  return true
+}
+
+/**
+ * Fetches the item its owning connector missed, through that connector. The engine finds the owner
+ * in the list it was given rather than being told which one it is, so it still names no connector.
+ *
+ * False whenever the item cannot be brought in: no such connector, one that cannot be addressed by
+ * id, one with no credentials, an id it does not recognise, or a refusal from the provider. The
+ * failure is not this run's: the owning connector has its own pass in the same sync, and a provider
+ * that is refusing calls will have failed there, with the message, in its own `job_runs` row. Rule
+ * 3 is what happens here instead.
+ */
+async function bringIn(
+  options: RunSyncOptions,
+  reference: BackupReference,
+  tally: Tally,
+): Promise<boolean> {
+  const owner = options.connectors.find((connector) => connector.provider === reference.provider)
+  if (owner === undefined || !isAddressable(owner) || !owner.isConfigured()) return false
+
+  let fetched: SourceItem | null
+  try {
+    fetched = await owner.item(reference.externalId)
+  } catch {
+    return false
+  }
+
+  if (fetched === null) return false
+
+  // Counted against the pass that did the writing, which is the pass reading the email rather than
+  // the owning connector's. Its own row would be a tidier place for it and a less true one: that
+  // pass did not create the source, and a run history is a record of what happened.
+  applyItem(options.database, reference.provider, fetched, options.policy, options.now(), tally)
+  return true
+}
+
+/**
+ * Records the item as a second telling and hands its provenance to the task that owns the work. No
+ * task of its own is created, and an untriaged one already created for it is retired: what goes is
+ * the duplicate card, not the record of where it came from, which moves onto the pull request's.
+ *
+ * Suppression is not completion and must not read as work done, so nothing here proposes completing
+ * anything or moves a status. Spec 02.
+ */
+function suppress(
+  { database, now }: RunSyncOptions,
+  provider: SourceProvider,
+  item: SourceItem,
+  ownerTaskId: string | null,
+  tally: Tally,
+): void {
+  withTransaction(database, () => {
+    const at = now()
+    const existing = getSourceByExternalId(database, provider, item.externalId)
+
+    const source = upsertSource(
+      database,
+      {
+        provider,
+        externalId: item.externalId,
+        url: item.url,
+        title: item.title,
+        metadata: item.metadata,
+        // No body, and any body already stored is dropped. Nothing will read it: the item is not
+        // going to be classified, and the policy is a ceiling rather than a quota. Spec 09.
+        content: null,
+        contentHash: contentHash(item),
+      },
+      at,
+    )
+
+    tally.itemsSeen += 1
+    if (existing === null) tally.sourcesCreated += 1
+
+    const task = source.taskId === null ? null : getTask(database, source.taskId)
+
+    // Never the owner's own task, which this row points at once it has been suppressed, and never a
+    // task the user has decided on, which `cover` has already refused to come this far with.
+    //
+    // Deleting it takes its `classifications` rows with it, which is right: they are a record of the
+    // classifier answering about a card that should never have been on the board.
+    if (task !== null && task.id !== ownerTaskId && isUntriaged(task)) {
+      deleteTask(database, task.id)
+    }
+
+    markSourceSuppressed(database, source.id, at)
+    // Deleting the task above cleared the link, so this both moves the provenance and restores it.
+    if (ownerTaskId !== null) relinkSource(database, source.id, ownerTaskId)
+
+    if (existing === null || existing.suppressedAt === null) tally.suppressed += 1
+  })
+}
+
 export interface ConnectorPassOptions {
   readonly database: Database
   readonly provider: SourceProvider
@@ -334,10 +484,9 @@ export async function runConnectorPass(
   }
 }
 
-function runConnector(
-  { database, trigger, policy, now }: RunSyncOptions,
-  connector: Connector,
-): Promise<ConnectorRunResult> {
+function runConnector(options: RunSyncOptions, connector: Connector): Promise<ConnectorRunResult> {
+  const { database, trigger, policy, now } = options
+
   return runConnectorPass(
     {
       database,
@@ -349,6 +498,15 @@ function runConnector(
     async (tally, startedAt) => {
       const since = getSyncCursor(database, connector.provider)
       for await (const item of connector.fetch(since)) {
+        // An item that says it is a second telling of another connector's is decided by the backup
+        // source rule, which may put it back here if it cannot place it. Spec 02.
+        if (
+          item.backupFor !== undefined &&
+          (await cover(options, connector.provider, item, item.backupFor, tally))
+        ) {
+          continue
+        }
+
         applyItem(database, connector.provider, item, policy, now(), tally)
       }
 
@@ -366,7 +524,8 @@ function didAnything(counts: JobCounts): boolean {
     counts.tasksCreated > 0 ||
     counts.tasksUpdated > 0 ||
     counts.resolved > 0 ||
-    counts.requeued > 0
+    counts.requeued > 0 ||
+    counts.suppressed > 0
   )
 }
 

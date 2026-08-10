@@ -13,7 +13,8 @@
         "headers": [
           { "name": "From", "value": "billing@supplier.example" },
           { "name": "To", "value": "you@example.com" },
-          { "name": "Subject", "value": "Invoice 2026-118" }
+          { "name": "Subject", "value": "Invoice 2026-118" },
+          { "name": "Message-ID", "value": "<inv-2026-118@supplier.example>" }
         ],
         "parts": [
           {

@@ -1,0 +1,38 @@
+{
+  "id": "thread-github-issue",
+  "historyId": "884511",
+  "messages": [
+    {
+      "id": "message-6",
+      "threadId": "thread-github-issue",
+      "labelIds": ["INBOX", "UNREAD"],
+      "snippet": "The retry helper swallows the abort reason",
+      "internalDate": "1786108500000",
+      "payload": {
+        "mimeType": "text/plain",
+        "headers": [
+          { "name": "From", "value": "Grace Hopper <notifications@github.com>" },
+          {
+            "name": "To",
+            "value": "example-org/example-service <example-service@noreply.github.com>"
+          },
+          {
+            "name": "Subject",
+            "value": "[example-org/example-service] The retry helper swallows the abort reason (#43)"
+          },
+          { "name": "Date", "value": "Wed, 05 Aug 2026 09:15:00 +0000" },
+          { "name": "Message-ID", "value": "<example-org/example-service/issues/43@github.com>" },
+          {
+            "name": "List-ID",
+            "value": "example-org/example-service <example-service.example-org.github.com>"
+          },
+          { "name": "X-GitHub-Reason", "value": "subscribed" }
+        ],
+        "body": {
+          "size": 66,
+          "data": "VGhlIHJldHJ5IGhlbHBlciBzd2FsbG93cyB0aGUgYWJvcnQgcmVhc29uIHdoZW4gaXQgZ2l2ZXMgdXAu"
+        }
+      }
+    }
+  ]
+}

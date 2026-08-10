@@ -12,10 +12,15 @@ export function gmailFixture(name: string): GmailThread {
   return JSON.parse(readFileSync(path, 'utf8')) as GmailThread
 }
 
-/** The two recorded threads, keyed by the id the listing returns. */
+/** Every recorded thread, keyed by the id a listing returns. A listing picks among them. */
 export function recordedThreads(): Map<string, GmailThread> {
   return new Map(
-    ['thread-hub-numbers', 'thread-invoice'].map((name) => {
+    [
+      'thread-hub-numbers',
+      'thread-invoice',
+      'thread-github-review-request',
+      'thread-github-issue',
+    ].map((name) => {
       const thread = gmailFixture(name)
       return [thread.id, thread]
     }),
