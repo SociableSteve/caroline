@@ -109,6 +109,22 @@ describe('the conversation beside the surface', () => {
     )
   })
 
+  /**
+   * A hash the app never writes but a hand-edited or stale link can carry: a conversation to read
+   * and a closed rail at once. The conversation wins when it is read, so both links this function
+   * builds have to agree with that and clear the close rather than leave one behind that would shut
+   * the rail on the next click.
+   */
+  it('clears a contradicting close, whether it names a conversation or none', () => {
+    expect(conversationHref('two', '#/board?conversation=one&chat=closed')).toBe(
+      '#/board?conversation=two',
+    )
+    expect(conversationHref(null, '#/board?conversation=one&chat=closed')).toBe('#/board')
+    expect(
+      parseLocation(conversationHref(null, '#/board?conversation=one&chat=closed')),
+    ).toMatchObject({ chatOpen: true, conversationId: null })
+  })
+
   it('lands on the dashboard rather than a bare hash where there is no path', () => {
     expect(conversationHref('abc', '')).toBe('#/?conversation=abc')
   })

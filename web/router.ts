@@ -120,20 +120,21 @@ export function projectHref(id: string): string {
 }
 
 /**
- * The current location with a conversation opened beside it, or with none. The surface is kept,
+ * The current location with a conversation opened beside it, or with a new one. The surface is kept,
  * because opening a conversation is not leaving the surface you were asking about, and so are the
  * other parameters: the settings outcome is one of them.
+ *
+ * Either way this is the rail open, so either way a close is cleared. A hash carrying a conversation
+ * and a close at once is not one the app writes, but a hand-edited or stale link can, and the rail
+ * opens on it; leaving the close behind would have the next link built from it shut the rail.
  */
 export function conversationHref(id: string | null, hash: string): string {
   const [path = '', query = ''] = hash.replace(/^#/, '').split('?')
   const params = new URLSearchParams(query)
 
   if (id === null) params.delete(CONVERSATION_PARAM)
-  else {
-    params.set(CONVERSATION_PARAM, id)
-    // A conversation to read is the rail open, so a close left in the hash would contradict it.
-    params.delete(CHAT_PARAM)
-  }
+  else params.set(CONVERSATION_PARAM, id)
+  params.delete(CHAT_PARAM)
 
   return withParams(path, params)
 }
