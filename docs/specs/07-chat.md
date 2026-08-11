@@ -52,8 +52,10 @@ of it needs.
    be read as a new instruction.
 
 A tool call is the other half of this and is not governed by it: the context is sent unasked on every
-message, while `get_task` is the model deliberately fetching one item the conversation named. Both
-are held to the same content level, so the same policy answers both.
+message, while `get_task` is the model deliberately fetching one item the conversation named. Every
+read tool is held to the same content level as the context, so one policy answers all of them: a level
+that withholds a title from one path cannot hand it over from another, and a page of fifty titles from
+`search_tasks` is fifty times the disclosure of one from `get_task` rather than an exception to it.
 
 ## Tools
 

@@ -897,7 +897,7 @@ describe('the details panel', () => {
     expect(window.location.hash).toContain('item=task')
   })
 
-  /** Criterion 25: a hash naming an item opens the rail on it, so a reload comes back to it. */
+  /** Criterion 28: a hash naming an item opens the rail on it, so a reload comes back to it. */
   it('opens itself on the item the hash names', async () => {
     stubApi({ tasks: [aTask({ id: 'task-1', title: 'Captured' })] })
     window.location.hash = '#/board?item=task%3Atask-1'
@@ -908,7 +908,7 @@ describe('the details panel', () => {
     expect(screen.getByRole('complementary', { name: 'Chat' })).toBeInTheDocument()
   })
 
-  /** Criterion 26: gone is said, not fallen back from. */
+  /** Criterion 29: gone is said, not fallen back from. */
   it('says an item that is no longer here is gone', async () => {
     stubApi({ tasks: [aTask({ id: 'task-1', title: 'Captured' })] })
     window.location.hash = '#/board?item=task%3Adeleted'
@@ -931,7 +931,7 @@ describe('the details panel', () => {
     expect(screen.queryByRole('region', { name: /^Details of/ })).not.toBeInTheDocument()
   })
 
-  /** Criterion 25: closing the rail takes the item with the conversation. */
+  /** Criterion 28: closing the rail takes the item with the conversation. */
   it('is cleared when the rail is closed', async () => {
     stubApi({ tasks: [aTask({ id: 'task-1', title: 'Captured' })] })
     window.location.hash = '#/board?conversation=conversation-1&item=task%3Atask-1'

@@ -461,6 +461,158 @@ describe('list_waiting', () => {
   })
 })
 
+/**
+ * Spec 09, criterion 13, on every path rather than on two of them. At `none` nothing about an item
+ * goes but its ids, and spec 07 has one policy answer the tools and the item context: a level that
+ * withholds a title from one path cannot hand it over from another. `get_task` refusing one title
+ * while `search_tasks` mapped fifty of them through a summary that carried a title is the defect
+ * this holds shut.
+ */
+describe('every read tool at none', () => {
+  /** Every piece of item text the database below holds. None of it may appear in any answer. */
+  const CONTENT = [
+    'Northwind',
+    'indemnity',
+    'Book the venue',
+    'due today',
+    'A quiet day',
+    'Standup',
+    'Sign-off',
+    'Beatrix',
+    'legal',
+  ]
+
+  function seeded(): Database {
+    const database = migratedDatabase()
+    createProject(database, { id: 'project-1', title: 'Northwind renewal' }, CHAT_NOW)
+    createTask(
+      database,
+      {
+        id: 'task-1',
+        title: 'Review the Northwind contract',
+        notes: 'Ring about the indemnity clause.',
+        projectId: 'project-1',
+      },
+      CHAT_NOW,
+    )
+    setTaskTags(database, 'task-1', ['legal'])
+    createTask(
+      database,
+      {
+        id: 'task-2',
+        title: 'Sign-off from Beatrix',
+        status: 'waiting',
+        waitingOn: 'Beatrix',
+      },
+      CHAT_NOW - 10 * 24 * 60 * 60_000,
+    )
+    upsertCalendarEvent(
+      database,
+      {
+        calendarId: 'primary',
+        externalId: 'event-1',
+        summary: 'Standup',
+        startsAt: Date.UTC(2026, 5, 1, 9, 0, 0),
+        endsAt: Date.UTC(2026, 5, 1, 9, 30, 0),
+        allDay: false,
+        responseStatus: 'accepted',
+        transparency: 'opaque',
+        status: 'confirmed',
+        attendeeCount: 4,
+        url: null,
+      },
+      CHAT_NOW,
+    )
+    recordDailyPlan(database, {
+      planDate: '2026-06-01',
+      generatedAt: CHAT_NOW,
+      timeZone: 'Europe/London',
+      windowMinutes: 510,
+      busyMinutes: 30,
+      reserveMinutes: 96,
+      capacityMinutes: 384,
+      capacityVerified: true,
+      provider: 'ollama',
+      model: 'a-model',
+      promptVersion: '2026-08-10',
+      summary: 'A quiet day with one deadline.',
+      warnings: [],
+      entries: [
+        {
+          taskId: 'task-1',
+          title: 'Book the venue',
+          rank: 1,
+          rationale: 'It is due today.',
+          estimateMinutes: 30,
+        },
+      ],
+      overflow: [],
+      nudges: [
+        {
+          taskId: 'task-2',
+          title: 'Sign-off from Beatrix',
+          rank: 1,
+          waitingOn: 'Beatrix',
+          waitingSince: CHAT_NOW - 10 * 24 * 60 * 60_000,
+          pushedSinceReview: false,
+        },
+      ],
+    })
+    return database
+  }
+
+  const calls: readonly (readonly [string, unknown])[] = [
+    ['search_tasks', {}],
+    ['get_task', { id: 'task-1' }],
+    ['list_projects', {}],
+    ['get_daily_plan', {}],
+    ['get_capacity', {}],
+    ['list_waiting', {}],
+  ]
+
+  for (const [name, args] of calls) {
+    it(`withholds every item’s text from ${name}, and says the policy did`, async () => {
+      const answer = await run(seeded(), name, args, {
+        config: policyAt('none'),
+        calendarConnected: true,
+      })
+
+      const serialised = JSON.stringify(answer.data)
+      for (const withheld of CONTENT) expect(serialised).not.toContain(withheld)
+      // Said rather than left as a silence, so the model asks instead of answering from memory.
+      expect(serialised).toMatch(/content policy/i)
+    })
+  }
+
+  it('still answers with the ids, so the model can ask the user about one of them', async () => {
+    const answer = await run(seeded(), 'search_tasks', {}, { config: policyAt('none') })
+    const tasks = (answer.data as { tasks: readonly { kind: string; id: string }[] }).tasks
+
+    expect(answer.data).toMatchObject({ total: 2, returned: 2 })
+    expect(tasks.map((task) => task.kind)).toEqual(['task', 'task'])
+    expect(tasks.map((task) => task.id).toSorted()).toEqual(['task-1', 'task-2'])
+  })
+
+  /** A day's arithmetic is not an item's content, so the numbers still go. Only the diary is withheld. */
+  it('still answers with the day’s numbers, and counts the meeting it will not name', async () => {
+    const answer = await run(
+      seeded(),
+      'get_capacity',
+      {},
+      { config: policyAt('none'), calendarConnected: true },
+    )
+
+    expect(answer.data).toMatchObject({ windowMinutes: 510, busyMinutes: 30, verified: true })
+  })
+
+  /** The other half of the gate: `metadata` is not `none`, and a title is metadata. Spec 09's table. */
+  it('still answers with the titles at metadata', async () => {
+    const answer = await run(seeded(), 'search_tasks', {}, { config: policyAt('metadata') })
+
+    expect(JSON.stringify(answer.data)).toContain('Review the Northwind contract')
+  })
+})
+
 describe('create_task', () => {
   /** Criterion 1. A task chat created is the user's, so the classifier may not move it. */
   it('attributes the task to the user', async () => {

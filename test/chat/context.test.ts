@@ -137,7 +137,9 @@ describe('the selected task, as a turn sends it', () => {
       { kind: 'task', id: 'task-1' },
     )
 
-    expect(context.fields).toEqual(['kind', 'id'])
+    // The fields are the fields that went, and a withholding line went. Spec 07, criterion 10: an
+    // audit that records something other than what was sent is the defect it exists to prevent.
+    expect(context.fields).toEqual(['kind', 'id', 'withheld'])
     expect(context.rendered).not.toContain('Northwind')
     expect(context.rendered).toContain('content policy')
   })
@@ -221,8 +223,28 @@ describe('the selected task, as a turn sends it', () => {
     )
 
     expect(context.found).toBe(false)
-    expect(context.fields).toEqual([])
+    // The kind, the id and the sentence saying it is gone all went, so all three are recorded.
+    expect(context.fields).toEqual(['kind', 'id', 'note'])
     expect(context.rendered).toContain('no longer there')
+  })
+
+  /**
+   * The invariant behind spec 07's criterion 10, over every branch rather than the ordinary one: the
+   * audited fields are the keys of the text that went, so the record cannot say one thing while the
+   * rendered block says another. An audit that records an id is not an audit, and neither is one that
+   * records a list of fields the turn did not send.
+   */
+  it.each([
+    ['the ordinary one', configAt('snippet'), 'task-1'],
+    ['the withheld one', configAt('none'), 'task-1'],
+    ['the gone one', configAt('snippet'), 'no-such-task'],
+  ] as const)('records the keys of the text it rendered, on %s', (_name, config, id) => {
+    const database = migratedDatabase()
+    aTask(database, { notes: 'Ring Ada about the indemnity clause.' })
+
+    const context = resolveItemContext({ database, config }, { kind: 'task', id })
+
+    expect(context.fields).toEqual(Object.keys(payloadOf(context.rendered)))
   })
 
   it('records the policy version alongside the level, so the record can be read later', () => {

@@ -427,17 +427,36 @@ export function getTurnContext(
   return toTurnContext(row as Row)
 }
 
-function toTurnContext(row: Row): ChatTurnContextRecord {
-  const fields = nullableText(row.fields)
+/**
+ * The audited field list, as a list of strings whatever the column holds. Caroline's own JSON, so a
+ * value that is not a list of strings is a corrupt row rather than a case to support: an audit missing
+ * a line rather than a reason to fail reading the transcript, which an unwrapped parse would make it.
+ * Checked rather than cast, because the cast reached the screen, where the fields are joined into a
+ * sentence and a number has no `join`.
+ */
+function fieldsFrom(value: string | null): readonly string[] {
+  if (value === null) return []
 
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(value)
+  } catch {
+    return []
+  }
+
+  // Line by line, so one unreadable entry costs its own line rather than the whole list.
+  return Array.isArray(parsed)
+    ? parsed.filter((field): field is string => typeof field === 'string')
+    : []
+}
+
+function toTurnContext(row: Row): ChatTurnContextRecord {
   return {
     messageId: String(row.message_id),
     kind: String(row.item_kind) as SelectableKind,
     id: String(row.item_id),
     found: Number(row.item_found) !== 0,
-    // Caroline's own JSON, and an array of strings either way: a row whose fields cannot be read is
-    // an audit missing a line rather than a reason to fail reading the transcript.
-    fields: fields === null ? [] : (JSON.parse(fields) as string[]),
+    fields: fieldsFrom(nullableText(row.fields)),
     contentLevel: String(row.content_level) as ContentLevel,
     policyVersion: String(row.policy_version),
     rendered: String(row.rendered),

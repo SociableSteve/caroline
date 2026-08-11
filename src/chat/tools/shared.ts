@@ -3,6 +3,7 @@
  * one summary of a task every tool answers with, so two tools cannot describe the same task
  * differently.
  */
+import { withholdsItemText } from '../../config/content.js'
 import { getProject } from '../../db/repositories/projects.js'
 import type { Task } from '../../domain/task.js'
 import { formatLocalDate, instantAt, localDateAt, parseLocalDate } from '../../domain/time.js'
@@ -11,6 +12,15 @@ import type { ChatToolContext } from '../types.js'
 
 /** The most rows one tool call will return. A model does not read a hundred titles usefully. */
 export const MAX_ROWS = 50
+
+/**
+ * Whether this call may answer with an item's own text at all, asked of the content policy rather
+ * than decided here: one question, so a level that withholds a title from one tool cannot hand it
+ * over from another. Spec 09, criterion 13.
+ */
+export function withholdsText(context: ChatToolContext): boolean {
+  return withholdsItemText(context.config.privacy)
+}
 
 /** A local date, with the two instants that bound it in the configured zone. */
 export interface DayArgument {

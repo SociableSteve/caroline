@@ -11,7 +11,12 @@
  * rendered text can be recorded verbatim: there is nothing in it `storeContent` has not already
  * allowed onto the disk. Spec 09.
  */
-import { CONTENT_POLICY_VERSION, textToSend } from '../config/content.js'
+import {
+  CONTENT_POLICY_VERSION,
+  textToSend,
+  WITHHELD_ITEM_TEXT,
+  withholdsItemText,
+} from '../config/content.js'
 import type { Config } from '../config/schema.js'
 import type { Database } from '../db/connection.js'
 import {
@@ -72,13 +77,12 @@ export function resolveItemContext(
   const payload = itemPayload({ database, config }, ref)
 
   // Said rather than dropped. A model told nothing would answer about whatever the conversation was
-  // about earlier, which is the one wrong answer available here. Spec 07, criterion 4.
+  // about earlier, which is the one wrong answer available here. Spec 07, criterion 12.
   if (payload === null) {
     return {
       ...resolved,
       found: false,
-      fields: [],
-      rendered: render({
+      ...sent({
         kind: ref.kind,
         id: ref.id,
         note: 'This item could not be read. It has been completed, deleted or otherwise gone since it was opened. Do not answer about it from memory; say it is no longer there.',
@@ -87,21 +91,23 @@ export function resolveItemContext(
   }
 
   // `none` sends nothing beyond the internal ids, which is what spec 09's own table says it means.
-  // The withholding is stated, so the model does not answer about an item it was not shown.
-  if (level === 'none') {
-    return {
-      ...resolved,
-      fields: ['kind', 'id'],
-      rendered: render({
-        kind: ref.kind,
-        id: ref.id,
-        withheld:
-          'The content policy is set to send nothing about an item beyond its id. Ask the user what it is rather than guessing.',
-      }),
-    }
+  // The withholding is stated, so the model does not answer about an item it was not shown, in the
+  // same words the read tools state it in. Spec 09, criterion 13.
+  if (withholdsItemText(privacy)) {
+    return { ...resolved, ...sent({ kind: ref.kind, id: ref.id, withheld: WITHHELD_ITEM_TEXT }) }
   }
 
-  return { ...resolved, fields: Object.keys(payload), rendered: render(payload) }
+  return { ...resolved, ...sent(payload) }
+}
+
+/**
+ * What went, and the words it went in, from the one object. Taken together rather than separately so
+ * that no branch can record a list of fields the rendered text does not carry: the fields are the keys
+ * of what was rendered, on the branch that sends a task and on the two that send a sentence instead.
+ * Spec 07, criterion 10.
+ */
+function sent(payload: Record<string, unknown>): Pick<ResolvedItemContext, 'fields' | 'rendered'> {
+  return { fields: Object.keys(payload), rendered: render(payload) }
 }
 
 /** The rendered block, which is the whole of what the provider is handed about the item. */

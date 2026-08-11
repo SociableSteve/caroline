@@ -3,12 +3,14 @@
  * prompts are, so a change in behaviour is traceable to a change in what was asked.
  *
  * This is a send boundary for spec 09, and a narrow one: the context is counts, a plan summary and
- * a number of free minutes. No task title, let alone a message body, is assembled here. Detail
- * reaches the model only through a tool the model chose to call, which is spec 07's reason for
- * fetching rather than dumping and has the side effect of keeping this boundary trivial to check.
+ * a number of free minutes. No task title, let alone a message body, is assembled here, and the plan
+ * summary is the one line of it the content policy has anything to withhold. Detail reaches the model
+ * only through a tool the model chose to call, which is spec 07's reason for fetching rather than
+ * dumping and has the side effect of keeping this boundary trivial to check.
  */
 import { capacityForDate } from '../actions/capacity.js'
 import { waitingItemsFor } from '../actions/waiting.js'
+import { withholdsItemText } from '../config/content.js'
 import type { Config } from '../config/schema.js'
 import type { Database } from '../db/connection.js'
 import { latestDailyPlan } from '../db/repositories/daily-plans.js'
@@ -24,7 +26,7 @@ import { isStaleWait } from '../domain/waiting.js'
  * where a day carried more than one change: two different prompts under one version would defeat the
  * point of having one.
  */
-export const CHAT_PROMPT_VERSION = '2026-08-11.2'
+export const CHAT_PROMPT_VERSION = '2026-08-11.3'
 
 /** Counts per status, the plan if there is one, and what is left of the day. Spec 07. */
 export interface ChatContext {
@@ -82,7 +84,11 @@ export function buildChatContext({
       plan === null
         ? null
         : {
-            summary: plan.summary,
+            // The one piece of item text this boundary carries: a plan's summary is prose written
+            // about the day's tasks and can name one. The plan job will not draw a plan at all at
+            // `none` (spec 05), so this is the plan drawn before the policy was lowered, and the same
+            // question answers it here as answers the read tools. Spec 09, criterion 13.
+            summary: withholdsItemText(config.privacy) ? null : plan.summary,
             planned: plan.entries.length,
             done: plan.entries.filter((entry) => entry.done).length,
             capacityMinutes: plan.capacityMinutes,

@@ -48,6 +48,12 @@ provider is disclosure to a third party. Storing it is a local retention decisio
   on the next run, and says how many rows it cleared. Each source row records the level its
   body was written at, because the text cannot say which it is: three hundred characters may be
   a truncated snippet or a whole short body, and a downgrade has to tell them apart.
+- A level is a property of the boundary rather than of a route through it. `none` therefore withholds
+  an item's own fields from everything that reaches a provider: the item context sent unasked, and
+  every read tool the model may call. A title, a person's name and a rationale written about a task
+  are all the item's; what is not the item's still goes, so a count of matches, a day's capacity
+  arithmetic and the order a plan put its entries in are answered as they always were. Anything
+  withheld is said to be withheld, so the model asks rather than answering from memory.
 - `retainContentDays` purges stored `content` older than the window on a daily job. Source
   rows, tasks and metadata survive; only the body text is dropped. Age is measured from when
   the body was written, not from when the item was last seen: a thread still in the inbox is
@@ -217,7 +223,9 @@ Nothing Caroline creates lives outside its data directory.
     the person.
 13. With `llmContent: "metadata"`, a selected task's notes appear in no provider request payload,
     neither in the item context nor in a `get_task` result, while its title does; with
-    `llmContent: "none"` nothing but its kind and id appears; with `llmContent: "snippet"` its notes
-    are truncated to `snippetChars` and said to be truncated. Asserted against the built request.
+    `llmContent: "none"` nothing but its kind and id appears, on every path alike: the item context
+    and each of spec 07's read tools, every one of which says the policy withheld the rest rather
+    than answering with a title, a name or a rationale; with `llmContent: "snippet"` its notes are
+    truncated to `snippetChars` and said to be truncated. Asserted against the built request.
 14. The payload preview shows the item context for a real item, rendered by the same function that
     builds a turn's, so the screen cannot drift from what leaves the machine.

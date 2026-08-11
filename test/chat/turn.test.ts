@@ -951,6 +951,44 @@ describe('the context a turn is given', () => {
   })
 
   /**
+   * Spec 09, criterion 13, on the one line of the day's context the policy has anything to withhold:
+   * a plan's summary is prose written about the day's tasks and can name one. No plan is drawn at all
+   * at `none` (spec 05), so this is the plan drawn before the policy was lowered, and the level it is
+   * read under is the one in force now rather than the one it was written under.
+   */
+  it('withholds a plan’s summary from the day’s context at none', async () => {
+    const harness = chatHarness({
+      answers: [textAnswer('Answered.')],
+      file: { privacy: { llmContent: 'none' } },
+    })
+    recordDailyPlan(harness.database, {
+      planDate: '2026-06-01',
+      generatedAt: CHAT_NOW,
+      timeZone: 'Europe/London',
+      windowMinutes: 510,
+      busyMinutes: 0,
+      reserveMinutes: 102,
+      capacityMinutes: 408,
+      capacityVerified: false,
+      provider: 'ollama',
+      model: 'a-model',
+      promptVersion: '2026-08-10',
+      summary: 'A quiet day, with the Northwind contract due.',
+      warnings: [],
+      entries: [],
+      overflow: [],
+      nudges: [],
+    })
+
+    await harness.turn('What does today look like?')
+
+    const system = harness.requests[0]?.system ?? ''
+    expect(system).not.toContain('Northwind')
+    // The arithmetic is nobody's content and still goes, so the day is still answerable.
+    expect(system).toContain('"capacityMinutes": 408')
+  })
+
+  /**
    * Spec 09: the shared preamble names the person using Caroline. Without it a model writes about
    * the user in the third person to the user's own face, and the name is also personal data leaving
    * the machine, which is why it is asserted against the built request rather than the template.
@@ -1085,7 +1123,11 @@ describe('the item a turn is talking about', () => {
 
     expect(harness.requests[0]?.system).toContain('no longer there')
     expect(streamedText(events)).toBe('That one is no longer there.')
-    expect(doneEvent(events).message.context).toMatchObject({ found: false, fields: [] })
+    // The kind, the id and the sentence saying it is gone are what went, so they are what is recorded.
+    expect(doneEvent(events).message.context).toMatchObject({
+      found: false,
+      fields: ['kind', 'id', 'note'],
+    })
   })
 
   /** Criterion 13: a read-only turn was still sent, so it carries the context and records it. */
@@ -1139,5 +1181,30 @@ describe('the item a turn is talking about', () => {
     await harness.turn('Where is this up to?', undefined, { kind: 'project', id: project.id })
 
     expect(harness.requests[0]?.system).toContain('Northwind renewal')
+  })
+
+  /**
+   * Spec 09, criterion 13, on the path a refusal used to leave open. At `none` the context withholds
+   * the title and `get_task` refuses it, and a model told that will ask another tool: a search's page
+   * of summaries then carried the titles into the next request, which is the same disclosure by a
+   * different door. Asserted on the tool result the request actually carried.
+   */
+  it('withholds the titles from a search at none, on the request the tool result went in', async () => {
+    const harness = chatHarness({
+      answers: [
+        toolAnswer([{ name: 'search_tasks', arguments: {} }]),
+        textAnswer('I cannot see what they are called.'),
+      ],
+      file: { privacy: { llmContent: 'none' } },
+    })
+    createTask(harness.database, { id: 'task-1', title: 'Review the Northwind contract' }, CHAT_NOW)
+
+    await harness.turn('What is this?', undefined, { kind: 'task', id: 'task-1' })
+
+    const result = toolResultText(harness.requests[1]?.messages.at(-1))
+    expect(result).toContain('task-1')
+    expect(result).not.toContain('Northwind')
+    expect(result).toMatch(/content policy/i)
+    expect(harness.requests[1]?.system).not.toContain('Northwind')
   })
 })
