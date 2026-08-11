@@ -394,6 +394,7 @@ export function App() {
               tasks={tasks.filter((task) => task.projectId === route.id)}
               staleDays={staleDays}
               now={now}
+              hash={hash}
               {...cardHandlers}
             />
           ) : route.name === 'jobs' ? (

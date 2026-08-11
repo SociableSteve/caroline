@@ -309,5 +309,5 @@ The details panel adds the following, appended for the same reason.
     the panel is bounded and scrolls within its own region rather than taking the rail's height.
 31. Clicking a plan entry's title on the dashboard opens the entry's task, and an entry whose task has
     been deleted is not clickable.
-32. A link to a project's drill-in keeps whatever the rail is doing, so an open conversation and an
-    open item both survive the move.
+32. A link into a project's drill-in, and the link back out of it, each keep whatever the rail is
+    doing, so an open conversation and an open item both survive the move in either direction.

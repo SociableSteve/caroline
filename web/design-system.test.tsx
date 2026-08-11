@@ -92,6 +92,7 @@ const surfaces: ReadonlyArray<{ name: string; title: string; render: () => void 
           onDelete={vi.fn()}
           onSelect={vi.fn()}
           selected={null}
+          hash="#/projects/project-1"
         />,
       ),
   },

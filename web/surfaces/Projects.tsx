@@ -209,6 +209,8 @@ export interface ProjectDetailProps {
   readonly onDelete: (id: string) => void
   readonly onSelect: (item: ItemRef) => void
   readonly selected: ItemRef | null
+  /** The hash the way back out is built from, so leaving the drill-in keeps the rail. Spec 08. */
+  readonly hash: string
 }
 
 export function ProjectDetail({
@@ -221,6 +223,7 @@ export function ProjectDetail({
   onDelete,
   onSelect,
   selected,
+  hash,
 }: ProjectDetailProps) {
   // The drill-in's name is the project's, which is what makes two of them tell apart in history.
   useSurfaceTitle(project?.title ?? 'Project')
@@ -230,7 +233,7 @@ export function ProjectDetail({
       <div className="project-detail">
         <h1>Project</h1>
         <p role="alert">That project is not here. It may have been deleted.</p>
-        <a href="#/projects">Back to projects</a>
+        <a href={surfaceHref('#/projects', hash)}>Back to projects</a>
       </div>
     )
   }
@@ -239,7 +242,7 @@ export function ProjectDetail({
 
   return (
     <div className="project-detail">
-      <a href="#/projects">Back to projects</a>
+      <a href={surfaceHref('#/projects', hash)}>Back to projects</a>
       <h1>{project.title}</h1>
 
       <p className="project-state">
