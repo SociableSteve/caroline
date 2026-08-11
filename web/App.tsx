@@ -43,6 +43,7 @@ function subjectFor(
   selected: ItemRef | null,
   tasks: readonly TaskView[],
   projects: readonly ProjectView[],
+  allTasksLoaded: boolean,
 ): DetailsSubject | null {
   if (selected === null) return null
 
@@ -67,6 +68,9 @@ function subjectFor(
     kind: 'project',
     project,
     tasks: tasks.filter((task) => task.projectId === project.id),
+    // Whether the client holds every task, so the panel's counts read as totals or as a floor. A
+    // filtered subset of a truncated list is still truncated.
+    allTasksLoaded,
   }
 }
 
@@ -437,7 +441,7 @@ export function App() {
               selected === null ? null : (
                 <DetailsPanel
                   item={selected}
-                  subject={subjectFor(selected, tasks, projects)}
+                  subject={subjectFor(selected, tasks, projects, unfetchedTaskTotal === null)}
                   staleDays={staleDays}
                   now={now}
                   onClose={closeDetails}

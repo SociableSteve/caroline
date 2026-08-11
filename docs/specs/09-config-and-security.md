@@ -116,7 +116,9 @@ mailbox, and it is answered by the same `llmContent` level.
   nothing in it that `storeContent` has not already allowed onto the disk.
 - **The same level governs the tool.** `get_task` returns a task's notes, so it is held to
   `llmContent` in the same way and by the same function. Two answers to whether a note may leave the
-  machine would mean the policy is decoration.
+  machine would mean the policy is decoration. At `none` that holds for the rest of the task too: the
+  tool answers with the kind and the id and says the policy withheld the rest, as the context does,
+  because a level that withholds a title from the one cannot hand it over from the other.
 - **The payload preview shows a real one.** The Settings screen renders the context for the same real
   item it already previews a classification call for, built by the same function a turn is built with.
   A preview of a screen's worth of policy that does not include the newest thing leaving the machine is

@@ -95,7 +95,7 @@ describe('a project in the details panel', () => {
     render(
       <DetailsPanel
         item={{ kind: 'project', id: project.id }}
-        subject={{ kind: 'project', project, tasks: [nextAction] }}
+        subject={{ kind: 'project', project, tasks: [nextAction], allTasksLoaded: true }}
         staleDays={7}
         now={NOW}
         onClose={vi.fn()}
@@ -105,6 +105,31 @@ describe('a project in the details panel', () => {
     expect(screen.getByRole('heading', { name: 'Northwind renewal' })).toBeInTheDocument()
     expect(screen.getByText('Draft the terms')).toBeInTheDocument()
     expect(screen.getByText('1 open, 0 done')).toBeInTheDocument()
+  })
+
+  /**
+   * The counts are of the tasks the client holds, and the client does not always hold them all: the
+   * board says so when it is showing a subset. A count from a subset presented as the project's total
+   * is a wrong number rather than a partial one, so where the list is short the count is a floor and
+   * says which it is.
+   */
+  it('gives the counts as a floor where not every task is loaded', () => {
+    const loaded = aTask({ id: 'task-1', title: 'Draft the terms' })
+    const project = aProject({ id: 'project-1', title: 'Northwind renewal' })
+
+    render(
+      <DetailsPanel
+        item={{ kind: 'project', id: project.id }}
+        subject={{ kind: 'project', project, tasks: [loaded], allTasksLoaded: false }}
+        staleDays={7}
+        now={NOW}
+        onClose={vi.fn()}
+      />,
+    )
+
+    expect(screen.queryByText('1 open, 0 done')).not.toBeInTheDocument()
+    expect(screen.getByText(/at least 1 open/)).toBeInTheDocument()
+    expect(screen.getByText(/of the tasks loaded here/)).toBeInTheDocument()
   })
 })
 

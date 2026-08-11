@@ -101,6 +101,22 @@ const getTaskTool = defineTool<{ readonly id: string }>({
     const task = getTask(context.database, args.id)
     if (task === null) return { ok: false, message: `There is no task with the id ${args.id}.` }
 
+    // At `none` nothing about a task goes but its kind and its id, exactly as in the item context:
+    // spec 07 has the tool and the context answered by one policy, so a level that withholds a title
+    // from the one cannot hand it over from the other. Spec 09, criterion 13. The withholding is
+    // stated, so the model asks rather than answering about a task it was not shown.
+    if (context.config.privacy.llmContent === 'none') {
+      return {
+        ok: true,
+        data: {
+          kind: 'task',
+          id: task.id,
+          withheld:
+            'The content policy is set to send nothing about a task beyond its id. Ask the user what it is rather than guessing.',
+        },
+      }
+    }
+
     // Notes are the body-shaped field of a task, so they leave the machine only as far as `llmContent`
     // allows, through the same function the item context uses. Two answers to whether a note may be
     // sent would mean the policy is decoration. Spec 09.

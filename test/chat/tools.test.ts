@@ -222,6 +222,31 @@ describe('get_task', () => {
     expect(JSON.stringify(answer.data)).not.toContain('indemnity')
   })
 
+  /**
+   * Spec 09, criterion 13: at `none` nothing but the kind and the id appears, in a `get_task` result
+   * as in the item context. Spec 07 says the tool and the context are answered by one policy, so a
+   * level that withholds a title from the one cannot hand it over from the other.
+   */
+  it('withholds everything but the ids at none, and says the policy did', async () => {
+    const database = migratedDatabase()
+    createTask(
+      database,
+      { id: 'task-1', title: 'Review the Northwind contract', notes: 'Ring Ada about it.' },
+      CHAT_NOW,
+    )
+    setTaskTags(database, 'task-1', ['legal'])
+
+    const answer = await run(database, 'get_task', { id: 'task-1' }, { config: policyAt('none') })
+
+    const serialised = JSON.stringify(answer.data)
+    expect(answer.data).toMatchObject({ kind: 'task', id: 'task-1' })
+    for (const withheld of ['Northwind', 'Ring Ada', 'inbox', 'legal', 'status', 'sources']) {
+      expect(serialised).not.toContain(withheld)
+    }
+    // Said rather than left as a silence, so the model asks instead of answering from memory.
+    expect(serialised).toMatch(/content policy/i)
+  })
+
   it('truncates the notes at snippet and says it did', async () => {
     const database = migratedDatabase()
     createTask(

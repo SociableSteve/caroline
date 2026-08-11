@@ -39,6 +39,12 @@ export type DetailsSubject =
       readonly project: ProjectView
       /** Its tasks, for the counts. Nothing here lists them: the surfaces do that better. */
       readonly tasks: readonly TaskView[]
+      /**
+       * False where the client holds only a subset of the tasks, which it does on a large enough
+       * inbox. A count taken from a subset and presented as the project's total is a wrong number
+       * rather than a partial one, so the panel says which it is.
+       */
+      readonly allTasksLoaded: boolean
     }
 
 export interface DetailsPanelProps {
@@ -81,7 +87,11 @@ export function DetailsPanel({ item, subject, staleDays, now, onClose }: Details
           now={now}
         />
       ) : (
-        <ProjectDetails project={subject.project} tasks={subject.tasks} />
+        <ProjectDetails
+          project={subject.project}
+          tasks={subject.tasks}
+          allTasksLoaded={subject.allTasksLoaded}
+        />
       )}
 
       {/* Why the panel is more than a bigger card: what is in it is what the next message sends. */}
@@ -205,11 +215,14 @@ function TaskDetails({
 function ProjectDetails({
   project,
   tasks,
+  allTasksLoaded,
 }: {
   readonly project: ProjectView
   readonly tasks: readonly TaskView[]
+  readonly allTasksLoaded: boolean
 }) {
   const open = tasks.filter((task) => task.status !== 'done')
+  const done = tasks.length - open.length
 
   return (
     <>
@@ -230,8 +243,13 @@ function ProjectDetails({
             project.nextAction.title
           )}
         </Fact>
+        {/* Counted from the tasks the client holds. Where that is a subset, the count is a floor and
+            says so: the board already admits it is showing part of the list, and a panel beside it
+            quoting a total it cannot know would contradict that. */}
         <Fact label="Tasks">
-          {open.length} open, {tasks.length - open.length} done
+          {allTasksLoaded
+            ? `${open.length} open, ${done} done`
+            : `at least ${open.length} open and ${done} done, of the tasks loaded here`}
         </Fact>
       </Facts>
 

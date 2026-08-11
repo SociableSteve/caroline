@@ -203,9 +203,10 @@ describe('the payload preview', () => {
   it('waits for the server rather than showing an empty policy', () => {
     renderSettings({ preview: null, google: null })
 
-    // One per panel that has nothing to show yet: the account, the policy, the preamble and the
-    // payload. Counted rather than named, so a panel added without an empty state is noticed.
-    expect(screen.getAllByText('Waiting for the server.')).toHaveLength(4)
+    // One per panel that has nothing to show yet: the account, the policy, the preamble, the item
+    // context and the payload. Counted rather than named, so a panel added without an empty state is
+    // noticed.
+    expect(screen.getAllByText('Waiting for the server.')).toHaveLength(5)
   })
 })
 
@@ -303,5 +304,19 @@ describe('the item context preview', () => {
         /Nothing is captured yet/,
       ),
     ).toBeInTheDocument()
+  })
+
+  /**
+   * A preview that has not arrived is not a preview saying nothing is captured. The distinction is the
+   * one every other panel on this screen already draws, and getting it wrong tells a person with a
+   * task open that they have none.
+   */
+  it('waits for the server rather than claiming nothing is captured', () => {
+    renderSettings({ preview: null })
+
+    const section = panel(/what a message about an open item would send/i)
+
+    expect(within(section).getByText('Waiting for the server.')).toBeInTheDocument()
+    expect(within(section).queryByText(/Nothing is captured yet/)).not.toBeInTheDocument()
   })
 })

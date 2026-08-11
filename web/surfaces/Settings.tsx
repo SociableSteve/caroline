@@ -213,7 +213,11 @@ export function Settings({
       {/* The item context is the newest thing leaving the machine, so a preview without it is no
           longer a preview of the policy. Built by the function a turn builds it with. Spec 09. */}
       <Panel headingLevel={2} heading="What a message about an open item would send">
-        {preview?.itemContext == null ? (
+        {preview === null ? (
+          // A preview that has not arrived is not a preview saying nothing is captured, which is the
+          // distinction every other panel here draws.
+          <p className="empty">Waiting for the server.</p>
+        ) : preview.itemContext == null ? (
           <p className="empty">
             Nothing is captured yet, so there is no real item to show. Open one in the rail and this
             is what a message about it would carry.
