@@ -76,7 +76,13 @@ export function runDeleteCommand(
     for (const path of report.leftBehind) stdout(`  ${path}\n`)
   }
 
-  if (report.directoryRemoved) stdout(`\nRemoved the empty ${report.directory}\n`)
+  if (report.directoryRemoved) {
+    stdout(
+      dryRun
+        ? `\nWould remove the empty ${report.directory}\n`
+        : `\nRemoved the empty ${report.directory}\n`,
+    )
+  }
 
   if (dryRun && report.removed.length > 0) {
     stdout('\nNothing was deleted. Re-run with `npm run delete-data -- --yes`.\n')

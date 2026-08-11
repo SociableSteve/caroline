@@ -34,13 +34,13 @@ export function carolineDataPaths(config: Config): readonly string[] {
   // `data/caroline.db` are the same file and not the same string, and the difference showed up as a
   // dry run reporting Caroline's own database as somebody else's file. `tokenPath` is already
   // absolute. An absolute path is also the right thing to print in a deletion command's output.
-  const database = isFilePath(config.database.path)
-    ? resolve(config.database.path)
-    : config.database.path
+  const database = resolve(config.database.path)
   const tokens = config.integrations.google.tokenPath
 
   return [
-    ...(isFilePath(database)
+    // An in-memory or URI database writes no file, so there is none to remove. The token file is
+    // still Caroline's, and is still where it always was.
+    ...(isFilePath(config.database.path)
       ? [database, `${database}-wal`, `${database}-shm`, `${database}-journal`]
       : []),
     tokens,
@@ -53,10 +53,13 @@ export interface DeletionReport {
   readonly directory: string
   /** What was removed, or on a dry run what would be. */
   readonly removed: readonly string[]
-  /** Caroline's own paths that were not there. A first run leaves most of these. */
-  readonly missing: readonly string[]
   /** Anything else in the data directory. Not Caroline's, so not deleted, but said out loud. */
   readonly leftBehind: readonly string[]
+  /**
+   * Whether the data directory itself went, or on a dry run whether it would. Reported the same way
+   * as `removed`, because a command that promises to list what it would remove and then silently
+   * removes a directory has broken the promise the dry run exists to keep.
+   */
   readonly directoryRemoved: boolean
 }
 
@@ -71,13 +74,9 @@ export function deleteCarolineData(
 ): DeletionReport {
   const directory = dirname(resolve(config.database.path))
   const removed: string[] = []
-  const missing: string[] = []
 
   for (const path of carolineDataPaths(config)) {
-    if (!existsSync(path)) {
-      missing.push(path)
-      continue
-    }
+    if (!existsSync(path)) continue
 
     if (!dryRun) rmSync(path, { force: true })
     removed.push(path)
@@ -93,8 +92,8 @@ export function deleteCarolineData(
         .toSorted()
     : []
 
-  const directoryRemoved = !dryRun && leftBehind.length === 0 && existsSync(directory)
-  if (directoryRemoved) rmdirSync(directory)
+  const directoryRemoved = leftBehind.length === 0 && existsSync(directory)
+  if (directoryRemoved && !dryRun) rmdirSync(directory)
 
-  return { directory, removed, missing, leftBehind, directoryRemoved }
+  return { directory, removed, leftBehind, directoryRemoved }
 }

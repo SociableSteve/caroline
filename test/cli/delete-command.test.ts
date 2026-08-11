@@ -57,6 +57,9 @@ describe('runDeleteCommand', () => {
     expect(out).toContain('Would remove:')
     expect(out).toContain(databasePath)
     expect(out).toContain('npm run delete-data -- --yes')
+    // Including the directory, which a real run takes with it. Anything the command does and does
+    // not list is a thing the dry run failed to warn about.
+    expect(out).toContain('Would remove the empty')
     expect(existsSync(databasePath)).toBe(true)
   })
 

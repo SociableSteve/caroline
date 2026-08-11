@@ -221,9 +221,10 @@ npm run delete-data            # says what it would remove, removes nothing
 npm run delete-data -- --yes   # removes it
 ```
 
-The database, its SQLite sidecars and the Google token file, which is everything Caroline writes.
-Anything else in the data directory is left alone and named in the output, and the directory itself
-goes only if it is empty afterwards. Stop Caroline first.
+The database, the SQLite sidecars a crash leaves behind, the Google token file and the temporary
+sibling an interrupted token write leaves: everything Caroline writes. Anything else in the data
+directory is left alone and named in the output, and the directory itself goes only if it is empty
+afterwards. Stop Caroline first.
 
 ## Development
 

@@ -107,8 +107,20 @@ describe('deleteCarolineData', () => {
 
     expect(report.removed).toContain(config.database.path)
     expect(report.removed).toContain(config.integrations.google.tokenPath)
+    // The directory going is part of what a real run would do, so the dry run says so rather than
+    // leaving it to be a surprise afterwards.
+    expect(report.directoryRemoved).toBe(true)
     expect(existsSync(config.database.path)).toBe(true)
     expect(existsSync(config.integrations.google.tokenPath)).toBe(true)
+    expect(existsSync(dirname(config.database.path))).toBe(true)
+  })
+
+  it('does not say it would remove a directory holding somebody else’s file', () => {
+    const config = temporaryConfig()
+    runCaroline(config)
+    writeFileSync(join(dirname(config.database.path), 'notes-of-my-own.txt'), 'mine\n')
+
+    expect(deleteCarolineData(config, { dryRun: true }).directoryRemoved).toBe(false)
   })
 
   it('leaves a file Caroline did not create, and keeps the directory that holds it', () => {

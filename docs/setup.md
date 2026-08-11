@@ -61,8 +61,15 @@ Try it before configuring anything, because everything after this point is an ad
 | Path | What it is |
 | --- | --- |
 | `./data/caroline.db` | The database. Created on first run, migrated on every start |
-| `./data/google-tokens.json` | Google's refresh token, mode 0600, written only once you connect |
+| `./data/caroline.db-wal`, `-shm` | SQLite's write-ahead log, while the process is running |
+| `./data/google-tokens.json` | Google's refresh token, mode 0600, written only once you connect. A `.tmp` sibling can survive an interrupted write, holding the same token |
 | `./caroline.config.json` | Your settings. Optional: every value has a default |
+
+Those are defaults, not fixed locations. `database.path`, or `CAROLINE_DB_PATH`, moves the database,
+and the token file follows it: it is always the database's own directory, which is what "the data
+directory" means below. If you move it, back up and delete that directory rather than `./data`, and
+if you are not sure which one is in force, `npm run delete-data` prints it before it removes
+anything.
 
 Nothing Caroline writes lives outside the data directory, which is what makes
 [step 10](#10-removing-everything) one command.
@@ -143,9 +150,9 @@ Two things about fine-grained tokens that will otherwise cost you an afternoon:
   permissions mistake rather than a pending request.
 
 **Check it:** press **Sync now** in the header, or **Run now** on the sync job under **Jobs**, and
-read the run it records. A successful run
-that found nothing means the token works and nobody is waiting on you. Anything else is reported on
-the run itself, in words, including a rate limit and when it resets.
+read the run it records. A successful run that found nothing means the token works and nobody is
+waiting on you. Anything else is reported on the run itself, in words, including a rate limit and
+when it resets.
 
 ## 6. Google
 
@@ -154,7 +161,9 @@ own. There is no Caroline-operated client to trust, which is the point, and the 
 section.
 
 Read-only scopes, and only two: `gmail.readonly` and `calendar.readonly`. They are asked for
-together so that consent happens once.
+together so that consent happens once. Google classifies them differently, which matters if you ever
+publish the app: `gmail.readonly` is a **restricted** scope, whose verification includes a security
+assessment, and `calendar.readonly` is a **sensitive** one, which is verification without that.
 
 ### 6a. A project with the two APIs enabled
 
@@ -172,10 +181,11 @@ Under **APIs & Services → OAuth consent screen**, which the current console al
 2. **Audience.** A Google Workspace account can choose **Internal**, which limits consent to your
    own organisation. A personal Google account has only **External**.
 3. Add the two scopes, `.../auth/gmail.readonly` and `.../auth/calendar.readonly`, under **Data
-   access**. Both are restricted scopes, so a Workspace administrator can block them
-   independently of anything you do here.
-4. **External audiences only:** add your own Google address under **Test users**. Consent fails
-   without it.
+   access**. Both are scopes a Workspace administrator can block independently of anything you do
+   here, `gmail.readonly` being restricted and `calendar.readonly` sensitive.
+4. **External, in Testing:** add your own Google address under **Test users**. Consent fails without
+   it. A published app needs no test users, and staying in Testing is the recommendation below, so
+   in practice this step applies.
 
 **The one thing worth deciding now.** An External app left in **Testing** gets refresh tokens that
 expire after seven days, so Caroline loses its Google connection weekly and you press **Connect
@@ -202,13 +212,13 @@ Under **Credentials → Create credentials → OAuth client ID**:
    prints the one it will use: take it from there rather than from this page.
 3. Copy the client id into `caroline.config.json`:
 
-```jsonc
-{
-  "integrations": {
-    "google": { "clientId": "1234567890-abc123.apps.googleusercontent.com" }
-  }
-}
-```
+   ```json
+   {
+     "integrations": {
+       "google": { "clientId": "1234567890-abc123.apps.googleusercontent.com" }
+     }
+   }
+   ```
 
 4. Put the client secret in `GOOGLE_CLIENT_SECRET`. Not in the file: it is a secret, and Caroline
    refuses to start with it there.
@@ -260,8 +270,7 @@ about you.
 - **Dashboard** should show today's capacity, and a plan once you press **Regenerate** under
   today's plan.
 - **Chat**, from the button in the header on any surface, should answer a question about your own
-  board. If it
-  says it can read but not change anything, that is `llm.supportsTools` and step 4.
+  board. If it says it can read but not change anything, that is `llm.supportsTools` and step 4.
 - After the hourly classify job has run, the inbox should be shorter, and anything the model was
   unsure of stays there with its suggestion on the card and an **Accept** button.
 
@@ -287,7 +296,9 @@ WantedBy=default.target
 ```
 
 `systemctl --user enable --now caroline`, and `loginctl enable-linger $USER` if you want it running
-while you are logged out. Put the secrets in that `EnvironmentFile`, mode 0600.
+while you are logged out. Put the secrets in that `EnvironmentFile`, mode 0600. Take the `ExecStart`
+path from `command -v npm`: a Node installed through nvm or a version manager is not in `/usr/bin`,
+and systemd will not search a path for you.
 
 **Backups.** Stop Caroline and copy the data directory. Copying an open SQLite database with a
 write-ahead log alongside it is how you get a backup that restores to a slightly different past
@@ -303,9 +314,10 @@ npm run delete-data            # says what it would remove, removes nothing
 npm run delete-data -- --yes   # removes it
 ```
 
-That is the database, its SQLite sidecars and the Google token file. Anything else in the data
-directory is left alone and named, and the directory itself goes only if it is empty afterwards.
-Stop Caroline first.
+That is the database, the SQLite sidecars a crash leaves behind, the Google token file and the
+temporary sibling an interrupted token write leaves, which holds the same refresh token. Anything
+else in the data directory is left alone and named, and the directory itself goes only if it is empty
+afterwards. Stop Caroline first.
 
 Deleting the token file is what revoking Caroline's access locally means. To revoke it at the other
 end too, remove the app at <https://myaccount.google.com/permissions>, delete the GitHub token, and
