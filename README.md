@@ -119,7 +119,8 @@ closes, or your review request is withdrawn before you ever reviewed it.
 
 Gmail and Calendar need an OAuth client from a Google Cloud project of your own. Put its id in
 `integrations.google.clientId` and its secret in `GOOGLE_CLIENT_SECRET`, add
-`http://127.0.0.1:5123/api/integrations/google/callback` to the client's redirect URIs, then
+`http://127.0.0.1:5123/api/integrations/google/callback` to the client's redirect URIs, with
+whatever `server.host` and `server.port` say if you have changed either, then
 open **Settings** and press **Connect Google**. The scopes are read-only, `gmail.readonly` and
 `calendar.readonly`, requested together so consent happens once, and the tokens are written to
 `google-tokens.json` beside the database with mode 0600. The whole of it, including the consent

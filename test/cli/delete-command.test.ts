@@ -2,7 +2,7 @@
  * The command around the deletion. The property worth a test is the gate: what somebody typing the
  * command without having read it gets is a listing, and their database is still there afterwards.
  */
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -123,6 +123,42 @@ describe('runDeleteCommand', () => {
     expect(code).toBe(0)
     expect(out).toContain(databasePath)
     expect(existsSync(databasePath)).toBe(false)
+  })
+
+  it('does not claim it found nothing when what it found would not go', () => {
+    // "Caroline has written none of its files here" followed by a list of Caroline's files is a false
+    // statement about, among other things, a live Google refresh token.
+    const directory = mkdtempSync(join(tmpdir(), 'caroline-delete-command-'))
+    directories.push(directory)
+
+    const dataDirectory = join(directory, 'data')
+    const databasePath = join(dataDirectory, 'caroline.db')
+    const configPath = join(directory, 'caroline.config.json')
+    writeFileSync(configPath, JSON.stringify({ database: { path: databasePath } }))
+
+    const env = { CAROLINE_CONFIG: configPath } as NodeJS.ProcessEnv
+    openCarolineDatabase(loadConfig({ file: { database: { path: databasePath } }, env })).close()
+
+    if (process.getuid?.() === 0) return
+
+    chmodSync(dataDirectory, 0o500)
+    try {
+      let out = ''
+      let err = ''
+      const code = runDeleteCommand(['--yes'], {
+        stdout: (text) => (out += text),
+        stderr: (text) => (err += text),
+        env,
+      })
+
+      expect(code).toBe(1)
+      expect(out).not.toContain('none of its files here')
+      expect(err).toContain('Could not remove:')
+      expect(err).toContain(databasePath)
+      expect(existsSync(databasePath)).toBe(true)
+    } finally {
+      chmodSync(dataDirectory, 0o700)
+    }
   })
 
   it('reports a configuration it cannot load rather than deleting a default path', () => {

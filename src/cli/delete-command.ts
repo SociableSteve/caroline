@@ -71,9 +71,9 @@ export function runDeleteCommand(
 
   stdout(`Data directory: ${report.directory}\n`)
 
-  if (report.removed.length === 0) {
+  if (report.removed.length === 0 && report.failed.length === 0) {
     stdout('Nothing to remove: Caroline has written none of its files here.\n')
-  } else {
+  } else if (report.removed.length > 0) {
     stdout(dryRun ? '\nWould remove:\n' : '\nRemoved:\n')
     for (const path of report.removed) {
       // Said on the line itself, because "removed the database" about a link is a sentence that has

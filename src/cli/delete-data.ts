@@ -44,6 +44,23 @@ export function carolineDataPaths(config: Config): readonly string[] {
   ]
 }
 
+/** What the filesystem said, for a report rather than for a stack trace. */
+function reason(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * Whether a path is a symbolic link. False when it cannot be looked at, which is the safe answer:
+ * every caller uses this to decide whether to leave something alone.
+ */
+function isLink(path: string): boolean {
+  try {
+    return lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink() === true
+  } catch {
+    return false
+  }
+}
+
 /** A path that could not be removed, and what the filesystem said about it. */
 export interface DeletionFailure {
   readonly path: string
@@ -92,7 +109,17 @@ export function deleteCarolineData(
   const failed: DeletionFailure[] = []
 
   for (const path of carolineDataPaths(config)) {
-    const entry = lstatSync(path, { throwIfNoEntry: false })
+    let entry
+    try {
+      entry = lstatSync(path, { throwIfNoEntry: false })
+    } catch (error) {
+      // `throwIfNoEntry` covers a path that is not there, and nothing else: a directory the account
+      // cannot read still throws. Looking is as much a step that can fail as removing is, and by this
+      // point in the loop files may already have gone, so it is reported the same way.
+      failed.push({ path, message: reason(error) })
+      continue
+    }
+
     if (entry === undefined) continue
 
     // A directory carrying one of Caroline's names is not one of Caroline's files. `rmSync` without
@@ -103,8 +130,8 @@ export function deleteCarolineData(
 
     // A symlink is removed as a link rather than followed, which is what `rmSync` does: pointing the
     // database at another disk is a reasonable thing to have done, and deleting the link is the most
-    // this command may conclude from it. It is recorded as a link so the output can say so.
-    if (entry.isSymbolicLink()) symlinks.push(path)
+    // this command may conclude from it.
+    const entryIsLink = entry.isSymbolicLink()
 
     if (!dryRun) {
       try {
@@ -113,11 +140,14 @@ export function deleteCarolineData(
         // A read-only mount, a locked file, a permission the account does not have. The rest of the
         // files are still worth removing, and the report is the record of what happened: throwing
         // here would leave a partial deletion described by a stack trace.
-        failed.push({ path, message: error instanceof Error ? error.message : String(error) })
+        failed.push({ path, message: reason(error) })
         continue
       }
     }
 
+    // Recorded as a link only now, so that `symlinks` stays a subset of `removed` and the output
+    // cannot describe how something went that did not go.
+    if (entryIsLink) symlinks.push(path)
     removed.push(path)
   }
 
@@ -134,30 +164,45 @@ export function deleteCarolineData(
   // deliberately not subtracted is a directory that collided with one of Caroline's names, which was
   // not removed because it is not Caroline's and belongs in this list.
   const ours = new Set([...(dryRun ? removed : []), ...failed.map((failure) => failure.path)])
-  const leftBehind =
-    ownsDirectory && existsSync(directory)
-      ? readdirSync(directory)
-          .map((entry) => join(directory, entry))
-          .filter((path) => !ours.has(path))
-          .toSorted()
-      : []
 
-  // `removed` having something in it is what says this directory was Caroline's. Without that check,
-  // a `database.path` pointing into an empty directory of somebody's own has that directory deleted
-  // by a command that had just reported finding nothing of Caroline's in it. A failure leaves a file
-  // in place, so it stops the directory going too, by the same rule as anything else still in it.
+  // Null where the directory was not read: it is not there, it is not Caroline's to read, or reading
+  // it failed. An empty list and an unread list are different answers, and the second must not let
+  // the directory be removed for looking empty.
+  let entries: string[] | null = null
+  if (ownsDirectory && existsSync(directory)) {
+    try {
+      entries = readdirSync(directory)
+    } catch (error) {
+      failed.push({ path: directory, message: reason(error) })
+    }
+  }
+
+  const leftBehind = (entries ?? [])
+    .map((entry) => join(directory, entry))
+    .filter((path) => !ours.has(path))
+    .toSorted()
+
+  // A file of Caroline's having been removed is what says this directory was Caroline's. Without that
+  // check, a `database.path` pointing into an empty directory of somebody's own has that directory
+  // deleted by a command that had just reported finding nothing of Caroline's in it. A failure leaves
+  // a file in place, so it stops the directory going too, by the same rule as anything else still in
+  // it.
   //
-  // A symbolic link is not a directory Caroline created, whatever it points at, and `rmdirSync`
-  // throws ENOTDIR on one. Symlinking the data directory onto another volume is the same reasonable
-  // thing as symlinking the database, and the link is left where it is.
-  const directoryIsLink = lstatSync(directory, { throwIfNoEntry: false })?.isSymbolicLink() === true
+  // A link does not count towards it. Somebody put that link there by hand, so a directory whose only
+  // Caroline-shaped entry was one is a directory Caroline never wrote a byte in, and the same
+  // reasoning that says a link may only be unlinked says its removal proves nothing about the folder.
+  //
+  // A symbolic link is not a directory Caroline created either, whatever it points at, and
+  // `rmdirSync` throws ENOTDIR on one. Symlinking the data directory onto another volume is the same
+  // reasonable thing as symlinking the database, and the link is left where it is.
+  const wroteHere = removed.some((path) => !symlinks.includes(path))
   const directoryEmpty =
     ownsDirectory &&
-    !directoryIsLink &&
-    removed.length > 0 &&
+    entries !== null &&
+    !isLink(directory) &&
+    wroteHere &&
     failed.length === 0 &&
-    leftBehind.length === 0 &&
-    existsSync(directory)
+    leftBehind.length === 0
 
   let directoryRemoved = directoryEmpty
   if (directoryEmpty && !dryRun) {
@@ -167,10 +212,7 @@ export function deleteCarolineData(
       // Reported rather than thrown, for the reason the file removals are: the files are already
       // gone, and a stack trace instead of the report is the one outcome this command must not have.
       directoryRemoved = false
-      failed.push({
-        path: directory,
-        message: error instanceof Error ? error.message : String(error),
-      })
+      failed.push({ path: directory, message: reason(error) })
     }
   }
 

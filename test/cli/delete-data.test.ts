@@ -319,6 +319,79 @@ describe('deleteCarolineData', () => {
     expect(readdirSync(elsewhere)).toEqual([])
   })
 
+  it('reports rather than throws when a path cannot even be looked at', () => {
+    // `throwIfNoEntry` suppresses "not there" and nothing else. A parent that is a file rather than a
+    // directory makes `lstat` throw ENOTDIR, and that used to end the dry run in a stack trace: the
+    // mode people are told to run first, on an ordinary typo in `database.path`.
+    const directory = mkdtempSync(join(tmpdir(), 'caroline-delete-notdir-'))
+    directories.push(directory)
+    const notADirectory = join(directory, 'not-a-directory')
+    writeFileSync(notADirectory, 'a file where a folder was expected\n')
+
+    const config = loadConfig({
+      file: { database: { path: join(notADirectory, 'caroline.db') } },
+      env: {} as NodeJS.ProcessEnv,
+    })
+
+    for (const dryRun of [true, false]) {
+      const report = deleteCarolineData(config, { dryRun })
+
+      expect(report.removed).toEqual([])
+      expect(report.failed.map((failure) => failure.message.slice(0, 6))).toContain('ENOTDI')
+      expect(report.directoryRemoved).toBe(false)
+    }
+    expect(existsSync(notADirectory)).toBe(true)
+  })
+
+  it('reports rather than throws when the data directory cannot be listed', () => {
+    const config = temporaryConfig()
+    const directory = dirname(config.database.path)
+    runCaroline(config)
+
+    // Writable and searchable but not readable, so the files go and the listing afterwards fails.
+    // Root ignores the mode, so there is nothing to assert when the suite runs as root.
+    if (process.getuid?.() === 0) return
+
+    chmodSync(directory, 0o300)
+    try {
+      const report = deleteCarolineData(config)
+
+      expect(report.removed).toContain(config.database.path)
+      expect(report.failed.map((failure) => failure.path)).toContain(directory)
+      // The record of what went is the whole point of the command, and a directory it could not read
+      // is no reason to lose it.
+      expect(report.directoryRemoved).toBe(false)
+    } finally {
+      chmodSync(directory, 0o700)
+    }
+  })
+
+  it('does not remove a directory whose only Caroline-shaped entry was a link somebody made', () => {
+    // Unlinking a link somebody created is not evidence Caroline ever wrote in the directory, and the
+    // documented rule is that the directory goes only if Caroline wrote something in it.
+    const created = mkdtempSync(join(tmpdir(), 'caroline-delete-linkonly-'))
+    directories.push(created)
+    const elsewhere = join(created, 'elsewhere')
+    const data = join(created, 'data')
+    mkdirSync(elsewhere)
+    mkdirSync(data)
+    writeFileSync(join(elsewhere, 'real.db'), 'the real database\n')
+    symlinkSync(join(elsewhere, 'real.db'), join(data, 'caroline.db'))
+
+    const config = loadConfig({
+      file: { database: { path: join(data, 'caroline.db') } },
+      env: {} as NodeJS.ProcessEnv,
+    })
+
+    const report = deleteCarolineData(config)
+
+    expect(report.removed).toEqual([join(data, 'caroline.db')])
+    expect(report.symlinks).toEqual([join(data, 'caroline.db')])
+    expect(report.directoryRemoved).toBe(false)
+    expect(existsSync(data)).toBe(true)
+    expect(existsSync(join(elsewhere, 'real.db'))).toBe(true)
+  })
+
   it('keeps a data directory that is not empty of subdirectories', () => {
     const config = temporaryConfig()
     const directory = dirname(config.database.path)
