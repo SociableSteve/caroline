@@ -369,7 +369,7 @@ const diagram = `<svg class="flow" viewBox="0 0 640 190" aria-hidden="true" focu
 function description(markdown: string): string {
   // A paragraph, which is to say prose: not a heading, a table, a list, a quotation or a command. A
   // description built from a document's opening code fence is a line of shell in a search result.
-  const prose = /^([#|>-]|\*|\d+\.|```|    )/
+  const prose = /^([#|>-]|\*|\d+\.|```| {4})/
   const paragraph = paragraphs(markdown)
     .map((block) => block.trim())
     .find((block) => block !== '' && !prose.test(block))
