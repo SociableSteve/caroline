@@ -11,6 +11,9 @@
  *
  * Never point this at the real database. It writes into a path of its own and says which.
  */
+import { mkdirSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { loadConfig } from '../../src/config/load.js'
 import { openCarolineDatabase } from '../../src/db/index.js'
 import { createProject } from '../../src/db/repositories/projects.js'
@@ -25,7 +28,27 @@ import type { StatusActor, TaskStatus } from '../../src/domain/task.js'
 import type { CalendarResponseStatus } from '../../src/domain/calendar.js'
 import type { JobRunStatus } from '../../src/domain/job.js'
 
-const databasePath = process.env.SEED_DB ?? '/tmp/caroline-demo/demo.db'
+/**
+ * Under the system temporary directory, and refused anywhere else.
+ *
+ * The README saying "never point this at the real database" is not a control: `SEED_DB` naming
+ * `./data/caroline.db` would have this migrate and seed the database somebody actually uses, and
+ * the whole reason this file exists is a defect where a test suite wrote into that directory. A
+ * check by path rather than by prefix, so `/tmp2` is not mistaken for a child of `/tmp`.
+ */
+const databasePath = resolve(process.env.SEED_DB ?? join(tmpdir(), 'caroline-demo', 'demo.db'))
+const step = relative(resolve(tmpdir()), databasePath)
+
+if (step === '' || step.startsWith('..') || isAbsolute(step)) {
+  throw new Error(
+    `SEED_DB must be inside ${tmpdir()}, and is ${databasePath}. This script migrates and writes ` +
+      'whatever it is given, so it declines to touch anything outside a scratch directory.',
+  )
+}
+
+// SQLite will not create the directory for us, and on a clean machine there is not one.
+mkdirSync(dirname(databasePath), { recursive: true })
+
 const config = loadConfig({
   file: { database: { path: databasePath }, jobs: { timezone: 'Europe/London' } },
   env: {} as NodeJS.ProcessEnv,
@@ -153,23 +176,31 @@ createTask(
 
 // ---- Pull requests in Review, with their sources ----
 
+/**
+ * The repository is a field rather than being spelled into the title twice. Two of these are the
+ * same repository and one is not, which is the point of having a third: the board should show a
+ * review from somewhere else, with provenance that points at somewhere else.
+ */
 const pullRequests = [
   {
-    title: 'nearform/caroline#41 Add the retry to the Gmail fetch helper',
+    repository: 'nearform/caroline',
+    summary: 'Add the retry to the Gmail fetch helper',
     author: 'ana-dev',
     number: 41,
     ageDays: 1,
     pushed: false,
   },
   {
-    title: 'nearform/caroline#39 Rework the scheduler’s catch-up pass',
+    repository: 'nearform/caroline',
+    summary: 'Rework the scheduler’s catch-up pass',
     author: 'sam-eng',
     number: 39,
     ageDays: 4,
     pushed: true,
   },
   {
-    title: 'nearform/hub-tools#12 Bump the NetSuite client',
+    repository: 'nearform/hub-tools',
+    summary: 'Bump the NetSuite client',
     author: 'ana-dev',
     number: 12,
     ageDays: 2,
@@ -179,9 +210,11 @@ const pullRequests = [
 
 for (const pr of pullRequests) {
   const at = NOW - pr.ageDays * DAY
+  const externalId = `${pr.repository}#${pr.number}`
+  const title = `${externalId} ${pr.summary}`
   const task = createTask(
     database,
-    { title: pr.title, status: 'review', statusSetBy: 'sync', estimateMinutes: 25 },
+    { title, status: 'review', statusSetBy: 'sync', estimateMinutes: 25 },
     at,
   )
 
@@ -189,9 +222,9 @@ for (const pr of pullRequests) {
     database,
     {
       provider: 'github',
-      externalId: `nearform/caroline#${pr.number}`,
-      url: `https://github.com/nearform/caroline/pull/${pr.number}`,
-      title: pr.title,
+      externalId,
+      url: `https://github.com/${pr.repository}/pull/${pr.number}`,
+      title,
       taskId: task.id,
       lifecycleState: 'awaiting_review',
       metadata: {

@@ -3,6 +3,7 @@
  * server, and nothing from the callback's query string is echoed back.
  */
 import { tmpdir } from 'node:os'
+import { isAbsolute, relative, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { GoogleAuth } from '../../src/connectors/google/auth.js'
 import { GoogleAuthError } from '../../src/connectors/google/oauth.js'
@@ -22,11 +23,25 @@ import { REQUEST_TIME, testConfig, testServer } from '../helpers/test-server.js'
  * writes a token into their data directory.
  */
 describe('the test configuration', () => {
+  /**
+   * By path rather than by substring. `startsWith` calls `/tmp2/tokens.json` a child of `/tmp`,
+   * and a guard that can be satisfied by a sibling directory is not a guard.
+   */
+  const contains = (parent: string, child: string): boolean => {
+    const step = relative(resolve(parent), resolve(child))
+    return step !== '' && !step.startsWith('..') && !isAbsolute(step)
+  }
+
   it('keeps the Google token file out of the working tree', () => {
     const { tokenPath } = testConfig.integrations.google
 
-    expect(tokenPath).not.toContain(process.cwd())
-    expect(tokenPath.startsWith(tmpdir())).toBe(true)
+    expect(contains(process.cwd(), tokenPath)).toBe(false)
+    expect(contains(tmpdir(), tokenPath)).toBe(true)
+  })
+
+  it('compares by path, so a sibling of the temporary directory is not inside it', () => {
+    expect(contains('/tmp', '/tmp2/google-tokens.json')).toBe(false)
+    expect(contains('/tmp', '/tmp/caroline/google-tokens.json')).toBe(true)
   })
 })
 

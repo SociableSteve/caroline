@@ -10,7 +10,7 @@
  */
 import { spawn } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { chromePath } from './chrome.mjs'
+import { chromeFlags, chromePath, profileDirectory, stopChrome } from './chrome.mjs'
 
 const CHROME = chromePath()
 const PORT = Number(process.env.CDP_PORT ?? 9333)
@@ -31,19 +31,10 @@ const shots = [
 
 mkdirSync(OUT, { recursive: true })
 
+const profile = profileDirectory('shoot')
 const chrome = spawn(
   CHROME,
-  [
-    `--remote-debugging-port=${PORT}`,
-    '--headless',
-    '--disable-gpu',
-    '--no-sandbox',
-    '--disable-dev-shm-usage',
-    '--hide-scrollbars',
-    '--force-color-profile=srgb',
-    '--user-data-dir=/tmp/caroline-demo/chrome-cdp',
-    'about:blank',
-  ],
+  [`--remote-debugging-port=${PORT}`, ...chromeFlags(profile), 'about:blank'],
   { stdio: ['ignore', 'ignore', 'pipe'] },
 )
 
@@ -88,38 +79,45 @@ class Session {
   }
 }
 
-const url = await debuggerUrl()
-const socket = new WebSocket(url)
-await new Promise((resolve) => socket.addEventListener('open', resolve))
-const browser = new Session(socket)
+/**
+ * In a `finally`, because anything thrown between the spawn and the last screenshot would
+ * otherwise leave Chrome alive holding the debugging port and its profile, and the next run would
+ * either fail to bind or quietly attach to the stale browser and screenshot yesterday's client.
+ */
+let socket = null
 
-const { targetId } = await browser.send('Target.createTarget', { url: 'about:blank' })
-const { sessionId } = await browser.send('Target.attachToTarget', { targetId, flatten: true })
+try {
+  socket = new WebSocket(await debuggerUrl())
+  await new Promise((resolve) => socket.addEventListener('open', resolve))
+  const browser = new Session(socket)
 
-for (const shot of shots) {
-  await browser.send(
-    'Emulation.setDeviceMetricsOverride',
-    { width: shot.width, height: shot.height, deviceScaleFactor: 2, mobile: false },
-    sessionId,
-  )
+  const { targetId } = await browser.send('Target.createTarget', { url: 'about:blank' })
+  const { sessionId } = await browser.send('Target.attachToTarget', { targetId, flatten: true })
 
-  // A hash change alone does not reload, so every shot navigates from scratch.
-  await browser.send('Page.navigate', { url: 'about:blank' }, sessionId)
-  await sleep(150)
-  await browser.send('Page.navigate', { url: `${BASE}/${shot.hash}` }, sessionId)
-  // Long enough for the fetches behind the surface to land and React to paint them.
-  await sleep(2500)
+  for (const shot of shots) {
+    await browser.send(
+      'Emulation.setDeviceMetricsOverride',
+      { width: shot.width, height: shot.height, deviceScaleFactor: 2, mobile: false },
+      sessionId,
+    )
 
-  const { data } = await browser.send(
-    'Page.captureScreenshot',
-    { format: 'png', captureBeyondViewport: true },
-    sessionId,
-  )
+    // A hash change alone does not reload, so every shot navigates from scratch.
+    await browser.send('Page.navigate', { url: 'about:blank' }, sessionId)
+    await sleep(150)
+    await browser.send('Page.navigate', { url: `${BASE}/${shot.hash}` }, sessionId)
+    // Long enough for the fetches behind the surface to land and React to paint them.
+    await sleep(2500)
 
-  writeFileSync(`${OUT}/${shot.name}.png`, Buffer.from(data, 'base64'))
-  console.log(`${shot.name}.png  ${shot.width}px`)
+    const { data } = await browser.send(
+      'Page.captureScreenshot',
+      { format: 'png', captureBeyondViewport: true },
+      sessionId,
+    )
+
+    writeFileSync(`${OUT}/${shot.name}.png`, Buffer.from(data, 'base64'))
+    console.log(`${shot.name}.png  ${shot.width}px`)
+  }
+} finally {
+  socket?.close()
+  await stopChrome(chrome)
 }
-
-socket.close()
-chrome.kill()
-process.exit(0)

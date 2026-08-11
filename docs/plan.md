@@ -231,6 +231,13 @@ route swap takes the board away to do it. Below the width where a rail leaves th
 it collapses to the overlay pattern quick capture already owns. Spec 08's "Six surfaces" becomes
 five and a companion.
 
+That migration is this milestone's to finish, and it reaches further than the rail itself. Spec
+08's surface list, spec 10 criterion 6 and its count of six distinguishable routes, `web/router.ts`
+and its `#/chat` route, the navigation in `web/App.tsx`, and the router and title tests all state
+six surfaces today. They change here or the contracts and the client disagree, so none of it is
+left for a later milestone to notice. The conversation keeps a URL, because a conversation you
+cannot link to is one you cannot come back to; what stops being a route is the surface around it.
+
 **Who it is talking to.** Two facts go into the shared prompt preamble: that the system is called
 Caroline, and the name of the person using it. The second is the one that matters, because without
 it the model writes about the user in the third person to the user's own face. The preamble is
@@ -246,6 +253,14 @@ It is also personal data leaving the machine on every call to a remote provider,
 09's business: the content policy states it, and the payload preview shows it, which is the entire
 reason that screen exists. A preview that does not show the name is a preview that no longer
 proves what it claims to prove.
+
+And it is free text from outside the program that ends up inside a system prompt, so it is
+constrained rather than trusted: bounded in length, a single line with control characters refused,
+and rendered as a value in the preamble rather than concatenated into its instructions. An empty
+name is a supported state and not an error, because a person who would rather not be addressed by
+name should be able to say so by clearing the field; the preamble then omits that sentence
+entirely rather than greeting nobody. The preview is built from the same rendered preamble the
+provider is handed, not from a second rendering that could drift from it.
 
 Exit: spec 10's appearance model in full, the rail on every surface, and a payload preview that
 shows the preamble it will actually send.
@@ -264,9 +279,14 @@ feature, and it is also the part that needs rules rather than good intentions:
 1. **Context is per message, not per conversation.** It is resolved when a message is sent, from
    whatever is selected then. Pinning it at the start of a conversation would have the model
    answering about an item that has since been closed.
-2. **What was sent is recorded on the turn.** The transcript says which item a turn carried, for
-   the same reason every other change chat makes is written down: a conversation you cannot audit
-   is one you cannot trust.
+2. **What was sent is recorded on the turn**, and an item's id is not what was sent. The content
+   policy can suppress a body, truncate it to a snippet, or send metadata alone, so the same task
+   reaches the provider differently depending on settings the user can change between one turn and
+   the next. The record is therefore of the resolved context: which item, which fields, at which
+   content level and policy version, and the rendered context itself or a digest of it. One
+   resolved-context object is built per turn and three things read it, so they cannot disagree:
+   the provider request, the payload preview, and this record. A conversation you cannot audit is
+   one you cannot trust, and an audit that records an id is not an audit.
 3. **Selecting nothing sends nothing.** There is no last-selected fallback. An item you closed is
    an item you stopped talking about.
 4. **The content policy governs it.** A task's title and notes are content, and a title here can
