@@ -183,6 +183,19 @@ describe('the links survive the move off GitHub', () => {
     expect(() => buildSite(broken)).toThrow(/no-such-heading/)
   })
 
+  /**
+   * A fragment is everything after the first `#`, because that is what a browser asks for. Checking
+   * only as far as a second one would pass `#4-a-model#gone`, whose target does not exist.
+   */
+  it('fails the build on a fragment that a second hash makes nothing', () => {
+    const broken = override(
+      'docs/setup.md',
+      '# Setting Caroline up\n\n## 4. A model\n\n[gone](#4-a-model#gone)\n',
+    )
+
+    expect(() => buildSite(broken)).toThrow(/4-a-model#gone/)
+  })
+
   // Criterion 4. The fragments are already written into the documents, and GitHub's slugs are what
   // they were written against.
   it('identifies headings by GitHub slug, so the fragments already written still land', () => {
@@ -293,6 +306,26 @@ describe('the site asks nothing of the reader', () => {
     }
   })
 
+  /**
+   * Enforced by the build and not only asserted here, because a document's raw HTML passes through the
+   * renderer untouched: a script that got in there would be published and noticed afterwards. The
+   * build refuses rather than sanitising, for the reason `site/build.ts` gives.
+   */
+  it('fails the build on a page carrying a script, rather than stripping it and shipping', () => {
+    const broken = override('docs/setup.md', '# Setting Caroline up\n\n<script>alert(1)</script>\n')
+
+    expect(() => buildSite(broken)).toThrow(/runs nothing/)
+  })
+
+  it('fails the build on a link whose scheme makes it code', () => {
+    const broken = override(
+      'docs/setup.md',
+      '# Setting Caroline up\n\n[press](javascript:alert(1))\n',
+    )
+
+    expect(() => buildSite(broken)).toThrow(/scheme this site does not link out with/)
+  })
+
   it('fetches nothing from another host: no font, no stylesheet, no image', () => {
     for (const [path, contents] of documents) {
       for (const tag of contents.match(/<(link|img|iframe|source)[^>]*>/g) ?? []) {
@@ -374,7 +407,14 @@ describe('the site publishes nothing but the documentation', () => {
 })
 
 describe('publishing it', () => {
-  const workflow = source('.github/workflows/pages.yml')
+  /**
+   * The comments come out first, and the assertions read what is left. Both workflows explain
+   * themselves in prose that names the very strings these tests look for, so asserting against the
+   * raw file would let a comment stand in for the configuration it describes: the `id-token: write`
+   * assertion passed on a comment about `id-token: write` before this.
+   */
+  const configured = (path: string) => source(path).replace(/(^|\n)\s*#[^\n]*/g, '$1')
+  const workflow = configured('.github/workflows/pages.yml')
 
   // Criterion 11. The workflow that deploys the site can mint a Pages token and cannot write to the
   // repository, which is the whole of what it needs.
@@ -396,7 +436,7 @@ describe('publishing it', () => {
     expect(scripts['build:site']).toBeDefined()
     expect(workflow).toContain('npm run build:site')
     // And the pull request that changes the site proves it still builds, before it is merged.
-    expect(source('.github/workflows/ci.yml')).toContain('npm run build:site')
+    expect(configured('.github/workflows/ci.yml')).toContain('npm run build:site')
   })
 })
 

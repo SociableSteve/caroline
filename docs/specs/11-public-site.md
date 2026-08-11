@@ -45,8 +45,15 @@ rewritten to the site's pages. Heading identifiers are GitHub's slugs, so a frag
 resolves to no page and no file in the repository fails the build rather than shipping.
 
 **Relative, so it works anywhere.** A project site is served under a path, not at a domain root.
-Every link and asset reference is relative to the page holding it, so the same output works at
-`https://user.github.io/caroline/`, at a domain root, and from a local directory.
+Every link and asset reference within the site is relative to the page holding it, so the same output
+works at `https://user.github.io/caroline/`, at a domain root, and from a local directory. A link out
+of the site is absolute because it has to be: the repository, and whatever a document already links
+to.
+
+**No link that is code.** A page may link out over `http`, `https` or `mailto` and nothing else. The
+Markdown rendered here is authored in the repository and reviewed as code, so a `javascript:` or
+`data:` URL, or a page carrying a `<script>`, is a mistake rather than an attack, and the build
+refuses it rather than quietly rewriting what somebody wrote.
 
 **Static, and nothing fetched.** No client-side JavaScript, no web fonts, no analytics and no
 external requests of any kind. The pages read offline, and nothing about who read what leaves the
@@ -83,17 +90,19 @@ lives in repository settings rather than in the repository.
    and a test asserts that failure.
 4. Heading identifiers are GitHub's slugs, so every fragment already written into the documents
    still lands on its heading.
-5. No link or asset reference in the built site is absolute or root-relative, so the site works under
-   a project path as well as at a domain root.
+5. No link or asset reference within the built site is absolute or root-relative, so the site works
+   under a project path as well as at a domain root. A link that leaves the site is absolute, and its
+   scheme is `http`, `https` or `mailto`: the build refuses one that is code, and refuses a page that
+   carries a `<script>` or an inline event handler.
 6. The built stylesheet declares every token `web/styles.css` declares, in both palettes, with the
    same values, because it is extracted from that file rather than written again. The site's own
    rules name a colour, a spacing, a font size or a radius only as a token, which is spec 10's first
    two criteria applied to the second stylesheet.
 7. No page loads a script, an external stylesheet, a font or an image from another host, and no page
    contains a `<script>` element at all.
-8. The output contains only what the pages above render: no file outside `README.md`, `docs/` and
-   `site/` reaches it, and no rendered page carries an email address or anything shaped like an API
-   key or token.
+8. Every page renders a document from `README.md`, `docs/` or `site/`, and no rendered page carries
+   an email address or anything shaped like an API key or token. `web/styles.css` is the one file
+   outside those three that reaches the output, and only as the tokens criterion 6 takes from it.
 9. Two builds of the same tree produce identical output.
 10. Every page carries the same navigation and a `<title>` naming the page, and every page is
     reachable from the home page in at most two links.

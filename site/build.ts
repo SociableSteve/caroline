@@ -430,8 +430,19 @@ function icon(application: string): string {
 }
 
 /**
- * Every internal link, checked against what was built. The build refuses rather than publishing a
- * page that sends a reader nowhere, because the one thing this site exists to do is get somebody
+ * What a page may link out over, and nothing else. `javascript:` and `data:` are the two that make a
+ * link into code, and a documentation site has no use for either.
+ *
+ * `marked` does not sanitise, and this is deliberately not a sanitiser: the Markdown rendered here is
+ * authored in this repository and reviewed as code, so an unsafe URL or a `<script>` in a document is
+ * a mistake, and the build refusing to publish it is a better answer than quietly rewriting what
+ * somebody wrote. Anyone who can commit a `javascript:` URL to `docs/` can commit to this file too.
+ */
+const schemes = ['http:', 'https:', 'mailto:']
+
+/**
+ * Every page and every link, checked against what was built. The build refuses rather than publishing
+ * a page that sends a reader nowhere, because the one thing this site exists to do is get somebody
  * from the front page to a running Caroline.
  */
 function verify(files: ReadonlyMap<string, string>): void {
@@ -441,11 +452,29 @@ function verify(files: ReadonlyMap<string, string>): void {
   for (const [path, contents] of files) {
     if (!path.endsWith('.html')) continue
 
+    // Criterion 7, enforced where it matters rather than only asserted: a script that reached a page
+    // through a document's raw HTML would otherwise be published and noticed by the suite afterwards.
+    const scripting = /<(script|iframe)\b|<[a-z][^>]*\son[a-z]+\s*=/i.exec(contents)
+    if (scripting !== null) {
+      throw new Error(`${path} carries ${scripting[0]}, and a page of this site runs nothing`)
+    }
+
     for (const match of contents.matchAll(/href="([^"]*)"/g)) {
       const href = (match[1] ?? '').replace(/&amp;/g, '&')
-      if (isAbsolute(href)) continue
+      if (isAbsolute(href)) {
+        if (!schemes.some((scheme) => href.toLowerCase().startsWith(scheme))) {
+          throw new Error(
+            `${path} links to ${href}, over a scheme this site does not link out with`,
+          )
+        }
+        continue
+      }
 
-      const [target = '', fragment = ''] = href.split('#')
+      // Split at the first `#` only. The rest is the fragment, `#` and all: a browser asks for the
+      // whole of it, so validating the part before a second `#` would pass a link that lands nowhere.
+      const separator = href.indexOf('#')
+      const target = separator === -1 ? href : href.slice(0, separator)
+      const fragment = separator === -1 ? '' : href.slice(separator + 1)
       const page = target === '' ? path : posix.normalize(posix.join(posix.dirname(path), target))
       const rendered = files.get(page)
       if (rendered === undefined) {
