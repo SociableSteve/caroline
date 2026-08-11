@@ -9,8 +9,12 @@ import { DatabaseSync } from 'node:sqlite'
  */
 export type Database = DatabaseSync
 
-/** Paths SQLite treats as something other than a file to create on disk. */
-function isFilePath(path: string): boolean {
+/**
+ * Paths SQLite treats as something other than a file to create on disk. Exported because the
+ * deletion command has to draw the same line, and two copies of this predicate would let a path
+ * that opens no file be deleted as though it had one.
+ */
+export function isFilePath(path: string): boolean {
   return path !== ':memory:' && !path.startsWith('file:')
 }
 

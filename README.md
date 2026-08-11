@@ -4,12 +4,18 @@ A single-user, self-hosted GTD system. It collects work from GitHub, Gmail and C
 keeps the inbox sorted with an LLM, and proposes a daily plan that fits the free time
 actually available.
 
-See [docs/specs](docs/specs/README.md) for what it does and [docs/plan.md](docs/plan.md)
-for the order it gets built in. This is milestone M5: the manual GTD app of M2, the GitHub
-connector of M3, the LLM provider of M4, and now Gmail, the inbox classifier and the scheduler.
+It runs on your own machine, against your own accounts, with read-only credentials you create.
 Review requests and mail threads arrive on their own every quarter of an hour, the inbox sorts
-itself hourly, and anything the classifier is unsure of waits on the card for a one-click
-accept. The calendar and the daily plan are still to come (M6), and so is chat (M7).
+itself hourly, anything the classifier is unsure of waits on the card for a one-click accept, the
+day's plan is drawn against your actual calendar, and chat sits in a rail beside whichever surface
+you are on. Nothing is written back to GitHub, Gmail or Calendar, ever.
+
+| Documentation                                    |                                                                                                                                                            |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [docs/setup.md](docs/setup.md)                   | Setting it up from nothing: Node, the config file, a model, the GitHub token, the Google Cloud project and OAuth consent, and how to check each part works |
+| [docs/content-policy.md](docs/content-policy.md) | What leaves the machine, what stays on it, and how to read the payload preview                                                                             |
+| [docs/specs](docs/specs/README.md)               | What each part is meant to do. The source of truth                                                                                                         |
+| [docs/plan.md](docs/plan.md)                     | The order it was built in                                                                                                                                  |
 
 ## Running it
 
@@ -22,9 +28,14 @@ npm run build
 npm start
 ```
 
-With nothing configured, the server starts, serves the UI and reports every integration as
-"not configured". No credentials are needed to run it. The SQLite database is created at
-`./data/caroline.db` on first run and migrated on every start.
+With nothing configured, the server starts on <http://127.0.0.1:5123>, serves the UI and reports
+every integration as "not configured". No credentials are needed to run it, and it is a usable
+manual GTD app in that state. The SQLite database is created at `./data/caroline.db` on first run
+and migrated on every start.
+
+Adding the integrations is [docs/setup.md](docs/setup.md), which is the guide to follow rather than
+this file: it covers the Google Cloud project and OAuth consent, the GitHub token and its
+permissions, and what to check after each one.
 
 For development, run the API and the client separately:
 
@@ -48,7 +59,7 @@ read from the environment only: a key in the config file is a startup error.
 | `CAROLINE_LLM_PROVIDER`, `CAROLINE_LLM_MODEL`, `CAROLINE_LLM_BASE_URL` | LLM selection                                             |
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`                                  | LLM key for the selected provider                         |
 | `GITHUB_TOKEN`                                                         | Fine-grained personal access token, read-only             |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`                             | OAuth desktop client from your Google Cloud project       |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`                             | OAuth client from your own Google Cloud project           |
 | `CAROLINE_LOG_LEVEL`                                                   | Pino log level. Default `info`                            |
 
 `tasks.waitingStaleDays` sets how long something may sit in Waiting for before it is called
@@ -65,6 +76,17 @@ before the rest of it is held for you to confirm, ten by default.
 `chat.contextMessages` is how many earlier messages of a conversation are sent with a turn; the
 transcript is kept whole either way.
 
+`planning.workingWindow` and `planning.workingDays` are the hours and days the planner may fit work
+into, 09:00 to 17:30 on weekdays by default, and `planning.reservePercent` is how much of that
+window is held back for interruptions, a fifth of it. `planning.defaultEstimateMinutes` is what a
+task with no estimate is fitted at, and `planning.countAllDayEvents` decides whether an all-day
+event takes the day: off, because a public holiday and a week-long conference are both all-day
+events and only one of them means you are busy.
+
+`integrations.google.calendarIds` adds calendars beyond your primary one, and
+`calendarLookbackDays` and `calendarLookaheadDays` bound the window read: a day back and a
+fortnight forward.
+
 `jobs.schedules` sets when each background job runs, in cron syntax, read in `jobs.timezone`
 so that a daily job stays where you put it across a clock change. `jobs.retainRunDays` is how
 long the run history is kept, and `jobs.backoffCeilingMinutes` how far a run of failures may
@@ -74,9 +96,12 @@ the classifier applies and one it leaves for you: 0.75 by default, per
 
 ### GitHub
 
-Set `GITHUB_TOKEN` to a fine-grained personal access token with `pull_requests: read` and
-`metadata: read` on the organisations you review for. Read-only: Caroline never writes to
-GitHub, so there are no comments, no approvals and no labels.
+Set `GITHUB_TOKEN` to a fine-grained personal access token with **Pull requests: Read-only** and
+**Metadata: Read-only**, whose resource owner is the account or organisation you review for. A
+fine-grained token reaches one owner's resources, so reviewing across several organisations means a
+classic token with the `repo` scope instead: [docs/setup.md](docs/setup.md#5-github) has the detail.
+Read-only either way: Caroline never writes to GitHub, so there are no comments, no approvals and
+no labels.
 
 With a token set, a sync runs when the server starts and whenever you press **Sync now**, and
 each run does two passes: it searches for open pull requests requesting your review, then
@@ -92,12 +117,15 @@ closes, or your review request is withdrawn before you ever reviewed it.
 
 ### Gmail
 
-Gmail needs an OAuth desktop client from a Google Cloud project of your own. Put its id in
+Gmail and Calendar need an OAuth client from a Google Cloud project of your own. Put its id in
 `integrations.google.clientId` and its secret in `GOOGLE_CLIENT_SECRET`, add
-`http://127.0.0.1:5123/api/integrations/google/callback` to the client's redirect URIs, then
+`http://127.0.0.1:5123/api/integrations/google/callback` to the client's redirect URIs, with
+whatever `server.host` and `server.port` say if you have changed either, then
 open **Settings** and press **Connect Google**. The scopes are read-only, `gmail.readonly` and
-`calendar.readonly`, and the tokens are written to `google-tokens.json` beside the database with
-mode 0600.
+`calendar.readonly`, requested together so consent happens once, and the tokens are written to
+`google-tokens.json` beside the database with mode 0600. The whole of it, including the consent
+screen and the seven-day expiry that catches everybody out, is in
+[docs/setup.md](docs/setup.md#6-google).
 
 `integrations.google.gmailQuery` decides what is in scope, defaulting to
 `in:inbox -category:promotions -category:social`. One task per thread, into the inbox. A thread
@@ -143,7 +171,8 @@ once you know yours calls them, or set it under `llm.overrides.chat` for the cha
 
 ### The scheduler
 
-Sync runs every fifteen minutes, classification hourly, and a purge nightly. **Jobs** shows what
+Sync runs every fifteen minutes, classification hourly, the plan at 07:30 and a purge nightly.
+**Jobs** shows what
 each one is for, when it last ran and what it did, when it goes next, and whether a run of
 failures is holding it back. Every job can be run on demand from there, by the same path a
 scheduled run takes. A job already running is not started twice, a day of downtime produces one
@@ -151,13 +180,12 @@ catch-up run rather than ninety-six, and nothing notifies you: the run history i
 
 ### Using the board
 
-The board is operable from the keyboard alone: arrow keys or `h j k l` to move between
-cards and columns, `1` to `6` to move the focused card to that column, `d` to complete it,
-`r` to mark a review done, `a` to accept the classifier's suggestion, and `c` to capture
-something new from anywhere. Dragging a card
-between columns does the
-same thing as the digit. Either way the change is recorded as yours, and the classifier will
-not later overrule it.
+The board is operable from the keyboard alone: arrow keys or `h j k l` to move between cards and
+columns, `1` to `6` to move the focused card to that column, `d` to complete it, `u` to put its
+last move back, `r` to mark a review done, `a` to accept the classifier's suggestion, `Enter` to
+open it in the rail, and `c` to capture something new from anywhere. Dragging a card between columns
+does the same thing as the digit. Either way the change is recorded as yours, and the classifier
+will not later overrule it.
 
 ### What leaves the machine
 
@@ -179,11 +207,25 @@ addresses you by name nor sends one.
 
 **Settings** shows the exact payload a classification call would carry, for a real item in your
 inbox, under the policy as it stands, and the preamble word for word as it will be sent. A policy
-nobody can see the effect of is a policy nobody can check. See
+nobody can see the effect of is a policy nobody can check. The whole picture, including what an item
+open in the chat rail sends and what the audit tables keep, is
+[docs/content-policy.md](docs/content-policy.md), and the contract behind it is
 [spec 09](docs/specs/09-config-and-security.md).
 
 Caroline binds to `127.0.0.1` and has no login. Binding anywhere else requires an access
 token, enforced at startup.
+
+### Deleting everything
+
+```sh
+npm run delete-data            # says what it would remove, removes nothing
+npm run delete-data -- --yes   # removes it
+```
+
+The database, the SQLite sidecars a crash leaves behind, the Google token file and the temporary
+sibling an interrupted token write leaves: everything Caroline writes. Anything else in the data
+directory is left alone and named in the output, and the directory itself goes only if Caroline had
+written something in it and it is empty afterwards. Stop Caroline first.
 
 ## Development
 

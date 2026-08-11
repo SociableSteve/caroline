@@ -211,13 +211,32 @@ Twelve-factor with a file for convenience: defaults in code, overridden by
 environment. The whole config is validated against a schema at startup, and an invalid
 config fails fast with the offending path named.
 
-Config editable from Settings is written back to the file. The database path, bind address
-and port are startup-only and not editable at runtime.
+Nothing in the file is written back from the UI. The one thing Settings writes is the name of the
+person using Caroline, and that lives in the `settings` table rather than in the file, for the reason
+given above: rewriting a file somebody hand-edited would mean deciding what a restart means for it.
+Every value in the file therefore takes a restart, and the database path, bind address and port are
+startup-only besides.
 
 ## Deletion
 
 A documented single command removes everything: database, token file and cached content.
 Nothing Caroline creates lives outside its data directory.
+
+`npm run delete-data` is that command. It reads the same configuration the server reads, so it
+deletes the files that Caroline would have been using and not the ones a default would have named.
+Two decisions about it:
+
+- **Deleting is not the default.** Run without `--yes` it lists what it would remove and removes
+  nothing, because the destructive reading of a command somebody is trying out is the wrong one.
+- **It deletes its own files, not a directory.** The database, the SQLite sidecars a crash leaves
+  behind, the token file and the temporary sibling an interrupted token write leaves. Anything else
+  in the data directory is left alone and named in the output, and the directory itself is removed
+  only when it held one of those files and is empty afterwards: `database.path` may point somewhere
+  of the user's own, and a command that deleted a directory it did not create would be a worse
+  failure than one that leaves an empty folder. A directory carrying one of those names is not one of
+  those files, a symbolic link is removed as a link rather than followed, and a file that will not go
+  is reported with what the filesystem said rather than thrown as a stack trace over a deletion that
+  is already half done.
 
 ## Non-goals
 

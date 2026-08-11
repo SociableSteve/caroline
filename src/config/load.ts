@@ -21,6 +21,19 @@ export interface LoadOptions {
   /** Parsed contents of `caroline.config.json`, or null when there is no file. */
   file: unknown
   env: NodeJS.ProcessEnv
+  /**
+   * Whether to enforce the two checks that are about running rather than about the configuration
+   * being well formed: that a non-loopback bind has an access token, and that full content is not
+   * sent to a remote provider unless that was said out loud. True for the server, which is what
+   * they protect.
+   *
+   * The deletion command reads this configuration to find out where the data is and then starts no
+   * server and calls no provider. Refusing to delete somebody's data until they have fixed a content
+   * policy would be a refusal to answer the question they asked, and the setup guide's own
+   * troubleshooting table sends people here holding exactly that error. Everything else still
+   * applies: the schema, the ban on secrets in the file, and every default.
+   */
+  runtimeChecks?: boolean
 }
 
 /** Secrets never belong in the config file. Each entry names the environment to use instead. */
@@ -257,7 +270,7 @@ function assertBindIsSafe(config: Config): void {
  * Defaults in code, overridden by the config file, overridden by the environment. Secrets
  * only ever from the environment. Fails fast with the offending path named. Spec 09.
  */
-export function loadConfig({ file, env }: LoadOptions): Config {
+export function loadConfig({ file, env, runtimeChecks = true }: LoadOptions): Config {
   rejectSecretsInFile(file)
   const parsed = parseFile(file)
 
@@ -337,8 +350,10 @@ export function loadConfig({ file, env }: LoadOptions): Config {
 
   registerEnvironmentSecrets(config, environmentSecrets(env))
 
-  assertContentPolicyIsAllowed(config)
-  assertBindIsSafe(config)
+  if (runtimeChecks) {
+    assertContentPolicyIsAllowed(config)
+    assertBindIsSafe(config)
+  }
 
   return config
 }

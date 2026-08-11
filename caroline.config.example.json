@@ -14,6 +14,7 @@
     "schedules": {
       "sync": "*/15 * * * *",
       "classify": "5 * * * *",
+      "plan": "30 7 * * *",
       "purge": "20 3 * * *"
     },
     "backoffBaseMinutes": 1,
@@ -30,6 +31,13 @@
     "maxToolCalls": 25,
     "bulkConfirmThreshold": 10,
     "contextMessages": 40
+  },
+  "planning": {
+    "workingWindow": { "start": "09:00", "end": "17:30" },
+    "workingDays": [1, 2, 3, 4, 5],
+    "reservePercent": 20,
+    "defaultEstimateMinutes": 30,
+    "countAllDayEvents": false
   },
   "privacy": {
     "llmContent": "snippet",
@@ -51,7 +59,10 @@
     "google": {
       "enabled": true,
       "clientId": null,
-      "gmailQuery": "in:inbox -category:promotions -category:social"
+      "gmailQuery": "in:inbox -category:promotions -category:social",
+      "calendarIds": [],
+      "calendarLookbackDays": 1,
+      "calendarLookaheadDays": 14
     }
   }
 }
