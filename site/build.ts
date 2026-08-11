@@ -134,10 +134,13 @@ const escapeAttribute = (value: string): string => escapeText(value).replace(/"/
  * A URL, escaped for an attribute. Only a bare `&` becomes `&amp;`: a document that writes a query
  * string as `?a=1&amp;b=2`, which is what somebody escaping by habit writes, would otherwise be
  * published as `&amp;amp;` and requested with the entity in it.
+ *
+ * All three spellings of an entity are exempt, not two: a name may carry digits (`&sup2;`) and a numeric
+ * reference may be hexadecimal (`&#x27;`), and escaping either would be the thing this exists to avoid.
  */
 const escapeUrl = (url: string): string =>
   url
-    .replace(/&(?!(?:[a-z]+|#\d+);)/gi, '&amp;')
+    .replace(/&(?!(?:[a-z][a-z0-9]*|#\d+|#x[0-9a-f]+);)/gi, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
@@ -549,23 +552,34 @@ ${blocks}
 }
 
 /**
- * From an opening brace to the one that closes it, counting the pairs between. Read from the blanked copy
- * so that neither the opening nor a brace can be found inside a comment, and sliced from the original so
- * that the palette keeps the comments it is written with.
+ * From an opening brace to the one that closes it, counting the pairs between.
+ *
+ * Read from the blanked copy so that neither the opening nor a brace can be found inside a comment, and
+ * sliced from the original so that the palette keeps the comments it is written with. The opening is
+ * matched only at the top level, so `:root {` means the palette and not the `:root {` inside the dark
+ * media query: taking the first occurrence made the answer depend on which palette was written first,
+ * which is a stylesheet somebody may reorder for reasons of their own.
  */
 function block(css: string, opening: string): string {
   const searchable = withoutComments(css)
-  const start = searchable.indexOf(opening)
-  if (start === -1) throw new Error(`web/styles.css has no ${opening} block for the site to share`)
-
   let depth = 0
-  for (let index = start + opening.length - 1; index < searchable.length; index += 1) {
+  let start = -1
+
+  for (let index = 0; index < searchable.length; index += 1) {
+    if (start === -1 && depth === 0 && searchable.startsWith(opening, index)) {
+      start = index
+      index += opening.length - 1
+      depth = 1
+      continue
+    }
     if (searchable[index] === '{') depth += 1
     else if (searchable[index] === '}') {
       depth -= 1
-      if (depth === 0) return css.slice(start, index + 1)
+      if (depth === 0 && start !== -1) return css.slice(start, index + 1)
     }
   }
+
+  if (start === -1) throw new Error(`web/styles.css has no ${opening} block for the site to share`)
 
   throw new Error(`web/styles.css leaves ${opening} unclosed`)
 }
@@ -574,10 +588,13 @@ function block(css: string, opening: string): string {
  * The favicon: a C in the application's accent, with both colours taken from the tokens rather than
  * chosen again here. It has one palette and not two, because a browser tab is drawn from a cached
  * image and knows nothing about the reader's theme, so it takes the light pair.
+ *
+ * Read from the `:root` block rather than from the file, so that "the light pair" is where the values come
+ * from rather than which of the two palettes happens to be written first.
  */
 function icon(application: string): string {
-  const searchable = withoutComments(application)
-  const token = (name: string) => new RegExp(`--${name}:\\s*([^;]+);`).exec(searchable)?.[1]?.trim()
+  const light = withoutComments(block(application, ':root {'))
+  const token = (name: string) => new RegExp(`--${name}:\\s*([^;]+);`).exec(light)?.[1]?.trim()
   const [accent, ink] = [token('accent'), token('accent-ink')]
   if (accent === undefined || ink === undefined) {
     throw new Error('web/styles.css declares no accent pair for the icon')

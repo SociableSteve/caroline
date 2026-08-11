@@ -146,6 +146,16 @@ describe('the site renders the documentation rather than restating it', () => {
     expect(rendered).not.toContain('&amp;amp;')
   })
 
+  /** A name may carry digits and a numeric reference may be hexadecimal: three spellings, all exempt. */
+  it('leaves every spelling of an entity in a URL alone', () => {
+    const entities = override(
+      'docs/plan.md',
+      '# Caroline implementation plan\n\n[a](https://example.test/?a=1&#x26;b=2&sup2;=3)\n',
+    )
+
+    expect(buildSite(entities).get('plan.html')).toContain('?a=1&#x26;b=2&sup2;=3')
+  })
+
   it('describes every page with a sentence rather than with a command or a list item', () => {
     for (const [path, contents] of documents) {
       const description = /<meta name="description" content="([^"]*)"/.exec(contents)?.[1] ?? ''
@@ -547,6 +557,20 @@ describe('the site and the application look like one thing', () => {
 
     expect(accent).toBeDefined()
     expect(page('icon.svg')).toContain(String(accent))
+  })
+
+  /**
+   * A browser tab is drawn from a cached image and knows nothing about the reader's theme, so the icon
+   * takes the light pair. It should take it because it is the light pair, not because that palette is
+   * written first: reordering the file should not repaint the favicon.
+   */
+  it('takes the icon colours from the light palette wherever the dark one is written', () => {
+    const dark =
+      /@media \(prefers-color-scheme: dark\) \{\s*:root \{[^}]*\}\s*\}/.exec(application)?.[0] ?? ''
+    const reordered = override('web/styles.css', `${dark}\n${application.replace(dark, '')}`)
+
+    expect(dark).not.toBe('')
+    expect(buildSite(reordered).get('icon.svg')).toContain('#1c4f8b')
   })
 })
 
