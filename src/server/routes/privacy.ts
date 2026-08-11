@@ -3,12 +3,14 @@ import { llmLevelConsequences, storeLevelConsequences } from '../../config/conte
 import type { Config } from '../../config/schema.js'
 import type { Database } from '../../db/index.js'
 import { listSourcesForTask } from '../../db/repositories/sources.js'
+import { getUserName } from '../../db/repositories/settings.js'
 import { getTask, listTasks } from '../../db/repositories/tasks.js'
 import { bodyForSending, type ContentFetchers } from '../../jobs/classify.js'
 import {
   buildClassificationPayload,
   CLASSIFICATION_PROMPT_VERSION,
 } from '../../llm/prompts/classification.js'
+import { renderPreamble } from '../../llm/prompts/preamble.js'
 import { apiError } from '../errors.js'
 import { privacyPreviewQuerySchema, privacyPreviewResponseSchema } from '../schemas.js'
 
@@ -54,6 +56,12 @@ export function registerPrivacyRoutes(
         storeConsequence: storeLevelConsequences[privacy.storeContent],
       }
 
+      // The preamble every chat and planning call carries, rendered by the function those calls
+      // render it with. It names the person using Caroline, which is personal data leaving the
+      // machine on every call to a remote provider, so a preview without it no longer proves what
+      // this screen claims to prove. Spec 09.
+      const preamble = renderPreamble({ userName: getUserName(database) })
+
       const at = now()
       const task =
         request.query.taskId === undefined
@@ -70,7 +78,13 @@ export function registerPrivacyRoutes(
         }
         // Nothing captured yet. The policy is still worth answering with: it is what the screen is
         // mostly showing, and an empty payload is the honest preview of an empty inbox.
-        return { policy, item: null, payload: null, promptVersion: CLASSIFICATION_PROMPT_VERSION }
+        return {
+          policy,
+          preamble,
+          item: null,
+          payload: null,
+          promptVersion: CLASSIFICATION_PROMPT_VERSION,
+        }
       }
 
       const source = listSourcesForTask(database, task.id)[0] ?? null
@@ -84,6 +98,7 @@ export function registerPrivacyRoutes(
 
       return {
         policy,
+        preamble,
         item: { taskId: task.id, title: task.title, provider: source?.provider ?? null },
         payload: buildClassificationPayload(
           {

@@ -12,6 +12,7 @@ import type { Config } from '../../src/config/schema.js'
 import type { Database } from '../../src/db/connection.js'
 import { upsertCalendarEvent } from '../../src/db/repositories/calendar-events.js'
 import { latestDailyPlan, listDailyPlans } from '../../src/db/repositories/daily-plans.js'
+import { setUserName } from '../../src/db/repositories/settings.js'
 import { upsertSource } from '../../src/db/repositories/sources.js'
 import { createTask, getTask, listTasks } from '../../src/db/repositories/tasks.js'
 import { runPlanning } from '../../src/jobs/plan.js'
@@ -200,6 +201,30 @@ describe('what the planner sends and stores', () => {
 
     expect(sent).toContain('task-a')
     expect(sent).not.toContain('task-someday')
+  })
+
+  /**
+   * Spec 09: the planner writes user-facing prose, and its rationales were in the second person
+   * without having been told who they were addressed to. The name is part of what leaves the
+   * machine, so it is asserted against the built request.
+   */
+  it('names the person the plan is for in its system prompt', async () => {
+    const database = migratedDatabase()
+    aNextAction(database, 'task-a')
+    setUserName(database, 'Steve', NOW)
+
+    const { fake } = await planFor({ database })
+
+    expect(fake.requests[0]?.system).toContain('"Steve"')
+  })
+
+  it('says it does not know the name when nobody has given one', async () => {
+    const database = migratedDatabase()
+    aNextAction(database, 'task-a')
+
+    const { fake } = await planFor({ database })
+
+    expect(fake.requests[0]?.system).toMatch(/do not know their name/i)
   })
 
   /** Spec 09: the planner sends titles and metadata. No message body reaches it. */

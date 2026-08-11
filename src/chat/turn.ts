@@ -32,7 +32,9 @@ import {
   type Conversation,
   type FinishMessageInput,
 } from '../db/repositories/chat.js'
+import { getUserName } from '../db/repositories/settings.js'
 import type { LlmRuntime } from '../llm/index.js'
+import { renderPreamble } from '../llm/prompts/preamble.js'
 import {
   LlmError,
   type CompletionChunk,
@@ -169,6 +171,9 @@ export async function runTurn(
       readOnly,
       bulkThreshold: config.chat.bulkConfirmThreshold,
       maxToolCalls: config.chat.maxToolCalls,
+      // Read at the moment the turn is built, so a name changed in Settings takes effect on the
+      // next turn rather than on the next restart. Spec 09.
+      preamble: renderPreamble({ userName: getUserName(database) }),
     },
   )
 

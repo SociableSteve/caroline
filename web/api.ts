@@ -121,6 +121,16 @@ export interface PrivacyPreview {
   } | null
   readonly payload: Record<string, unknown> | null
   readonly promptVersion?: string
+  /**
+   * The shared preamble as every chat and planning call will carry it. It names the person using
+   * Caroline, so it is part of what leaves the machine and part of what this screen has to show.
+   */
+  readonly preamble?: string
+}
+
+/** The settings the person owns, as distinct from the deployment's configuration. Spec 09. */
+export interface SettingsView {
+  readonly userName: string
 }
 
 /** One line of a plan, in whichever of the three sections it belongs to. Spec 05. */
@@ -607,6 +617,15 @@ export const api = {
 
   getPrivacyPreview(): Promise<PrivacyPreview> {
     return request<PrivacyPreview>('/api/privacy/preview')
+  },
+
+  getSettings(): Promise<SettingsView> {
+    return request<SettingsView>('/api/settings')
+  },
+
+  /** Settings' first write path. An empty name is a value, and means "do not address me by one". */
+  patchSettings(input: { userName?: string }): Promise<SettingsView> {
+    return send<SettingsView>('PATCH', '/api/settings', input)
   },
 
   bulkTasks(input: {

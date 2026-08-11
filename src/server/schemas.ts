@@ -20,6 +20,7 @@ import {
 import { planEntryKinds } from '../domain/plan.js'
 import { jobRunStatuses, jobTriggers } from '../domain/job.js'
 import { projectStates } from '../domain/project.js'
+import { USER_NAME_MAX } from '../domain/settings.js'
 import { sourceProviders } from '../domain/source.js'
 import { taskStatuses } from '../domain/task.js'
 
@@ -857,5 +858,34 @@ export const privacyPreviewResponseSchema = {
     payload: { type: ['object', 'null'], additionalProperties: true },
     /** The system prompt and its version, because they are part of what is sent. */
     promptVersion: { type: 'string' },
+    /**
+     * The shared preamble, as every chat and planning call will carry it. It names the person using
+     * Caroline, which is personal data leaving the machine, so a preview that did not show it would
+     * no longer prove what this screen claims to prove. Spec 09.
+     */
+    preamble: { type: 'string' },
   },
+} as const
+
+/**
+ * The settings the person, rather than the deployment, owns. Spec 09. What the name does to a prompt
+ * is shown by the payload preview, which renders the preamble the providers are handed.
+ */
+const userName = { type: 'string', maxLength: USER_NAME_MAX } as const
+
+export const settingsResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['userName'],
+  properties: { userName },
+} as const
+
+/**
+ * The length is bounded here and the rest of the rule is in `src/domain/settings.ts`, which answers
+ * with a sentence a person can act on. An empty name is a supported value and not an omission.
+ */
+export const settingsUpdateSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: { userName },
 } as const

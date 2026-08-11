@@ -4,9 +4,11 @@
  * classifier calls, which is what makes the preview a preview rather than a second description.
  */
 import { describe, expect, it } from 'vitest'
+import { setUserName } from '../../src/db/repositories/settings.js'
 import { upsertSource } from '../../src/db/repositories/sources.js'
 import { createTask } from '../../src/db/repositories/tasks.js'
 import type { Database } from '../../src/db/connection.js'
+import { renderPreamble } from '../../src/llm/prompts/preamble.js'
 import { migratedDatabase } from '../helpers/temp-database.js'
 import { REQUEST_TIME, testServer } from '../helpers/test-server.js'
 
@@ -55,6 +57,32 @@ describe('GET /api/privacy/preview', () => {
       llmConsequence: expect.stringContaining('leaves this machine'),
       storeConsequence: expect.stringContaining('No message body is kept on disk'),
     })
+  })
+
+  /**
+   * Spec 09: the name of the person using Caroline goes to a remote provider on every call, so the
+   * preview shows the preamble that carries it. A preview that does not show the name is a preview
+   * that no longer proves what it claims to prove, and it is the rendered preamble rather than a
+   * second description of one.
+   */
+  it('shows the preamble every chat and planning call will carry', async () => {
+    const database = migratedDatabase()
+    setUserName(database, 'Steve', REQUEST_TIME)
+    const { app } = await testServer({ database })
+
+    const body = (await app.inject({ method: 'GET', url: '/api/privacy/preview' })).json()
+
+    expect(body.preamble).toBe(renderPreamble({ userName: 'Steve' }))
+    expect(body.preamble).toContain('"Steve"')
+  })
+
+  it('shows the preamble even where there is no item to preview', async () => {
+    const { app } = await testServer()
+
+    const body = (await app.inject({ method: 'GET', url: '/api/privacy/preview' })).json()
+
+    expect(body).toMatchObject({ item: null, payload: null })
+    expect(body.preamble).toMatch(/Caroline/)
   })
 
   it('has no item to show on an empty inbox, and says so rather than failing', async () => {

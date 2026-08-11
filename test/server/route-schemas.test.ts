@@ -97,6 +97,8 @@ describe('every API route', () => {
         'GET /api/chat/conversations/:id',
         'POST /api/chat/confirmations/:id',
         'POST /api/chat/conversations/:id/undo',
+        'GET /api/settings',
+        'PATCH /api/settings',
       ]),
     )
   })

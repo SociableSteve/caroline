@@ -16,7 +16,7 @@ you the result fits.
 npm run build                 # the scripts drive the built client, not the dev server
 npm run demo:seed             # writes a seeded day into /tmp/caroline-demo/demo.db
 CAROLINE_CONFIG=... npm start # pointed at that database, on a port of its own
-npm run demo:shoot            # writes PNGs of all six surfaces to /tmp/caroline-demo/shots
+npm run demo:shoot            # writes PNGs of the five surfaces and the rail to /tmp/caroline-demo/shots
 npm run demo:measure          # reports whether the board's columns really bound and scroll
 ```
 

@@ -3,13 +3,15 @@
  * hold: a convention the codebase does not follow is aspirational, so the scales are parsed and
  * enforced rather than written down and hoped for.
  *
- * Two rules, both about what a declaration is allowed to say:
+ * The rules, all about what a declaration is allowed to say:
  *
  * - A spacing, font size or border radius resolves to a token. A literal length in one of those
- *   properties is the defect this milestone exists to remove, and it comes back one hurried
- *   declaration at a time unless something fails.
+ *   properties is the defect M9 existed to remove, and it comes back one hurried declaration at a
+ *   time unless something fails.
  * - A colour is a token. A literal is a rule that can be right in one theme and wrong in the
  *   other, which is exactly what the two palettes are for.
+ * - Weight is scarce, and small text is not uppercased. Both are M10's appearance model, and both
+ *   are the kind of rule that decays into "everything at 600" unless something counts.
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -252,14 +254,19 @@ describe('the stylesheet holds to the palettes', () => {
     const colourTokens = [
       '--page',
       '--surface',
+      '--surface-sunk',
       '--surface-raised',
       '--ink',
       '--ink-quiet',
+      '--line-faint',
       '--line',
       '--accent',
+      '--accent-ink',
       '--alarm',
       '--alarm-surface',
       '--scrim',
+      '--shadow-1',
+      '--shadow-2',
     ]
 
     for (const token of colourTokens) {
@@ -267,5 +274,115 @@ describe('the stylesheet holds to the palettes', () => {
     }
 
     expect([...dark].sort()).toEqual([...colourTokens].sort())
+  })
+})
+
+/**
+ * The appearance model M9 never had, as rules a sheet can be held to. Spec 10.
+ *
+ * Each of these was a real defect found by driving the seeded day in a browser rather than a
+ * preference: the page and a card were the same white, four rules set small text in uppercase with
+ * tracking, everything that wanted emphasis was at 600, and `.primary` was accent-coloured text in an
+ * outlined box rather than a filled action.
+ */
+describe('the appearance model', () => {
+  const token = (name: string) =>
+    all.find((rule) => rule.selector === ':root' && rule.property === name && rule.context === '')
+      ?.value
+
+  it('grounds a ramp of four, so a card is not the same colour as the page it sits on', () => {
+    const grounds = ['--page', '--surface', '--surface-sunk', '--surface-raised'].map(token)
+
+    expect(grounds.every((value) => value !== undefined)).toBe(true)
+    expect(new Set(grounds).size).toBe(grounds.length)
+  })
+
+  it('has two lines, one for a component edge and one for a divider inside it', () => {
+    expect(token('--line')).toBeDefined()
+    expect(token('--line-faint')).toBeDefined()
+    expect(token('--line')).not.toBe(token('--line-faint'))
+  })
+
+  /** A surface heading and a panel heading were 0.25rem apart, which is not a hierarchy. */
+  it('separates the surface heading from a panel heading by more than a rounding error', () => {
+    const xl = Number.parseFloat(String(token('--text-xl')))
+    const lg = Number.parseFloat(String(token('--text-lg')))
+
+    expect(xl - lg).toBeGreaterThanOrEqual(0.5)
+  })
+
+  it('spends 600 on the surface heading and nowhere else', () => {
+    const strong = rules.filter(
+      (rule) => rule.property === 'font-weight' && Number.parseInt(rule.value, 10) >= 600,
+    )
+
+    expect(strong.map((rule) => rule.selector)).toEqual(['h1'])
+  })
+
+  it('never sets a weight above 600, or below 400', () => {
+    const weights = rules
+      .filter((rule) => rule.property === 'font-weight' && /^\d+$/.test(rule.value))
+      .map((rule) => Number.parseInt(rule.value, 10))
+
+    expect(weights.filter((weight) => weight > 600 || weight < 400)).toEqual([])
+  })
+
+  /** Small text is small. Uppercase and tracking are not a rank, and four rules used them as one. */
+  it('uppercases nothing and tracks nothing', () => {
+    const shouting = rules.filter(
+      (rule) =>
+        (rule.property === 'text-transform' && rule.value === 'uppercase') ||
+        rule.property === 'letter-spacing',
+    )
+
+    expect(shouting).toEqual([])
+  })
+
+  it('fills the primary action rather than outlining accent-coloured text', () => {
+    const primary = rules.filter((rule) => rule.selector === '.primary' && rule.context === '')
+
+    expect(primary.find((rule) => rule.property === 'background')?.value).toBe('var(--accent)')
+    expect(primary.find((rule) => rule.property === 'color')?.value).toBe('var(--accent-ink)')
+  })
+
+  /** Depth, not outlines: what is raised says so with a shadow from the palette. */
+  it('raises a card with a shadow instead of drawing a box round it', () => {
+    const card = rules.filter((rule) => rule.selector === '.card' && rule.context === '')
+
+    expect(card.find((rule) => rule.property === 'box-shadow')?.value).toContain('var(--shadow-1)')
+    expect(card.find((rule) => rule.property === 'border')).toBeUndefined()
+  })
+})
+
+/**
+ * The chat rail. Spec 08: a companion beside the surface rather than a route, and below the width
+ * where a rail leaves the surface usable, the overlay pattern quick capture already owns.
+ */
+describe('the chat rail', () => {
+  const base = (selector: string) =>
+    rules.filter((rule) => rule.selector === selector && rule.context === '')
+  const value = (declarations: Declaration[], property: string) =>
+    declarations.find((rule) => rule.property === property)?.value
+
+  it('takes a column beside the surface rather than the whole shell', () => {
+    expect(value(base('.app-body'), 'grid-template-columns')).toBe('minmax(0, 1fr)')
+    expect(value(base('.app-body.with-rail'), 'grid-template-columns')).toMatch(
+      /^minmax\(0, 1fr\) /,
+    )
+  })
+
+  /** Without this a long transcript lengthens the surface it was supposed to sit beside. */
+  it('scrolls within the viewport instead of lengthening the surface beside it', () => {
+    expect(value(base('.chat-rail'), 'overflow-y')).toBe('auto')
+    expect(value(base('.chat-rail'), 'max-height')).toBeDefined()
+  })
+
+  it('leaves the flow and sits above the surface below the breakpoint', () => {
+    const collapsed = rules.filter(
+      (rule) => rule.selector === '.chat-rail' && rule.context.startsWith('@media'),
+    )
+
+    expect(value(collapsed, 'position')).toBe('fixed')
+    expect(value(collapsed, 'box-shadow')).toBe('var(--shadow-2)')
   })
 })
