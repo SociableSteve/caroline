@@ -3,7 +3,7 @@
  * spec 08, and every state that is carried by colour is also carried by text.
  */
 import { useState, type KeyboardEvent } from 'react'
-import { boardStatuses, type TaskStatus, type TaskView } from '../api.js'
+import { boardStatuses, type ItemRef, type TaskStatus, type TaskView } from '../api.js'
 import { ActionRow, Badge, Fact, Facts, Field } from './primitives.js'
 import {
   canMarkReviewed,
@@ -38,6 +38,14 @@ export interface TaskCardProps {
   readonly onDismissProposal?: ((id: string) => void) | undefined
   /** Putting the last status change back. Absent where the surface does not offer it. */
   readonly onUndoStatus?: ((id: string) => void) | undefined
+  /**
+   * Opens this task in the rail's details region, which is also what sends it to the model as context.
+   * Absent on a surface that does not offer it. Spec 08: it is on the title rather than in the action
+   * row, which is already at the width a column can afford.
+   */
+  readonly onSelect?: ((item: ItemRef) => void) | undefined
+  /** Whether this is the task the rail is showing, so the card says which one is open. */
+  readonly selected?: boolean | undefined
   /** The board hands this in to drive its own keyboard grid. */
   readonly onKeyDown?: ((event: KeyboardEvent<HTMLElement>) => void) | undefined
   readonly registerRef?: ((id: string, element: HTMLElement | null) => void) | undefined
@@ -55,6 +63,8 @@ export function TaskCard({
   onAcceptProposal,
   onDismissProposal,
   onUndoStatus,
+  onSelect,
+  selected = false,
   onKeyDown,
   registerRef,
 }: TaskCardProps) {
@@ -79,7 +89,7 @@ export function TaskCard({
   return (
     <li className="card-slot">
       <article
-        className={`card${stale ? ' card-stale' : ''}`}
+        className={`card${stale ? ' card-stale' : ''}${selected ? ' card-open' : ''}`}
         aria-label={task.title}
         tabIndex={0}
         draggable
@@ -90,7 +100,23 @@ export function TaskCard({
           event.dataTransfer.effectAllowed = 'move'
         }}
       >
-        <h3 className="card-title">{task.title}</h3>
+        {/* The title is the control that opens the task in the rail, so the thing being pointed at is
+            the thing that responds, and the action row keeps the width it has. It stays a heading, so
+            the outline is unchanged. Spec 08, criterion 24. */}
+        <h3 className="card-title">
+          {onSelect === undefined ? (
+            task.title
+          ) : (
+            <button
+              type="button"
+              className="item-open"
+              aria-pressed={selected}
+              onClick={() => onSelect({ kind: 'task', id: task.id })}
+            >
+              {task.title}
+            </button>
+          )}
+        </h3>
 
         {/* A card does not restate its own status: the column it is in says it, and so does the
             status control. A third telling is noise, and on an Inbox, Someday or Reference card it

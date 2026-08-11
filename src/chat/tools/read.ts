@@ -10,6 +10,7 @@
  * is kept beside it because that is what a later tool call has to pass back.
  */
 import { capacityForDate } from '../../actions/capacity.js'
+import { textToSend } from '../../config/content.js'
 import { waitingItemsFor } from '../../actions/waiting.js'
 import { listCalendarEvents } from '../../db/repositories/calendar-events.js'
 import { listClassifications } from '../../db/repositories/classifications.js'
@@ -100,11 +101,19 @@ const getTaskTool = defineTool<{ readonly id: string }>({
     const task = getTask(context.database, args.id)
     if (task === null) return { ok: false, message: `There is no task with the id ${args.id}.` }
 
+    // Notes are the body-shaped field of a task, so they leave the machine only as far as `llmContent`
+    // allows, through the same function the item context uses. Two answers to whether a note may be
+    // sent would mean the policy is decoration. Spec 09.
+    const notes = textToSend(task.notes, context.config.privacy)
+
     return {
       ok: true,
       data: {
         ...taskSummary(context, task),
-        notes: task.notes,
+        notes: notes.text,
+        // Said rather than left to be inferred: a model shown three hundred characters and told
+        // nothing would answer as though that were the whole note.
+        ...(notes.truncated ? { notesTruncated: true } : {}),
         statusSetBy: task.statusSetBy,
         statusSetAt: asIso(task.statusSetAt),
         syncTracked: task.syncTracked,

@@ -9,6 +9,7 @@ import { createFakeProvider, type FakeAnswer } from '../../src/llm/fake.js'
 import type { LlmProvider, LlmRuntime } from '../../src/llm/index.js'
 import type { CompletionRequest, ToolCall } from '../../src/llm/types.js'
 import { createChatService, type ChatEvent, type PlanRegeneration } from '../../src/chat/index.js'
+import type { ItemRef } from '../../src/domain/selection.js'
 import { createChangeFeed, type ChangeEvent } from '../../src/server/changes.js'
 import { migratedDatabase } from './temp-database.js'
 
@@ -58,8 +59,11 @@ export interface ChatHarness {
   /** Every request the provider was given, so the built payload can be inspected. Spec 09. */
   readonly requests: readonly CompletionRequest[]
   readonly published: readonly ChangeEvent[]
-  /** Runs a turn and returns everything it emitted. */
-  turn(message: string, conversationId?: string): Promise<ChatEvent[]>
+  /**
+   * Runs a turn and returns everything it emitted. `selected` is the item the rail had open when the
+   * message was sent, which is resolved per message rather than per conversation. Spec 07.
+   */
+  turn(message: string, conversationId?: string, selected?: ItemRef): Promise<ChatEvent[]>
 }
 
 export function chatHarness({
@@ -112,10 +116,14 @@ export function chatHarness({
       now += ms
     },
 
-    async turn(message, conversationId) {
+    async turn(message, conversationId, selected) {
       const events: ChatEvent[] = []
       await service.turn(
-        { message, ...(conversationId === undefined ? {} : { conversationId }) },
+        {
+          message,
+          ...(conversationId === undefined ? {} : { conversationId }),
+          ...(selected === undefined ? {} : { selected }),
+        },
         (event) => events.push(event),
       )
       return events

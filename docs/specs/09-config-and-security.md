@@ -89,6 +89,39 @@ its rationales were already in the second person without having been told who th
   name says so by clearing the field, and the preamble then omits that sentence entirely rather than
   greeting nobody. Nothing about the person is sent in that case.
 
+## The item sent as context
+
+The rail holds the details of one item beside the conversation, and that item goes to the provider on
+every message sent while it is open (specs 07 and 08). A task's title and its notes are content: a
+title here can carry a client's name, and notes are free text somebody wrote about that client's work.
+So this is the same question the table above answers, asked of Caroline's own rows rather than of a
+mailbox, and it is answered by the same `llmContent` level.
+
+| Level | What goes about the selected item |
+| --- | --- |
+| `none` | Its kind and its id, and a line saying the policy withheld the rest |
+| `metadata` | The above, plus its title, status, project, dates, estimate, who it waits on, its tags and its provenance: which source it came from and the link out |
+| `snippet` | The above, plus the first `snippetChars` of its notes, marked as truncated where they were |
+| `full` | The above, with its notes whole |
+
+- **The level is not a display setting.** `metadata` sends a title, because spec 09's own table has
+  always counted a subject or a title as metadata. What it does not send is the body-shaped field, and
+  for a task and a project that field is `notes`.
+- **A field is sent or it is absent.** Nothing is padded out with nulls, so the record of what was sent
+  lists the fields that actually went and can be read as an audit rather than as a schema.
+- **Nothing is fetched to build it.** The context is assembled from rows already on disk. The
+  classifier's transient fetch exists because the classifier cannot do its job without a body; a
+  conversation can, and a fetch per message would be a disclosure nobody asked for and a wait on every
+  turn. This is also why the record of what was sent can keep the rendered text verbatim: there is
+  nothing in it that `storeContent` has not already allowed onto the disk.
+- **The same level governs the tool.** `get_task` returns a task's notes, so it is held to
+  `llmContent` in the same way and by the same function. Two answers to whether a note may leave the
+  machine would mean the policy is decoration.
+- **The payload preview shows a real one.** The Settings screen renders the context for the same real
+  item it already previews a classification call for, built by the same function a turn is built with.
+  A preview of a screen's worth of policy that does not include the newest thing leaving the machine is
+  no longer a preview.
+
 ## Credentials
 
 - **Google**: OAuth desktop flow with PKCE, read-only scopes only (`gmail.readonly`,
@@ -180,3 +213,9 @@ Nothing Caroline creates lives outside its data directory.
 12. A name containing a line break or any other control character is refused with a message saying
     why, a name longer than the cap is refused, and an empty name is accepted and sends nothing about
     the person.
+13. With `llmContent: "metadata"`, a selected task's notes appear in no provider request payload,
+    neither in the item context nor in a `get_task` result, while its title does; with
+    `llmContent: "none"` nothing but its kind and id appears; with `llmContent: "snippet"` its notes
+    are truncated to `snippetChars` and said to be truncated. Asserted against the built request.
+14. The payload preview shows the item context for a real item, rendered by the same function that
+    builds a turn's, so the screen cannot drift from what leaves the machine.

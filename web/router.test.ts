@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   chatRailHref,
   conversationHref,
+  itemHref,
   parseLocation,
   parseRoute,
   projectHref,
@@ -225,5 +226,70 @@ describe('surfaceHref', () => {
   it('is the plain link where there is nothing to carry', () => {
     expect(surfaceHref('#/board', '#/projects')).toBe('#/board')
     expect(surfaceHref('#/', '')).toBe('#/')
+  })
+})
+
+/**
+ * The item open in the rail's details region. It travels in the hash for the reason the conversation
+ * does: a thing you cannot link to is one you cannot come back to. Spec 08's selection model.
+ */
+describe('the item open in the rail', () => {
+  it('is nothing until the hash names one', () => {
+    expect(parseLocation('#/board')).toMatchObject({ selected: null })
+  })
+
+  it('reads the kind and the id, and opens the rail on its own account', () => {
+    expect(parseLocation('#/board?item=task%3Aabc')).toMatchObject({
+      route: { name: 'board' },
+      selected: { kind: 'task', id: 'abc' },
+      chatOpen: true,
+      conversationId: null,
+    })
+  })
+
+  it('reads a project as readily as a task', () => {
+    expect(parseLocation('#/projects?item=project%3Ap1').selected).toMatchObject({
+      kind: 'project',
+      id: 'p1',
+    })
+  })
+
+  /** The hash is something a person can type into: an unreadable reference is nothing selected. */
+  it('treats a reference it cannot read as nothing selected', () => {
+    for (const hash of [
+      '#/board?item=nonsense',
+      '#/board?item=calendar_event%3Ae1',
+      '#/board?item=task%3A',
+    ]) {
+      expect(parseLocation(hash)).toMatchObject({ selected: null, chatOpen: false })
+    }
+  })
+
+  it('round-trips through itemHref, keeping the surface and the conversation', () => {
+    const href = itemHref({ kind: 'task', id: 'a/b c' }, '#/board?conversation=abc')
+
+    expect(parseLocation(href)).toMatchObject({
+      route: { name: 'board' },
+      conversationId: 'abc',
+      selected: { kind: 'task', id: 'a/b c' },
+    })
+  })
+
+  it('replaces the item already in the hash rather than adding a second', () => {
+    const href = itemHref({ kind: 'task', id: 'two' }, '#/board?item=task%3Aone')
+
+    expect(parseLocation(href).selected).toMatchObject({ id: 'two' })
+    expect(href.match(/item=/g)).toHaveLength(1)
+  })
+
+  it('is removed by itemHref with nothing, leaving the surface alone', () => {
+    expect(itemHref(null, '#/board?item=task%3Aabc')).toBe('#/board')
+  })
+
+  /** Closing the rail clears both: nothing is left in the hash to reopen a rail that was closed. */
+  it('leaves with the conversation when the rail closes', () => {
+    expect(
+      parseLocation(chatRailHref(false, '#/board?conversation=abc&item=task%3Aone')),
+    ).toMatchObject({ chatOpen: false, conversationId: null, selected: null })
   })
 })

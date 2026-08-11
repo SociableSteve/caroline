@@ -20,9 +20,11 @@ import { isStaleWait } from '../domain/waiting.js'
 
 /**
  * Bumped whenever the wording or the assembled context changes in a way that could change how
- * chat behaves. Dated rather than numbered, as for the other prompts.
+ * chat behaves. Dated rather than numbered, as for the other prompts, with a revision after the date
+ * where a day carried more than one change: two different prompts under one version would defeat the
+ * point of having one.
  */
-export const CHAT_PROMPT_VERSION = '2026-08-11'
+export const CHAT_PROMPT_VERSION = '2026-08-11.2'
 
 /** Counts per status, the plan if there is one, and what is left of the day. Spec 07. */
 export interface ChatContext {
@@ -139,6 +141,12 @@ export interface PromptOptions extends PromptLimits {
    * Spec 09.
    */
   readonly preamble: string
+  /**
+   * The item the user has open in the rail, rendered by `resolveItemContext`, or null where nothing is
+   * selected. Passed in already rendered for the same reason the preamble is: the record of what was
+   * sent and the payload preview read the same string the provider is handed. Spec 07.
+   */
+  readonly itemContext: string | null
 }
 
 /**
@@ -155,8 +163,8 @@ Today is ${context.today} (${context.timeZone}).
 
 ${JSON.stringify(contextPayload(context), null, 2)}
 
-That is all you are given. Anything more specific, including any task's title, you fetch with a tool, so that you are reading the system as it is now rather than as it was when this turn began.
-
+That is all you are given about the day as a whole. Anything more specific, including any other task's title, you fetch with a tool, so that you are reading the system as it is now rather than as it was when this turn began.
+${options.itemContext === null ? '' : `\n${options.itemContext}\n`}
 ${options.readOnly ? READ_ONLY_RULES : writeRules(options)}`
 }
 

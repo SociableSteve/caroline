@@ -10,10 +10,12 @@ import {
   chatConfirmationReasons,
   chatRoles,
 } from '../../src/domain/chat.js'
+import { contentLevels } from '../../src/domain/content.js'
 import { planEntryKinds } from '../../src/domain/plan.js'
 import { jobRunStatuses, jobTriggers } from '../../src/domain/job.js'
 import { llmCallStatuses, llmPurposes } from '../../src/domain/llm.js'
 import { projectStates } from '../../src/domain/project.js'
+import { selectableKinds } from '../../src/domain/selection.js'
 import { sourceProviders } from '../../src/domain/source.js'
 import { statusActors, taskStatuses } from '../../src/domain/task.js'
 import { migratedDatabase } from '../helpers/temp-database.js'
@@ -712,5 +714,74 @@ describe('a classification row', () => {
     expect(database.prepare('select count(*) as count from classifications').get()).toMatchObject({
       count: 0,
     })
+  })
+})
+
+/**
+ * The record of what a turn sent about the item that was open. Spec 07: it is written down as the
+ * resolved context rather than as an id, and the two vocabularies it speaks are the domain's, so the
+ * migration writes them out literally and this keeps the two honest.
+ */
+describe('the schema and the item a turn was about', () => {
+  function withTurn() {
+    const database = migratedDatabase()
+    database
+      .prepare(
+        `insert into chat_conversations (id, title, created_at, updated_at)
+         values ('conversation-1', 'What is this?', 0, 0)`,
+      )
+      .run()
+    database
+      .prepare(
+        `insert into chat_messages (id, conversation_id, seq, role, content, created_at)
+         values ('message-1', 'conversation-1', 1, 'assistant', 'Answered.', 0)`,
+      )
+      .run()
+
+    const add = (kind: string, level = 'snippet', found = 1) =>
+      database
+        .prepare(
+          `insert into chat_turn_contexts (message_id, item_kind, item_id, item_found, fields,
+             content_level, policy_version, rendered, created_at)
+           values ('message-1', ?, 'item-1', ?, '["title"]', ?, '2026-08-11', 'Rendered.', 0)`,
+        )
+        .run(kind, found, level)
+
+    return { database, add }
+  }
+
+  it.each(selectableKinds)('accepts %s, which the domain says the rail can open', (kind) => {
+    const { add } = withTurn()
+
+    expect(() => add(kind)).not.toThrow()
+  })
+
+  it('rejects a kind the rail cannot open', () => {
+    const { add } = withTurn()
+
+    expect(() => add('calendar_event')).toThrow(/constraint/i)
+  })
+
+  it.each(contentLevels)('accepts %s as the level the item was sent at', (level) => {
+    const { add } = withTurn()
+
+    expect(() => add('task', level)).not.toThrow()
+  })
+
+  it('rejects a content level the domain does not define', () => {
+    const { add } = withTurn()
+
+    expect(() => add('task', 'everything')).toThrow(/constraint/i)
+  })
+
+  it('deletes with its turn, since a record of what a turn sent is part of the turn', () => {
+    const { database, add } = withTurn()
+    add('task')
+
+    database.prepare('delete from chat_messages where id = ?').run('message-1')
+
+    expect(
+      database.prepare('select count(*) as count from chat_turn_contexts').get(),
+    ).toMatchObject({ count: 0 })
   })
 })

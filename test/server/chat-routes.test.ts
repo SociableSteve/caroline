@@ -97,7 +97,7 @@ function parseStream(body: string): WireEvent[] {
 
 async function turn(
   origin: string,
-  body: { conversationId?: string; message: string },
+  body: { conversationId?: string; message: string; selected?: unknown },
 ): Promise<{ status: number; events: WireEvent[] }> {
   const response = await fetch(`${origin}/api/chat`, {
     method: 'POST',
@@ -225,6 +225,70 @@ describe('POST /api/chat', () => {
         .all()
       expect(rows).toMatchObject([{ content: 'Answered anyway.' }])
     })
+  })
+})
+
+/**
+ * The item the rail had open, over the wire. Spec 07: it travels with the message rather than being
+ * remembered against the conversation, and what was sent about it is on the turn the transcript
+ * returns, so the conversation can be audited from the surface that had it.
+ */
+describe('POST /api/chat with an item selected', () => {
+  it('carries the selection to the turn and publishes what was sent about it', async () => {
+    const database = migratedDatabase()
+    createTask(database, { id: 'task-1', title: 'Review the contract' }, REQUEST_TIME)
+    const { app } = await chatServer({ database })
+    const origin = await listening(app)
+
+    const { events } = await turn(origin, {
+      message: 'What is this?',
+      selected: { kind: 'task', id: 'task-1' },
+    })
+
+    const done = events.at(-1)?.data as { message?: { context?: Record<string, unknown> } }
+    expect(done.message?.context).toMatchObject({
+      kind: 'task',
+      id: 'task-1',
+      found: true,
+      contentLevel: 'snippet',
+    })
+    expect(String(done.message?.context?.rendered)).toContain('Review the contract')
+  })
+
+  it('reopens the transcript with that record still on the turn', async () => {
+    const database = migratedDatabase()
+    createTask(database, { id: 'task-1', title: 'Review the contract' }, REQUEST_TIME)
+    const { app } = await chatServer({ database })
+    const origin = await listening(app)
+
+    const { events } = await turn(origin, {
+      message: 'What is this?',
+      selected: { kind: 'task', id: 'task-1' },
+    })
+    const conversationId = String((events[0]?.data as { id?: string }).id)
+
+    const reopened = await app.inject({ url: `/api/chat/conversations/${conversationId}` })
+    const messages = reopened.json<{ messages: Array<{ role: string; context: unknown }> }>()
+      .messages
+
+    expect(messages.find((message) => message.role === 'assistant')?.context).toMatchObject({
+      id: 'task-1',
+    })
+    // A user's own message sent nothing about an item: the record belongs to the turn that was sent.
+    expect(messages.find((message) => message.role === 'user')?.context).toBeNull()
+  })
+
+  it('refuses a kind the rail cannot open, in the standard error shape', async () => {
+    const { app } = await chatServer()
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/chat',
+      payload: { message: 'What is this?', selected: { kind: 'calendar_event', id: 'event-1' } },
+    })
+
+    expect(response.statusCode).toBe(400)
+    expect(response.json()).toMatchObject({ error: { code: 'bad_request' } })
   })
 })
 

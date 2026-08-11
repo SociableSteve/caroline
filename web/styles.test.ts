@@ -404,4 +404,32 @@ describe('the chat rail', () => {
     expect(value(collapsed, 'position')).toBe('fixed')
     expect(value(collapsed, 'box-shadow')).toBe('var(--shadow-2)')
   })
+
+  /**
+   * The rail's second region. Spec 08, criterion 27: the details of the open item sit above the
+   * conversation, bounded, so a task with long notes never takes the rail from the conversation it is
+   * supposed to be the subject of. Asserted against the stylesheet because it is layout, and jsdom
+   * lays nothing out.
+   */
+  it('bounds the details region and scrolls it within the rail rather than letting it take it', () => {
+    expect(value(base('.rail-details'), 'max-height')).toBeDefined()
+    expect(value(base('.rail-details'), 'overflow-y')).toBe('auto')
+    // Pinned, so the conversation scrolls past the thing it is about rather than under it.
+    expect(value(base('.rail-details'), 'position')).toBe('sticky')
+  })
+
+  /** A short viewport gives the height to the conversation: the cap tightens rather than the rail. */
+  it('tightens that cap in a short viewport instead of squeezing the transcript', () => {
+    const short = rules.filter(
+      (rule) =>
+        rule.selector === '.rail-details' &&
+        rule.context.startsWith('@media (max-height') &&
+        rule.property === 'max-height',
+    )
+
+    expect(short).not.toEqual([])
+    expect(Number.parseFloat(short[0]?.value ?? '100')).toBeLessThan(
+      Number.parseFloat(value(base('.rail-details'), 'max-height') ?? '0'),
+    )
+  })
 })

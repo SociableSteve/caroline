@@ -33,6 +33,8 @@ function renderDashboard(overrides: Partial<Parameters<typeof Dashboard>[0]> = {
       calendar={null}
       staleDays={7}
       now={NOW}
+      selected={null}
+      onSelect={vi.fn()}
       onRegeneratePlan={() => {}}
       onComplete={() => {}}
       {...overrides}
@@ -639,5 +641,45 @@ describe('the background jobs panel', () => {
 
     expect(within(panel).getByText('failure')).toBeInTheDocument()
     expect(within(panel).queryByText('success')).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * Spec 08, criterion 28. A plan entry is not a fourth kind of item: it names a task, and clicking it
+ * opens that task. An entry whose task has been deleted is a record of what was proposed, and names
+ * nothing to open.
+ */
+describe('opening a plan entry in the details rail', () => {
+  it('opens the entry’s task', async () => {
+    const onSelect = vi.fn()
+    renderDashboard({
+      plan: aPlan({ entries: [aPlanEntry({ taskId: 'task-a', title: 'Hub numbers' })] }),
+      onSelect,
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: 'Hub numbers' }))
+
+    expect(onSelect).toHaveBeenCalledWith({ kind: 'task', id: 'task-a' })
+  })
+
+  it('says which entry is the one that is open', () => {
+    renderDashboard({
+      plan: aPlan({ entries: [aPlanEntry({ taskId: 'task-a', title: 'Hub numbers' })] }),
+      selected: { kind: 'task', id: 'task-a' },
+    })
+
+    expect(screen.getByRole('button', { name: 'Hub numbers' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+  })
+
+  it('leaves an entry whose task has been deleted as text', () => {
+    renderDashboard({
+      plan: aPlan({ entries: [aPlanEntry({ taskId: null, title: 'Something deleted' })] }),
+    })
+
+    expect(screen.queryByRole('button', { name: 'Something deleted' })).not.toBeInTheDocument()
+    expect(screen.getByText('Something deleted')).toBeInTheDocument()
   })
 })

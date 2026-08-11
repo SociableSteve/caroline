@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { resolveItemContext } from '../../chat/context.js'
 import { llmLevelConsequences, storeLevelConsequences } from '../../config/content.js'
 import type { Config } from '../../config/schema.js'
 import type { Database } from '../../db/index.js'
@@ -83,6 +84,7 @@ export function registerPrivacyRoutes(
           preamble,
           item: null,
           payload: null,
+          itemContext: null,
           promptVersion: CLASSIFICATION_PROMPT_VERSION,
         }
       }
@@ -96,10 +98,15 @@ export function registerPrivacyRoutes(
         () => source?.content ?? null,
       )
 
+      // What a turn would send about this same task if it were open in the rail, built by the function
+      // a turn builds it with rather than by a second rendering that could drift from it. Spec 09.
+      const itemContext = resolveItemContext({ database, config }, { kind: 'task', id: task.id })
+
       return {
         policy,
         preamble,
         item: { taskId: task.id, title: task.title, provider: source?.provider ?? null },
+        itemContext,
         payload: buildClassificationPayload(
           {
             taskId: task.id,

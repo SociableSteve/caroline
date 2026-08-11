@@ -15,10 +15,11 @@ import type {
 import type { Interval } from '../src/domain/capacity.js'
 import type { JobRun } from '../src/domain/job.js'
 import type { Project, ProjectState } from '../src/domain/project.js'
+import type { ItemRef } from '../src/domain/selection.js'
 import type { Source } from '../src/domain/source.js'
 import { taskStatuses, type Task, type TaskStatus } from '../src/domain/task.js'
 
-export type { JobRun, Project, ProjectState, Task, TaskStatus }
+export type { ItemRef, JobRun, Project, ProjectState, Task, TaskStatus }
 export { taskStatuses }
 
 /**
@@ -126,6 +127,11 @@ export interface PrivacyPreview {
    * Caroline, so it is part of what leaves the machine and part of what this screen has to show.
    */
   readonly preamble?: string
+  /**
+   * What a turn would send about this same item if it were open in the rail, built by the function a
+   * turn builds it with. Spec 09, criterion 14.
+   */
+  readonly itemContext?: TurnContextView | null
 }
 
 /** The settings the person owns, as distinct from the deployment's configuration. Spec 09. */
@@ -286,6 +292,23 @@ export interface ChatMessageView {
   readonly error: string | null
   readonly changes: ChatChangeView[]
   readonly confirmations: ChatConfirmationView[]
+  /** What the turn sent about the item that was open, or null where nothing was. Spec 07. */
+  readonly context: TurnContextView | null
+}
+
+/**
+ * What one turn sent about the selected item. An id is not what was sent, so the record names the
+ * fields, the level they went at and the text itself: a conversation you cannot audit is one you
+ * cannot trust. Spec 07, criterion 10.
+ */
+export interface TurnContextView {
+  readonly kind: 'task' | 'project'
+  readonly id: string
+  readonly found: boolean
+  readonly fields: string[]
+  readonly contentLevel: string
+  readonly policyVersion: string
+  readonly rendered: string
 }
 
 export interface TranscriptView {
@@ -693,7 +716,7 @@ export const api = {
    * that gives up gets the rest by reloading the conversation.
    */
   async streamChat(
-    input: { conversationId?: string; message: string },
+    input: { conversationId?: string; message: string; selected?: ItemRef },
     onEvent: (event: ChatStreamEvent) => void,
     signal?: AbortSignal,
   ): Promise<void> {

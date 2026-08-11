@@ -17,9 +17,11 @@ import {
   chatConfirmationReasons,
   chatRoles,
 } from '../domain/chat.js'
+import { contentLevels } from '../domain/content.js'
 import { planEntryKinds } from '../domain/plan.js'
 import { jobRunStatuses, jobTriggers } from '../domain/job.js'
 import { projectStates } from '../domain/project.js'
+import { ITEM_ID_MAX, selectableKinds } from '../domain/selection.js'
 import { USER_NAME_MAX } from '../domain/settings.js'
 import { sourceProviders } from '../domain/source.js'
 import { taskStatuses } from '../domain/task.js'
@@ -644,6 +646,17 @@ export const CHAT_MESSAGE_MAX = 8_000
 export const CONVERSATIONS_DEFAULT = 30
 export const CONVERSATIONS_MAX = 100
 
+/** Which item is open in the rail. Spec 08's two kinds, and nothing else may be named. */
+const selectedItemSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'id'],
+  properties: {
+    kind: { type: 'string', enum: selectableKinds },
+    id: { type: 'string', minLength: 1, maxLength: ITEM_ID_MAX },
+  },
+} as const
+
 export const chatTurnBodySchema = {
   type: 'object',
   additionalProperties: false,
@@ -652,6 +665,11 @@ export const chatTurnBodySchema = {
     /** Omitted to start a new conversation, which is titled from the message. */
     conversationId: { type: 'string', minLength: 1, maxLength: 64 },
     message: { type: 'string', minLength: 1, maxLength: CHAT_MESSAGE_MAX, pattern: '\\S' },
+    /**
+     * The item the user had open when they sent this. Omitted where nothing was, which is a turn like
+     * any other: nothing about the selection ever suppresses the message. Spec 07.
+     */
+    selected: selectedItemSchema,
   },
 } as const
 
@@ -674,6 +692,28 @@ const chatChangeResponseSchema = {
     undoneAt: nullableInteger,
     /** False for a change with nothing to put back, so undo is offered only where it works. */
     undoable: { type: 'boolean' },
+  },
+} as const
+
+/**
+ * What a turn sent about the item that was open. Spec 07, criterion 10: which item, which fields, at
+ * which content level and policy version, and the text the provider was handed.
+ *
+ * Shared by the transcript and by the payload preview, so the screen that claims to show what leaves
+ * the machine is reading the same shape a turn recorded.
+ */
+const turnContextResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'id', 'found', 'fields', 'contentLevel', 'policyVersion', 'rendered'],
+  properties: {
+    kind: { type: 'string', enum: selectableKinds },
+    id: { type: 'string' },
+    found: { type: 'boolean' },
+    fields: { type: 'array', items: { type: 'string' } },
+    contentLevel: { type: 'string', enum: contentLevels },
+    policyVersion: { type: 'string' },
+    rendered: { type: 'string' },
   },
 } as const
 
@@ -717,6 +757,12 @@ export const chatMessageResponseSchema = {
     error: nullableString(2000),
     changes: { type: 'array', items: chatChangeResponseSchema },
     confirmations: { type: 'array', items: chatConfirmationResponseSchema },
+    /**
+     * What this turn sent about the item that was open, or null where nothing was selected. Published
+     * because the point of recording it is that the conversation can be audited, and an audit nobody
+     * can read is a table. Spec 07, criterion 10.
+     */
+    context: { ...turnContextResponseSchema, type: ['object', 'null'] },
   },
 } as const
 
@@ -864,6 +910,12 @@ export const privacyPreviewResponseSchema = {
      * no longer prove what this screen claims to prove. Spec 09.
      */
     preamble: { type: 'string' },
+    /**
+     * What a turn would send about this same item if it were open in the rail, built by the function a
+     * turn builds it with. The newest thing leaving the machine, so a preview without it is no longer a
+     * preview of the policy. Spec 09, criterion 14.
+     */
+    itemContext: { ...turnContextResponseSchema, type: ['object', 'null'] },
   },
 } as const
 

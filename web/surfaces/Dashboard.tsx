@@ -25,6 +25,7 @@ import type {
   CalendarEventView,
   CapacityView,
   Health,
+  ItemRef,
   JobRun,
   PlanEntryView,
   PlanHistoryDay,
@@ -63,6 +64,9 @@ export interface DashboardProps {
   /** True while a regeneration is in flight, so a second click cannot start another. */
   readonly regenerating?: boolean
   readonly onComplete: (taskId: string) => void
+  /** Opens a plan entry's task in the rail's details region. Spec 08, criterion 28. */
+  readonly onSelect: (item: ItemRef) => void
+  readonly selected: ItemRef | null
 }
 
 /** One row per job: the history is long, and what the dashboard answers is "is it working". */
@@ -100,14 +104,37 @@ function whyFree(event: CalendarEventView): string | null {
 function PlanEntryLine({
   entry,
   onComplete,
+  onSelect,
+  selected,
 }: {
   readonly entry: PlanEntryView
   readonly onComplete: (taskId: string) => void
+  readonly onSelect: (item: ItemRef) => void
+  readonly selected: ItemRef | null
 }) {
+  // A plan entry is not a fourth kind of item: it names a task, and opening one opens that task. An
+  // entry whose task has been deleted is a record of what was proposed and names nothing to open.
+  // Spec 08, criterion 28.
+  const taskId = entry.taskId
+  const open = taskId !== null && selected?.kind === 'task' && selected.id === taskId
+
   return (
     <li className={entry.done ? 'plan-entry plan-done' : 'plan-entry'}>
       <span className="plan-rank">{entry.rank}</span>
-      <span className="plan-title">{entry.title}</span>
+      <span className="plan-title">
+        {taskId === null ? (
+          entry.title
+        ) : (
+          <button
+            type="button"
+            className="item-open"
+            aria-pressed={open}
+            onClick={() => onSelect({ kind: 'task', id: taskId })}
+          >
+            {entry.title}
+          </button>
+        )}
+      </span>
       {entry.rationale !== null && <span className="plan-why">{entry.rationale}</span>}
       {entry.estimateMinutes !== null && (
         <span className="plan-estimate">{formatEstimate(entry.estimateMinutes)}</span>
@@ -221,6 +248,8 @@ export function Dashboard({
   onRegeneratePlan,
   regenerating = false,
   onComplete,
+  onSelect,
+  selected,
 }: DashboardProps) {
   useSurfaceTitle('Dashboard')
   const latestRuns = latestRunPerJob(jobRuns)
@@ -270,7 +299,13 @@ export function Dashboard({
               ) : (
                 <ul className="plan-list">
                   {plan.entries.map((entry) => (
-                    <PlanEntryLine key={entry.id} entry={entry} onComplete={onComplete} />
+                    <PlanEntryLine
+                      key={entry.id}
+                      entry={entry}
+                      onComplete={onComplete}
+                      onSelect={onSelect}
+                      selected={selected}
+                    />
                   ))}
                 </ul>
               )}
@@ -371,7 +406,13 @@ export function Dashboard({
           <Panel headingLevel={2} heading="If there is time">
             <ul className="plan-list">
               {plan.overflow.map((entry) => (
-                <PlanEntryLine key={entry.id} entry={entry} onComplete={onComplete} />
+                <PlanEntryLine
+                  key={entry.id}
+                  entry={entry}
+                  onComplete={onComplete}
+                  onSelect={onSelect}
+                  selected={selected}
+                />
               ))}
             </ul>
           </Panel>

@@ -26,6 +26,7 @@ import {
   extendConfirmation,
   finishMessage,
   getConversation,
+  recordTurnContext,
   type ChatChangeRecord,
   type ChatConfirmationRecord,
   type ChatMessageRecord,
@@ -42,7 +43,9 @@ import {
   type ToolCall,
   type ToolResult,
 } from '../llm/types.js'
+import type { ItemRef } from '../domain/selection.js'
 import type { ChangeFeed } from '../server/changes.js'
+import { resolveItemContext } from './context.js'
 import { argumentsProblem, executeTool, type ToolCallRequest } from './execute.js'
 import { buildChatContext, chatSystemPrompt } from './prompt.js'
 import { buildToolRegistry, type ToolRegistry } from './registry.js'
@@ -88,6 +91,12 @@ export interface TurnInput {
   /** Omitted to start a new conversation, which is titled from this first message. */
   readonly conversationId?: string
   readonly message: string
+  /**
+   * The item the user had open when they sent this message, or omitted where nothing was. Per message
+   * rather than per conversation, and never carried over from an earlier turn: an item you closed is
+   * an item you stopped talking about. Spec 07.
+   */
+  readonly selected?: ItemRef
 }
 
 /** Why a turn could not start at all. Distinct from a turn that started and then failed. */
@@ -165,6 +174,20 @@ export async function runTurn(
     regeneratePlan: options.regeneratePlan,
   }
 
+  /**
+   * The item that was open, resolved once and written down before the provider is asked anything.
+   * One object, three readers: this request, the record below, and the payload preview. Spec 07.
+   *
+   * Recorded before the call rather than after it, so a turn the provider failed still says what had
+   * already been resolved to send.
+   */
+  const itemContext =
+    input.selected === undefined ? null : resolveItemContext({ database, config }, input.selected)
+
+  if (itemContext !== null) {
+    recordTurnContext(database, { messageId: turn.id, ...itemContext }, at)
+  }
+
   const system = chatSystemPrompt(
     buildChatContext({ database, config, now: at, calendarConnected: options.calendarConnected }),
     {
@@ -174,6 +197,7 @@ export async function runTurn(
       // Read at the moment the turn is built, so a name changed in Settings takes effect on the
       // next turn rather than on the next restart. Spec 09.
       preamble: renderPreamble({ userName: getUserName(database) }),
+      itemContext: itemContext?.rendered ?? null,
     },
   )
 

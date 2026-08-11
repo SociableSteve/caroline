@@ -295,10 +295,30 @@ feature, and it is also the part that needs rules rather than good intentions:
    carry a client's name. Spec 09 states which fields go, at which content level, and the payload
    preview shows a real one.
 
-Open, to settle in the spec before anything is built: which items get a details panel (tasks
-certainly; projects, calendar events, job runs and plan entries are each arguable and each a
-different panel), whether selection survives a surface change or a reload, and what a short
-viewport does when the details and the conversation both want the height.
+How the three open questions were settled, now written into specs 07, 08 and 09:
+
+- **Which items get a panel.** Tasks and projects, and nothing else. The test is not whether an item
+  has fields worth showing but whether "it" is something chat can then do anything with: every read
+  and write tool in spec 07's registry addresses a task or a project, so those two are the items a
+  conversation can be about. A calendar event, a job run and a plan entry have no tool that names
+  one, so selecting them would send context the model cannot follow up on, and each would be a
+  different panel for that privilege. A plan entry is not a fourth kind: it names a task, and
+  clicking one selects that task.
+- **Selection lives in the URL, exactly as the conversation does.** `#/board?item=task:abc` is the
+  board with that task open in the rail, so it survives a reload, a surface change and a link, for
+  the reason spec 08 already gives for the conversation: a thing you cannot link to is one you
+  cannot come back to. It does not survive the item: an id that names nothing renders as gone and
+  sends nothing, because a panel that quietly shows the last item that did exist is worse than an
+  empty one. Rule 3 above is about closing rather than about persistence: what has no fallback is a
+  selection the user cleared, not one they left open.
+- **A short viewport gives the height to the conversation.** The details region is capped at a share
+  of the rail's height and scrolls within its cap, pinned to the top of the rail so the conversation
+  scrolls past it rather than under it. Below the height where both are cramped the cap tightens
+  rather than the transcript shrinking, because the rail is a place to have a conversation and the
+  panel is only what it is about.
+
+Selecting an item opens the rail, because the panel is inside it. Closing the rail clears both the
+conversation and the selection, so nothing is left in the hash to reopen a rail the user closed.
 
 Exit: spec 07 gains the context rule and its audit record, spec 08 gains the rail's second region
 and the selection model, spec 09 gains the item-as-context policy.

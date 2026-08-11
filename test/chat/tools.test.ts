@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import { loadConfig } from '../../src/config/load.js'
 import { allChatTools } from '../../src/chat/registry.js'
+import type { Config } from '../../src/config/schema.js'
 import type { ChatTool, ChatToolContext, PlanRegeneration } from '../../src/chat/types.js'
 import { upsertCalendarEvent } from '../../src/db/repositories/calendar-events.js'
 import { recordClassification } from '../../src/db/repositories/classifications.js'
@@ -22,6 +23,14 @@ const config = loadConfig({
   env: {} as NodeJS.ProcessEnv,
 })
 
+/** The same configuration with one content level changed, for the tools the policy shapes. */
+function policyAt(llmContent: string, snippetChars = 300): Config {
+  return loadConfig({
+    file: { privacy: { llmContent, snippetChars }, jobs: { timezone: 'Europe/London' } },
+    env: {} as NodeJS.ProcessEnv,
+  })
+}
+
 function tool(name: string): ChatTool {
   const found = allChatTools.find((candidate) => candidate.name === name)
   if (found === undefined) throw new Error(`no tool called ${name}`)
@@ -31,12 +40,14 @@ function tool(name: string): ChatTool {
 interface HarnessOptions {
   readonly calendarConnected?: boolean
   readonly regeneratePlan?: () => Promise<PlanRegeneration>
+  /** For the tools whose answers the content policy shapes. Spec 09. */
+  readonly config?: Config
 }
 
 function context(database: Database, options: HarnessOptions = {}): ChatToolContext {
   return {
     database,
-    config,
+    config: options.config ?? config,
     now: CHAT_NOW,
     calendarConnected: () => options.calendarConnected ?? false,
     regeneratePlan:
@@ -185,6 +196,58 @@ describe('get_task', () => {
     const answer = await run(database, 'get_task', { id: 'task-1' })
 
     expect(JSON.stringify(answer.data)).not.toContain('must not travel')
+  })
+
+  /**
+   * Spec 09, criterion 13. A task's notes are its body-shaped field, so they leave the machine only as
+   * far as `llmContent` allows, and this tool is held to that by the same function the item context
+   * is: two answers to whether a note may be sent would mean the policy is decoration.
+   */
+  it('withholds the notes at metadata and still answers with the title', async () => {
+    const database = migratedDatabase()
+    createTask(
+      database,
+      { id: 'task-1', title: 'Review the contract', notes: 'Ring Ada about the indemnity clause.' },
+      CHAT_NOW,
+    )
+
+    const answer = await run(
+      database,
+      'get_task',
+      { id: 'task-1' },
+      { config: policyAt('metadata') },
+    )
+
+    expect(answer.data).toMatchObject({ title: 'Review the contract', notes: null })
+    expect(JSON.stringify(answer.data)).not.toContain('indemnity')
+  })
+
+  it('truncates the notes at snippet and says it did', async () => {
+    const database = migratedDatabase()
+    createTask(
+      database,
+      { id: 'task-1', title: 'Review the contract', notes: `${'a'.repeat(30)}THE-TAIL` },
+      CHAT_NOW,
+    )
+
+    const answer = await run(
+      database,
+      'get_task',
+      { id: 'task-1' },
+      { config: policyAt('snippet', 30) },
+    )
+
+    expect(answer.data).toMatchObject({ notes: 'a'.repeat(30), notesTruncated: true })
+  })
+
+  it('answers with the whole note at full, and claims no truncation', async () => {
+    const database = migratedDatabase()
+    createTask(database, { id: 'task-1', title: 'Review', notes: 'The whole thing.' }, CHAT_NOW)
+
+    const answer = await run(database, 'get_task', { id: 'task-1' }, { config: policyAt('full') })
+
+    expect(answer.data).toMatchObject({ notes: 'The whole thing.' })
+    expect(answer.data).not.toHaveProperty('notesTruncated')
   })
 
   it('refuses an id that names nothing', async () => {

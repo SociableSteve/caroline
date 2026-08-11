@@ -14,6 +14,13 @@ export interface ContentPolicy {
   readonly snippetChars: number
 }
 
+/**
+ * Bumped whenever what a level means changes: which fields a level lets through, or how a body is
+ * cut. Recorded alongside anything this policy shaped, because a record saying `snippet` is only
+ * readable later if it also says what `snippet` meant at the time. Dated, as the prompts are.
+ */
+export const CONTENT_POLICY_VERSION = '2026-08-11'
+
 /** True when `level` permits at least as much as `needed`. */
 export function levelAllows(level: ContentLevel, needed: ContentLevel): boolean {
   return contentLevelRank[level] >= contentLevelRank[needed]
@@ -42,6 +49,33 @@ export function contentAtLevel(
   if (level === 'full') return content
 
   return content.length <= snippetChars ? content : content.slice(0, snippetChars)
+}
+
+/** A body-shaped field on its way to a model, and whether the policy cut it short. */
+export interface TextToSend {
+  readonly text: string | null
+  /** True where there was more of it than the level allowed, so a model is not told a part is whole. */
+  readonly truncated: boolean
+}
+
+/**
+ * One of Caroline's own body-shaped fields, as `llmContent` permits it. A task's notes are the case:
+ * spec 09 counts a title as metadata and notes as the body, so `metadata` sends the one and not the
+ * other.
+ *
+ * Both senders of a note call this, the item context and `get_task`, because two answers to whether a
+ * note may leave the machine would mean the policy is decoration.
+ */
+export function textToSend(
+  text: string | null | undefined,
+  policy: Pick<ContentPolicy, 'llmContent' | 'snippetChars'>,
+): TextToSend {
+  const sent = contentAtLevel(text, policy.llmContent, policy.snippetChars)
+
+  return {
+    text: sent,
+    truncated: sent !== null && sent !== text,
+  }
 }
 
 /**

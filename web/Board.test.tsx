@@ -19,9 +19,20 @@ function renderBoard(overrides: Partial<Parameters<typeof Board>[0]> = {}) {
     onAcceptProposal: vi.fn(),
     onDismissProposal: vi.fn(),
     onUndoStatus: vi.fn(),
+    onSelect: vi.fn(),
   }
 
-  render(<Board tasks={[]} projects={[]} staleDays={7} now={NOW} {...handlers} {...overrides} />)
+  render(
+    <Board
+      tasks={[]}
+      projects={[]}
+      staleDays={7}
+      now={NOW}
+      selected={null}
+      {...handlers}
+      {...overrides}
+    />,
+  )
 
   return handlers
 }
@@ -791,5 +802,45 @@ describe('a pull request whose notification email was suppressed', () => {
     renderBoard({ tasks: [aReviewTask({ sources: [aPullRequestSource()] })] })
 
     expect(screen.queryByText('Also notified')).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * Opening a task in the rail. Spec 08, criterion 24: the title is the control, because a card's action
+ * row is already at the width a column can afford and the title is the thing being pointed at.
+ */
+describe('opening a task in the details rail', () => {
+  it('opens the task whose title was clicked', async () => {
+    const handlers = renderBoard({ tasks: [aTask({ id: 'task-1', title: 'Captured' })] })
+
+    await userEvent.click(screen.getByRole('button', { name: 'Captured' }))
+
+    expect(handlers.onSelect).toHaveBeenCalledWith({ kind: 'task', id: 'task-1' })
+  })
+
+  it('opens the focused task from the keyboard', async () => {
+    const handlers = renderBoard({ tasks: [aTask({ id: 'task-1', title: 'Captured' })] })
+    const card = screen.getByRole('article', { name: 'Captured' })
+    card.focus()
+
+    fireEvent.keyDown(card, { key: 'Enter' })
+
+    expect(handlers.onSelect).toHaveBeenCalledWith({ kind: 'task', id: 'task-1' })
+  })
+
+  it('says which card is the one that is open', () => {
+    renderBoard({
+      tasks: [aTask({ id: 'task-1', title: 'Captured' }), aTask({ id: 'task-2', title: 'Other' })],
+      selected: { kind: 'task', id: 'task-1' },
+    })
+
+    expect(screen.getByRole('button', { name: 'Captured' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Other' })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('lists the key that opens it, so the shortcut is discoverable', () => {
+    renderBoard()
+
+    expect(screen.getByText(/open the focused task in the details rail/)).toBeInTheDocument()
   })
 })

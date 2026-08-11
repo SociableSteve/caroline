@@ -210,6 +210,29 @@ export function Settings({
         )}
       </Panel>
 
+      {/* The item context is the newest thing leaving the machine, so a preview without it is no
+          longer a preview of the policy. Built by the function a turn builds it with. Spec 09. */}
+      <Panel headingLevel={2} heading="What a message about an open item would send">
+        {preview?.itemContext == null ? (
+          <p className="empty">
+            Nothing is captured yet, so there is no real item to show. Open one in the rail and this
+            is what a message about it would carry.
+          </p>
+        ) : (
+          <>
+            <p>
+              With an item open in the chat rail, this is what your next message sends about it,
+              under the policy above. Fields sent: {preview.itemContext.fields.join(', ')}, at
+              content level {preview.itemContext.contentLevel}.
+            </p>
+            <pre className="payload-preview">{preview.itemContext.rendered}</pre>
+            <p className="policy-note">
+              Content policy version {preview.itemContext.policyVersion}.
+            </p>
+          </>
+        )}
+      </Panel>
+
       <Panel headingLevel={2} heading="What a classification call would send">
         {preview === null ? (
           <p className="empty">Waiting for the server.</p>

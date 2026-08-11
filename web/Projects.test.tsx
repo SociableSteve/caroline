@@ -14,9 +14,10 @@ function renderProjects(overrides: Partial<Parameters<typeof Projects>[0]> = {})
     onCreate: vi.fn(async () => true),
     onStateChange: vi.fn(),
     onDelete: vi.fn(),
+    onSelect: vi.fn(),
   }
 
-  render(<Projects projects={[]} {...handlers} {...overrides} />)
+  render(<Projects projects={[]} selected={null} {...handlers} {...overrides} />)
 
   return handlers
 }
@@ -159,6 +160,7 @@ function renderDetail(overrides: Partial<Parameters<typeof ProjectDetail>[0]> = 
     onStatusChange: vi.fn(),
     onComplete: vi.fn(),
     onDelete: vi.fn(),
+    onSelect: vi.fn(),
   }
 
   render(
@@ -167,6 +169,7 @@ function renderDetail(overrides: Partial<Parameters<typeof ProjectDetail>[0]> = 
       tasks={[]}
       staleDays={7}
       now={NOW}
+      selected={null}
       {...handlers}
       {...overrides}
     />,
@@ -214,5 +217,37 @@ describe('a project on its own', () => {
 
     expect(screen.getByRole('alert')).toHaveTextContent(/not here/)
     expect(screen.getByRole('link', { name: 'Back to projects' })).toBeInTheDocument()
+  })
+})
+
+/** Spec 08: a project's name already links to its drill-in, so its row carries the control instead. */
+describe('opening a project in the details rail', () => {
+  it('opens the project whose row was asked for', async () => {
+    const handlers = renderProjects({
+      projects: [aProject({ id: 'project-1', title: 'Ship it' })],
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: 'Details' }))
+
+    expect(handlers.onSelect).toHaveBeenCalledWith({ kind: 'project', id: 'project-1' })
+  })
+
+  it('says which row is the one that is open', () => {
+    renderProjects({
+      projects: [aProject({ id: 'project-1', title: 'Ship it' })],
+      selected: { kind: 'project', id: 'project-1' },
+    })
+
+    expect(screen.getByRole('button', { name: 'Details' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  /** The name is still the link to the project's own surface: opening the rail did not take it. */
+  it('leaves the name as the link to the drill-in', () => {
+    renderProjects({ projects: [aProject({ id: 'project-1', title: 'Ship it' })] })
+
+    expect(screen.getByRole('link', { name: 'Ship it' })).toHaveAttribute(
+      'href',
+      '#/projects/project-1',
+    )
   })
 })
