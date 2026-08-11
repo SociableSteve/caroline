@@ -107,8 +107,8 @@ lives in repository settings rather than in the repository.
    contains a `<script>` element at all.
 8. Every page renders a document from `README.md`, `docs/` or `site/`, and no rendered page carries an
    email address or anything shaped like an API key or token, in its text or in an attribute.
-   `web/styles.css` is the one file outside those three that reaches the output, and only as the tokens
-   criterion 6 takes from it.
+   Two files outside those three reach the output and no others: `web/styles.css`, as the tokens
+   criterion 6 takes from it, and `package.json`, as the repository every page links its source at.
 9. Two builds of the same tree produce identical output.
 10. Every page carries the same navigation and a `<title>` naming the page, and every page is
     reachable from the home page in at most two links.

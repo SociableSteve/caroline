@@ -90,8 +90,13 @@ function manifest(sources: SiteSources): readonly SitePage[] {
   return [...fixedPages, ...specs]
 }
 
-/** The pages of the repository as it stands, which is what the suite asserts against. */
-export const pages: readonly SitePage[] = manifest(repositorySources())
+/**
+ * The pages of a tree, which is what the suite asserts against. A function rather than a constant: as a
+ * constant it read `docs/specs` when the module was imported, so importing it from anywhere but the
+ * repository root threw before any caller could say where the tree was.
+ */
+export const sitePages = (sources: SiteSources = repositorySources()): readonly SitePage[] =>
+  manifest(sources)
 
 /**
  * The blocks of a document. Either line ending, because a Windows checkout with `core.autocrlf` set
@@ -155,9 +160,10 @@ function repositoryUrl(sources: SiteSources): string {
 }
 
 /**
- * The id the layout puts on `<main>`, for the skip link. It seeds the heading identifiers so a heading
- * rendering as "Content" fails the build rather than quietly producing a second `id="content"` and a
- * fragment that lands on the shell instead of on the heading.
+ * The id the layout puts on `<main>`, for the skip link. A heading whose slug is this one is refused,
+ * because the alternatives are both worse: numbering it `content-1` leaves a `#content` written against
+ * GitHub matching the shell and scrolling the reader to the top of the page rather than to the section,
+ * which is the guarantee criterion 3 makes, and letting it through puts the same id on the page twice.
  */
 const contentIdentifier = 'content'
 
@@ -168,15 +174,28 @@ interface Rendered {
 }
 
 function render(markdown: string, page: SitePage, context: BuildContext): Rendered {
-  const identifiers = new Set<string>([contentIdentifier])
+  const identifiers = new Set<string>()
   const sections: { id: string; label: string }[] = []
   const marked = new Marked({ gfm: true })
+  /**
+   * Collected here and thrown after the parse rather than from inside a renderer: `marked` catches what
+   * a renderer throws and re-throws it with "Please report this to https://github.com/markedjs/marked."
+   * appended, and the expected failure of this build is a broken link in somebody's pull request. Being
+   * told to file a bug against a Markdown library is a poor answer to a typo. Collecting also reports
+   * every bad link in a document rather than the first.
+   */
+  const failures: string[] = []
 
   marked.use({
     renderer: {
       heading(token: Tokens.Heading) {
         const label = this.parser.parseInline(token.tokens)
         const heading = slug(readAsText(label))
+        if (heading === contentIdentifier) {
+          failures.push(
+            `${page.source} has a heading whose identifier is "${contentIdentifier}", which is the one the page shell uses for its skip link: rename the heading`,
+          )
+        }
         let id = heading
         // Two headings can say the same thing. GitHub numbers the repeats, and so does this.
         for (let repeat = 1; identifiers.has(id); repeat += 1) id = `${heading}-${repeat}`
@@ -193,13 +212,15 @@ function render(markdown: string, page: SitePage, context: BuildContext): Render
        * visit would be a good moment to find that out. Refusing says what the work would be.
        */
       image(token: Tokens.Image) {
-        throw new Error(
+        failures.push(
           `${page.source} embeds ${token.href}, and the site copies no assets: publishing an image means teaching site/build.ts to carry one`,
         )
+
+        return ''
       },
 
       link(token: Tokens.Link) {
-        const href = resolve(token.href, page, context)
+        const href = resolve(token.href, page, context, failures)
         const title = token.title == null ? '' : ` title="${escapeAttribute(token.title)}"`
         const external = isAbsolute(href) ? ' rel="noopener" target="_blank"' : ''
 
@@ -217,6 +238,8 @@ function render(markdown: string, page: SitePage, context: BuildContext): Render
     .replace(/<table\b[^>]*>/g, (tag) => `<div class="table-scroll">${tag}`)
     .replaceAll('</table>', '</table></div>')
 
+  if (failures.length > 0) throw new Error(failures.join('\n'))
+
   return { html, sections }
 }
 
@@ -231,7 +254,7 @@ function render(markdown: string, page: SitePage, context: BuildContext): Render
  * a question nobody asked, in a way that broke the one guarantee the build makes about itself. A
  * document that wants to point at a source file can write its URL.
  */
-function resolve(href: string, page: SitePage, context: BuildContext): string {
+function resolve(href: string, page: SitePage, context: BuildContext, failures: string[]): string {
   if (isAbsolute(href) || href.startsWith('#')) return href
 
   const [path = '', ...rest] = href.split('#')
@@ -244,9 +267,13 @@ function resolve(href: string, page: SitePage, context: BuildContext): string {
     return `${posix.relative(posix.dirname(page.output), output)}${fragment}`
   }
 
-  throw new Error(
+  failures.push(
     `${page.source} links to ${href}, which is no page of this site: publish it, or write the URL of the file`,
   )
+
+  // The href it was written with, so the rest of the page renders and every bad link in a document is
+  // reported at once. Nothing is published: the failure is thrown before this page is laid out.
+  return href
 }
 
 interface BuildContext {

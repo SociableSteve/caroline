@@ -10,7 +10,13 @@
 import { readFileSync } from 'node:fs'
 import { join, posix } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { buildSite, pages, repositorySources, slug, type SiteSources } from '../../site/build.js'
+import {
+  buildSite,
+  repositorySources,
+  sitePages,
+  slug,
+  type SiteSources,
+} from '../../site/build.js'
 import { declarations } from '../helpers/css.js'
 
 const root = process.cwd()
@@ -80,7 +86,7 @@ describe('the site renders the documentation rather than restating it', () => {
 
   // Criterion 1. Every heading, so a section dropped in rendering fails here rather than being
   // noticed by a reader who cannot find the step they were sent to.
-  it.each(pages.filter((entry) => entry.source !== 'site/pages/index.md'))(
+  it.each(sitePages().filter((entry) => entry.source !== 'site/pages/index.md'))(
     'carries every heading of $source, and its prose',
     ({ source: path, output }) => {
       const rendered = text(page(output))
@@ -193,6 +199,34 @@ describe('the links survive the move off GitHub', () => {
     expect(() => buildSite(broken)).toThrow(/nowhere\.md/)
   })
 
+  /**
+   * `marked` re-throws what a renderer throws with "Please report this to markedjs/marked" appended, and
+   * the expected failure of this build is somebody's broken link. Being told to file a bug against a
+   * Markdown library is a poor answer to a typo, so the failures are collected and thrown after the
+   * parse, which also reports every bad link in a document rather than the first.
+   */
+  it('says what is wrong without sending anybody to a Markdown library to report it', () => {
+    const broken = override(
+      'docs/plan.md',
+      '# Caroline implementation plan\n\n[one](nowhere.md) [two](alsonowhere.md)\n',
+    )
+
+    expect(() => buildSite(broken)).toThrow(/nowhere\.md/)
+    expect(() => buildSite(broken)).toThrow(/alsonowhere\.md/)
+    expect(() => buildSite(broken)).not.toThrow(/markedjs/)
+  })
+
+  /**
+   * The shell owns one id, for its skip link. A heading slugging to the same thing would leave a
+   * `#content` written against GitHub matching `<main>`, so a reader following it lands at the top of
+   * the page rather than at the section, which is exactly what criterion 3 promises does not happen.
+   */
+  it('fails the build on a heading whose identifier the page shell already owns', () => {
+    const broken = override('docs/plan.md', '# Caroline implementation plan\n\n## Content\n')
+
+    expect(() => buildSite(broken)).toThrow(/the page shell uses for its skip link/)
+  })
+
   it('fails the build on a fragment no heading answers to', () => {
     const broken = override('docs/setup.md', '# Setting Caroline up\n\n[gone](#no-such-heading)\n')
 
@@ -282,7 +316,7 @@ describe('the links survive the move off GitHub', () => {
   })
 
   it('links each page back to the document it renders, so a correction has somewhere to go', () => {
-    for (const entry of pages) {
+    for (const entry of sitePages()) {
       expect(page(entry.output)).toContain(entry.source)
     }
   })
@@ -560,7 +594,7 @@ describe('the site publishes nothing but the documentation', () => {
   // Criterion 8. The repository is public, so anything the site renders is public, and the site is
   // the surface where a fixture or a data file would be published without anybody deciding to.
   it('renders no file outside the README, the docs and the site itself', () => {
-    for (const entry of pages) {
+    for (const entry of sitePages()) {
       expect(entry.source).toMatch(/^(README\.md|docs\/|site\/)/)
     }
   })
