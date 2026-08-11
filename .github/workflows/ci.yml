@@ -26,3 +26,6 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      # The site is documentation rendered, so its build is also the check that every link
+      # between those documents still resolves. Spec 11, criterion 3.
+      - run: npm run build:site

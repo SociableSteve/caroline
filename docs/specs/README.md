@@ -22,6 +22,7 @@ spec disagree, one of them is a defect: decide which, fix that one.
 | [08-api-and-ui.md](08-api-and-ui.md) | HTTP API and the browser UI |
 | [09-config-and-security.md](09-config-and-security.md) | Configuration, credentials, data-exposure posture |
 | [10-design-system.md](10-design-system.md) | The scales, primitives and appearance rules the surfaces share |
+| [11-public-site.md](11-public-site.md) | The site that publishes these documents, and how it stays one copy of them |
 
 ## Conventions
 
