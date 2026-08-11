@@ -78,7 +78,14 @@ export type DueState = 'overdue' | 'today' | 'later'
 export function dueState(dueAt: number, now: number): DueState {
   const startOfToday = new Date(now).setHours(0, 0, 0, 0)
   if (dueAt < startOfToday) return 'overdue'
-  return dueAt < startOfToday + DAY ? 'today' : 'later'
+
+  // The calendar's next day rather than `startOfToday + DAY`: a local day is not always
+  // 86,400,000ms long, and on the two days a year it is not, adding a fixed span puts the
+  // boundary an hour inside today or an hour into tomorrow.
+  const startOfTomorrow = new Date(startOfToday)
+  startOfTomorrow.setDate(startOfTomorrow.getDate() + 1)
+
+  return dueAt < startOfTomorrow.getTime() ? 'today' : 'later'
 }
 
 /** A due date with its state named, and the date kept alongside it where there is one to keep. */

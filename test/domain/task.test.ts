@@ -391,6 +391,25 @@ describe('undoStatusChange', () => {
     expect(undoStatusChange(task, undoneAt + 1)).toEqual({ undone: false })
   })
 
+  /**
+   * The other direction, and the honest limit of it: putting back a completion stamps it at the
+   * moment of the undo, because the original stamp is not among the two columns kept. Reopening a
+   * task and changing your mind gives it today's completion date, which is observable and is the
+   * price of one step rather than a history.
+   */
+  it('stamps a restored completion at the undo, since the original stamp is not kept', () => {
+    const reopened = applyStatusChange(existingTask({ status: 'done' }), {
+      status: 'next_action',
+      by: 'user',
+      at,
+    })
+
+    const result = undoStatusChange(reopened.task, undoneAt)
+
+    expect(result.undone && result.task.status).toBe('done')
+    expect(result.undone && result.task.completedAt).toBe(undoneAt)
+  })
+
   it('clears the completion stamp when what it restores is not done', () => {
     const completed = applyStatusChange(existingTask({ status: 'next_action' }), {
       status: 'done',

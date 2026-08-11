@@ -7,7 +7,7 @@
  * They live here, in this application's own directory, and they take the props this application
  * needs. There is no package and no case handled that does not occur.
  */
-import { useId, type ReactNode } from 'react'
+import { useId, type DragEvent, type ReactNode } from 'react'
 
 export interface PanelProps {
   readonly heading: ReactNode
@@ -24,8 +24,8 @@ export interface PanelProps {
    * columns are the case: the heading carries a digit and a count that read as noise in a name.
    */
   readonly label?: string | undefined
-  readonly onDragOver?: ((event: React.DragEvent<HTMLElement>) => void) | undefined
-  readonly onDrop?: ((event: React.DragEvent<HTMLElement>) => void) | undefined
+  readonly onDragOver?: ((event: DragEvent<HTMLElement>) => void) | undefined
+  readonly onDrop?: ((event: DragEvent<HTMLElement>) => void) | undefined
 }
 
 /** A titled region: the ground, the border, the radius and the padding, in one place. */

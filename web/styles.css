@@ -3,8 +3,9 @@
  *
  * Four short scales and five primitives, and every surface draws from them. A value not on a
  * scale is a defect rather than a judgement call, which is what `styles.test.ts` asserts: it
- * parses this file and fails on a literal length in a spacing, size or radius property, and on a
- * colour that is not a token.
+ * parses this file and fails on a literal in a spacing, `font-size`, `border-radius` or
+ * `line-height` declaration, and on a colour that is not a token. Those are the properties the
+ * scales cover; a `width` or a `grid-template-columns` is layout and is left to the rule.
  *
  * Colour is never the only carrier of meaning. Every state a colour marks also says what it is in
  * words: a stale wait says "Stale", a completed plan entry says "done" beside the strikethrough, a

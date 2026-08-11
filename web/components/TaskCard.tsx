@@ -232,13 +232,15 @@ export function TaskCard({
           </button>
         </ActionRow>
 
-        <details
-          className="card-more"
-          // The board's grid reads arrows, digits and letters from the card itself and ignores
-          // keys raised inside it, so opening this cannot take them away. Criterion 15.
-          onKeyDown={(event) => event.stopPropagation()}
-        >
-          <summary>More</summary>
+        <details className="card-more">
+          {/*
+           * The summary takes the board's own key handler. Without it the disclosure would be a
+           * dead end for the keyboard: the board reads its shortcuts from the card and ignores
+           * anything raised inside it, which is right for the select and the buttons but wrong
+           * for a summary, where a digit or a `d` is still a board command and not typing.
+           * Criterion 15.
+           */}
+          <summary onKeyDown={onKeyDown}>More</summary>
 
           <ActionRow className="card-actions">
             <Field label={`Status of ${task.title}`} hiddenLabel>

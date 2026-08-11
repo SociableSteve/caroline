@@ -545,6 +545,49 @@ describe('undoing the last status change', () => {
 
     expect(handlers.onComplete).toHaveBeenCalledWith('task-1')
   })
+
+  /**
+   * And with the focus still on the disclosure, which is where opening it from the keyboard
+   * leaves it. A summary is not a text field: a digit typed on it is a board command, not typing,
+   * so the shortcuts have to survive the trip into the disclosure and not only the trip back out.
+   */
+  it('keeps the shortcuts working while the summary itself holds the focus', async () => {
+    const handlers = renderBoard({
+      tasks: [
+        aTask({
+          id: 'task-1',
+          title: 'Renew the domain',
+          previousStatus: 'inbox',
+          previousStatusSetBy: 'llm',
+        }),
+      ],
+    })
+
+    const card = screen.getByRole('article', { name: 'Renew the domain' })
+    const summary = within(card).getByText('More')
+    summary.focus()
+
+    fireEvent.keyDown(summary, { key: 'd' })
+    expect(handlers.onComplete).toHaveBeenCalledWith('task-1')
+
+    fireEvent.keyDown(summary, { key: 'u' })
+    expect(handlers.onUndoStatus).toHaveBeenCalledWith('task-1')
+
+    fireEvent.keyDown(summary, { key: '5' })
+    expect(handlers.onStatusChange).toHaveBeenCalledWith('task-1', 'someday')
+  })
+
+  // The controls inside it are a different matter: their keys are theirs, which is why the board
+  // reads only from the card and the summary.
+  it('still leaves the keys of the controls inside the disclosure alone', async () => {
+    const handlers = renderBoard({ tasks: [aTask({ id: 'task-1', title: 'Renew the domain' })] })
+
+    const card = screen.getByRole('article', { name: 'Renew the domain' })
+    await userEvent.click(within(card).getByText('More'))
+    fireEvent.keyDown(within(card).getByRole('combobox'), { key: 'd' })
+
+    expect(handlers.onComplete).not.toHaveBeenCalled()
+  })
 })
 
 /**

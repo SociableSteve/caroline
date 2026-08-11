@@ -56,11 +56,12 @@ describe('the three bands', () => {
       health: nothingConfigured,
     })
 
-    expect(bands().map((band) => band.className)).toEqual([
-      'band band-today',
-      'band band-decisions',
-      'band state-strip',
-    ])
+    // By the class that identifies each band rather than the whole attribute: what is asserted
+    // is the reading order, and a modifier class added later does not change it.
+    const names = ['band-today', 'band-decisions', 'state-strip']
+    expect(
+      bands().map((band) => names.find((name) => band.classList.contains(name)) ?? band.className),
+    ).toEqual(names)
   })
 
   it('leads with the plan and the calendar, and not with a count', () => {
@@ -81,8 +82,11 @@ describe('the three bands', () => {
   it('gives nothing in the state of the machine the weight of a panel', () => {
     renderDashboard({ health: nothingConfigured })
 
-    const strip = document.querySelector('.state-strip') as HTMLElement
-    const sections = [...strip.querySelectorAll('section')]
+    const strip = document.querySelector('.state-strip')
+    // Asserted rather than asserted-away: a missing strip should read as a missing strip, not as
+    // a null dereference on the next line.
+    expect(strip).not.toBeNull()
+    const sections = [...(strip as HTMLElement).querySelectorAll('section')]
 
     expect(sections.length).toBeGreaterThan(0)
     for (const section of sections) {
@@ -614,8 +618,12 @@ describe('the background jobs panel', () => {
     const columns = (row: HTMLElement) =>
       [...row.children].filter((child) => !child.classList.contains('job-error')).length
 
+    // Pinned to three rather than only to each other: two rows that had both lost their columns
+    // would be equal, and equal is not the claim. The claim is that the job, its status and its
+    // age are all still there whether or not an error follows them.
     expect(rows).toHaveLength(2)
-    expect(columns(rows[0] as HTMLElement)).toBe(columns(rows[1] as HTMLElement))
+    expect(columns(rows[0] as HTMLElement)).toBe(3)
+    expect(columns(rows[1] as HTMLElement)).toBe(3)
     expect(rows.some((row) => row.querySelector('.job-error') !== null)).toBe(true)
   })
 

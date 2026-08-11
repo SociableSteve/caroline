@@ -155,10 +155,18 @@ describe('one heading outline per surface', () => {
  * and a small font size ten times.
  */
 describe('each primitive has one implementation', () => {
-  const componentFiles = [
-    ...readdirSync(join(process.cwd(), 'web/surfaces')).map((file) => `web/surfaces/${file}`),
-    ...readdirSync(join(process.cwd(), 'web/components')).map((file) => `web/components/${file}`),
-  ].filter((file) => file.endsWith('.tsx') && !file.endsWith('primitives.tsx'))
+  // Recursive, so a component filed in a subdirectory later is swept too rather than quietly
+  // exempt: an enforcement test with a hole in it enforces nothing in the directory it misses.
+  const componentFiles = ['web/surfaces', 'web/components']
+    .flatMap((directory) =>
+      readdirSync(join(process.cwd(), directory), { recursive: true, encoding: 'utf8' }).map(
+        (file) => `${directory}/${file}`,
+      ),
+    )
+    .filter(
+      (file) =>
+        file.endsWith('.tsx') && !file.endsWith('primitives.tsx') && !file.endsWith('.test.tsx'),
+    )
 
   const sources = componentFiles.map((file) => ({
     file,
@@ -169,11 +177,14 @@ describe('each primitive has one implementation', () => {
     expect(sources.length).toBeGreaterThan(5)
   })
 
+  // The class patterns are deliberately not tied to a quote style: `className={'panel'}` and a
+  // template literal are the same bypass as `className="panel"`, and the point is that there is
+  // no way to write the primitive by hand that the sweep does not see.
   it.each([
     { primitive: 'Facts', banned: /<dl[\s>]/, use: 'Facts and Fact' },
     { primitive: 'Field', banned: /<label[\s>]/, use: 'Field' },
-    { primitive: 'Badge', banned: /className="badge/, use: 'Badge' },
-    { primitive: 'Panel', banned: /className="panel/, use: 'Panel' },
+    { primitive: 'Badge', banned: /className=[{\s]*['"`]badge/, use: 'Badge' },
+    { primitive: 'Panel', banned: /className=[{\s]*['"`]panel/, use: 'Panel' },
   ])('no surface writes its own $primitive', ({ banned, use }) => {
     const offenders = sources
       .filter((entry) => banned.test(entry.source))

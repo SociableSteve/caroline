@@ -21,6 +21,12 @@ const stylesheet = readFileSync(join(process.cwd(), 'web/styles.css'), 'utf8')
 
 interface Declaration {
   readonly selector: string
+  /**
+   * The at-rules a declaration sits inside, if any. Without it a rule in a breakpoint and the
+   * base rule it overrides are indistinguishable, and an assertion about one silently reads the
+   * other: the source order decides, rather than the cascade.
+   */
+  readonly context: string
   readonly property: string
   readonly value: string
 }
@@ -46,6 +52,7 @@ function declarations(css: string): Declaration[] {
       if (value !== '') {
         found.push({
           selector: stack[stack.length - 1] ?? '',
+          context: stack.slice(0, -1).join(' '),
           property: property.trim(),
           value,
         })
@@ -123,34 +130,44 @@ describe('the stylesheet holds to the scales', () => {
  * six columns exist but never that they are on one row.
  */
 describe('the board is six columns and stays six', () => {
-  const board = rules.filter((rule) => rule.selector === '.board')
-  const column = rules.filter((rule) => rule.selector === '.column')
-  const cards = rules.filter((rule) => rule.selector === '.column-cards')
+  /** The base rules only: what a wide screen gets, which is what criteria 12 and 13 are about. */
+  const base = (selector: string) =>
+    rules.filter((rule) => rule.selector === selector && rule.context === '')
   const value = (declarations: Declaration[], property: string) =>
     declarations.find((rule) => rule.property === property)?.value
 
   // A wrapped column sits below and to the left of a column it is logically to the right of,
   // which puts the layout in direct contradiction with the arrow keys.
   it('flows the columns along one row and scrolls sideways rather than wrapping', () => {
-    expect(value(board, 'grid-auto-flow')).toBe('column')
-    expect(value(board, 'overflow-x')).toBe('auto')
+    expect(value(base('.board'), 'grid-auto-flow')).toBe('column')
+    expect(value(base('.board'), 'overflow-x')).toBe('auto')
     // `auto-fit` is what wrapped the sixth column onto a second row at 1440px.
-    expect(value(board, 'grid-template-columns')).toBeUndefined()
+    expect(value(base('.board'), 'grid-template-columns')).toBeUndefined()
   })
 
-  // Without this the page grows to the length of the longest column, two columns of very
-  // different lengths cannot be compared, and the status a card should move to can be off the
-  // bottom of the screen while the card is in view.
+  /**
+   * Without this the page grows to the length of the longest column, two columns of very
+   * different lengths cannot be compared, and the status a card should move to can be off the
+   * bottom of the screen while the card is in view.
+   *
+   * `overflow-y: auto` on the list is what bounds it, and not only by making it scrollable: a
+   * flex item's automatic minimum size is zero when its computed overflow is not `visible`, so
+   * the list is free to shrink under the column's cap without a `min-height` of its own.
+   */
   it('bounds the height of each column and scrolls its cards within it', () => {
-    expect(value(column, 'max-height')).toBeDefined()
-    expect(value(cards, 'overflow-y')).toBe('auto')
+    expect(value(base('.column'), 'max-height')).toBeDefined()
+    expect(value(base('.column-cards'), 'overflow-y')).toBe('auto')
   })
 
-  // Below the width where six columns are usable they stack, and each is read whole.
+  // Below the width where six columns are usable they stack, and each is read whole. Asserted
+  // inside a breakpoint: the same declaration in the base rule would be the defect, not the fix.
   it('stacks them below the breakpoint rather than leaving a sideways scroll on a phone', () => {
-    const stacked = all.filter(
+    const stacked = rules.filter(
       (rule) =>
-        rule.selector === '.board' && rule.value === 'row' && rule.property === 'grid-auto-flow',
+        rule.selector === '.board' &&
+        rule.context.startsWith('@media') &&
+        rule.property === 'grid-auto-flow' &&
+        rule.value === 'row',
     )
 
     expect(stacked).not.toEqual([])
@@ -183,7 +200,8 @@ describe('no surface restates the panel', () => {
 })
 
 describe('the stylesheet holds to the palettes', () => {
-  const colourProperties = /^(color|background|background-color|outline-color|fill|stroke)$/
+  const colourProperties =
+    /^(color|background|background-color|border-color|border-(top|right|bottom|left)-color|outline-color|fill|stroke)$/
   /** The palettes themselves, where the literals are the point. */
   const palette = (selector: string) => selector === ':root'
 
@@ -202,7 +220,9 @@ describe('the stylesheet holds to the palettes', () => {
   })
 
   it('names a colour only as a token in a border, an outline or a shadow too', () => {
-    const shorthand = /^(border|border-(top|right|bottom|left)|outline)$/
+    // `box-shadow` is here because the appearance model is heading towards elevation, and a
+    // shadow is a colour: the same one over a light ground and a dark one is wrong in one of them.
+    const shorthand = /^(border|border-(top|right|bottom|left)|outline|box-shadow|text-shadow)$/
     const literals = rules.filter(
       (rule) =>
         shorthand.test(rule.property) &&

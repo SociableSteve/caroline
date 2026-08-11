@@ -85,6 +85,21 @@ describe('dueState and formatDue', () => {
     expect(dueState(midMorning + DAY, midMorning)).toBe('later')
     expect(formatDue(midMorning + DAY, midMorning)).toBe(formatDate(midMorning + DAY))
   })
+
+  /**
+   * The boundary is the calendar's, not a fixed 86,400,000ms from midnight. Written against dates
+   * derived the same way rather than against a pinned timezone, so it says what it means on any
+   * machine: on the two days a year that are 23 or 25 hours long, adding a fixed span puts this
+   * boundary an hour inside today or an hour into tomorrow, and one of these two fails.
+   */
+  it('ends today at the start of tomorrow, however long today happens to be', () => {
+    const startOfTomorrow = new Date(midMorning)
+    startOfTomorrow.setHours(0, 0, 0, 0)
+    startOfTomorrow.setDate(startOfTomorrow.getDate() + 1)
+
+    expect(dueState(startOfTomorrow.getTime() - 1, midMorning)).toBe('today')
+    expect(dueState(startOfTomorrow.getTime(), midMorning)).toBe('later')
+  })
 })
 
 describe('formatEstimate', () => {
