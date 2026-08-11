@@ -29,7 +29,7 @@ both validation and typing. Errors follow one shape: `{ error: { code, message, 
 | `POST /api/chat/confirmations/:id` | Confirm or discard an operation the model proposed (spec 07) |
 | `POST /api/chat/conversations/:id/undo` | Undo the last turn's changes (spec 07) |
 | `GET /api/jobs`, `POST /api/jobs/:name/run` | Run history, manual trigger |
-| `GET /api/config`, `PATCH /api/config` | Read and update runtime config, secrets redacted |
+| `GET /api/config` | Read the effective configuration, secrets redacted. Read-only: nothing in `caroline.config.json` is written back from the UI, per spec 09 |
 | `GET /api/settings`, `PATCH /api/settings` | The settings the person owns rather than the deployment: today, the name Caroline addresses them by (spec 09) |
 | `GET /api/health` | Process, database, per-integration configured and last-run status |
 
