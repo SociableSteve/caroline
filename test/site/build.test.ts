@@ -253,14 +253,22 @@ describe('the links survive the move off GitHub', () => {
     expect(built.get('plan.html')).toContain('<li><a href="#see-the-guide">See the guide</a></li>')
   })
 
-  it('fails the build on a link that climbs out of the repository', () => {
-    const broken = override(
-      'docs/plan.md',
-      '# Caroline implementation plan\n\n[out](../../gone.md)\n',
-    )
+  /**
+   * A link names a page of the site or it is a defect. There is no third answer, and there deliberately
+   * is not: asking the filesystem whether an unpublished target existed made the build's verdict depend
+   * on what happened to sit beside the checkout.
+   */
+  it.each(['../../gone.md', 'caroline.config.example.json'])(
+    'fails the build on %s, which is no page of the site',
+    (target) => {
+      const broken = override(
+        'docs/plan.md',
+        `# Caroline implementation plan\n\n[out](${target})\n`,
+      )
 
-    expect(() => buildSite(broken)).toThrow(/outside the repository/)
-  })
+      expect(() => buildSite(broken)).toThrow(/no page of this site/)
+    },
+  )
 
   // Criterion 5. A project site is served under a path. A root-relative link is one that works on
   // the machine it was built on and nowhere else.
@@ -350,11 +358,15 @@ describe('the site and the application look like one thing', () => {
    */
   it('outlines the middle of the diagram in the accent rather than losing to the box rule', () => {
     const accent = own.find(
-      (rule) => rule.property === 'stroke' && rule.value === 'var(--accent)',
+      (rule) =>
+        rule.selector.includes('.flow-core') &&
+        rule.property === 'stroke' &&
+        rule.value === 'var(--accent)',
     )?.selector
 
-    expect(accent).toBeDefined()
-    expect(accent).toContain('rect')
+    // Named, rather than "contains rect": an unrelated accented SVG rule would otherwise satisfy this
+    // test on the day `.flow-core` lost its own.
+    expect(accent).toBe('.flow-box rect.flow-core')
   })
 
   it('draws the icon in the accent colour the application uses, rather than a fourth blue', () => {
@@ -383,7 +395,7 @@ describe('the site asks nothing of the reader', () => {
   it('fails the build on a page carrying a script, rather than stripping it and shipping', () => {
     const broken = override('docs/setup.md', '# Setting Caroline up\n\n<script>alert(1)</script>\n')
 
-    expect(() => buildSite(broken)).toThrow(/runs nothing/)
+    expect(() => buildSite(broken)).toThrow(/which a page of this site does not/)
   })
 
   it('fails the build on a link whose scheme makes it code', () => {
@@ -438,13 +450,44 @@ describe('the site asks nothing of the reader', () => {
     expect(() => buildSite(broken)).toThrow(/copies no assets/)
   })
 
+  /** Raw HTML reaches the page untouched, so the renderer refusing a Markdown image is half of it. */
+  it('fails the build on a raw image too, wherever it would be fetched from', () => {
+    for (const image of [
+      `<img src='shot.png' alt="x">`,
+      `<img src="https://elsewhere.test/x.png">`,
+    ]) {
+      const broken = override('docs/plan.md', `# Caroline implementation plan\n\n${image}\n`)
+
+      expect(() => buildSite(broken)).toThrow(/which a page of this site does not/)
+    }
+  })
+
   it('refuses an external asset in a document, not only an external link', () => {
     const broken = override(
       'docs/plan.md',
-      `# Caroline implementation plan\n\n<img src='data:image/svg+xml,x' alt="x">\n`,
+      `# Caroline implementation plan\n\n<source src='data:audio/mp3,x'>\n`,
     )
 
     expect(() => buildSite(broken)).toThrow(/scheme this site does not link out with/)
+  })
+
+  /**
+   * A quoted attribute value may contain a `>`, so a tag pattern that ends at the first one ends this
+   * tag at its title and never reads its href: the one tag somebody would write to get a link past the
+   * scheme check, and the same defect in the inline-handler check beside it.
+   */
+  it('reads a whole tag, including a quoted angle bracket, before enforcing anything', () => {
+    const link = override(
+      'docs/plan.md',
+      `# Caroline implementation plan\n\n<a title=">" href="javascript:alert(1)">press</a>\n`,
+    )
+    const handler = override(
+      'docs/plan.md',
+      `# Caroline implementation plan\n\n<span title=">" onclick="alert(1)">press</span>\n`,
+    )
+
+    expect(() => buildSite(link)).toThrow(/scheme this site does not link out with/)
+    expect(() => buildSite(handler)).toThrow(/runs nothing/)
   })
 
   /** An address is a leak whether it is in a paragraph or behind a scheme. */
@@ -584,7 +627,6 @@ function override(path: string, contents: string): SiteSources {
 
   return {
     read: (requested) => (requested === path ? contents : real.read(requested)),
-    exists: (requested) => requested === path || real.exists(requested),
     list: (requested) => real.list(requested),
   }
 }

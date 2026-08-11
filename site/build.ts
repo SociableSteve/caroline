@@ -17,14 +17,17 @@
  *   asserts against it in memory, which is how every page can be compared with its source without a
  *   temporary directory to clean up.
  */
-import { readFileSync, readdirSync, existsSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { join, posix } from 'node:path'
 import { Marked, type Tokens } from 'marked'
 
-/** Where the repository's files come from. A parameter so the suite can build a broken tree. */
+/**
+ * Where the repository's files come from. A parameter so the suite can build a broken tree, and the
+ * whole of what the build reads: two calls, both of them at a path inside the repository, so the output
+ * is a function of the tree and of nothing else about the machine.
+ */
 export interface SiteSources {
   read(repositoryPath: string): string
-  exists(repositoryPath: string): boolean
   list(repositoryPath: string): string[]
 }
 
@@ -40,7 +43,6 @@ export interface SitePage {
 export function repositorySources(root: string = process.cwd()): SiteSources {
   return {
     read: (repositoryPath) => readFileSync(join(root, repositoryPath), 'utf8'),
-    exists: (repositoryPath) => existsSync(join(root, repositoryPath)),
     list: (repositoryPath) => readdirSync(join(root, repositoryPath)).sort(),
   }
 }
@@ -219,8 +221,15 @@ function render(markdown: string, page: SitePage, context: BuildContext): Render
 }
 
 /**
- * A link, from the file that holds it to the page that renders its target. Three answers: a page of
- * the site, a file in the repository that the site does not publish, or a defect.
+ * A link, from the file that holds it to the page that renders its target. Two answers: a page of the
+ * site, or a defect.
+ *
+ * There is deliberately no third answer. This asked the filesystem whether an unpublished target
+ * existed and linked it at the repository if it did, which made the build's verdict depend on the
+ * machine it ran on: a path ignored by git resolved locally and 404'd on GitHub, and the same tree in
+ * CI failed instead. No document links to a file rather than a document, so the fallback was answering
+ * a question nobody asked, in a way that broke the one guarantee the build makes about itself. A
+ * document that wants to point at a source file can write its URL.
  */
 function resolve(href: string, page: SitePage, context: BuildContext): string {
   if (isAbsolute(href) || href.startsWith('#')) return href
@@ -230,26 +239,13 @@ function resolve(href: string, page: SitePage, context: BuildContext): string {
   if (path === '') return href
 
   const target = posix.normalize(posix.join(posix.dirname(page.source), path))
-  // A path that climbs out of the checkout is not a file in the repository, whatever happens to sit
-  // beside it on this machine: resolving it would publish a blob URL that is a 404 everywhere.
-  if (target.startsWith('../')) {
-    throw new Error(`${page.source} links to ${href}, which is outside the repository`)
-  }
   const output = context.outputs.get(target)
   if (output !== undefined) {
     return `${posix.relative(posix.dirname(page.output), output)}${fragment}`
   }
-  // A file the site does not publish, linked at the repository. The question asked of the filesystem
-  // is whether the path exists, which is not quite whether it is committed: a link to a path that is
-  // ignored by git resolves here and 404s on GitHub, and the same tree in CI fails the build instead.
-  // That asymmetry is the cheaper of the two, the alternative being a git subprocess in a build whose
-  // whole claim is that it reads the tree.
-  if (context.sources.exists(target)) {
-    return `${context.repository}/blob/main/${target}${fragment}`
-  }
 
   throw new Error(
-    `${page.source} links to ${href}, which is neither a page of the site nor a file in the repository`,
+    `${page.source} links to ${href}, which is no page of this site: publish it, or write the URL of the file`,
   )
 }
 
@@ -512,6 +508,29 @@ function icon(application: string): string {
 const schemes = ['http:', 'https:']
 
 /**
+ * A tag, quotes and all. `[^>]*>` ends a tag at the first `>`, which a quoted attribute value is
+ * allowed to contain: `<a title=">" href="javascript:alert(1)">` would end at the title and the href
+ * would never be read, which is precisely the tag somebody would write to get one past this.
+ */
+const tagPattern = /<[a-z][a-z0-9]*(?:"[^"]*"|'[^']*'|[^>"'])*>/gi
+
+/**
+ * The attributes of one tag, read left to right, so that what a value says cannot be taken for the name
+ * of another attribute. Looking for `href=` anywhere in a tag finds it inside
+ * `<meta content="… href=x …">`, where it is a document's prose rather than a link, and refuses to
+ * publish a page over a sentence somebody wrote.
+ */
+function attributesOf(tag: string): [string, string][] {
+  const interior = tag.replace(/^<[a-z][a-z0-9]*/i, '').replace(/\/?>$/, '')
+  const pattern = /([a-z][a-z0-9-]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/gi
+
+  return [...interior.matchAll(pattern)].map((match) => [
+    (match[1] ?? '').toLowerCase(),
+    match[2] ?? match[3] ?? match[4] ?? '',
+  ])
+}
+
+/**
  * Every page and every link, checked against what was built. The build refuses rather than publishing
  * a page that sends a reader nowhere, because the one thing this site exists to do is get somebody
  * from the front page to a running Caroline.
@@ -525,21 +544,25 @@ function verify(files: ReadonlyMap<string, string>): void {
 
     // Criterion 7, enforced where it matters rather than only asserted: a script that reached a page
     // through a document's raw HTML would otherwise be published and noticed by the suite afterwards.
-    const scripting = /<(script|iframe)\b|<[a-z][^>]*\son[a-z]+\s*=/i.exec(contents)
-    if (scripting !== null) {
-      throw new Error(`${path} carries ${scripting[0]}, and a page of this site runs nothing`)
+    // An `<img>` is here for the reason the renderer refuses a Markdown one: nothing is copied into the
+    // output, so a local image is a 404 and a remote one is a request to another host.
+    const forbidden = /<(script|iframe|img)\b/i.exec(contents)
+    if (forbidden !== null) {
+      throw new Error(`${path} carries ${forbidden[0]}, which a page of this site does not`)
     }
 
-    // Tags first, then the attributes inside them. Every form of the attribute, not the one this
-    // generator writes, because a raw `<a HREF='javascript:…'>` in a document reaches the page
-    // untouched. Reading the page rather than its tags would also read escaped prose, and a document
-    // that shows an anchor in a code sample would fail on a link that does not exist.
-    const references = [...contents.matchAll(/<[a-z][a-z0-9]*\b[^>]*>/gi)].flatMap((tag) => [
-      ...(tag[0] ?? '').matchAll(/\b(?:href|src)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi),
-    ])
+    // The tags, and the attributes inside them. Every form of an attribute, not the one this generator
+    // writes, because a raw `<a HREF='javascript:…'>` in a document reaches the page untouched. Reading
+    // the page rather than its tags would read escaped prose too, and a document that shows an anchor
+    // in a code sample would fail the build on a link nobody wrote.
+    const references = [...contents.matchAll(tagPattern)].flatMap((match) => attributesOf(match[0]))
 
-    for (const match of references) {
-      const href = (match[1] ?? match[2] ?? match[3] ?? '').replace(/&amp;/g, '&')
+    for (const [name, value] of references) {
+      if (name.startsWith('on')) {
+        throw new Error(`${path} sets ${name}, and a page of this site runs nothing`)
+      }
+      if (name !== 'href' && name !== 'src') continue
+      const href = value.replace(/&amp;/g, '&')
       if (isAbsolute(href)) {
         if (!schemes.some((scheme) => href.toLowerCase().startsWith(scheme))) {
           throw new Error(

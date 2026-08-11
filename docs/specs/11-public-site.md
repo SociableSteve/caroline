@@ -42,7 +42,9 @@ changes no words.
 **Links survive the move.** The documents link to each other by file path, and those paths are
 rewritten to the site's pages. Heading identifiers are GitHub's slugs, so a fragment such as
 `#6b-the-consent-screen`, already written into the guide, lands where it did on GitHub. A link that
-resolves to no page and no file in the repository fails the build rather than shipping.
+names no page of the site fails the build rather than shipping: a document that wants to point at a
+file rather than at a document writes that file's URL, so that no answer here depends on what happens
+to be on the machine the site was built on.
 
 **Relative, so it works anywhere.** A project site is served under a path, not at a domain root.
 Every link and asset reference within the site is relative to the page holding it, so the same output
