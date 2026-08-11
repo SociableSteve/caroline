@@ -1,0 +1,152 @@
+# What leaves the machine, and what stays on it
+
+Caroline reads a work mailbox. Some of that correspondence concerns clients, so two questions get an
+explicit answer you set rather than a default buried in the code:
+
+1. **What leaves the machine?** How much of an item's content goes to the model.
+2. **What stays on the machine?** How much of it is written to SQLite.
+
+They are set independently, because the risks are different. Sending a body to a hosted provider is
+disclosure to a third party. Storing one is a local retention decision. This page is the practical
+version; [spec 09](specs/09-config-and-security.md) is the contract, and where the two disagree the
+spec is right and one of them is a defect.
+
+## The two settings
+
+```jsonc
+{
+  "privacy": {
+    "llmContent": "snippet",     // none | metadata | snippet | full
+    "storeContent": "metadata",  // none | metadata | snippet | full
+    "snippetChars": 300,
+    "retainContentDays": 30,
+    "allowFullContentToRemoteProvider": false
+  }
+}
+```
+
+| Level | What it includes |
+| --- | --- |
+| `none` | Nothing beyond internal ids. Classification cannot work at this level, and says so rather than guessing |
+| `metadata` | Sender, recipients, subject or title, timestamps, labels, pull-request stats, and the prose Caroline wrote about its own scheduling: a plan's summary and an entry's rationale. No body |
+| `snippet` | Metadata plus the first `snippetChars` characters of the body |
+| `full` | Metadata plus the whole body |
+
+The defaults are `llmContent: "snippet"` and `storeContent: "metadata"`: enough for the classifier to
+be useful, no message bodies at rest, and nothing whole sent to a third party without a deliberate
+decision.
+
+## The five rules worth knowing
+
+- **Sending more than you store is normal, and is the default.** Where `llmContent` is higher than
+  `storeContent`, the body is fetched from the provider when the call is built and nothing is
+  persisted from it. The cost is one extra fetch per item classified.
+- **`full` to a hosted provider takes a second decision.** `llmContent: "full"` with Anthropic or
+  OpenAI configured, anywhere including a per-job override, refuses to start until
+  `allowFullContentToRemoteProvider` is `true`. It fails with both settings named rather than
+  quietly sending less than you asked for. Ollama runs locally, so the guard does not apply to it.
+- **Lowering `storeContent` purges what is already stored above the new level**, on the next purge
+  run, and says how many rows it cleared. Each stored body records the level it was written at,
+  because the text cannot say which it is: three hundred characters may be a truncated snippet or a
+  whole short message.
+- **`retainContentDays` drops stored bodies after the window**, nightly, measured from when the body
+  was written rather than from when the thread was last seen. Source rows, tasks and metadata
+  survive; only the body text goes.
+- **The level is a property of the boundary, not of a route through it.** At `none`, an item's own
+  fields are withheld from everything that reaches a provider: the item open in the rail, every read
+  tool the model may call, every write tool's answer, and the earlier turns of a conversation
+  replayed as context. Each of them says the policy withheld the rest, so the model asks rather than
+  answering from memory. What is not the item's still goes: a count of matches, a day's capacity
+  arithmetic, the order a plan put its entries in.
+
+## Chat, and the item in the rail
+
+Chat is held to the same policy, by the same function, and gets no special allowance for being
+interactive. A turn is given counts, today's plan and today's free time. Anything more specific the
+model fetches with a tool, which reads Caroline's database rather than your mailbox, and no tool
+returns a stored message body.
+
+An item open in the rail goes to the model with every message you send while it is there, because
+that is what makes "it" mean something. A task's title and its notes are content, and a title can
+carry a client's name, so the same level decides what goes:
+
+| Level | What goes about the open item |
+| --- | --- |
+| `none` | Its kind and its id, and a line saying the policy withheld the rest |
+| `metadata` | The above, plus title, status, project, dates, estimate, who it waits on, tags and where it came from |
+| `snippet` | The above, plus the first `snippetChars` of its notes, marked as truncated |
+| `full` | The above, with its notes whole |
+
+Three things about it that are rules rather than good intentions:
+
+- **Context is per message, not per conversation.** It is resolved when you send, from whatever is
+  selected then. An item you closed is an item you stopped talking about, and there is no
+  last-selected fallback.
+- **What was sent is recorded on the turn**, and an id is not what was sent: the record is the
+  resolved context, meaning which item, which fields, at what level and policy version, and the
+  rendered text itself. A conversation you cannot audit is one you cannot trust.
+- **Selecting nothing still sends the message.** The turn goes as it always did, simply without an
+  item attached.
+
+## Your name
+
+Two facts go into the preamble every call carrying prose a person reads: that the system is called
+Caroline, and your name. The second is why the planner's rationales and chat's answers address you
+rather than describe you to yourself.
+
+It is personal data going to a third party on every chat and planning call, so it is this policy's
+business and it is shown in the preview. It is also free text from outside the program ending up
+inside a system prompt, so it is bounded in length, refused if it contains a line break or any other
+control character, and rendered as a quoted value rather than concatenated into the instructions
+around it. Leaving the field empty is a supported answer: the preamble then omits the sentence
+entirely and nothing about you is sent.
+
+## Reading the preview
+
+`caroline.config.json` is where the levels are set, and **Settings** is where you check what they
+mean, because a policy nobody can see the effect of is a policy nobody can check. Four panels
+answer for the whole boundary:
+
+| Panel | What it proves |
+| --- | --- |
+| **What leaves this machine** | Both levels, each with its consequence in a sentence rather than as a word |
+| **What every chat and planning call says about you** | The preamble, word for word, rendered by the function the provider is handed |
+| **What a message about an open item would send** | The item context for a real item of yours, with the fields listed and the level named |
+| **What a classification call would send** | The entire payload, as JSON, for a real item in your inbox, with the prompt version |
+
+Every one of them is built by the same function the real call is built with, not by a second
+description that could drift from it. If a body you did not expect to send is in that JSON, it would
+have gone. Look at it once with your own mail in it, before leaving the classifier running against a
+hosted provider, and again after changing a level.
+
+## What is never sent, and where secrets are
+
+- **Caroline never writes to GitHub, Gmail or Calendar.** The scopes are read-only and the chat tool
+  registry contains no tool that could, which is the enforcement rather than an instruction the model
+  is asked to follow.
+- **Outbound traffic goes to the configured providers only**: GitHub, Google, and the LLM endpoint
+  you named. No telemetry, no analytics, no crash reporting, and no inbound webhooks.
+- **Keys come from the environment only.** A key in the config file is a startup error. Secrets are
+  redacted from logs, API responses and error messages, and no part of a request URL is logged,
+  because every byte of one is chosen by the caller.
+- **Google tokens** live in `google-tokens.json` beside the database, mode 0600, never in the config
+  and never in git.
+- **The audit tables record what happened, not what was said.** `llm_calls` keeps the provider,
+  model, purpose, timing, token counts and outcome, and no prompt text. `classifications` keeps
+  every answer, applied or not, which is what makes it the evaluation set for tuning the prompt.
+  `job_runs` keeps what each background run did.
+- **There is no encryption at rest** beyond filesystem permissions. That is deliberate for a
+  single-user local tool and worth stating plainly: anyone with access to the account has access to
+  the data. Full-disk encryption is the right layer for that concern.
+
+## Getting rid of it
+
+```sh
+npm run delete-data            # says what it would remove, removes nothing
+npm run delete-data -- --yes   # removes it
+```
+
+The database, its SQLite sidecars and the Google token file, which is everything Caroline writes.
+Anything else in the data directory is left alone and named. Removing the token file revokes
+Caroline's access locally; revoking it at Google is a separate act, at
+<https://myaccount.google.com/permissions>.
