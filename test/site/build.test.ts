@@ -61,10 +61,14 @@ function plain(markdown: string): string {
   return markdown.replace(/[`*_]/g, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
 }
 
+/**
+ * Quoted either way, because a test that reads only the spelling this generator writes is a test that a
+ * document's raw HTML walks past: the single-quoted form escaped both the build and this suite once.
+ */
 function attributes(html: string, attribute: 'href' | 'src'): string[] {
-  return [...html.matchAll(new RegExp(`${attribute}="([^"]*)"`, 'g'))].map(
-    (match) => match[1] ?? '',
-  )
+  const pattern = new RegExp(`${attribute}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, 'gi')
+
+  return [...html.matchAll(pattern)].map((match) => match[1] ?? match[2] ?? '')
 }
 
 const identifiers = (html: string): Set<string> =>
@@ -148,6 +152,24 @@ describe('the site renders the documentation rather than restating it', () => {
       // Written out rather than derived, because the assertion above computes the lede exactly as the
       // build does and so agrees with it about the wrong paragraph as readily as the right one.
       expect(text(home)).toContain('A single-user, self-hosted GTD system.')
+    })
+
+    /**
+     * The paragraph is the README's, so a link in it is written relative to the README. Rendering it as
+     * part of the home page's own file would resolve that link against `site/pages/`, and the build
+     * would refuse a link the README is right about while naming a file that does not contain it.
+     */
+    it('resolves a link in that paragraph as the README, not as the page it is spliced into', () => {
+      const readme = source('README.md')
+      const linked = override(
+        'README.md',
+        readme.replace(
+          'A single-user, self-hosted GTD system.',
+          'A single-user, self-hosted GTD system, built in the order [the plan](docs/plan.md) gives.',
+        ),
+      )
+
+      expect(buildSite(linked).get('index.html')).toContain('href="plan.html"')
     })
 
     /**
@@ -245,6 +267,13 @@ describe('the links survive the move off GitHub', () => {
    * `#content` written against GitHub matching `<main>`, so a reader following it lands at the top of
    * the page rather than at the section, which is exactly what criterion 3 promises does not happen.
    */
+  /** `## ???` slugs to nothing, which is `id=""` and a contents entry pointing at `#`. */
+  it('fails the build on a heading that slugs to nothing at all', () => {
+    const broken = override('docs/plan.md', '# Caroline implementation plan\n\n## ???\n')
+
+    expect(() => buildSite(broken)).toThrow(/no identifier/)
+  })
+
   it('fails the build on a heading whose identifier the page shell already owns', () => {
     const broken = override('docs/plan.md', '# Caroline implementation plan\n\n## Content\n')
 
@@ -547,6 +576,43 @@ describe('the site asks nothing of the reader', () => {
     expect(() => buildSite(link)).toThrow(/scheme this site does not link out with/)
     expect(() => buildSite(handler)).toThrow(/runs nothing/)
   })
+
+  /**
+   * Criterion 7 is about what a page fetches as it loads, which is not the same question as what a
+   * reader may click. An anchor may leave the site; a stylesheet, a font, an image or an embedded object
+   * from another host is a request the reader did not make and a record of them having read the page.
+   */
+  it.each([
+    `<link rel="stylesheet" href="https://cdn.test/x.css">`,
+    `<video poster='https://cdn.test/x.png'></video>`,
+  ])('fails the build on %s, which fetches from another host', (tag) => {
+    const broken = override('docs/plan.md', `# Caroline implementation plan\n\n${tag}\n`)
+
+    expect(() => buildSite(broken)).toThrow(/fetches nothing from another host/)
+  })
+
+  it.each([
+    '<style>@import url(https://cdn.test/x.css);</style>',
+    '<object data="x.svg"></object>',
+  ])('fails the build on %s, which is a page doing more than being read', (tag) => {
+    const broken = override('docs/plan.md', `# Caroline implementation plan\n\n${tag}\n`)
+
+    expect(() => buildSite(broken)).toThrow(/which a page of this site does not/)
+  })
+
+  /**
+   * A root-relative reference normalises into one that resolves against the output and points at another
+   * site entirely once this one is served under a path, which is criterion 5 and the one spelling of it
+   * that looked correct.
+   */
+  it.each([`<a href="/index.html">x</a>`, `<a href='/index.html'>x</a>`])(
+    'fails the build on %s rather than publishing a link off the site',
+    (anchor) => {
+      const broken = override('docs/plan.md', `# Caroline implementation plan\n\n${anchor}\n`)
+
+      expect(() => buildSite(broken)).toThrow(/root-relative rather than relative/)
+    },
+  )
 
   /** An address is a leak whether it is in a paragraph or behind a scheme. */
   it('fails the build on a link that is an address', () => {

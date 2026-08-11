@@ -191,6 +191,14 @@ function render(markdown: string, page: SitePage, context: BuildContext): Render
       heading(token: Tokens.Heading) {
         const label = this.parser.parseInline(token.tokens)
         const heading = slug(readAsText(label))
+        // A heading of punctuation alone slugs to nothing, which would be `id=""` and a contents entry
+        // pointing at `#`: a fragment that lands at the top of the page, past the check that a fragment
+        // names a heading, because there is no fragment left to check.
+        if (heading === '') {
+          failures.push(
+            `${page.source} has a heading with no identifier: "${token.text}" is punctuation, and a fragment cannot name it`,
+          )
+        }
         if (heading === contentIdentifier) {
           failures.push(
             `${page.source} has a heading whose identifier is "${contentIdentifier}", which is the one the page shell uses for its skip link: rename the heading`,
@@ -288,15 +296,27 @@ interface BuildContext {
  * you want it, and where to start. `{{lede}}` is the README's opening, so the answer to "what is
  * this" is written once, and `{{diagram}}` is the one picture.
  */
-function homePage(markdown: string, context: BuildContext): string {
+function homePage(page: SitePage, markdown: string, context: BuildContext): string {
   const lede = (paragraphs(context.sources.read('README.md'))[1] ?? '').trim()
   if (lede === '')
     throw new Error('the README has no opening paragraph for the home page to render')
 
+  /**
+   * Rendered as the README rather than spliced into this page as Markdown. A link in that paragraph is
+   * written relative to `README.md`, and splicing it would have it resolved relative to
+   * `site/pages/index.md`: the build would then refuse a link the README is right about, and name a file
+   * that does not contain it, or worse resolve `[x](index.md)` against a directory it was never about.
+   */
+  const rendered = render(
+    lede,
+    { source: 'README.md', output: page.output, title: '' },
+    context,
+  ).html
+
   // Function replacements, because a `$&` or a `` $` `` in the README's prose would otherwise be a
   // substitution pattern rather than two characters of somebody's paragraph.
   return markdown
-    .replace('{{lede}}', () => lede)
+    .replace('{{lede}}', () => rendered)
     .replace('{{diagram}}', () => diagram)
     .replace('{{start}}', () => actions(context))
 }
@@ -555,6 +575,12 @@ const schemes = ['http:', 'https:']
 const tagPattern = /<[a-z][a-z0-9]*(?:"[^"]*"|'[^']*'|[^>"'])*>/gi
 
 /**
+ * The attributes that name something to fetch or somewhere to go. `data` is here because `<object>` uses
+ * it, and a check that reads only `href` and `src` publishes `data="javascript:…"` untouched.
+ */
+const references = new Set(['href', 'src', 'data', 'srcset', 'poster'])
+
+/**
  * The attributes of one tag, read left to right, so that what a value says cannot be taken for the name
  * of another attribute. Looking for `href=` anywhere in a tag finds it inside
  * `<meta content="… href=x …">`, where it is a document's prose rather than a link, and refuses to
@@ -584,9 +610,10 @@ function verify(files: ReadonlyMap<string, string>): void {
 
     // Criterion 7, enforced where it matters rather than only asserted: a script that reached a page
     // through a document's raw HTML would otherwise be published and noticed by the suite afterwards.
-    // An `<img>` is here for the reason the renderer refuses a Markdown one: nothing is copied into the
-    // output, so a local image is a 404 and a remote one is a request to another host.
-    const forbidden = /<(script|iframe|img)\b/i.exec(contents)
+    // An `<img>` is here for the reason the renderer refuses a Markdown one, nothing being copied into
+    // the output; `<style>` because the site has one stylesheet and an inline one can `@import` from
+    // anywhere; `<object>` and `<embed>` because they are an `<iframe>` by another name.
+    const forbidden = /<(script|iframe|img|object|embed|style)\b/i.exec(contents)
     if (forbidden !== null) {
       throw new Error(`${path} carries ${forbidden[0]}, which a page of this site does not`)
     }
@@ -595,35 +622,52 @@ function verify(files: ReadonlyMap<string, string>): void {
     // writes, because a raw `<a HREF='javascript:…'>` in a document reaches the page untouched. Reading
     // the page rather than its tags would read escaped prose too, and a document that shows an anchor
     // in a code sample would fail the build on a link nobody wrote.
-    const references = [...contents.matchAll(tagPattern)].flatMap((match) => attributesOf(match[0]))
+    for (const match of contents.matchAll(tagPattern)) {
+      const element = (/^<([a-z][a-z0-9]*)/i.exec(match[0])?.[1] ?? '').toLowerCase()
 
-    for (const [name, value] of references) {
-      if (name.startsWith('on')) {
-        throw new Error(`${path} sets ${name}, and a page of this site runs nothing`)
-      }
-      if (name !== 'href' && name !== 'src') continue
-      const href = value.replace(/&amp;/g, '&')
-      if (isAbsolute(href)) {
-        if (!schemes.some((scheme) => href.toLowerCase().startsWith(scheme))) {
-          throw new Error(
-            `${path} links to ${href}, over a scheme this site does not link out with`,
-          )
+      for (const [name, value] of attributesOf(match[0])) {
+        if (name.startsWith('on')) {
+          throw new Error(`${path} sets ${name}, and a page of this site runs nothing`)
         }
-        continue
-      }
+        if (!references.has(name)) continue
+        const href = value.replace(/&amp;/g, '&')
 
-      // Split at the first `#` only. The rest is the fragment, `#` and all: a browser asks for the
-      // whole of it, so validating the part before a second `#` would pass a link that lands nowhere.
-      const separator = href.indexOf('#')
-      const target = separator === -1 ? href : href.slice(0, separator)
-      const fragment = separator === -1 ? '' : href.slice(separator + 1)
-      const page = target === '' ? path : posix.normalize(posix.join(posix.dirname(path), target))
-      const rendered = files.get(page)
-      if (rendered === undefined) {
-        throw new Error(`${path} links to ${href}, which the build did not produce`)
-      }
-      if (fragment !== '' && !identifiers(rendered).has(fragment)) {
-        throw new Error(`${path} links to ${href}, and ${page} has nothing called ${fragment}`)
+        if (isAbsolute(href)) {
+          if (!schemes.some((scheme) => href.toLowerCase().startsWith(scheme))) {
+            throw new Error(
+              `${path} links to ${href}, over a scheme this site does not link out with`,
+            )
+          }
+          // An anchor is a reader choosing to go somewhere. Anything else is the page fetching from
+          // another host as it loads, which is the whole of what criterion 7 says it does not do: a
+          // stylesheet, a font or an image from a CDN is also a record of who read the page.
+          if (element !== 'a') {
+            throw new Error(
+              `${path} fetches ${href} in a <${element}>, and a page of this site fetches nothing from another host`,
+            )
+          }
+          continue
+        }
+
+        // Root-relative, which normalises into something that resolves here and points at another site
+        // once this one is served under a path. Criterion 5, and the one form of it that looked fine.
+        if (href.startsWith('/')) {
+          throw new Error(`${path} links to ${href}, which is root-relative rather than relative`)
+        }
+
+        // Split at the first `#` only. The rest is the fragment, `#` and all: a browser asks for the
+        // whole of it, so validating the part before a second `#` would pass a link that lands nowhere.
+        const separator = href.indexOf('#')
+        const target = separator === -1 ? href : href.slice(0, separator)
+        const fragment = separator === -1 ? '' : href.slice(separator + 1)
+        const page = target === '' ? path : posix.normalize(posix.join(posix.dirname(path), target))
+        const rendered = files.get(page)
+        if (rendered === undefined) {
+          throw new Error(`${path} links to ${href}, which the build did not produce`)
+        }
+        if (fragment !== '' && !identifiers(rendered).has(fragment)) {
+          throw new Error(`${path} links to ${href}, and ${page} has nothing called ${fragment}`)
+        }
       }
     }
   }
@@ -643,7 +687,7 @@ export function buildSite(sources: SiteSources = repositorySources()): Map<strin
   for (const entry of entries) {
     const markdown =
       entry.output === 'index.html'
-        ? homePage(sources.read(entry.source), context)
+        ? homePage(entry, sources.read(entry.source), context)
         : sources.read(entry.source)
     files.set(entry.output, layout(entry, render(markdown, entry, context), markdown, context))
   }
