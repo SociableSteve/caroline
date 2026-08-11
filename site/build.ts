@@ -292,6 +292,9 @@ function description(markdown: string): string {
     .find((block) => block !== '' && !block.startsWith('#') && !block.startsWith('|'))
   const sentence = (paragraph ?? '')
     .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    // A description is plain text. Markup a document opens its first paragraph with would otherwise
+    // arrive here as an escaped tag, which is neither a description nor anything a reader wants.
+    .replace(/<[^>]*>/g, '')
     .replace(/[`*_]/g, '')
     .replace(/\s+/g, ' ')
     .trim()
@@ -437,8 +440,12 @@ function icon(application: string): string {
  * authored in this repository and reviewed as code, so an unsafe URL or a `<script>` in a document is
  * a mistake, and the build refusing to publish it is a better answer than quietly rewriting what
  * somebody wrote. Anyone who can commit a `javascript:` URL to `docs/` can commit to this file too.
+ *
+ * `mailto:` is not on the list, and that is the second criterion agreeing with the eighth rather than
+ * an omission: no page of this site may carry an address, so a link that is one is a leak with a
+ * scheme in front of it. The issues are the way to reach anybody.
  */
-const schemes = ['http:', 'https:', 'mailto:']
+const schemes = ['http:', 'https:']
 
 /**
  * Every page and every link, checked against what was built. The build refuses rather than publishing
@@ -459,8 +466,10 @@ function verify(files: ReadonlyMap<string, string>): void {
       throw new Error(`${path} carries ${scripting[0]}, and a page of this site runs nothing`)
     }
 
-    for (const match of contents.matchAll(/href="([^"]*)"/g)) {
-      const href = (match[1] ?? '').replace(/&amp;/g, '&')
+    // Every form of the attribute, not the one this generator writes: a raw `<a HREF='javascript:…'>`
+    // in a document reaches the page untouched, and a check that only reads `href="…"` would pass it.
+    for (const match of contents.matchAll(/href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi)) {
+      const href = (match[1] ?? match[2] ?? match[3] ?? '').replace(/&amp;/g, '&')
       if (isAbsolute(href)) {
         if (!schemes.some((scheme) => href.toLowerCase().startsWith(scheme))) {
           throw new Error(

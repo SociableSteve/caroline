@@ -326,6 +326,31 @@ describe('the site asks nothing of the reader', () => {
     expect(() => buildSite(broken)).toThrow(/scheme this site does not link out with/)
   })
 
+  /**
+   * A document's raw HTML reaches the page untouched, so the check reads every spelling of the
+   * attribute rather than the one this generator writes. Upper case, single quotes, a space either
+   * side of the equals sign, and no quotes at all.
+   */
+  it.each([
+    `<a HREF='javascript:alert(1)'>press</a>`,
+    `<a href = "javascript:alert(1)">press</a>`,
+    `<a href=javascript:alert(1)>press</a>`,
+  ])('fails the build on %s, however the attribute is written', (anchor) => {
+    const broken = override('docs/setup.md', `# Setting Caroline up\n\n${anchor}\n`)
+
+    expect(() => buildSite(broken)).toThrow(/scheme this site does not link out with/)
+  })
+
+  /** An address is a leak whether it is in a paragraph or behind a scheme. */
+  it('fails the build on a link that is an address', () => {
+    const broken = override(
+      'docs/setup.md',
+      '# Setting Caroline up\n\n[ask](mailto:nobody@example.com)\n',
+    )
+
+    expect(() => buildSite(broken)).toThrow(/scheme this site does not link out with/)
+  })
+
   it('fetches nothing from another host: no font, no stylesheet, no image', () => {
     for (const [path, contents] of documents) {
       for (const tag of contents.match(/<(link|img|iframe|source)[^>]*>/g) ?? []) {
@@ -391,12 +416,19 @@ describe('the site publishes nothing but the documentation', () => {
     }
   })
 
-  it('carries no address and nothing shaped like a key or a token', () => {
+  /**
+   * The whole page and not its visible text: an address in a `mailto:` href is published exactly as
+   * much as one in a paragraph, and reading only what a reader sees would miss it. That is also why
+   * `mailto:` is not a scheme the build will link out over.
+   */
+  it('carries no address and nothing shaped like a key or a token, in text or in an attribute', () => {
     for (const [path, contents] of documents) {
-      const reading = text(contents)
-
-      expect(reading, path).not.toMatch(/[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[A-Za-z]{2,}/)
-      expect(reading, path).not.toMatch(/\b(gh[pousr]_|github_pat_|sk-[A-Za-z]|AIza)[A-Za-z0-9_-]+/)
+      for (const reading of [text(contents), contents]) {
+        expect(reading, path).not.toMatch(/[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[A-Za-z]{2,}/)
+        expect(reading, path).not.toMatch(
+          /\b(gh[pousr]_|github_pat_|sk-[A-Za-z]|AIza)[A-Za-z0-9_-]+/,
+        )
+      }
     }
   })
 
