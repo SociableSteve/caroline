@@ -180,6 +180,60 @@ describe('deleteCarolineData', () => {
     }
   })
 
+  it('leaves a directory that happens to carry one of its own names, in both modes', () => {
+    const config = temporaryConfig()
+    runCaroline(config)
+    // A directory where the write-ahead log would be. `rmSync` without `recursive` throws on one,
+    // which would abort the command having already deleted the database.
+    const collision = `${config.database.path}-wal`
+    rmSync(collision, { force: true })
+    mkdirSync(collision)
+
+    for (const dryRun of [true, false]) {
+      const report = deleteCarolineData(config, { dryRun })
+
+      expect(report.removed).not.toContain(collision)
+      expect(report.leftBehind).toContain(collision)
+      expect(report.directoryRemoved).toBe(false)
+      expect(existsSync(collision)).toBe(true)
+    }
+  })
+
+  it('removes only the token file for a database that is not a file on disk', () => {
+    // `dirname(':memory:')` is the working directory, which Caroline did not create and must neither
+    // list as leftovers nor be one empty directory away from removing.
+    const created = mkdtempSync(join(tmpdir(), 'caroline-delete-memory-'))
+    directories.push(created)
+    const directory = realpathSync(created)
+    const cwd = process.cwd()
+    process.chdir(directory)
+
+    try {
+      const config = loadConfig({
+        file: { database: { path: ':memory:' } },
+        env: {} as NodeJS.ProcessEnv,
+      })
+      writeFileSync(join(directory, 'a-file-of-my-own.txt'), 'mine\n')
+      writeTokens(config.integrations.google.tokenPath, {
+        refreshToken: 'refresh-token',
+        accessToken: null,
+        expiresAt: null,
+        scope: null,
+        connectedAt: 0,
+      })
+
+      const report = deleteCarolineData(config)
+
+      expect(report.removed).toEqual([config.integrations.google.tokenPath])
+      expect(report.leftBehind).toEqual([])
+      expect(report.directoryRemoved).toBe(false)
+      expect(existsSync(directory)).toBe(true)
+      expect(existsSync(join(directory, 'a-file-of-my-own.txt'))).toBe(true)
+    } finally {
+      process.chdir(cwd)
+    }
+  })
+
   it('keeps a data directory that is not empty of subdirectories', () => {
     const config = temporaryConfig()
     const directory = dirname(config.database.path)

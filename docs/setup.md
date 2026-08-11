@@ -220,6 +220,9 @@ Under **Credentials → Create credentials → OAuth client ID**:
    }
    ```
 
+   Or set `GOOGLE_CLIENT_ID` in the environment, which overrides the file: the client id is not a
+   secret, so either place is fine, and keeping the pair together is a reasonable preference.
+
 4. Put the client secret in `GOOGLE_CLIENT_SECRET`. Not in the file: it is a secret, and Caroline
    refuses to start with it there.
 5. Restart, open **Settings**, and press **Connect Google**. Google asks you to consent to two

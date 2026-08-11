@@ -8,7 +8,7 @@
  * `database.path` at a directory of their own, and a command that deleted a directory it did not
  * create would be a worse failure than one that leaves an empty folder behind.
  */
-import { existsSync, readdirSync, rmSync, rmdirSync } from 'node:fs'
+import { existsSync, lstatSync, readdirSync, rmSync, rmdirSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import type { Config } from '../config/schema.js'
 
@@ -76,23 +76,42 @@ export function deleteCarolineData(
   const removed: string[] = []
 
   for (const path of carolineDataPaths(config)) {
-    if (!existsSync(path)) continue
+    const entry = lstatSync(path, { throwIfNoEntry: false })
+    if (entry === undefined) continue
 
+    // A directory carrying one of Caroline's names is not one of Caroline's files. `rmSync` without
+    // `recursive` throws on it, which would abort the command partway through having deleted the
+    // rest, and adding `recursive` would delete somebody's directory on the strength of its name.
+    // It is left where it is, and the listing below reports it as what it is.
+    if (entry.isDirectory()) continue
+
+    // A symlink is removed as a link rather than followed, which is what `rmSync` does: pointing the
+    // database at another disk is a reasonable thing to have done, and deleting the link is the most
+    // this command may conclude from it.
     if (!dryRun) rmSync(path, { force: true })
     removed.push(path)
   }
 
-  // Read after the removals, so what is reported is what is actually still there. On a dry run
-  // that includes Caroline's own files, which is why they are subtracted rather than listed.
-  const ours = new Set(dryRun ? carolineDataPaths(config) : [])
-  const leftBehind = existsSync(directory)
-    ? readdirSync(directory)
-        .map((entry) => join(directory, entry))
-        .filter((path) => !ours.has(path))
-        .toSorted()
-    : []
+  // A database that is not a file on disk (`:memory:`, or a `file:` URI) has no directory of
+  // Caroline's making: `dirname` of it resolves to the working directory, and neither listing that
+  // nor being one empty directory away from removing it is anything this command should do. The
+  // token file is still removed above, which is the whole of what such an installation writes.
+  const ownsDirectory = isFilePath(config.database.path)
 
-  const directoryRemoved = leftBehind.length === 0 && existsSync(directory)
+  // Read after the removals, so what is reported is what is actually still there. On a dry run the
+  // files that would have gone are subtracted instead, which is why this is the list of what was
+  // removed rather than the list of Caroline's names: a directory that collided with one of those
+  // names was not removed, and belongs in this list.
+  const ours = new Set(dryRun ? removed : [])
+  const leftBehind =
+    ownsDirectory && existsSync(directory)
+      ? readdirSync(directory)
+          .map((entry) => join(directory, entry))
+          .filter((path) => !ours.has(path))
+          .toSorted()
+      : []
+
+  const directoryRemoved = ownsDirectory && leftBehind.length === 0 && existsSync(directory)
   if (directoryRemoved && !dryRun) rmdirSync(directory)
 
   return { directory, removed, leftBehind, directoryRemoved }
