@@ -51,9 +51,13 @@ export function validateUserName(raw: string): UserNameAccepted | UserNameReject
   }
 
   // One line, and no control characters in it. Both matter for the same reason: this text is
-  // rendered into a system prompt, and a newline is how a value starts pretending to be an
+  // rendered into a system prompt, and a line break is how a value starts pretending to be an
   // instruction. `\p{Cc}` covers the newline, the carriage return, the tab and the rest of C0/C1.
-  if (/\p{Cc}/u.test(value)) {
+  //
+  // `\p{Zl}` and `\p{Zp}` are here because `\p{Cc}` does not reach them and neither does the
+  // rendering: U+2028 and U+2029 are line boundaries that `JSON.stringify` passes through raw, so a
+  // name carrying one would break the preamble's line in the one place a value must not.
+  if (/[\p{Cc}\p{Zl}\p{Zp}]/u.test(value)) {
     return {
       ok: false,
       problem: 'not-one-line',

@@ -209,7 +209,12 @@ export function App() {
     setChatOpen(open)
     // And in the URL, which is where the rail's openness really lives. The conversation leaves with
     // it: a hash naming a conversation nobody can see would reopen the rail on the next reload.
-    if (open !== chatInUrl) window.location.hash = chatRailHref(open, window.location.hash)
+    //
+    // Compared against the hash as it is now rather than against `chatInUrl`, which lags behind it
+    // until `hashchange` fires: opening and closing quickly would otherwise leave the close unwritten
+    // and the pending event would reopen the rail.
+    const next = chatRailHref(open, window.location.hash)
+    if (next !== window.location.hash) window.location.hash = next
   }
 
   return (

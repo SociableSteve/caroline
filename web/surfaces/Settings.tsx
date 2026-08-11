@@ -124,6 +124,10 @@ export function Settings({
             setSaved(false)
             void onSaveUserName(typed.trim())
               .then((ok) => setSaved(ok))
+              // The shell reports its own write failures and answers false rather than rejecting,
+              // but a component that assumes that is a component that breaks when it stops being
+              // true. A rejection is a save that did not happen, which is what false already means.
+              .catch(() => setSaved(false))
               .finally(() => setSaving(false))
           }}
         >

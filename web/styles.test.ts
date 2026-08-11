@@ -286,22 +286,41 @@ describe('the stylesheet holds to the palettes', () => {
  * outlined box rather than a filled action.
  */
 describe('the appearance model', () => {
-  const token = (name: string) =>
-    all.find((rule) => rule.selector === ':root' && rule.property === name && rule.context === '')
-      ?.value
+  const token = (name: string, context = '') =>
+    all.find(
+      (rule) => rule.selector === ':root' && rule.property === name && rule.context === context,
+    )?.value
 
-  it('grounds a ramp of four, so a card is not the same colour as the page it sits on', () => {
-    const grounds = ['--page', '--surface', '--surface-sunk', '--surface-raised'].map(token)
+  /**
+   * Both palettes, because "designed, not inverted" is the claim and a ramp that collapses in the
+   * dark is exactly the regression this is for: the light values could stay four and distinct while
+   * the dark override quietly made two of them the same.
+   */
+  const palettes = [
+    { theme: 'light', context: '' },
+    { theme: 'dark', context: '@media (prefers-color-scheme: dark)' },
+  ]
 
-    expect(grounds.every((value) => value !== undefined)).toBe(true)
-    expect(new Set(grounds).size).toBe(grounds.length)
-  })
+  it.each(palettes)(
+    'grounds a ramp of four in the $theme palette, so a card is not the colour of the page',
+    ({ context }) => {
+      const grounds = ['--page', '--surface', '--surface-sunk', '--surface-raised'].map((name) =>
+        token(name, context),
+      )
 
-  it('has two lines, one for a component edge and one for a divider inside it', () => {
-    expect(token('--line')).toBeDefined()
-    expect(token('--line-faint')).toBeDefined()
-    expect(token('--line')).not.toBe(token('--line-faint'))
-  })
+      expect(grounds.every((value) => value !== undefined)).toBe(true)
+      expect(new Set(grounds).size).toBe(grounds.length)
+    },
+  )
+
+  it.each(palettes)(
+    'has two lines in the $theme palette, one for a component edge and one for a divider',
+    ({ context }) => {
+      expect(token('--line', context)).toBeDefined()
+      expect(token('--line-faint', context)).toBeDefined()
+      expect(token('--line', context)).not.toBe(token('--line-faint', context))
+    },
+  )
 
   /** A surface heading and a panel heading were 0.25rem apart, which is not a hierarchy. */
   it('separates the surface heading from a panel heading by more than a rounding error', () => {

@@ -830,7 +830,7 @@ export const privacyPreviewQuerySchema = {
 export const privacyPreviewResponseSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['policy', 'item', 'payload'],
+  required: ['policy', 'item', 'payload', 'preamble'],
   properties: {
     policy: {
       type: 'object',
