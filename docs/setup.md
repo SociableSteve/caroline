@@ -319,8 +319,8 @@ npm run delete-data -- --yes   # removes it
 
 That is the database, the SQLite sidecars a crash leaves behind, the Google token file and the
 temporary sibling an interrupted token write leaves, which holds the same refresh token. Anything
-else in the data directory is left alone and named, and the directory itself goes only if it is empty
-afterwards. Stop Caroline first.
+else in the data directory is left alone and named, and the directory itself goes only if Caroline
+had written something in it and it is empty afterwards. Stop Caroline first.
 
 Deleting the token file is what revoking Caroline's access locally means. To revoke it at the other
 end too, remove the app at <https://myaccount.google.com/permissions>, delete the GitHub token, and

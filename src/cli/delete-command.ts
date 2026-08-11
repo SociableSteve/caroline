@@ -12,9 +12,10 @@ import { deleteCarolineData } from './delete-data.js'
 
 export const usage = `Usage: npm run delete-data [-- --yes]
 
-Removes everything Caroline has written: the database, its SQLite sidecars and the Google token
-file. Nothing else in the data directory is touched, and the directory itself goes only if it is
-empty afterwards.
+Removes everything Caroline has written: the database, its SQLite sidecars, the Google token file
+and the temporary sibling an interrupted token write leaves. Nothing else in the data directory is
+touched, and the directory itself goes only if Caroline had written something in it and it is empty
+afterwards.
 
   --yes    Actually delete. Without it, this lists what would go and deletes nothing.
   --help   This.
@@ -52,15 +53,21 @@ export function runDeleteCommand(
 
   let report
   try {
-    report = deleteCarolineData(loadConfig({ file: readConfigFile(configPath), env }), { dryRun })
+    report = deleteCarolineData(
+      // Without the startup checks: this reads the configuration for the data's location and then
+      // starts no server and calls no provider, and a content policy nobody may run with is no
+      // reason to refuse somebody their own data. A file the schema rejects still stops it, because
+      // that is a question about which files to delete which must not be answered by guessing.
+      loadConfig({ file: readConfigFile(configPath), env, runtimeChecks: false }),
+      { dryRun },
+    )
   } catch (error) {
     if (!(error instanceof ConfigError)) throw error
-    // The deletion command reads the same configuration the server reads in order to find out where
-    // the data is, so a configuration it cannot load is a question about which files to delete that
-    // it must not answer by guessing.
     stderr(`Caroline cannot work out what to delete: ${error.message}\n`)
     return 1
   }
+
+  const links = new Set(report.symlinks)
 
   stdout(`Data directory: ${report.directory}\n`)
 
@@ -68,7 +75,13 @@ export function runDeleteCommand(
     stdout('Nothing to remove: Caroline has written none of its files here.\n')
   } else {
     stdout(dryRun ? '\nWould remove:\n' : '\nRemoved:\n')
-    for (const path of report.removed) stdout(`  ${path}\n`)
+    for (const path of report.removed) {
+      // Said on the line itself, because "removed the database" about a link is a sentence that has
+      // somebody believe a file on another disk has gone when it has not.
+      stdout(
+        links.has(path) ? `  ${path} (a link; what it points at is untouched)\n` : `  ${path}\n`,
+      )
+    }
   }
 
   if (report.leftBehind.length > 0) {
@@ -86,6 +99,14 @@ export function runDeleteCommand(
 
   if (dryRun && report.removed.length > 0) {
     stdout('\nNothing was deleted. Re-run with `npm run delete-data -- --yes`.\n')
+  }
+
+  if (report.failed.length > 0) {
+    // On stderr and with a non-zero code, because a file of Caroline's that is still there is the
+    // one outcome somebody running this command needs to know about rather than read past.
+    stderr('\nCould not remove:\n')
+    for (const { path, message } of report.failed) stderr(`  ${path}: ${message}\n`)
+    return 1
   }
 
   return 0

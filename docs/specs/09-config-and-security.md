@@ -228,9 +228,12 @@ Two decisions about it:
 - **It deletes its own files, not a directory.** The database, the SQLite sidecars a crash leaves
   behind, the token file and the temporary sibling an interrupted token write leaves. Anything else
   in the data directory is left alone and named in the output, and the directory itself is removed
-  only when it is empty afterwards: `database.path` may point somewhere of the user's own, and a
-  command that deleted a directory it did not create would be a worse failure than one that leaves
-  an empty folder.
+  only when it held one of those files and is empty afterwards: `database.path` may point somewhere
+  of the user's own, and a command that deleted a directory it did not create would be a worse
+  failure than one that leaves an empty folder. A directory carrying one of those names is not one of
+  those files, a symbolic link is removed as a link rather than followed, and a file that will not go
+  is reported with what the filesystem said rather than thrown as a stack trace over a deletion that
+  is already half done.
 
 ## Non-goals
 

@@ -89,6 +89,42 @@ describe('runDeleteCommand', () => {
     expect(existsSync(databasePath)).toBe(true)
   })
 
+  it('deletes under a configuration the server itself would refuse to start on', () => {
+    // The two startup checks are about running: a non-loopback bind with no access token, and full
+    // content bound for a remote provider. Neither says anything about where the data is, and the
+    // setup guide's troubleshooting table sends people here holding exactly that second error.
+    const directory = mkdtempSync(join(tmpdir(), 'caroline-delete-command-'))
+    directories.push(directory)
+
+    const databasePath = join(directory, 'data', 'caroline.db')
+    const configPath = join(directory, 'caroline.config.json')
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        database: { path: databasePath },
+        server: { host: '0.0.0.0' },
+        privacy: { llmContent: 'full' },
+        llm: { provider: 'anthropic', model: 'a-model' },
+      }),
+    )
+
+    const env = { CAROLINE_CONFIG: configPath } as NodeJS.ProcessEnv
+    openCarolineDatabase(
+      loadConfig({ file: { database: { path: databasePath } }, env, runtimeChecks: false }),
+    ).close()
+
+    let out = ''
+    const code = runDeleteCommand(['--yes'], {
+      stdout: (text) => (out += text),
+      stderr: () => {},
+      env,
+    })
+
+    expect(code).toBe(0)
+    expect(out).toContain(databasePath)
+    expect(existsSync(databasePath)).toBe(false)
+  })
+
   it('reports a configuration it cannot load rather than deleting a default path', () => {
     const directory = mkdtempSync(join(tmpdir(), 'caroline-delete-command-'))
     directories.push(directory)

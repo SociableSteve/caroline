@@ -5,12 +5,14 @@
  * some later milestone and not added to the list would pass a test that checked the list.
  */
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -231,6 +233,59 @@ describe('deleteCarolineData', () => {
       expect(existsSync(join(directory, 'a-file-of-my-own.txt'))).toBe(true)
     } finally {
       process.chdir(cwd)
+    }
+  })
+
+  it('leaves an empty directory of somebody else’s that Caroline never wrote to', () => {
+    // `database.path` may name a directory somebody keeps their own things in. Removing it for being
+    // empty, having just reported finding nothing of Caroline's in it, is the failure the rule about
+    // not deleting directories exists to prevent.
+    const config = temporaryConfig()
+    const directory = dirname(config.database.path)
+
+    const report = deleteCarolineData(config)
+
+    expect(report.removed).toEqual([])
+    expect(report.directoryRemoved).toBe(false)
+    expect(existsSync(directory)).toBe(true)
+  })
+
+  it('says a removed path was a link, and leaves what it pointed at', () => {
+    const config = temporaryConfig()
+    const directory = dirname(config.database.path)
+    const elsewhere = join(directory, 'on-another-disk.db')
+    writeFileSync(elsewhere, 'the real database\n')
+    symlinkSync(elsewhere, config.database.path)
+
+    const report = deleteCarolineData(config)
+
+    expect(report.removed).toContain(config.database.path)
+    expect(report.symlinks).toEqual([config.database.path])
+    // The link went; the file it named did not, and is reported as a file Caroline did not write.
+    expect(existsSync(config.database.path)).toBe(false)
+    expect(existsSync(elsewhere)).toBe(true)
+    expect(report.leftBehind).toContain(elsewhere)
+  })
+
+  it('reports a file it could not remove rather than throwing partway through', () => {
+    const config = temporaryConfig()
+    const directory = dirname(config.database.path)
+    runCaroline(config)
+
+    // Unlinking needs write permission on the directory, not on the file. Root ignores the mode, so
+    // there is nothing to assert when the suite runs as root.
+    if (process.getuid?.() === 0) return
+
+    chmodSync(directory, 0o500)
+    try {
+      const report = deleteCarolineData(config)
+
+      expect(report.removed).toEqual([])
+      expect(report.failed.map((failure) => failure.path)).toContain(config.database.path)
+      expect(report.failed[0]?.message).toMatch(/permission|EACCES/i)
+      expect(existsSync(config.database.path)).toBe(true)
+    } finally {
+      chmodSync(directory, 0o700)
     }
   })
 

@@ -4,18 +4,14 @@
  * data directory. This is the half that decides what those files are and removes them; `delete.ts`
  * is the command that reports on it.
  *
- * The data directory is removed only when it is empty afterwards. Somebody may have pointed
- * `database.path` at a directory of their own, and a command that deleted a directory it did not
- * create would be a worse failure than one that leaves an empty folder behind.
+ * The data directory is removed only when it held something of Caroline's and is empty afterwards.
+ * Somebody may have pointed `database.path` at a directory of their own, and a command that deleted
+ * a directory it did not create would be a worse failure than one that leaves an empty folder.
  */
 import { existsSync, lstatSync, readdirSync, rmSync, rmdirSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import type { Config } from '../config/schema.js'
-
-/** Paths SQLite treats as something other than a file to create on disk. Mirrors `db/connection`. */
-function isFilePath(path: string): boolean {
-  return path !== ':memory:' && !path.startsWith('file:')
-}
+import { isFilePath } from '../db/connection.js'
 
 /**
  * Every path Caroline writes, in the order a person would want to read them.
@@ -48,13 +44,27 @@ export function carolineDataPaths(config: Config): readonly string[] {
   ]
 }
 
+/** A path that could not be removed, and what the filesystem said about it. */
+export interface DeletionFailure {
+  readonly path: string
+  readonly message: string
+}
+
 export interface DeletionReport {
   /** The data directory, which is where every path above lives. */
   readonly directory: string
   /** What was removed, or on a dry run what would be. */
   readonly removed: readonly string[]
+  /**
+   * The subset of `removed` that was a symbolic link. The link is what went; whatever it pointed at
+   * is somebody's deliberate indirection and was not followed, and a report that did not say so
+   * would have somebody believe a database on another disk had been deleted.
+   */
+  readonly symlinks: readonly string[]
   /** Anything else in the data directory. Not Caroline's, so not deleted, but said out loud. */
   readonly leftBehind: readonly string[]
+  /** Caroline's own files that would not go. Empty in the ordinary case. */
+  readonly failed: readonly DeletionFailure[]
   /**
    * Whether the data directory itself went, or on a dry run whether it would. Reported the same way
    * as `removed`, because a command that promises to list what it would remove and then silently
@@ -74,6 +84,8 @@ export function deleteCarolineData(
 ): DeletionReport {
   const directory = dirname(resolve(config.database.path))
   const removed: string[] = []
+  const symlinks: string[] = []
+  const failed: DeletionFailure[] = []
 
   for (const path of carolineDataPaths(config)) {
     const entry = lstatSync(path, { throwIfNoEntry: false })
@@ -87,8 +99,21 @@ export function deleteCarolineData(
 
     // A symlink is removed as a link rather than followed, which is what `rmSync` does: pointing the
     // database at another disk is a reasonable thing to have done, and deleting the link is the most
-    // this command may conclude from it.
-    if (!dryRun) rmSync(path, { force: true })
+    // this command may conclude from it. It is recorded as a link so the output can say so.
+    if (entry.isSymbolicLink()) symlinks.push(path)
+
+    if (!dryRun) {
+      try {
+        rmSync(path, { force: true })
+      } catch (error) {
+        // A read-only mount, a locked file, a permission the account does not have. The rest of the
+        // files are still worth removing, and the report is the record of what happened: throwing
+        // here would leave a partial deletion described by a stack trace.
+        failed.push({ path, message: error instanceof Error ? error.message : String(error) })
+        continue
+      }
+    }
+
     removed.push(path)
   }
 
@@ -111,8 +136,12 @@ export function deleteCarolineData(
           .toSorted()
       : []
 
-  const directoryRemoved = ownsDirectory && leftBehind.length === 0 && existsSync(directory)
+  // `removed` having something in it is what says this directory was Caroline's. Without that check,
+  // a `database.path` pointing into an empty directory of somebody's own has that directory deleted
+  // by a command that had just reported finding nothing of Caroline's in it.
+  const directoryRemoved =
+    ownsDirectory && removed.length > 0 && leftBehind.length === 0 && existsSync(directory)
   if (directoryRemoved && !dryRun) rmdirSync(directory)
 
-  return { directory, removed, leftBehind, directoryRemoved }
+  return { directory, removed, symlinks, leftBehind, failed, directoryRemoved }
 }
