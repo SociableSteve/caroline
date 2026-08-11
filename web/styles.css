@@ -364,6 +364,12 @@ button[disabled] {
   margin-left: auto;
 }
 
+/*
+ * No `min-height: 0` here, and deliberately. A flex item's automatic minimum size is its content
+ * only while its computed overflow is `visible`; `overflow-y: auto` makes that minimum zero, so
+ * the list is already free to shrink under the column's cap and scroll within it. Measured at
+ * 1440px: every column with more cards than fit reports a scroll height above its client height.
+ */
 .column-cards {
   display: flex;
   flex-direction: column;
