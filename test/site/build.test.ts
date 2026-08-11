@@ -115,6 +115,37 @@ describe('the site renders the documentation rather than restating it', () => {
    * The description is what a search result and a shared link show, so it is prose or it is nothing
    * useful: a document opening on a code fence would otherwise be described by a line of shell.
    */
+  /**
+   * A bullet is a hyphen or a star followed by a space. `**Something.**` opens a paragraph, and `docs/`
+   * is written that way throughout, so a filter that skipped both would describe a document by a
+   * paragraph further down or by nothing at all.
+   */
+  it('describes a document whose first paragraph opens in bold with that paragraph', () => {
+    const bolded = override(
+      'docs/plan.md',
+      '# Caroline implementation plan\n\n**Derived from the specs.** They say what the system does.\n',
+    )
+    const description =
+      /<meta name="description" content="([^"]*)"/.exec(
+        buildSite(bolded).get('plan.html') ?? '',
+      )?.[1] ?? ''
+
+    expect(description).toContain('Derived from the specs.')
+  })
+
+  /** A URL a document escaped by habit is published as it was meant, not with the entity in it. */
+  it('escapes a bare ampersand in a link and leaves an escaped one alone', () => {
+    const escaped = override(
+      'docs/plan.md',
+      '# Caroline implementation plan\n\n[a](https://example.test/?a=1&amp;b=2) [b](https://example.test/?c=1&d=2)\n',
+    )
+    const rendered = buildSite(escaped).get('plan.html') ?? ''
+
+    expect(rendered).toContain('href="https://example.test/?a=1&amp;b=2"')
+    expect(rendered).toContain('href="https://example.test/?c=1&amp;d=2"')
+    expect(rendered).not.toContain('&amp;amp;')
+  })
+
   it('describes every page with a sentence rather than with a command or a list item', () => {
     for (const [path, contents] of documents) {
       const description = /<meta name="description" content="([^"]*)"/.exec(contents)?.[1] ?? ''
@@ -203,6 +234,17 @@ describe('the site renders the documentation rather than restating it', () => {
       expect(buildSite(windows).get('index.html')).toContain(
         'A single-user, self-hosted GTD system.',
       )
+    })
+
+    /**
+     * The description of the front page is the one that is read most and seen least: it is what a search
+     * result and a shared link show. It was the section about Node versions for two commits, because the
+     * markers are filled before the page is described and the lede had become rendered HTML by then.
+     */
+    it('describes itself with what Caroline is, not with what it runs on', () => {
+      const description = /<meta name="description" content="([^"]*)"/.exec(home)?.[1] ?? ''
+
+      expect(description).toContain('A single-user, self-hosted GTD system.')
     })
 
     it('instructs nobody: no commands, and no environment variable to set', () => {

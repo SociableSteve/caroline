@@ -131,6 +131,18 @@ const escapeText = (value: string): string =>
 const escapeAttribute = (value: string): string => escapeText(value).replace(/"/g, '&quot;')
 
 /**
+ * A URL, escaped for an attribute. Only a bare `&` becomes `&amp;`: a document that writes a query
+ * string as `?a=1&amp;b=2`, which is what somebody escaping by habit writes, would otherwise be
+ * published as `&amp;amp;` and requested with the entity in it.
+ */
+const escapeUrl = (url: string): string =>
+  url
+    .replace(/&(?!(?:[a-z]+|#\d+);)/gi, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+
+/**
  * Rendered inline HTML back to the text a reader sees. Headings are slugged from this rather than from
  * their Markdown, because GitHub slugs the rendered text: a heading written as `## See [the docs](x)`
  * is `#see-the-docs` there, and slugging the source would make it `see-the-docsx`. The entities come
@@ -235,7 +247,7 @@ function render(markdown: string, page: SitePage, context: BuildContext): Render
         const title = token.title == null ? '' : ` title="${escapeAttribute(token.title)}"`
         const external = isAbsolute(href) ? ' rel="noopener" target="_blank"' : ''
 
-        return `<a href="${escapeAttribute(href)}"${title}${external}>${this.parser.parseInline(token.tokens)}</a>`
+        return `<a href="${escapeUrl(href)}"${title}${external}>${this.parser.parseInline(token.tokens)}</a>`
       },
     },
   })
@@ -306,10 +318,22 @@ interface BuildContext {
  * you want it, and where to start. `{{lede}}` is the README's opening, so the answer to "what is
  * this" is written once, and `{{diagram}}` is the one picture.
  */
-function homePage(page: SitePage, markdown: string, context: BuildContext): string {
-  const lede = (paragraphs(context.sources.read('README.md'))[1] ?? '').trim()
-  if (lede === '')
+/**
+ * The README's opening paragraph: what Caroline is, written once. The home page renders it, and its
+ * description is taken from it rather than from the page it is spliced into, because by then it is
+ * rendered HTML and a description is prose.
+ */
+function readmeLede(sources: SiteSources): string {
+  const lede = (paragraphs(sources.read('README.md'))[1] ?? '').trim()
+  if (lede === '') {
     throw new Error('the README has no opening paragraph for the home page to render')
+  }
+
+  return lede
+}
+
+function homePage(page: SitePage, markdown: string, context: BuildContext): string {
+  const lede = readmeLede(context.sources)
 
   /**
    * Rendered as the README rather than spliced into this page as Markdown. A link in that paragraph is
@@ -399,7 +423,7 @@ const diagram = `<svg class="flow" viewBox="0 0 640 190" aria-hidden="true" focu
 function description(markdown: string): string {
   // A paragraph, which is to say prose: not a heading, a table, a list, a quotation or a command. A
   // description built from a document's opening code fence is a line of shell in a search result.
-  const prose = /^([#|>-]|\*|\d+\.|```| {4}|<)/
+  const prose = /^(#|>|\||[-*]\s|\d+\.\s|```| {4}|<)/
   const paragraph = paragraphs(markdown)
     .map((block) => block.trim())
     .find((block) => block !== '' && !prose.test(block))
@@ -706,11 +730,16 @@ export function buildSite(sources: SiteSources = repositorySources()): Map<strin
   const files = new Map<string, string>()
 
   for (const entry of entries) {
-    const markdown =
-      entry.output === 'index.html'
-        ? homePage(entry, sources.read(entry.source), context)
-        : sources.read(entry.source)
-    files.set(entry.output, layout(entry, render(markdown, entry, context), markdown, context))
+    const home = entry.output === 'index.html'
+    const markdown = home
+      ? homePage(entry, sources.read(entry.source), context)
+      : sources.read(entry.source)
+    // The home page describes itself with the README's paragraph rather than with its own first block:
+    // by the time the markers are filled that block is rendered HTML, and the first prose paragraph
+    // after it is a section about Node versions. The description of the front page is the one that is
+    // read most and seen least.
+    const describing = home ? readmeLede(sources) : markdown
+    files.set(entry.output, layout(entry, render(markdown, entry, context), describing, context))
   }
 
   const application = sources.read('web/styles.css')
