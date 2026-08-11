@@ -15,6 +15,7 @@ import { Jobs } from './surfaces/Jobs.js'
 import { ProjectDetail, Projects } from './surfaces/Projects.js'
 import { Settings } from './surfaces/Settings.js'
 import { QuickCapture } from './components/QuickCapture.js'
+import { productName } from './title.js'
 
 /** A shortcut typed into a field is text, not a command. */
 function isTyping(target: EventTarget | null): boolean {
@@ -109,6 +110,7 @@ export function App() {
   const onComplete = (id: string) => void write(() => api.completeTask(id))
   const onDelete = (id: string) => void write(() => api.deleteTask(id))
   const onMarkReviewed = (id: string) => void write(() => api.markReviewed(id))
+  const onUndoStatus = (id: string) => void write(() => api.undoStatus(id))
   const onAcceptProposal = (id: string) => void write(() => api.acceptProposal(id))
   const onDismissProposal = (id: string) => void write(() => api.dismissProposal(id))
   const onSync = () => void write(() => api.runJob('sync'))
@@ -179,7 +181,9 @@ export function App() {
   return (
     <>
       <header className="app-header">
-        <h1>Caroline</h1>
+        {/* Not a heading. The one `h1` on the page belongs to the surface and names it, so that
+            every surface has an outline and every entry in history is distinguishable. Spec 10. */}
+        <p className="wordmark">{productName}</p>
         <nav aria-label="Surfaces">
           <ul>
             {routeLinks.map((link) => (
@@ -191,14 +195,16 @@ export function App() {
             ))}
           </ul>
         </nav>
-        {/* The scheduler runs sync on its own; this is the manual trigger spec 06 asks be
-            first-class, for when you know something has just landed. */}
-        <button type="button" onClick={onSync}>
-          Sync now
-        </button>
-        <button type="button" onClick={() => setCapturing(true)}>
-          Quick capture
-        </button>
+        <div className="header-actions">
+          {/* The scheduler runs sync on its own; this is the manual trigger spec 06 asks be
+              first-class, for when you know something has just landed. */}
+          <button type="button" onClick={onSync}>
+            Sync now
+          </button>
+          <button type="button" onClick={() => setCapturing(true)}>
+            Quick capture
+          </button>
+        </div>
       </header>
 
       <main>
@@ -240,6 +246,7 @@ export function App() {
             onMarkReviewed={onMarkReviewed}
             onAcceptProposal={onAcceptProposal}
             onDismissProposal={onDismissProposal}
+            onUndoStatus={onUndoStatus}
             {...cardHandlers}
           />
         ) : route.name === 'projects' ? (

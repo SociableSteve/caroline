@@ -159,6 +159,8 @@ export function taskFromSnapshot(value: unknown): Task | null {
     waitingOn,
     statusSetBy,
     statusSetAt,
+    previousStatus: null,
+    previousStatusSetBy: null,
     syncTracked: row.syncTracked,
     createdAt,
     updatedAt,

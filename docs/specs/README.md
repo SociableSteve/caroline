@@ -21,6 +21,7 @@ spec disagree, one of them is a defect: decide which, fix that one.
 | [07-chat.md](07-chat.md) | Conversational interface and its tool surface |
 | [08-api-and-ui.md](08-api-and-ui.md) | HTTP API and the browser UI |
 | [09-config-and-security.md](09-config-and-security.md) | Configuration, credentials, data-exposure posture |
+| [10-design-system.md](10-design-system.md) | The scales, primitives and appearance rules the surfaces share |
 
 ## Conventions
 

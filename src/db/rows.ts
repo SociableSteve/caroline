@@ -61,6 +61,8 @@ export function toTask(row: Row): Task {
     waitingOn: nullableText(row, 'waiting_on'),
     statusSetBy: text(row, 'status_set_by') as StatusActor,
     statusSetAt: integer(row, 'status_set_at'),
+    previousStatus: nullableText(row, 'previous_status') as TaskStatus | null,
+    previousStatusSetBy: nullableText(row, 'previous_status_set_by') as StatusActor | null,
     syncTracked: boolean(row, 'sync_tracked'),
     createdAt: integer(row, 'created_at'),
     updatedAt: integer(row, 'updated_at'),

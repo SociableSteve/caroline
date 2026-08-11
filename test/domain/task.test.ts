@@ -7,6 +7,7 @@ import {
   newTask,
   taskStatuses,
   type Task,
+  undoStatusChange,
 } from '../../src/domain/task.js'
 
 const createdAt = Date.UTC(2026, 0, 1)
@@ -280,4 +281,144 @@ describe('isUntriaged', () => {
       expect(isUntriaged(existingTask({ status, statusSetBy: 'llm' }))).toBe(false)
     },
   )
+})
+
+/**
+ * Putting a status change back. Spec 01 criteria 8 to 11.
+ *
+ * Rule 3 of the status rules exists because of rule 2: a change is cheap to make and, when the
+ * actor is the user, permanent in its effect, so the cost of a mistake and the cost of making one
+ * are badly matched. What is recoverable is the last change and nothing before it.
+ */
+describe('the previous status pair', () => {
+  const at = Date.UTC(2026, 0, 2)
+
+  // Criterion 11.
+  it('is null on a task never changed since it was created', () => {
+    const task = newTask({ id: 'task-1', title: 'Book the venue' }, createdAt)
+
+    expect(task.previousStatus).toBeNull()
+    expect(task.previousStatusSetBy).toBeNull()
+    expect(undoStatusChange(task, at)).toEqual({ undone: false })
+  })
+
+  // Criterion 8.
+  it('records what the status and the actor were immediately before a change', () => {
+    const task = existingTask({ status: 'inbox', statusSetBy: 'llm' })
+
+    const result = applyStatusChange(task, { status: 'next_action', by: 'user', at })
+
+    expect(result.applied).toBe(true)
+    expect(result.task.previousStatus).toBe('inbox')
+    expect(result.task.previousStatusSetBy).toBe('llm')
+  })
+
+  // Criterion 8: a second change overwrites the pair rather than accumulating.
+  it('keeps one step and not a history', () => {
+    const first = applyStatusChange(existingTask({ status: 'inbox', statusSetBy: 'llm' }), {
+      status: 'next_action',
+      by: 'user',
+      at,
+    })
+    const second = applyStatusChange(first.task, { status: 'someday', by: 'user', at: at + 1 })
+
+    expect(second.task.previousStatus).toBe('next_action')
+    expect(second.task.previousStatusSetBy).toBe('user')
+  })
+
+  it('is not recorded by a change the rules refused, since nothing changed', () => {
+    const refused = applyStatusChange(existingTask({ status: 'someday', statusSetBy: 'user' }), {
+      status: 'next_action',
+      by: 'llm',
+      at,
+    })
+
+    expect(refused.applied).toBe(false)
+    expect(refused.task.previousStatus).toBeNull()
+  })
+})
+
+describe('undoStatusChange', () => {
+  const at = Date.UTC(2026, 0, 2)
+  const undoneAt = Date.UTC(2026, 0, 3)
+
+  /**
+   * Criterion 9, and the whole reason the actor is stored beside the status: a board move records
+   * `status_set_by = 'user'`, which locks the classifier out of the task for good, so an undo that
+   * restored only the status would leave the part that cost anything undone.
+   */
+  it('restores the actor as well as the status, so the classifier may act again', () => {
+    const moved = applyStatusChange(existingTask({ status: 'inbox', statusSetBy: 'llm' }), {
+      status: 'someday',
+      by: 'user',
+      at,
+    })
+
+    const result = undoStatusChange(moved.task, undoneAt)
+
+    expect(result).toEqual({
+      undone: true,
+      task: expect.objectContaining({
+        status: 'inbox',
+        statusSetBy: 'llm',
+        statusSetAt: undoneAt,
+      }),
+    })
+
+    // And the proof of it: the classifier's next proposal is no longer refused.
+    const proposed = applyStatusChange(result.undone ? result.task : moved.task, {
+      status: 'next_action',
+      by: 'llm',
+      at: undoneAt + 1,
+    })
+    expect(proposed.applied).toBe(true)
+  })
+
+  // Criterion 10. Recording the undone state would make undo a toggle and lose what it restored.
+  it('does not record the undone state, so it cannot be applied twice to walk further back', () => {
+    const moved = applyStatusChange(existingTask({ status: 'inbox', statusSetBy: 'llm' }), {
+      status: 'someday',
+      by: 'user',
+      at,
+    })
+
+    const first = undoStatusChange(moved.task, undoneAt)
+    expect(first.undone).toBe(true)
+
+    const task = first.undone ? first.task : moved.task
+    expect(task.previousStatus).toBeNull()
+    expect(task.previousStatusSetBy).toBeNull()
+    expect(undoStatusChange(task, undoneAt + 1)).toEqual({ undone: false })
+  })
+
+  /**
+   * The other direction, and the honest limit of it: putting back a completion stamps it at the
+   * moment of the undo, because the original stamp is not among the two columns kept. Reopening a
+   * task and changing your mind gives it today's completion date, which is observable and is the
+   * price of one step rather than a history.
+   */
+  it('stamps a restored completion at the undo, since the original stamp is not kept', () => {
+    const reopened = applyStatusChange(existingTask({ status: 'done' }), {
+      status: 'next_action',
+      by: 'user',
+      at,
+    })
+
+    const result = undoStatusChange(reopened.task, undoneAt)
+
+    expect(result.undone && result.task.status).toBe('done')
+    expect(result.undone && result.task.completedAt).toBe(undoneAt)
+  })
+
+  it('clears the completion stamp when what it restores is not done', () => {
+    const completed = applyStatusChange(existingTask({ status: 'next_action' }), {
+      status: 'done',
+      by: 'user',
+      at,
+    })
+
+    const result = undoStatusChange(completed.task, undoneAt)
+
+    expect(result.undone && result.task.completedAt).toBeNull()
+  })
 })

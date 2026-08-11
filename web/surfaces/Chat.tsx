@@ -15,8 +15,10 @@ import type {
   ConversationView,
 } from '../api.js'
 import type { DraftTurn } from '../chat.js'
-import { formatAge } from '../format.js'
+import { ago } from '../format.js'
 import { conversationHref } from '../router.js'
+import { Field } from '../components/primitives.js'
+import { useSurfaceTitle } from '../title.js'
 
 export interface ChatProps {
   readonly status: ChatStatus | null
@@ -124,8 +126,12 @@ function Turn({
             ))}
           </ul>
           {undoable && (
-            <button type="button" onClick={() => onUndo(message.id)}>
-              Undo these changes
+            <button
+              type="button"
+              aria-label="Undo the changes this turn made"
+              onClick={() => onUndo(message.id)}
+            >
+              Undo
             </button>
           )}
         </div>
@@ -167,6 +173,7 @@ export function Chat({
 }: ChatProps) {
   const [typed, setTyped] = useState('')
   const undoable = undoableTurnId(messages)
+  useSurfaceTitle('Chat')
 
   const submit = () => {
     const message = typed.trim()
@@ -178,6 +185,8 @@ export function Chat({
 
   return (
     <div className="chat-surface">
+      <h1 className="chat-title">Chat</h1>
+
       <aside aria-labelledby="conversations-heading">
         <h2 id="conversations-heading">Conversations</h2>
         <p>
@@ -196,10 +205,7 @@ export function Chat({
                 >
                   {entry.title}
                 </a>
-                <span className="change-note">
-                  {' '}
-                  {formatAge(Math.max(0, now - entry.updatedAt))} ago
-                </span>
+                <span className="change-note"> {ago(entry.updatedAt, now)}</span>
               </li>
             ))}
           </ul>
@@ -298,20 +304,20 @@ export function Chat({
             submit()
           }}
         >
-          <label htmlFor="chat-message">Message</label>
-          <textarea
-            id="chat-message"
-            rows={3}
-            value={typed}
-            onChange={(event) => setTyped(event.target.value)}
-            onKeyDown={(event) => {
-              // Enter sends, as in every chat; shift and enter is a new line.
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault()
-                submit()
-              }
-            }}
-          />
+          <Field label="Message">
+            <textarea
+              rows={3}
+              value={typed}
+              onChange={(event) => setTyped(event.target.value)}
+              onKeyDown={(event) => {
+                // Enter sends, as in every chat; shift and enter is a new line.
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault()
+                  submit()
+                }
+              }}
+            />
+          </Field>
           <button type="submit" disabled={sending || typed.trim() === ''}>
             {sending ? 'Answering' : 'Send'}
           </button>

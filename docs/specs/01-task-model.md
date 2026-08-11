@@ -58,6 +58,8 @@ flags (spec 05).
 | `waiting_on` | text | Nullable free text, only meaningful when `status = 'waiting'` |
 | `status_set_by` | text | `user` \| `llm` \| `sync` |
 | `status_set_at` | integer | epoch ms |
+| `previous_status` | text | Nullable. What `status` was before the most recent change, so that change can be put back. See below |
+| `previous_status_set_by` | text | Nullable. What `status_set_by` was at the same moment |
 | `sync_tracked` | integer (bool) | Whether sync still owns this task's lifecycle. See below |
 | `created_at`, `updated_at`, `completed_at` | integer | |
 
@@ -102,6 +104,20 @@ triage is genuinely free-form. Two rules constrain it:
 1. Setting a status records `status_set_by` and `status_set_at`.
 2. Once `status_set_by = 'user'`, the classifier never touches the task again (spec 04).
    Sync is constrained differently, by tracking.
+3. Setting a status also records what the status and its actor were immediately before, in
+   `previous_status` and `previous_status_set_by`, so that the change can be put back.
+
+Rule 3 exists because of rule 2. A status change is cheap to make and, when the actor is the
+user, permanent in its effect: it takes the task out of the classifier's reach for good. On the
+board a change is a single keypress (spec 08), so the cost of a mistake and the cost of making
+one are badly matched. Putting a status back therefore has to restore the actor as well as the
+status, and that means knowing what the actor was.
+
+One step, not a history. Each change overwrites the previous pair, so what is recoverable is the
+last change and nothing before it. A task never changed since creation has both columns null and
+nothing to put back. Undo is not itself a status change for the purpose of this rule: putting a
+change back does not record the state it is undoing as the new previous one, because that would
+make undo a toggle and lose the thing being restored.
 
 ### Sync tracking
 
@@ -173,3 +189,12 @@ Caroline already has.
 6. Deleting a project sets `project_id` to null on its tasks rather than deleting them.
 7. Every schema change ships as a numbered migration that runs on startup and is
    idempotent.
+8. A status change records the prior status and prior actor in `previous_status` and
+   `previous_status_set_by`, and a second change overwrites them rather than accumulating.
+9. Putting a status change back restores both the status and the actor, so a task the
+   classifier had set, moved by the user and then put back, is once again a task the classifier
+   may act on.
+10. Putting a change back does not record the undone state as the new previous one, so undo
+    cannot be applied twice to walk further back.
+11. A task never changed since creation has both previous columns null, and there is nothing to
+    put back.

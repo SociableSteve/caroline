@@ -41,6 +41,9 @@ describe('GET /api/tasks', () => {
         waitingOn: null,
         statusSetBy: 'user',
         statusSetAt: earlier,
+        // Never changed since capture, so there is nothing to put back. Spec 01, criterion 11.
+        previousStatus: null,
+        previousStatusSetBy: null,
         syncTracked: false,
         createdAt: earlier,
         updatedAt: earlier,
@@ -512,6 +515,100 @@ describe('DELETE /api/tasks/:id', () => {
     const { app } = await testServer()
 
     const response = await app.inject({ method: 'DELETE', url: '/api/tasks/no-such-task' })
+
+    expect(response.statusCode).toBe(404)
+  })
+})
+
+/**
+ * Spec 08, criteria 16 and 17. Its own route because `PATCH` cannot express it: the API is the
+ * user, and a user cannot claim to be the classifier, which is exactly what restoring the previous
+ * actor amounts to.
+ */
+describe('POST /api/tasks/:id/undo-status', () => {
+  it('restores the previous status and the previous actor', async () => {
+    const { app, database } = await testServer()
+    const task = createTask(
+      database,
+      { title: 'Read the newsletter', status: 'inbox', statusSetBy: 'llm' },
+      earlier,
+    )
+
+    await app.inject({
+      method: 'PATCH',
+      url: `/api/tasks/${task.id}`,
+      payload: { status: 'someday' },
+    })
+    const moved = getTask(database, task.id)
+    expect(moved?.statusSetBy).toBe('user')
+
+    const body = (
+      await app.inject({ method: 'POST', url: `/api/tasks/${task.id}/undo-status` })
+    ).json()
+
+    expect(body).toMatchObject({ status: 'inbox', statusSetBy: 'llm' })
+  })
+
+  // The part that matters: the task is once again one the classifier may act on.
+  it('puts the task back within the classifier’s reach', async () => {
+    const { app, database } = await testServer()
+    const task = createTask(
+      database,
+      { title: 'Read the newsletter', status: 'inbox', statusSetBy: 'sync' },
+      earlier,
+    )
+
+    await app.inject({
+      method: 'PATCH',
+      url: `/api/tasks/${task.id}`,
+      payload: { status: 'reference' },
+    })
+    await app.inject({ method: 'POST', url: `/api/tasks/${task.id}/undo-status` })
+
+    const restored = getTask(database, task.id)
+    expect(restored?.statusSetBy).not.toBe('user')
+  })
+
+  // Criterion 17: only the most recent change, and only while there is one.
+  it('answers 409 where there is nothing to put back', async () => {
+    const { app, database } = await testServer()
+    const task = createTask(database, { title: 'Book the venue' }, earlier)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/tasks/${task.id}/undo-status`,
+    })
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json().error.code).toBe('conflict')
+  })
+
+  it('answers 409 to a second undo, so it cannot walk back through a history', async () => {
+    const { app, database } = await testServer()
+    const task = createTask(database, { title: 'Book the venue' }, earlier)
+
+    await app.inject({
+      method: 'PATCH',
+      url: `/api/tasks/${task.id}`,
+      payload: { status: 'someday' },
+    })
+    const first = await app.inject({
+      method: 'POST',
+      url: `/api/tasks/${task.id}/undo-status`,
+    })
+    const second = await app.inject({
+      method: 'POST',
+      url: `/api/tasks/${task.id}/undo-status`,
+    })
+
+    expect(first.statusCode).toBe(200)
+    expect(second.statusCode).toBe(409)
+  })
+
+  it('answers 404 for a task that does not exist', async () => {
+    const { app } = await testServer()
+
+    const response = await app.inject({ method: 'POST', url: '/api/tasks/nope/undo-status' })
 
     expect(response.statusCode).toBe(404)
   })

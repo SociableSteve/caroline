@@ -545,6 +545,14 @@ export const api = {
     return send<TaskView>('POST', taskPath(id, '/mark-reviewed'))
   },
 
+  /**
+   * Put the last status change back, the actor with it, so a task moved by mistake is once again a
+   * task the classifier may act on. Spec 08, criterion 16.
+   */
+  undoStatus(id: string): Promise<TaskView> {
+    return send<TaskView>('POST', taskPath(id, '/undo-status'))
+  },
+
   /** Accept the classifier's proposal. The status becomes the user's own. Spec 04, criterion 9. */
   acceptProposal(id: string): Promise<TaskView> {
     return send<TaskView>('POST', taskPath(id, '/proposal/accept'))

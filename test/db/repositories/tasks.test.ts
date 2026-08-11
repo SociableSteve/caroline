@@ -11,6 +11,7 @@ import {
   listTasksByStatus,
   setSyncTracking,
   setTaskTags,
+  undoTaskStatus,
   updateTask,
 } from '../../../src/db/repositories/tasks.js'
 import { githubTrackedStatuses } from '../../../src/domain/task.js'
@@ -23,6 +24,45 @@ let database: Database
 
 beforeEach(() => {
   database = migratedDatabase()
+})
+
+/**
+ * The previous status pair, through the database rather than in memory. Spec 01, criteria 8 to 11.
+ */
+describe('undoTaskStatus', () => {
+  const undoneAt = later + 60_000
+
+  it('restores the status and the actor, and persists both', () => {
+    const task = createTask(
+      database,
+      { title: 'Sort the inbox item', status: 'inbox', statusSetBy: 'llm' },
+      createdAt,
+    )
+    changeTaskStatus(database, task.id, { status: 'someday', by: 'user', at: later })
+
+    const result = undoTaskStatus(database, task.id, undoneAt)
+
+    expect(result?.undone).toBe(true)
+    expect(getTask(database, task.id)).toMatchObject({
+      status: 'inbox',
+      statusSetBy: 'llm',
+      previousStatus: null,
+      previousStatusSetBy: null,
+    })
+  })
+
+  it('reports nothing to put back on a task never changed, and leaves it alone', () => {
+    const task = createTask(database, { title: 'Book the venue' }, createdAt)
+
+    const result = undoTaskStatus(database, task.id, undoneAt)
+
+    expect(result).toEqual({ undone: false, task })
+    expect(getTask(database, task.id)).toEqual(task)
+  })
+
+  it('answers null for a task that is not there, so a caller can tell it from a refusal', () => {
+    expect(undoTaskStatus(database, 'no-such-task', undoneAt)).toBeNull()
+  })
 })
 
 describe('createTask', () => {

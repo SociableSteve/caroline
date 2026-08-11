@@ -4,11 +4,13 @@
  */
 import { useState, type KeyboardEvent } from 'react'
 import { boardStatuses, type TaskStatus, type TaskView } from '../api.js'
+import { ActionRow, Badge, Fact, Facts, Field } from './primitives.js'
 import {
   canMarkReviewed,
   formatAge,
   formatConfidence,
   formatDate,
+  formatDue,
   formatEstimate,
   hasOptedOutOfSync,
   hasPushedSinceReview,
@@ -34,6 +36,8 @@ export interface TaskCardProps {
   /** The one-click accept spec 04 asks for. Absent where a proposal cannot be acted on. */
   readonly onAcceptProposal?: ((id: string) => void) | undefined
   readonly onDismissProposal?: ((id: string) => void) | undefined
+  /** Putting the last status change back. Absent where the surface does not offer it. */
+  readonly onUndoStatus?: ((id: string) => void) | undefined
   /** The board hands this in to drive its own keyboard grid. */
   readonly onKeyDown?: ((event: KeyboardEvent<HTMLElement>) => void) | undefined
   readonly registerRef?: ((id: string, element: HTMLElement | null) => void) | undefined
@@ -50,6 +54,7 @@ export function TaskCard({
   onMarkReviewed,
   onAcceptProposal,
   onDismissProposal,
+  onUndoStatus,
   onKeyDown,
   registerRef,
 }: TaskCardProps) {
@@ -87,100 +92,84 @@ export function TaskCard({
       >
         <h3 className="card-title">{task.title}</h3>
 
-        <dl className="card-facts">
-          <dt>Status</dt>
-          <dd>{statusLabel(task.status)}</dd>
-
-          {projectTitle !== undefined && (
-            <>
-              <dt>Project</dt>
-              <dd>{projectTitle}</dd>
-            </>
-          )}
+        {/* A card does not restate its own status: the column it is in says it, and so does the
+            status control. A third telling is noise, and on an Inbox, Someday or Reference card it
+            was the whole of the fact list. Spec 08, criterion 14. */}
+        <Facts>
+          {projectTitle !== undefined && <Fact label="Project">{projectTitle}</Fact>}
 
           {task.estimateMinutes !== null && (
-            <>
-              <dt>Estimate</dt>
-              <dd>{formatEstimate(task.estimateMinutes)}</dd>
-            </>
+            <Fact label="Estimate">{formatEstimate(task.estimateMinutes)}</Fact>
           )}
 
-          {task.dueAt !== null && (
-            <>
-              <dt>Due</dt>
-              <dd>{formatDate(task.dueAt)}</dd>
-            </>
-          )}
+          {task.dueAt !== null && <Fact label="Due">{formatDue(task.dueAt, now)}</Fact>}
 
           {isDeferred(task, now) && task.deferUntil !== null && (
-            <>
-              <dt>Deferred until</dt>
-              <dd>{formatDate(task.deferUntil)}</dd>
-            </>
+            <Fact label="Deferred until">{formatDate(task.deferUntil)}</Fact>
           )}
 
           {waiting && (
             <>
-              <dt>Waiting on</dt>
-              <dd>{task.waitingOn ?? 'nobody named'}</dd>
-              <dt>Waiting for</dt>
-              <dd>
+              <Fact label="Waiting on">{task.waitingOn ?? 'nobody named'}</Fact>
+              <Fact label="Waiting for">
                 {formatAge(waitingAge(task, now))}
-                {stale && <span className="badge badge-stale"> Stale</span>}
-              </dd>
+                {stale && (
+                  <>
+                    {' '}
+                    <Badge tone="alarm">Stale</Badge>
+                  </>
+                )}
+              </Fact>
             </>
           )}
 
           {pullRequest !== undefined && pullRequest.url !== null && (
-            <>
-              <dt>From</dt>
-              <dd>
-                <a href={pullRequest.url} target="_blank" rel="noreferrer">
-                  {pullRequest.externalId}
-                </a>
-              </dd>
-            </>
+            <Fact label="From">
+              <a href={pullRequest.url} target="_blank" rel="noreferrer">
+                {pullRequest.externalId}
+              </a>
+            </Fact>
           )}
 
           {suppressed.length > 0 && (
-            <>
-              <dt>Also notified</dt>
-              <dd>
-                {suppressed.map((source, index) => (
-                  <span key={source.id}>
-                    {index > 0 && ', '}
-                    {source.url === null ? (
-                      (source.title ?? source.externalId)
-                    ) : (
-                      <a href={source.url} target="_blank" rel="noreferrer">
-                        {source.title ?? source.externalId}
-                      </a>
-                    )}
-                  </span>
-                ))}
-              </dd>
-            </>
+            <Fact label="Also notified">
+              {suppressed.map((source, index) => (
+                <span key={source.id}>
+                  {index > 0 && ', '}
+                  {source.url === null ? (
+                    (source.title ?? source.externalId)
+                  ) : (
+                    <a href={source.url} target="_blank" rel="noreferrer">
+                      {source.title ?? source.externalId}
+                    </a>
+                  )}
+                </span>
+              ))}
+            </Fact>
           )}
 
-          {task.tags.length > 0 && (
-            <>
-              <dt>Tags</dt>
-              <dd>{task.tags.join(', ')}</dd>
-            </>
-          )}
-        </dl>
+          {task.tags.length > 0 && <Fact label="Tags">{task.tags.join(', ')}</Fact>}
+        </Facts>
 
         {/* Every state carried by a badge is carried by its words too, so none of it depends
             on colour alone. Spec 08, accessibility. */}
         {(pushedSince || optedOut || completionProposed) && (
           <ul className="card-flags">
             {pushedSince && (
-              <li className="badge badge-pushed">The author has pushed since you reviewed</li>
+              <li>
+                <Badge tone="accent">The author has pushed since you reviewed</Badge>
+              </li>
             )}
             {completionProposed && (
-              <li className="badge badge-proposed">Closed upstream. Complete it?</li>
+              <li>
+                <Badge tone="accent">Closed upstream. Complete it?</Badge>
+              </li>
             )}
-            {optedOut && <li className="badge badge-untracked">Sync tracking off</li>}
+            {optedOut && (
+              <li>
+                <Badge>Sync tracking off</Badge>
+              </li>
+            )}
           </ul>
         )}
 
@@ -213,65 +202,84 @@ export function TaskCard({
               </p>
             )}
 
-            <div className="proposal-actions">
-              <button
-                type="button"
-                className="card-primary"
-                onClick={() => onAcceptProposal?.(task.id)}
-              >
+            <ActionRow>
+              <button type="button" className="primary" onClick={() => onAcceptProposal?.(task.id)}>
                 Accept
               </button>
               <button type="button" onClick={() => onDismissProposal?.(task.id)}>
                 Dismiss
               </button>
-            </div>
+            </ActionRow>
           </section>
         )}
 
-        <div className="card-actions">
+        {/*
+         * The primary action stays on the card. Spec 08's "nothing is hidden behind a hover" is a
+         * rule about information, and every fact above is still visible; the rest of the controls
+         * go behind this disclosure, which is visible, labelled and keyboard reachable. Three
+         * controls abreast do not fit a column, and a card whose controls are taller than its
+         * content has the emphasis backwards. Criteria 14 and 15.
+         */}
+        <ActionRow className="card-actions">
           {offerMarkReviewed && (
-            <button
-              type="button"
-              className="card-primary"
-              onClick={() => onMarkReviewed?.(task.id)}
-            >
+            <button type="button" className="primary" onClick={() => onMarkReviewed?.(task.id)}>
               Mark reviewed
             </button>
           )}
 
-          <label className="card-status">
-            <span className="visually-hidden">Status of {task.title}</span>
-            <select
-              value={task.status}
-              onChange={(event) => onStatusChange(task.id, event.target.value as TaskStatus)}
-            >
-              {boardStatuses.map((status) => (
-                <option key={status} value={status}>
-                  {statusLabel(status)}
-                </option>
-              ))}
-            </select>
-          </label>
-
           <button type="button" onClick={() => onComplete(task.id)}>
             Complete
           </button>
+        </ActionRow>
 
-          {confirmingDelete ? (
-            <>
-              <button type="button" onClick={() => onDelete(task.id)}>
-                Confirm delete
+        <details className="card-more">
+          {/*
+           * The summary takes the board's own key handler. Without it the disclosure would be a
+           * dead end for the keyboard: the board reads its shortcuts from the card and ignores
+           * anything raised inside it, which is right for the select and the buttons but wrong
+           * for a summary, where a digit or a `d` is still a board command and not typing.
+           * Criterion 15.
+           */}
+          <summary onKeyDown={onKeyDown}>More</summary>
+
+          <ActionRow className="card-actions">
+            <Field label={`Status of ${task.title}`} hiddenLabel>
+              <select
+                value={task.status}
+                onChange={(event) => onStatusChange(task.id, event.target.value as TaskStatus)}
+              >
+                {boardStatuses.map((status) => (
+                  <option key={status} value={status}>
+                    {statusLabel(status)}
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            {/* Undoing restores the previous actor as well as the previous status, which is the
+                part that matters: a board move locks the classifier out for good. Spec 08. */}
+            {onUndoStatus !== undefined && task.previousStatus !== null && (
+              <button type="button" onClick={() => onUndoStatus(task.id)}>
+                Undo move
               </button>
-              <button type="button" onClick={() => setConfirmingDelete(false)}>
-                Keep
+            )}
+
+            {confirmingDelete ? (
+              <>
+                <button type="button" onClick={() => onDelete(task.id)}>
+                  Confirm delete
+                </button>
+                <button type="button" onClick={() => setConfirmingDelete(false)}>
+                  Keep
+                </button>
+              </>
+            ) : (
+              <button type="button" onClick={() => setConfirmingDelete(true)}>
+                Delete
               </button>
-            </>
-          ) : (
-            <button type="button" onClick={() => setConfirmingDelete(true)}>
-              Delete
-            </button>
-          )}
-        </div>
+            )}
+          </ActionRow>
+        </details>
       </article>
     </li>
   )

@@ -10,6 +10,7 @@
  */
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import type { ProjectView, TaskInput } from '../api.js'
+import { ActionRow, Field } from './primitives.js'
 
 export interface QuickCaptureProps {
   readonly open: boolean
@@ -175,8 +176,7 @@ export function QuickCapture({ open, projects, onClose, onCreate }: QuickCapture
             void submit()
           }}
         >
-          <label>
-            What is it?
+          <Field label="What is it?">
             <input
               ref={titleField}
               name="title"
@@ -184,20 +184,18 @@ export function QuickCapture({ open, projects, onClose, onCreate }: QuickCapture
               onChange={(event) => setTitle(event.target.value)}
               autoComplete="off"
             />
-          </label>
+          </Field>
 
-          <label>
-            Notes
+          <Field label="Notes">
             <textarea
               name="notes"
               value={notes}
               onChange={(event) => setNotes(event.target.value)}
               rows={3}
             />
-          </label>
+          </Field>
 
-          <label>
-            Project
+          <Field label="Project">
             <select
               name="projectId"
               value={projectId}
@@ -210,18 +208,18 @@ export function QuickCapture({ open, projects, onClose, onCreate }: QuickCapture
                 </option>
               ))}
             </select>
-          </label>
+          </Field>
 
           <p className="capture-hint">It lands in the inbox, to be triaged later.</p>
 
-          <div className="capture-actions">
-            <button type="submit" disabled={title.trim() === '' || saving}>
+          <ActionRow>
+            <button type="submit" className="primary" disabled={title.trim() === '' || saving}>
               Capture
             </button>
             <button type="button" onClick={close}>
               Cancel
             </button>
-          </div>
+          </ActionRow>
         </form>
       </section>
     </div>

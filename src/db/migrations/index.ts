@@ -6,6 +6,7 @@ import { classification } from './0004-classification.js'
 import { calendarAndPlans } from './0005-calendar-and-plans.js'
 import { chat } from './0006-chat.js'
 import { backupSources } from './0007-backup-sources.js'
+import { previousStatus } from './0008-previous-status.js'
 
 /**
  * Every migration, in order. Listed explicitly rather than discovered from the filesystem:
@@ -20,4 +21,5 @@ export const migrations: readonly Migration[] = [
   calendarAndPlans,
   chat,
   backupSources,
+  previousStatus,
 ]

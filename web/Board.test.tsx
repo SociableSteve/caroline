@@ -18,6 +18,7 @@ function renderBoard(overrides: Partial<Parameters<typeof Board>[0]> = {}) {
     onMarkReviewed: vi.fn(),
     onAcceptProposal: vi.fn(),
     onDismissProposal: vi.fn(),
+    onUndoStatus: vi.fn(),
   }
 
   render(<Board tasks={[]} projects={[]} staleDays={7} now={NOW} {...handlers} {...overrides} />)
@@ -25,8 +26,10 @@ function renderBoard(overrides: Partial<Parameters<typeof Board>[0]> = {}) {
   return handlers
 }
 
+// A named region, not a list item. Wrapping the columns in list roles would replace the region
+// semantics each one already has and cost the headings their place in the outline. Spec 08.
 function column(name: string | RegExp) {
-  return screen.getByRole('listitem', { name })
+  return screen.getByRole('region', { name })
 }
 
 describe('the board columns', () => {
@@ -385,6 +388,205 @@ describe('what a card shows without being asked', () => {
     })
 
     expect(screen.getByText('Deferred until')).toBeInTheDocument()
+  })
+
+  /**
+   * Criterion 14. The column the card is in says its status, and so does the status control; a
+   * third telling in the fact list is noise, and on an Inbox, Someday or Reference card it was the
+   * fact list's only row.
+   */
+  it('does not restate its own status as a fact', () => {
+    renderBoard({ tasks: [aTask({ id: 'task-1', title: 'Renew the domain' })] })
+
+    const card = screen.getByRole('article', { name: 'Renew the domain' })
+
+    expect(within(card).queryByText('Status')).not.toBeInTheDocument()
+  })
+
+  /**
+   * Criterion 14, the other half: a fact is never a click away, while a secondary control may be.
+   * Spec 08's "nothing is hidden behind a hover" is a rule about information.
+   */
+  it('keeps every fact visible while the secondary controls are behind a disclosure', () => {
+    renderBoard({
+      tasks: [
+        aTask({
+          id: 'task-1',
+          title: 'Renew the domain',
+          estimateMinutes: 90,
+          tags: ['admin'],
+        }),
+      ],
+    })
+
+    const card = screen.getByRole('article', { name: 'Renew the domain' })
+
+    expect(within(card).getByText('1 hour 30 min')).toBeVisible()
+    expect(within(card).getByText('admin')).toBeVisible()
+    expect(within(card).getByRole('button', { name: 'Complete' })).toBeVisible()
+    // Present in the document and reachable, but not taking a third of the card until asked for.
+    expect(within(card).getByRole('combobox')).not.toBeVisible()
+  })
+
+  // Criterion 15: the disclosure is a control, so it is reachable by keyboard like any other.
+  it('opens the disclosure from the keyboard', async () => {
+    renderBoard({ tasks: [aTask({ id: 'task-1', title: 'Renew the domain' })] })
+
+    const card = screen.getByRole('article', { name: 'Renew the domain' })
+    await userEvent.click(within(card).getByText('More'))
+
+    expect(within(card).getByRole('combobox')).toBeVisible()
+    expect(within(card).getByRole('button', { name: 'Delete' })).toBeVisible()
+  })
+
+  /**
+   * Criterion 18, and spec 10's rule that a time state says which it is: a date on its own asks
+   * the reader to know today's date and do the comparison.
+   */
+  it('names an overdue date and a date due today, and leaves a later one as the date', () => {
+    renderBoard({
+      tasks: [
+        aTask({ id: 'task-1', title: 'Late', dueAt: NOW - 2 * DAY }),
+        aTask({ id: 'task-2', title: 'Now', dueAt: NOW }),
+        aTask({ id: 'task-3', title: 'Soon', dueAt: NOW + 5 * DAY }),
+      ],
+    })
+
+    const due = (title: string) =>
+      within(screen.getByRole('article', { name: title })).getByText(/Overdue|Today|\d/, {
+        selector: 'dd',
+      }).textContent
+
+    expect(due('Late')).toMatch(/^Overdue, /)
+    expect(due('Now')).toMatch(/^Today, /)
+    expect(due('Soon')).toBe(formatDate(NOW + 5 * DAY))
+  })
+})
+
+/**
+ * Putting a board move back. Spec 08, criteria 16 and 17: a move is one keypress and records
+ * `status_set_by = 'user'`, which locks the classifier out of the task from then on, so a mistyped
+ * digit does not merely misfile a card.
+ */
+describe('undoing the last status change', () => {
+  it('offers the undo only on a task that has been changed', async () => {
+    renderBoard({
+      tasks: [
+        aTask({
+          id: 'task-1',
+          title: 'Moved',
+          previousStatus: 'inbox',
+          previousStatusSetBy: 'llm',
+        }),
+        aTask({ id: 'task-2', title: 'Never moved' }),
+      ],
+    })
+
+    const moved = screen.getByRole('article', { name: 'Moved' })
+    const untouched = screen.getByRole('article', { name: 'Never moved' })
+
+    await userEvent.click(within(moved).getByText('More'))
+    await userEvent.click(within(untouched).getByText('More'))
+
+    expect(within(moved).getByRole('button', { name: 'Undo move' })).toBeVisible()
+    expect(within(untouched).queryByRole('button', { name: 'Undo move' })).not.toBeInTheDocument()
+  })
+
+  it('asks for it from the card', async () => {
+    const handlers = renderBoard({
+      tasks: [
+        aTask({
+          id: 'task-1',
+          title: 'Moved',
+          previousStatus: 'inbox',
+          previousStatusSetBy: 'llm',
+        }),
+      ],
+    })
+
+    const card = screen.getByRole('article', { name: 'Moved' })
+    await userEvent.click(within(card).getByText('More'))
+    await userEvent.click(within(card).getByRole('button', { name: 'Undo move' }))
+
+    expect(handlers.onUndoStatus).toHaveBeenCalledWith('task-1')
+  })
+
+  // A change is one keypress, so putting one back is one too.
+  it('asks for it from the keyboard, and is silent where there is nothing to put back', () => {
+    const handlers = renderBoard({
+      tasks: [
+        aTask({
+          id: 'task-1',
+          title: 'Moved',
+          previousStatus: 'inbox',
+          previousStatusSetBy: 'llm',
+        }),
+        aTask({ id: 'task-2', title: 'Never moved' }),
+      ],
+    })
+
+    fireEvent.keyDown(screen.getByRole('article', { name: 'Moved' }), { key: 'u' })
+    expect(handlers.onUndoStatus).toHaveBeenCalledWith('task-1')
+
+    handlers.onUndoStatus.mockClear()
+    fireEvent.keyDown(screen.getByRole('article', { name: 'Never moved' }), { key: 'u' })
+    expect(handlers.onUndoStatus).not.toHaveBeenCalled()
+  })
+
+  // Criterion 15: opening the disclosure must not take the board's own keys away.
+  it('leaves the board keys working while the disclosure is open', async () => {
+    const handlers = renderBoard({
+      tasks: [aTask({ id: 'task-1', title: 'Renew the domain' })],
+    })
+
+    const card = screen.getByRole('article', { name: 'Renew the domain' })
+    await userEvent.click(within(card).getByText('More'))
+    fireEvent.keyDown(card, { key: 'd' })
+
+    expect(handlers.onComplete).toHaveBeenCalledWith('task-1')
+  })
+
+  /**
+   * And with the focus still on the disclosure, which is where opening it from the keyboard
+   * leaves it. A summary is not a text field: a digit typed on it is a board command, not typing,
+   * so the shortcuts have to survive the trip into the disclosure and not only the trip back out.
+   */
+  it('keeps the shortcuts working while the summary itself holds the focus', async () => {
+    const handlers = renderBoard({
+      tasks: [
+        aTask({
+          id: 'task-1',
+          title: 'Renew the domain',
+          previousStatus: 'inbox',
+          previousStatusSetBy: 'llm',
+        }),
+      ],
+    })
+
+    const card = screen.getByRole('article', { name: 'Renew the domain' })
+    const summary = within(card).getByText('More')
+    summary.focus()
+
+    fireEvent.keyDown(summary, { key: 'd' })
+    expect(handlers.onComplete).toHaveBeenCalledWith('task-1')
+
+    fireEvent.keyDown(summary, { key: 'u' })
+    expect(handlers.onUndoStatus).toHaveBeenCalledWith('task-1')
+
+    fireEvent.keyDown(summary, { key: '5' })
+    expect(handlers.onStatusChange).toHaveBeenCalledWith('task-1', 'someday')
+  })
+
+  // The controls inside it are a different matter: their keys are theirs, which is why the board
+  // reads only from the card and the summary.
+  it('still leaves the keys of the controls inside the disclosure alone', async () => {
+    const handlers = renderBoard({ tasks: [aTask({ id: 'task-1', title: 'Renew the domain' })] })
+
+    const card = screen.getByRole('article', { name: 'Renew the domain' })
+    await userEvent.click(within(card).getByText('More'))
+    fireEvent.keyDown(within(card).getByRole('combobox'), { key: 'd' })
+
+    expect(handlers.onComplete).not.toHaveBeenCalled()
   })
 })
 
