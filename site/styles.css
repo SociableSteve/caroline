@@ -107,6 +107,18 @@ article > * {
   max-width: var(--measure);
 }
 
+/*
+ * The header is sticky, so a fragment that scrolls a heading to the top of the viewport puts it behind
+ * the header: following `#6b-the-consent-screen`, or any entry in the contents list, showed the
+ * paragraph after the heading and not the heading. Criterion 4 is the claim that those fragments land,
+ * and landing under the furniture is not landing.
+ */
+h1,
+h2,
+h3 {
+  scroll-margin-top: var(--space-7);
+}
+
 h1 {
   margin: 0 0 var(--space-5);
   font-size: var(--text-xl);

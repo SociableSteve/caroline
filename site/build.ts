@@ -116,10 +116,13 @@ function headingOf(markdown: string): string {
  * here exactly as it is there.
  */
 export function slug(heading: string): string {
+  // Trimmed before the punctuation goes, which is the order github-slugger uses: `## What now ?` is
+  // `#what-now-` there, because the space the `?` leaves behind becomes a hyphen. Trimming afterwards
+  // would drop it and refuse a fragment GitHub is right about.
   return heading
     .toLowerCase()
-    .replace(/[^\p{L}\p{N} _-]/gu, '')
     .trim()
+    .replace(/[^\p{L}\p{N} _-]/gu, '')
     .replace(/\s/g, '-')
 }
 
@@ -263,6 +266,13 @@ function render(markdown: string, page: SitePage, context: BuildContext): Render
  * document that wants to point at a source file can write its URL.
  */
 function resolve(href: string, page: SitePage, context: BuildContext, failures: string[]): string {
+  // `[the guide]()` and `[the guide](#)` are typos that publish a link which reloads the page. A
+  // fragment with something after the hash is a link within the page and resolves like any other.
+  if (href === '' || href === '#') {
+    failures.push(`${page.source} has a link with nothing to link to, written as "${href}"`)
+
+    return href
+  }
   if (isAbsolute(href) || href.startsWith('#')) return href
 
   const [path = '', ...rest] = href.split('#')
@@ -389,7 +399,7 @@ const diagram = `<svg class="flow" viewBox="0 0 640 190" aria-hidden="true" focu
 function description(markdown: string): string {
   // A paragraph, which is to say prose: not a heading, a table, a list, a quotation or a command. A
   // description built from a document's opening code fence is a line of shell in a search result.
-  const prose = /^([#|>-]|\*|\d+\.|```| {4})/
+  const prose = /^([#|>-]|\*|\d+\.|```| {4}|<)/
   const paragraph = paragraphs(markdown)
     .map((block) => block.trim())
     .find((block) => block !== '' && !prose.test(block))
@@ -469,7 +479,7 @@ function layout(
         <a href="${escapeAttribute(context.repository)}" rel="noopener" target="_blank">Source</a>
       </nav>
     </header>
-    <main id="${contentIdentifier}" class="${page.output === 'index.html' ? 'home' : 'document'}${contents === '' ? '' : ' with-contents'}">
+    <main id="${contentIdentifier}" tabindex="-1" class="${page.output === 'index.html' ? 'home' : 'document'}${contents === '' ? '' : ' with-contents'}">
       ${contents}
       <article>
 ${rendered.html.trimEnd()}
@@ -489,6 +499,15 @@ ${rendered.html.trimEnd()}
 }
 
 /**
+ * The stylesheet with its comments blanked out, character for character, so that every index into it is
+ * still an index into the original. Prose about a rule is not a rule: `:root {` in a sentence would
+ * otherwise be where the palette is read from, and the first `--accent:` in a comment would be the
+ * colour of the favicon.
+ */
+const withoutComments = (css: string): string =>
+  css.replace(/\/\*[\s\S]*?\*\//g, (comment) => ' '.repeat(comment.length))
+
+/**
  * The application's palette, lifted whole. Spec 10 owns these values; the site is a second set of
  * rules over the same tokens, and extracting the blocks is what stops it becoming a second palette.
  */
@@ -506,24 +525,19 @@ ${blocks}
 }
 
 /**
- * From an opening brace to the one that closes it, counting the pairs between and skipping comments: a
- * `{` in a sentence about a rule is not a rule, and counting it would cut the palette short. The slice
- * comes from the original text, so the comments the palette is written with come with it.
+ * From an opening brace to the one that closes it, counting the pairs between. Read from the blanked copy
+ * so that neither the opening nor a brace can be found inside a comment, and sliced from the original so
+ * that the palette keeps the comments it is written with.
  */
 function block(css: string, opening: string): string {
-  const start = css.indexOf(opening)
+  const searchable = withoutComments(css)
+  const start = searchable.indexOf(opening)
   if (start === -1) throw new Error(`web/styles.css has no ${opening} block for the site to share`)
 
   let depth = 0
-  for (let index = start + opening.length - 1; index < css.length; index += 1) {
-    if (css.startsWith('/*', index)) {
-      const close = css.indexOf('*/', index)
-      if (close === -1) throw new Error('web/styles.css leaves a comment unclosed')
-      index = close + 1
-      continue
-    }
-    if (css[index] === '{') depth += 1
-    else if (css[index] === '}') {
+  for (let index = start + opening.length - 1; index < searchable.length; index += 1) {
+    if (searchable[index] === '{') depth += 1
+    else if (searchable[index] === '}') {
       depth -= 1
       if (depth === 0) return css.slice(start, index + 1)
     }
@@ -538,8 +552,8 @@ function block(css: string, opening: string): string {
  * image and knows nothing about the reader's theme, so it takes the light pair.
  */
 function icon(application: string): string {
-  const token = (name: string) =>
-    new RegExp(`--${name}:\\s*([^;]+);`).exec(application)?.[1]?.trim()
+  const searchable = withoutComments(application)
+  const token = (name: string) => new RegExp(`--${name}:\\s*([^;]+);`).exec(searchable)?.[1]?.trim()
   const [accent, ink] = [token('accent'), token('accent-ink')]
   if (accent === undefined || ink === undefined) {
     throw new Error('web/styles.css declares no accent pair for the icon')
@@ -613,7 +627,10 @@ function verify(files: ReadonlyMap<string, string>): void {
     // An `<img>` is here for the reason the renderer refuses a Markdown one, nothing being copied into
     // the output; `<style>` because the site has one stylesheet and an inline one can `@import` from
     // anywhere; `<object>` and `<embed>` because they are an `<iframe>` by another name.
-    const forbidden = /<(script|iframe|img|object|embed|style)\b/i.exec(contents)
+    // Comments out first: a tag parked inside one is not a tag the page carries, and refusing to publish
+    // a page over `<!-- <img src="x"> -->` would be a build failing on something a browser never reads.
+    const published = contents.replace(/<!--[\s\S]*?-->/g, '')
+    const forbidden = /<(script|iframe|img|object|embed|style)\b/i.exec(published)
     if (forbidden !== null) {
       throw new Error(`${path} carries ${forbidden[0]}, which a page of this site does not`)
     }
@@ -622,7 +639,7 @@ function verify(files: ReadonlyMap<string, string>): void {
     // writes, because a raw `<a HREF='javascript:…'>` in a document reaches the page untouched. Reading
     // the page rather than its tags would read escaped prose too, and a document that shows an anchor
     // in a code sample would fail the build on a link nobody wrote.
-    for (const match of contents.matchAll(tagPattern)) {
+    for (const match of published.matchAll(tagPattern)) {
       const element = (/^<([a-z][a-z0-9]*)/i.exec(match[0])?.[1] ?? '').toLowerCase()
 
       for (const [name, value] of attributesOf(match[0])) {
@@ -631,6 +648,10 @@ function verify(files: ReadonlyMap<string, string>): void {
         }
         if (!references.has(name)) continue
         const href = value.replace(/&amp;/g, '&')
+        // The raw-HTML spelling of the same typo: a reference to nothing, which reloads the page.
+        if (href === '' || href === '#') {
+          throw new Error(`${path} has a <${element}> with nothing to link to`)
+        }
 
         if (isAbsolute(href)) {
           if (!schemes.some((scheme) => href.toLowerCase().startsWith(scheme))) {

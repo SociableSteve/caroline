@@ -124,15 +124,35 @@ describe('the site renders the documentation rather than restating it', () => {
     }
   })
 
-  it('extracts the palette without being confused by a brace in a comment', () => {
+  /**
+   * A comment is prose about the rules and not one of them, so neither the palette's opening brace nor
+   * the accent the favicon is drawn in can be found inside one. Both halves are here: a brace that would
+   * cut the block short, and a whole `:root {` that would be where the block is read from.
+   */
+  it.each([
+    '/* A rule reads `a { b: c }` */',
+    '/* The palette begins at :root { and ends at the brace that closes it. */',
+    '/* Never write --accent: #ff0000 in a comment. */',
+  ])('extracts the palette and the icon past %s', (comment) => {
     const commented = override(
       'web/styles.css',
-      source('web/styles.css').replace(':root {', '/* A rule reads `a { b: c }` */\n:root {'),
+      source('web/styles.css').replace(':root {', `${comment}\n:root {`),
     )
-    const stylesheet = buildSite(commented).get('styles.css') ?? ''
+    const built = buildSite(commented)
+    const stylesheet = built.get('styles.css') ?? ''
 
-    expect(stylesheet).toContain('--accent:')
+    expect(stylesheet).toContain('--accent: #1c4f8b')
     expect(stylesheet.split('{').length).toBe(stylesheet.split('}').length)
+    expect(built.get('icon.svg')).toContain('#1c4f8b')
+  })
+
+  it('publishes a document that has commented a tag out, rather than refusing the page', () => {
+    const parked = override(
+      'docs/plan.md',
+      '# Caroline implementation plan\n\n<!-- <img src="shot.png"> -->\n',
+    )
+
+    expect(() => buildSite(parked)).not.toThrow()
   })
 
   it('leaves no substitution marker unfilled', () => {
@@ -267,6 +287,15 @@ describe('the links survive the move off GitHub', () => {
    * `#content` written against GitHub matching `<main>`, so a reader following it lands at the top of
    * the page rather than at the section, which is exactly what criterion 3 promises does not happen.
    */
+  it.each(['[the guide]()', '[the guide](#)'])(
+    'fails the build on %s, which is a typo rather than a link',
+    (link) => {
+      const broken = override('docs/plan.md', `# Caroline implementation plan\n\n${link}\n`)
+
+      expect(() => buildSite(broken)).toThrow(/nothing to link to/)
+    },
+  )
+
   /** `## ???` slugs to nothing, which is `id=""` and a contents entry pointing at `#`. */
   it('fails the build on a heading that slugs to nothing at all', () => {
     const broken = override('docs/plan.md', '# Caroline implementation plan\n\n## ???\n')
@@ -303,6 +332,9 @@ describe('the links survive the move off GitHub', () => {
   // they were written against.
   it('identifies headings by GitHub slug, so the fragments already written still land', () => {
     expect(slug('6b. The consent screen')).toBe('6b-the-consent-screen')
+    // github-slugger trims before it drops punctuation, so the space a trailing `?` leaves becomes a
+    // hyphen. Trimming afterwards would drop it and refuse a fragment GitHub is right about.
+    expect(slug('What now ?')).toBe('what-now-')
     expect(slug('Non-goals')).toBe('non-goals')
     expect(slug('What leaves the machine, and what stays on it')).toBe(
       'what-leaves-the-machine-and-what-stays-on-it',
@@ -454,6 +486,18 @@ describe('the site and the application look like one thing', () => {
     // Named, rather than "contains rect": an unrelated accented SVG rule would otherwise satisfy this
     // test on the day `.flow-core` lost its own.
     expect(accent).toBe('.flow-box rect.flow-core')
+  })
+
+  /**
+   * A sticky header and a fragment link are the two halves of the same problem: scrolling a heading to
+   * the top of the viewport puts it behind the header, so the reader arrives at the paragraph after the
+   * heading. Criterion 4 says the fragments land, and under the furniture is not landing.
+   */
+  it('leaves room under the sticky header for a heading a fragment scrolls to', () => {
+    const offsets = own.filter((rule) => rule.property === 'scroll-margin-top')
+
+    expect(offsets).not.toEqual([])
+    expect(offsets.map((rule) => rule.selector)).toContain('h1, h2, h3')
   })
 
   it('draws the icon in the accent colour the application uses, rather than a fourth blue', () => {
