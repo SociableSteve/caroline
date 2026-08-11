@@ -7,7 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { App } from './App.js'
-import { aProject, aReviewTask, aTask } from './test-fixtures.js'
+import type { ChatStreamEvent } from './api.js'
+import { aProject, aReviewTask, aTask, chatTurnWire, NOW } from './test-fixtures.js'
 
 interface Call {
   readonly method: string
@@ -37,6 +38,10 @@ interface StubOptions {
   failWrites?: boolean
   /** Reported by the server as the total, when it is more than the stubbed rows. */
   taskTotal?: number
+  /** What a streamed turn reports, in the order the server would send it. */
+  chatEvents?: readonly ChatStreamEvent[]
+  /** The turns the server has a record of, which is what the read after a turn answers with. */
+  chatTranscript?: readonly unknown[]
 }
 
 const noGoogle = {
@@ -51,6 +56,17 @@ const nothingToPreview = {
   policy: { llmContent: 'snippet', storeContent: 'metadata', snippetChars: 300 },
   item: null,
   payload: null,
+}
+
+/** The one conversation the stubbed server has a record of. */
+const aConversation = {
+  id: 'conversation-1',
+  title: 'Triage my inbox',
+  createdAt: NOW,
+  updatedAt: NOW,
+  messageCount: 2,
+  inputTokens: 10,
+  outputTokens: 4,
 }
 
 /** The day the stubbed server thinks it is, for the plan and calendar routes. */
@@ -80,6 +96,8 @@ function stubApi({
   failListing,
   failWrites,
   taskTotal,
+  chatEvents,
+  chatTranscript = [],
 }: StubOptions = {}) {
   const calls: Call[] = []
 
@@ -96,6 +114,18 @@ function stubApi({
       const answer = (body: unknown, status = 200) =>
         ({ ok: status < 400, status, json: async () => body }) as unknown as Response
 
+      // A turn is the one response that is a stream rather than a document, and it is served in the
+      // format the server really writes: see `chatTurnWire`.
+      if (method === 'POST' && url === '/api/chat' && chatEvents !== undefined) {
+        const body = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(chatTurnWire(chatEvents)))
+            controller.close()
+          },
+        })
+
+        return { ok: true, status: 200, body } as unknown as Response
+      }
       if (method !== 'GET') {
         return failWrites === true
           ? answer({ error: { code: 'bad_request', message: 'The server said no' } }, 400)
@@ -140,7 +170,13 @@ function stubApi({
           model: null,
         })
       }
-      if (url.startsWith('/api/chat/conversations')) return answer({ conversations: [] })
+      // A named conversation is a transcript; the bare route is the list.
+      if (url.startsWith('/api/chat/conversations/')) {
+        return answer({ conversation: aConversation, messages: chatTranscript })
+      }
+      if (url.startsWith('/api/chat/conversations')) {
+        return answer({ conversations: [aConversation] })
+      }
       if (url.startsWith('/api/integrations/google')) return answer(google)
       if (url.startsWith('/api/privacy/preview')) return answer(preview)
       if (url.startsWith('/api/settings')) return answer({ userName: '' })
@@ -511,12 +547,16 @@ describe('the change feed', () => {
  * nothing about it looks wrong.
  */
 describe('more tasks than the client will fetch', () => {
+  // Scoped to the surface: the rail beside it is open by default and says its own read-only state
+  // through a status of its own, which is not what these two are about.
   it('says how many it is showing of how many there are', async () => {
     stubApi({ taskTotal: 6000 })
 
     render(<App />)
 
-    expect(await screen.findByRole('status')).toHaveTextContent('Showing 5000 of 6000 tasks')
+    expect(await within(screen.getByRole('main')).findByRole('status')).toHaveTextContent(
+      'Showing 5000 of 6000 tasks',
+    )
   })
 
   it('says nothing when it has them all', async () => {
@@ -525,7 +565,7 @@ describe('more tasks than the client will fetch', () => {
     render(<App />)
     await screen.findByRole('region', { name: /where everything is/i })
 
-    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(within(screen.getByRole('main')).queryByRole('status')).not.toBeInTheDocument()
   })
 })
 
@@ -657,33 +697,81 @@ describe('the chat rail', () => {
     expect(within(nav).getAllByRole('link')).toHaveLength(5)
   })
 
-  it('opens beside the board, leaving the board on screen', async () => {
+  /**
+   * Open is the default. Chat is the thing you are meant to be talking to, and a rail you have to
+   * open on every surface you land on is one you end up not using.
+   */
+  it('is open beside the board with nothing in the hash asking for it', async () => {
     stubApi({ tasks: [aTask({ id: 'task-1', title: 'Captured' })] })
     window.location.hash = '#/board'
 
     render(<App />)
-    await userEvent.click(await screen.findByRole('button', { name: 'Chat' }))
 
-    expect(screen.getByRole('complementary', { name: 'Chat' })).toBeInTheDocument()
+    expect(await screen.findByRole('complementary', { name: 'Chat' })).toBeInTheDocument()
     expect(screen.getByLabelText('Message')).toBeInTheDocument()
-    // The point of a rail: the surface it was asked about is still there.
+    // The point of a rail: the surface it sits beside is still there.
     expect(screen.getByRole('article', { name: 'Captured' })).toBeInTheDocument()
   })
 
-  it('reads nothing for chat until the rail is opened', async () => {
+  it('reads what chat needs on load, since the rail is on screen', async () => {
     const calls = stubApi()
 
     render(<App />)
-    await screen.findByRole('region', { name: /where everything is/i })
-    expect(calls.some((call) => call.url.startsWith('/api/chat'))).toBe(false)
-
-    await userEvent.click(screen.getByRole('button', { name: 'Chat' }))
+    await screen.findByRole('complementary', { name: 'Chat' })
 
     await waitFor(() => {
       expect(calls.some((call) => call.url.startsWith('/api/chat/conversations'))).toBe(true)
       // Both, so the test would notice either read being dropped rather than only the list.
       expect(calls.some((call) => call.url.startsWith('/api/chat/status'))).toBe(true)
     })
+  })
+
+  it('reads nothing for chat where the hash says the rail was closed', async () => {
+    const calls = stubApi()
+    window.location.hash = '#/board?chat=closed'
+
+    render(<App />)
+    await screen.findByRole('heading', { name: /^Inbox/ })
+
+    expect(screen.queryByRole('complementary', { name: 'Chat' })).not.toBeInTheDocument()
+    expect(calls.some((call) => call.url.startsWith('/api/chat'))).toBe(false)
+  })
+
+  /**
+   * A companion to whichever surface is showing, so changing surface is not closing it. The two
+   * things the hash says about the rail travel with the link rather than being dropped at the door.
+   */
+  it('keeps the rail and its conversation across a change of surface', async () => {
+    stubApi()
+    window.location.hash = '#/board?conversation=conversation-1'
+
+    render(<App />)
+    await screen.findByRole('complementary', { name: 'Chat' })
+
+    expect(screen.getByRole('link', { name: 'Projects' })).toHaveAttribute(
+      'href',
+      '#/projects?conversation=conversation-1',
+    )
+
+    window.location.hash = '#/projects?conversation=conversation-1'
+    window.dispatchEvent(new HashChangeEvent('hashchange'))
+
+    expect(await screen.findByRole('heading', { name: 'Projects' })).toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: 'Chat' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Triage my inbox' })).toBeInTheDocument()
+  })
+
+  it('keeps a closed rail closed across a change of surface', async () => {
+    stubApi()
+    window.location.hash = '#/board?chat=closed'
+
+    render(<App />)
+    await screen.findByRole('heading', { name: /^Inbox/ })
+
+    expect(screen.getByRole('link', { name: 'Projects' })).toHaveAttribute(
+      'href',
+      '#/projects?chat=closed',
+    )
   })
 
   /** A conversation keeps a URL: one you cannot link to is one you cannot come back to. */
@@ -707,17 +795,21 @@ describe('the chat rail', () => {
     expect(await screen.findByRole('complementary', { name: 'Chat' })).toBeInTheDocument()
   })
 
-  it('puts itself in the URL when opened from the header', async () => {
+  it('puts a close in the URL, and an open back to the default of saying nothing', async () => {
     stubApi()
     window.location.hash = '#/board'
 
     render(<App />)
     await userEvent.click(await screen.findByRole('button', { name: 'Chat' }))
 
-    expect(window.location.hash).toBe('#/board?conversation=')
+    expect(window.location.hash).toBe('#/board?chat=closed')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Chat' }))
+
+    expect(window.location.hash).toBe('#/board')
   })
 
-  it('closes again, taking the conversation out of the URL with it', async () => {
+  it('closes from its own control, taking the conversation out of the URL with it', async () => {
     stubApi()
     window.location.hash = '#/board?conversation=conversation-1'
 
@@ -725,6 +817,63 @@ describe('the chat rail', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Close chat' }))
 
     expect(screen.queryByRole('complementary', { name: 'Chat' })).not.toBeInTheDocument()
-    expect(window.location.hash).toBe('#/board')
+    expect(window.location.hash).toBe('#/board?chat=closed')
+  })
+
+  /**
+   * Sending a message, end to end against the bytes the server writes. What blanked the page was an
+   * event whose payload the client read under a name the server never sent it under, which left an
+   * `undefined` in the transcript for the render to walk into.
+   */
+  it('renders the turn when a message is sent, rather than blanking the page', async () => {
+    const user = userEvent.setup()
+    const userTurn = {
+      id: 'message-1',
+      conversationId: 'conversation-1',
+      seq: 1,
+      role: 'user' as const,
+      content: 'What is in my inbox?',
+      createdAt: NOW,
+      toolCalls: 0,
+      toolCallLimitReached: false,
+      readOnly: false,
+      inputTokens: 0,
+      outputTokens: 0,
+      stopReason: null,
+      error: null,
+      changes: [],
+      confirmations: [],
+    }
+    const answered = {
+      ...userTurn,
+      id: 'message-2',
+      seq: 2,
+      role: 'assistant' as const,
+      content: 'Three things.',
+    }
+
+    stubApi({
+      chatEvents: [
+        { type: 'conversation', conversation: aConversation },
+        { type: 'user-message', message: userTurn },
+        { type: 'text', text: 'Three things.' },
+        { type: 'done', message: answered, conversation: aConversation },
+      ] as ChatStreamEvent[],
+      // What the server has written down by the time the read that follows the turn asks it, so
+      // the assertions are about the turn being rendered rather than about a race with that read.
+      chatTranscript: [userTurn, answered],
+    })
+    window.location.hash = '#/board?conversation=conversation-1'
+
+    render(<App />)
+    await screen.findByRole('complementary', { name: 'Chat' })
+
+    await user.type(screen.getByLabelText('Message'), 'What is in my inbox?')
+    await user.click(screen.getByRole('button', { name: 'Send' }))
+
+    // Both turns on screen, and the surface beside them still standing.
+    expect(await screen.findByText('What is in my inbox?')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('Three things.')).toBeInTheDocument())
+    expect(screen.getByRole('heading', { name: /^Inbox/ })).toBeInTheDocument()
   })
 })

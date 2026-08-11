@@ -227,14 +227,15 @@ describe('the chat rail', () => {
   /** The surface is kept: a conversation opened while reading the board is still about the board. */
   it('lists the conversations, keeping the surface it is open beside', () => {
     draw({
-      hash: '#/board',
+      hash: '#/board?conversation=conversation-1',
       conversations: [aConversation(), aConversation({ id: 'conversation-2', title: 'Chase Ana' })],
     })
 
-    // Still open: starting a new conversation is not closing the rail that would hold it.
+    // Still open: starting a new conversation is not closing the rail that would hold it, and the
+    // rail is open wherever the hash does not say it was closed.
     expect(screen.getByRole('link', { name: 'New conversation' })).toHaveAttribute(
       'href',
-      '#/board?conversation=',
+      '#/board',
     )
     expect(screen.getByRole('link', { name: 'Chase Ana' })).toHaveAttribute(
       'href',

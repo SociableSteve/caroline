@@ -273,6 +273,30 @@ describe('api.streamChat', () => {
     ])
   })
 
+  /**
+   * The four events whose data field is the record they name, because the event name has already
+   * said what it is. Read as a bag of fields, each arrived with the field the reader looks for
+   * missing: an `undefined` message in the transcript, which is what blanked the page on send.
+   */
+  it('reads an event whose payload is the record it names, under the name for it', async () => {
+    stubStream([
+      event('conversation', { id: 'conversation-1', title: 'Triage' }),
+      event('user-message', { id: 'message-1', role: 'user', changes: [] }),
+      event('change', { id: 'change-1', summary: 'Completed one thing' }),
+      event('confirmation', { id: 'confirmation-1', reason: 'delete' }),
+    ])
+    const seen: unknown[] = []
+
+    await api.streamChat({ message: 'Triage my inbox' }, (received) => seen.push(received))
+
+    expect(seen).toEqual([
+      { type: 'conversation', conversation: { id: 'conversation-1', title: 'Triage' } },
+      { type: 'user-message', message: { id: 'message-1', role: 'user', changes: [] } },
+      { type: 'change', change: { id: 'change-1', summary: 'Completed one thing' } },
+      { type: 'confirmation', confirmation: { id: 'confirmation-1', reason: 'delete' } },
+    ])
+  })
+
   it('reassembles an event split across two chunks', async () => {
     stubStream(['event: text\ndata: {"tex', 't":"split"}\n\n'])
     const seen: unknown[] = []
