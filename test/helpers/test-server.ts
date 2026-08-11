@@ -1,4 +1,7 @@
-import { afterEach } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterAll, afterEach } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { loadConfig } from '../../src/config/load.js'
 import type { Database } from '../../src/db/connection.js'
@@ -11,6 +14,22 @@ import type { GoogleAuth } from '../../src/connectors/google/auth.js'
 import { migratedDatabase } from './temp-database.js'
 
 /**
+ * A directory of this file's own, for everything the configuration derives from the database path.
+ *
+ * The database these tests actually run against is a temporary one, but the config's own
+ * `database.path` was left to default, and `googleTokenPath` derives the Google token file from
+ * it. On a machine where Caroline is really used that resolved to the real `data/google-tokens.json`,
+ * so the assertion that a clean checkout is not connected read the developer's live connection and
+ * failed, and a test that completed the OAuth flow wrote a token into the real data directory.
+ * A test suite has no business reading or writing there.
+ */
+const configDirectory = mkdtempSync(join(tmpdir(), 'caroline-config-'))
+
+afterAll(() => {
+  rmSync(configDirectory, { recursive: true, force: true })
+})
+
+/**
  * A clean checkout with no credentials, which is what the API tests care about.
  *
  * The timezone is pinned rather than left to default. `jobs.timezone` defaults to whatever the
@@ -19,9 +38,15 @@ import { migratedDatabase } from './temp-database.js'
  * in one zone and fails in another, and CI does not run where the author does. Europe/London
  * rather than UTC on purpose, so that a test written across a British Summer Time offset
  * exercises an offset at all.
+ *
+ * The database path is pinned for the same class of reason: a default that happens to be right on
+ * a clean checkout and wrong on a working machine is not a default a test suite can use.
  */
 export const testConfig = loadConfig({
-  file: { jobs: { timezone: 'Europe/London' } },
+  file: {
+    database: { path: join(configDirectory, 'caroline.db') },
+    jobs: { timezone: 'Europe/London' },
+  },
   env: {} as NodeJS.ProcessEnv,
 })
 
