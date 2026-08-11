@@ -107,6 +107,30 @@ describe('the site renders the documentation rather than restating it', () => {
     expect(rendered).toContain('"model": "<a model id>"')
   })
 
+  /**
+   * The description is what a search result and a shared link show, so it is prose or it is nothing
+   * useful: a document opening on a code fence would otherwise be described by a line of shell.
+   */
+  it('describes every page with a sentence rather than with a command or a list item', () => {
+    for (const [path, contents] of documents) {
+      const description = /<meta name="description" content="([^"]*)"/.exec(contents)?.[1] ?? ''
+
+      expect(description.length, path).toBeGreaterThan(20)
+      expect(description, path).toMatch(/^[A-Z(]/)
+    }
+  })
+
+  it('extracts the palette without being confused by a brace in a comment', () => {
+    const commented = override(
+      'web/styles.css',
+      source('web/styles.css').replace(':root {', '/* A rule reads `a { b: c }` */\n:root {'),
+    )
+    const stylesheet = buildSite(commented).get('styles.css') ?? ''
+
+    expect(stylesheet).toContain('--accent:')
+    expect(stylesheet.split('{').length).toBe(stylesheet.split('}').length)
+  })
+
   it('leaves no substitution marker unfilled', () => {
     for (const [, contents] of documents) expect(contents).not.toContain('{{')
   })

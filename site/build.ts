@@ -367,9 +367,12 @@ const diagram = `<svg class="flow" viewBox="0 0 640 190" aria-hidden="true" focu
 
 /** The first paragraph, as plain text: what a search result or a shared link shows. */
 function description(markdown: string): string {
+  // A paragraph, which is to say prose: not a heading, a table, a list, a quotation or a command. A
+  // description built from a document's opening code fence is a line of shell in a search result.
+  const prose = /^([#|>-]|\*|\d+\.|```|    )/
   const paragraph = paragraphs(markdown)
     .map((block) => block.trim())
-    .find((block) => block !== '' && !block.startsWith('#') && !block.startsWith('|'))
+    .find((block) => block !== '' && !prose.test(block))
   const sentence = (paragraph ?? '')
     .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
     // A description is plain text. Markup a document opens its first paragraph with would otherwise
@@ -482,13 +485,23 @@ ${blocks}
 `
 }
 
-/** From an opening brace to the one that closes it, counting the pairs between. */
+/**
+ * From an opening brace to the one that closes it, counting the pairs between and skipping comments: a
+ * `{` in a sentence about a rule is not a rule, and counting it would cut the palette short. The slice
+ * comes from the original text, so the comments the palette is written with come with it.
+ */
 function block(css: string, opening: string): string {
   const start = css.indexOf(opening)
   if (start === -1) throw new Error(`web/styles.css has no ${opening} block for the site to share`)
 
   let depth = 0
   for (let index = start + opening.length - 1; index < css.length; index += 1) {
+    if (css.startsWith('/*', index)) {
+      const close = css.indexOf('*/', index)
+      if (close === -1) throw new Error('web/styles.css leaves a comment unclosed')
+      index = close + 1
+      continue
+    }
     if (css[index] === '{') depth += 1
     else if (css[index] === '}') {
       depth -= 1
