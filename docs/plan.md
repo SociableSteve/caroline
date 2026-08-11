@@ -287,8 +287,10 @@ feature, and it is also the part that needs rules rather than good intentions:
    resolved-context object is built per turn and three things read it, so they cannot disagree:
    the provider request, the payload preview, and this record. A conversation you cannot audit is
    one you cannot trust, and an audit that records an id is not an audit.
-3. **Selecting nothing sends nothing.** There is no last-selected fallback. An item you closed is
-   an item you stopped talking about.
+3. **Selecting nothing sends no item, and still sends the message.** The turn goes as it always
+   did, simply without a selected item attached, and there is no last-selected fallback: an item
+   you closed is an item you stopped talking about. Nothing about the selection ever suppresses
+   the message itself, which would be a chat that silently ignores you for having closed a card.
 4. **The content policy governs it.** A task's title and notes are content, and a title here can
    carry a client's name. Spec 09 states which fields go, at which content level, and the payload
    preview shows a real one.

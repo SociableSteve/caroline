@@ -76,15 +76,23 @@ export function profileDirectory(name) {
  * port held while the next run tries to bind it, which is the failure this is here to prevent.
  */
 export async function stopChrome(chrome) {
-  chrome.kill()
+  // Already gone, so there is no `exit` left to wait for: `once` would never fire and the timeout
+  // below would spend two seconds discovering that. This is the common case when a run failed
+  // because Chrome died, which is exactly when nobody wants to wait.
+  if (chrome.exitCode !== null || chrome.signalCode !== null) return
 
-  await new Promise((resolve) => {
+  // Registered before the signal rather than after it, so a process that exits promptly cannot
+  // slip through the window between the two and leave us waiting for an event that has passed.
+  const exited = new Promise((resolve) => {
     const done = setTimeout(resolve, 2000)
     chrome.once('exit', () => {
       clearTimeout(done)
       resolve()
     })
   })
+
+  chrome.kill()
+  await exited
 }
 
 export function chromePath() {
