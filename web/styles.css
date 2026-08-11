@@ -459,10 +459,16 @@ button[disabled] {
   text-decoration: underline;
 }
 
-/* Which card the rail is showing. Said with the accent edge and by the button's pressed state. */
+/*
+ * Which card the rail is showing. An accent edge inside the card's own shadow rather than an outline,
+ * because an outline is what focus is: two rings of the same accent, one meaning focused and one
+ * meaning open, would be one ring nobody could read. The state is carried in words too, by the
+ * title's pressed state and by the panel naming the item. Spec 10.
+ */
 .card-open {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  box-shadow:
+    var(--shadow-1),
+    inset 3px 0 0 0 var(--accent);
 }
 
 .project-open {
