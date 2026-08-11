@@ -391,6 +391,14 @@ button[disabled] {
   gap: var(--space-2);
 }
 
+/*
+ * The heading beside it is a conversation title or an item's, so it is as long as it likes; without
+ * this the control wraps to two lines and the two of them squeeze each other.
+ */
+.rail-head > button {
+  white-space: nowrap;
+}
+
 .rail-heading {
   margin: 0;
   font-size: var(--text-base);
@@ -471,11 +479,6 @@ button[disabled] {
     inset 3px 0 0 0 var(--accent);
 }
 
-.project-open {
-  border-left: 2px solid var(--accent);
-  padding-left: var(--space-2);
-}
-
 /* The record of what a turn sent about the open item, behind a disclosure. Spec 07. */
 .turn-context > summary {
   color: var(--ink-quiet);
@@ -516,7 +519,7 @@ button[disabled] {
  */
 @media (max-height: 44rem) {
   .rail-details {
-    max-height: 30%;
+    max-height: 40%;
   }
 }
 
@@ -1011,6 +1014,16 @@ button[disabled] {
 .project.stalled {
   border-left: 4px solid var(--alarm);
   padding-left: var(--space-3);
+}
+
+/*
+ * The row the rail is showing, raised out of the list rather than edged. A left edge in the accent is
+ * what this started as, and a stalled project already has one in the alarm and a specificity to match:
+ * the open row and the row beside it were the same. A ground says it without competing with the state
+ * the edge is already carrying, which is what the four grounds are for. Spec 10.
+ */
+.project.project-open {
+  background: var(--surface-raised);
 }
 
 .project-next {
