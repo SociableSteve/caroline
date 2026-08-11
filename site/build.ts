@@ -112,6 +112,21 @@ export function slug(heading: string): string {
 const escapeText = (value: string): string =>
   value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 const escapeAttribute = (value: string): string => escapeText(value).replace(/"/g, '&quot;')
+
+/**
+ * Rendered inline HTML back to the text a reader sees. Headings are slugged from this rather than from
+ * their Markdown, because GitHub slugs the rendered text: a heading written as `## See [the docs](x)`
+ * is `#see-the-docs` there, and slugging the source would make it `see-the-docsx`. The entities come
+ * back with the tags, or a heading containing an `&` would slug as `amp`.
+ */
+const readAsText = (html: string): string =>
+  html
+    .replace(/<[^>]*>/g, '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
 const isAbsolute = (href: string): boolean =>
   /^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith('//')
 
@@ -143,13 +158,26 @@ function render(markdown: string, page: SitePage, context: BuildContext): Render
     renderer: {
       heading(token: Tokens.Heading) {
         const label = this.parser.parseInline(token.tokens)
-        let id = slug(token.text)
+        const heading = slug(readAsText(label))
+        let id = heading
         // Two headings can say the same thing. GitHub numbers the repeats, and so does this.
-        for (let repeat = 1; identifiers.has(id); repeat += 1) id = `${slug(token.text)}-${repeat}`
+        for (let repeat = 1; identifiers.has(id); repeat += 1) id = `${heading}-${repeat}`
         identifiers.add(id)
         if (token.depth === 2) sections.push({ id, label })
 
         return `<h${token.depth} id="${escapeAttribute(id)}">${label}</h${token.depth}>\n`
+      },
+
+      /**
+       * The site publishes the documents and nothing beside them: spec 11 has screenshots as a
+       * non-goal, and no asset is copied into the output. An image in a document would therefore
+       * render as a request for a file that is not there, and neither `verify` nor a reader's first
+       * visit would be a good moment to find that out. Refusing says what the work would be.
+       */
+      image(token: Tokens.Image) {
+        throw new Error(
+          `${page.source} embeds ${token.href}, and the site copies no assets: publishing an image means teaching site/build.ts to carry one`,
+        )
       },
 
       link(token: Tokens.Link) {
@@ -188,6 +216,11 @@ function resolve(href: string, page: SitePage, context: BuildContext): string {
   if (output !== undefined) {
     return `${posix.relative(posix.dirname(page.output), output)}${fragment}`
   }
+  // A file the site does not publish, linked at the repository. The question asked of the filesystem
+  // is whether the path exists, which is not quite whether it is committed: a link to a path that is
+  // ignored by git resolves here and 404s on GitHub, and the same tree in CI fails the build instead.
+  // That asymmetry is the cheaper of the two, the alternative being a git subprocess in a build whose
+  // whole claim is that it reads the tree.
   if (context.sources.exists(target)) {
     return `${context.repository}/blob/main/${target}${fragment}`
   }
@@ -306,7 +339,11 @@ function description(markdown: string): string {
   const stop = sentence.slice(0, 161).lastIndexOf('. ')
   if (stop >= 60) return sentence.slice(0, stop + 1)
 
-  return `${sentence.slice(0, sentence.lastIndexOf(' ', 157))}…`
+  // A paragraph whose first 158 characters hold no space has no word boundary to cut at, and
+  // `lastIndexOf` returning -1 through `slice` would drop one character rather than truncate.
+  const boundary = sentence.lastIndexOf(' ', 157)
+
+  return `${sentence.slice(0, boundary === -1 ? 157 : boundary)}…`
 }
 
 function layout(
@@ -328,7 +365,7 @@ function layout(
     rendered.sections.length < 3 || page.output === 'index.html'
       ? ''
       : `<nav class="toc" aria-label="On this page">
-        <h2>On this page</h2>
+        <p class="toc-label">On this page</p>
         <ol>
           ${rendered.sections
             .map(
@@ -466,9 +503,15 @@ function verify(files: ReadonlyMap<string, string>): void {
       throw new Error(`${path} carries ${scripting[0]}, and a page of this site runs nothing`)
     }
 
-    // Every form of the attribute, not the one this generator writes: a raw `<a HREF='javascript:…'>`
-    // in a document reaches the page untouched, and a check that only reads `href="…"` would pass it.
-    for (const match of contents.matchAll(/href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi)) {
+    // Tags first, then the attributes inside them. Every form of the attribute, not the one this
+    // generator writes, because a raw `<a HREF='javascript:…'>` in a document reaches the page
+    // untouched. Reading the page rather than its tags would also read escaped prose, and a document
+    // that shows an anchor in a code sample would fail on a link that does not exist.
+    const references = [...contents.matchAll(/<[a-z][a-z0-9]*\b[^>]*>/gi)].flatMap((tag) => [
+      ...(tag[0] ?? '').matchAll(/\b(?:href|src)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi),
+    ])
+
+    for (const match of references) {
       const href = (match[1] ?? match[2] ?? match[3] ?? '').replace(/&amp;/g, '&')
       if (isAbsolute(href)) {
         if (!schemes.some((scheme) => href.toLowerCase().startsWith(scheme))) {

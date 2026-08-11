@@ -207,6 +207,32 @@ describe('the links survive the move off GitHub', () => {
     expect(page('setup.html')).toContain('id="6b-the-consent-screen"')
   })
 
+  /**
+   * GitHub slugs what a heading renders as, not what it is written as, so a heading carrying markup
+   * is where the two can part company. A code span already worked; a link did not, and would have
+   * failed the build on a fragment written against GitHub rather than landing on it.
+   */
+  it('slugs a heading from its rendered text, markup and entities included', () => {
+    // The plan rather than the setup guide: other documents link into the guide's numbered steps by
+    // fragment, and a stub of it would fail the build on their links rather than on this one's.
+    const built = buildSite(
+      override(
+        'docs/plan.md',
+        [
+          '# Caroline implementation plan',
+          '## See [the guide](content-policy.md)',
+          '## APIs & Services',
+          '## `caroline.config.json`',
+          '[a](#see-the-guide) [b](#apis--services) [c](#carolineconfigjson)',
+        ].join('\n\n'),
+      ),
+    )
+
+    expect(built.get('plan.html')).toContain('id="see-the-guide"')
+    expect(built.get('plan.html')).toContain('id="apis--services"')
+    expect(built.get('plan.html')).toContain('id="carolineconfigjson"')
+  })
+
   // Criterion 5. A project site is served under a path. A root-relative link is one that works on
   // the machine it was built on and nowhere else.
   it('references nothing absolutely, so the site works under a project path', () => {
@@ -337,6 +363,43 @@ describe('the site asks nothing of the reader', () => {
     `<a href=javascript:alert(1)>press</a>`,
   ])('fails the build on %s, however the attribute is written', (anchor) => {
     const broken = override('docs/setup.md', `# Setting Caroline up\n\n${anchor}\n`)
+
+    expect(() => buildSite(broken)).toThrow(/scheme this site does not link out with/)
+  })
+
+  /**
+   * The check reads tags, not the page, so a document that shows an anchor in a code sample is
+   * published rather than failing the build on a link nobody wrote. Spec 11 itself discusses the
+   * spellings of the attribute, which is how this would have been found the hard way.
+   */
+  it('publishes a document that writes about an href without mistaking it for one', () => {
+    const showing = override(
+      'docs/plan.md',
+      '# Caroline implementation plan\n\n```html\n<a href="https://example.com/">x</a>\n```\n',
+    )
+
+    expect(() => buildSite(showing)).not.toThrow()
+  })
+
+  /**
+   * No asset is copied into the output, so an image would render as a request for a file that is not
+   * there. The build says so rather than publishing it, because a reader's first visit is a poor time
+   * to discover it and `verify` reads links rather than images.
+   */
+  it('fails the build on an image, which the site has nothing to serve for', () => {
+    const broken = override(
+      'docs/setup.md',
+      '# Setting Caroline up\n\n![a shot](images/shot.png)\n',
+    )
+
+    expect(() => buildSite(broken)).toThrow(/copies no assets/)
+  })
+
+  it('refuses an external asset in a document, not only an external link', () => {
+    const broken = override(
+      'docs/plan.md',
+      `# Caroline implementation plan\n\n<img src='data:image/svg+xml,x' alt="x">\n`,
+    )
 
     expect(() => buildSite(broken)).toThrow(/scheme this site does not link out with/)
   })

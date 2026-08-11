@@ -224,13 +224,16 @@ hr {
   border-radius: var(--radius-md);
 }
 
-.toc h2 {
+/*
+ * A label rather than a heading. The list sits above the document on a narrow screen, so an `h2` here
+ * would be the first heading on the page, before the page's own `h1`: the outline a screen reader
+ * reads would start with the contents of the document rather than with the document.
+ */
+.toc-label {
   margin: 0 0 var(--space-2);
-  padding: 0;
   font-size: var(--text-sm);
   font-weight: 500;
   color: var(--ink-quiet);
-  border-top: 0;
 }
 
 .toc ol {

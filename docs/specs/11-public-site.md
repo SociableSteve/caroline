@@ -74,7 +74,8 @@ lives in repository settings rather than in the repository.
   read.
 - A custom domain, redirects from one, or anything that assumes a host other than GitHub Pages.
 - Screenshots or a live demo. Both would need seeded data in the repository and would be a second
-  thing to keep true.
+  thing to keep true. No asset is copied into the output either, so the build refuses a Markdown image
+  rather than publishing a request for a file that is not there.
 - A documentation framework. The generator is one file, and its job is a shell around Markdown that
   is already written.
 - Publishing anything that is not documentation: no fixtures, no database, no configuration of
