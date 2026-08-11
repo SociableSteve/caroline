@@ -61,9 +61,13 @@ export interface DeletionReport {
    * would have somebody believe a database on another disk had been deleted.
    */
   readonly symlinks: readonly string[]
-  /** Anything else in the data directory. Not Caroline's, so not deleted, but said out loud. */
+  /**
+   * Anything else in the data directory. Not Caroline's, so not deleted, but said out loud. A file of
+   * Caroline's that would not go is in `failed` rather than here: it is still on disk, but it is not
+   * somebody else's.
+   */
   readonly leftBehind: readonly string[]
-  /** Caroline's own files that would not go. Empty in the ordinary case. */
+  /** Caroline's own files that would not go, the data directory included. Empty in the ordinary case. */
   readonly failed: readonly DeletionFailure[]
   /**
    * Whether the data directory itself went, or on a dry run whether it would. Reported the same way
@@ -123,11 +127,13 @@ export function deleteCarolineData(
   // token file is still removed above, which is the whole of what such an installation writes.
   const ownsDirectory = isFilePath(config.database.path)
 
-  // Read after the removals, so what is reported is what is actually still there. On a dry run the
-  // files that would have gone are subtracted instead, which is why this is the list of what was
-  // removed rather than the list of Caroline's names: a directory that collided with one of those
-  // names was not removed, and belongs in this list.
-  const ours = new Set(dryRun ? removed : [])
+  // Read after the removals, so what is reported is what is actually still there. Caroline's own
+  // paths are subtracted: the ones a dry run would have removed, and the ones a real run could not,
+  // which are still on disk and are already reported as failures. Saying "Caroline did not write
+  // this" about a token file it could not delete would be false about a live refresh token. What is
+  // deliberately not subtracted is a directory that collided with one of Caroline's names, which was
+  // not removed because it is not Caroline's and belongs in this list.
+  const ours = new Set([...(dryRun ? removed : []), ...failed.map((failure) => failure.path)])
   const leftBehind =
     ownsDirectory && existsSync(directory)
       ? readdirSync(directory)
@@ -138,10 +144,35 @@ export function deleteCarolineData(
 
   // `removed` having something in it is what says this directory was Caroline's. Without that check,
   // a `database.path` pointing into an empty directory of somebody's own has that directory deleted
-  // by a command that had just reported finding nothing of Caroline's in it.
-  const directoryRemoved =
-    ownsDirectory && removed.length > 0 && leftBehind.length === 0 && existsSync(directory)
-  if (directoryRemoved && !dryRun) rmdirSync(directory)
+  // by a command that had just reported finding nothing of Caroline's in it. A failure leaves a file
+  // in place, so it stops the directory going too, by the same rule as anything else still in it.
+  //
+  // A symbolic link is not a directory Caroline created, whatever it points at, and `rmdirSync`
+  // throws ENOTDIR on one. Symlinking the data directory onto another volume is the same reasonable
+  // thing as symlinking the database, and the link is left where it is.
+  const directoryIsLink = lstatSync(directory, { throwIfNoEntry: false })?.isSymbolicLink() === true
+  const directoryEmpty =
+    ownsDirectory &&
+    !directoryIsLink &&
+    removed.length > 0 &&
+    failed.length === 0 &&
+    leftBehind.length === 0 &&
+    existsSync(directory)
+
+  let directoryRemoved = directoryEmpty
+  if (directoryEmpty && !dryRun) {
+    try {
+      rmdirSync(directory)
+    } catch (error) {
+      // Reported rather than thrown, for the reason the file removals are: the files are already
+      // gone, and a stack trace instead of the report is the one outcome this command must not have.
+      directoryRemoved = false
+      failed.push({
+        path: directory,
+        message: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
 
   return { directory, removed, symlinks, leftBehind, failed, directoryRemoved }
 }

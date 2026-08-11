@@ -74,9 +74,11 @@ anything.
 Nothing Caroline writes lives outside the data directory, which is what makes
 [step 10](#10-removing-everything) one command.
 
-Start your own config file from the example, which states every setting at its default. The one
-exception is `jobs.timezone`, which defaults to whatever this machine thinks it is in and which the
-example has to name: change it to yours, because it is the zone every schedule is read in.
+Start your own config file from the example, which states the settings at their defaults. Two of them
+it cannot: `jobs.timezone` defaults to whatever this machine thinks it is in, so the example names
+Europe/London and you should change it to yours, because it is the zone every schedule is read in;
+and `llm.supportsTools` is left out entirely, because its default follows from the provider and
+"absent" is a different answer from "false" (see [step 4](#4-a-model)).
 
 ```sh
 cp caroline.config.example.json caroline.config.json
@@ -335,7 +337,7 @@ delete the Google Cloud project if it exists only for this.
 | `Caroline cannot start: privacy.llmContent is "full" with the remote provider` | Sending whole bodies to a third party needs `privacy.allowFullContentToRemoteProvider` set deliberately. See [content-policy.md](content-policy.md) |
 | `EADDRINUSE` on 5123 | Something else has the port. `CAROLINE_PORT` moves it, and the Google redirect URI has to move with it |
 | `SyntaxError` about `node:sqlite`, or a version complaint at startup | Node older than 24.2.0 |
-| Google says `redirect_uri_mismatch` | The URI registered on the client is not the one Caroline sent. Copy it from the Settings screen, character for character, port included |
+| Google says `redirect_uri_mismatch` | The URI registered on the client is not the one Caroline sent. It is `/api/integrations/google/callback` on whatever `server.host` and `server.port` say, and `curl -s http://127.0.0.1:5123/api/integrations/google` prints the exact string Caroline sends, as `redirectUri`: compare it character for character, port included. The Settings screen shows it too, but only while no client is configured, which is before you would ever see this error |
 | Google says access blocked, or the app is not verified | An External app in Testing consents only to its listed test users. Add your own address under Test users |
 | The Google connection dies about once a week | The seven-day refresh-token expiry of an app in Testing. See [step 6b](#6b-the-consent-screen) |
 | A sync run says `GitHub rejected the query: ... not accessible by personal access token` | The token's resource owner is not the owner of those repositories, the Pull requests permission is missing, or an organisation has yet to approve the token |

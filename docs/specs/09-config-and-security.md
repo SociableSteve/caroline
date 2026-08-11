@@ -211,8 +211,11 @@ Twelve-factor with a file for convenience: defaults in code, overridden by
 environment. The whole config is validated against a schema at startup, and an invalid
 config fails fast with the offending path named.
 
-Config editable from Settings is written back to the file. The database path, bind address
-and port are startup-only and not editable at runtime.
+Nothing in the file is written back from the UI. The one thing Settings writes is the name of the
+person using Caroline, and that lives in the `settings` table rather than in the file, for the reason
+given above: rewriting a file somebody hand-edited would mean deciding what a restart means for it.
+Every value in the file therefore takes a restart, and the database path, bind address and port are
+startup-only besides.
 
 ## Deletion
 

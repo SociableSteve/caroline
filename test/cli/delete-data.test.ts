@@ -284,9 +284,39 @@ describe('deleteCarolineData', () => {
       expect(report.failed.map((failure) => failure.path)).toContain(config.database.path)
       expect(report.failed[0]?.message).toMatch(/permission|EACCES/i)
       expect(existsSync(config.database.path)).toBe(true)
+      // A file of Caroline's that would not go is not a file somebody else wrote, and saying so of a
+      // token file would be a false statement about a live refresh token.
+      expect(report.leftBehind).toEqual([])
+      expect(report.directoryRemoved).toBe(false)
     } finally {
       chmodSync(directory, 0o700)
     }
+  })
+
+  it('leaves a data directory that is a symbolic link, and reports rather than throws', () => {
+    // Symlinking the data directory onto another volume is the same reasonable thing as symlinking
+    // the database. `rmdirSync` throws ENOTDIR on a link, which threw after the files had gone and
+    // before the report was printed, so the deletion happened and nothing said what had.
+    const created = mkdtempSync(join(tmpdir(), 'caroline-delete-link-'))
+    directories.push(created)
+    const elsewhere = join(created, 'on-another-volume')
+    const linked = join(created, 'data')
+    mkdirSync(elsewhere)
+    symlinkSync(elsewhere, linked)
+
+    const config = loadConfig({
+      file: { database: { path: join(linked, 'caroline.db') } },
+      env: {} as NodeJS.ProcessEnv,
+    })
+    runCaroline(config)
+
+    const report = deleteCarolineData(config)
+
+    expect(report.removed).toContain(config.database.path)
+    expect(report.failed).toEqual([])
+    expect(report.directoryRemoved).toBe(false)
+    expect(existsSync(linked)).toBe(true)
+    expect(readdirSync(elsewhere)).toEqual([])
   })
 
   it('keeps a data directory that is not empty of subdirectories', () => {
