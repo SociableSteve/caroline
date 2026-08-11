@@ -2,6 +2,8 @@
  * Connecting the Google account from Settings. Spec 09: the flow starts and finishes on this
  * server, and nothing from the callback's query string is echoed back.
  */
+import { tmpdir } from 'node:os'
+import { isAbsolute, relative, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { GoogleAuth } from '../../src/connectors/google/auth.js'
 import { GoogleAuthError } from '../../src/connectors/google/oauth.js'
@@ -11,7 +13,37 @@ import {
 } from '../../src/db/repositories/calendar-events.js'
 import { createTask, listTasks } from '../../src/db/repositories/tasks.js'
 import { migratedDatabase } from '../helpers/temp-database.js'
-import { REQUEST_TIME, testServer } from '../helpers/test-server.js'
+import { REQUEST_TIME, testConfig, testServer } from '../helpers/test-server.js'
+
+/**
+ * The guard on the rest of this file. Every assertion below about being connected or not connected
+ * is only meaningful if the token file it reads belongs to the test run: pointed at the real
+ * `data/` directory, "a clean checkout is not connected" instead asks whether the developer
+ * running the suite happens to have connected their own Google account, and completing the flow
+ * writes a token into their data directory.
+ */
+describe('the test configuration', () => {
+  /**
+   * By path rather than by substring. `startsWith` calls `/tmp2/tokens.json` a child of `/tmp`,
+   * and a guard that can be satisfied by a sibling directory is not a guard.
+   */
+  const contains = (parent: string, child: string): boolean => {
+    const step = relative(resolve(parent), resolve(child))
+    return step !== '' && !step.startsWith('..') && !isAbsolute(step)
+  }
+
+  it('keeps the Google token file out of the working tree', () => {
+    const { tokenPath } = testConfig.integrations.google
+
+    expect(contains(process.cwd(), tokenPath)).toBe(false)
+    expect(contains(tmpdir(), tokenPath)).toBe(true)
+  })
+
+  it('compares by path, so a sibling of the temporary directory is not inside it', () => {
+    expect(contains('/tmp', '/tmp2/google-tokens.json')).toBe(false)
+    expect(contains('/tmp', '/tmp/caroline/google-tokens.json')).toBe(true)
+  })
+})
 
 const CONNECT_URL =
   'https://accounts.google.com/o/oauth2/v2/auth?client_id=client-123&state=state-1'

@@ -18,5 +18,14 @@ export default tseslint.config(
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     },
   },
+  {
+    // The demo harness in `tools/`: plain Node ESM, run by hand and never by the suite.
+    files: ['**/*.mjs'],
+    languageOptions: {
+      ecmaVersion: 2024,
+      sourceType: 'module',
+      globals: { ...globals.node },
+    },
+  },
   prettier,
 )
