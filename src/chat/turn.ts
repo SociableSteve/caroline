@@ -15,6 +15,7 @@
  *   more tasks than the configured threshold. Both are written down as confirmations for the user
  *   to decide on. Criteria 3 and 4.
  */
+import { withholdsItemText } from '../config/content.js'
 import type { Config } from '../config/schema.js'
 import type { Database } from '../db/connection.js'
 import {
@@ -118,14 +119,15 @@ export async function runTurn(
   if (conversation === null) return 'no-such-conversation'
 
   emit({ type: 'conversation', conversation })
-  emit({
-    type: 'user-message',
-    message: appendMessage(
-      database,
-      { conversationId: conversation.id, role: 'user', content: input.message },
-      at,
-    ),
-  })
+
+  // Held onto rather than only emitted: at `none` it is the one message that goes, so `history` has to
+  // be able to tell it from the turns before it.
+  const asked = appendMessage(
+    database,
+    { conversationId: conversation.id, role: 'user', content: input.message },
+    at,
+  )
+  emit({ type: 'user-message', message: asked })
 
   const turn = appendMessage(
     database,
@@ -198,6 +200,9 @@ export async function runTurn(
       // next turn rather than on the next restart. Spec 09.
       preamble: renderPreamble({ userName: getUserName(database) }),
       itemContext: itemContext?.rendered ?? null,
+      // The same question `history` asks, so the prompt cannot say the turns were sent while they were
+      // withheld. Spec 09, criterion 13.
+      priorTurnsWithheld: withholdsItemText(config.privacy),
     },
   )
 
@@ -216,7 +221,15 @@ export async function runTurn(
   let error: string | null = null
 
   try {
-    await converse(options, toolContext, registry, system, conversation.id, turn.id, state, emit)
+    await converse(
+      options,
+      toolContext,
+      registry,
+      system,
+      { conversationId: conversation.id, turnId: turn.id, askedId: asked.id },
+      state,
+      emit,
+    )
   } catch (failure) {
     // A provider that failed part-way is a fact about this turn, not about Caroline: the text that
     // did arrive is kept, and the row says what went wrong.
@@ -278,14 +291,22 @@ interface TurnState {
   readonly said: string[]
 }
 
+/** Which turn of which conversation is being run, and which message asked for it. */
+interface TurnIdentity {
+  readonly conversationId: string
+  /** The empty assistant turn being filled in, which is never sent back as context. */
+  readonly turnId: string
+  /** The user message this turn answers. */
+  readonly askedId: string
+}
+
 /** The model's side of the turn: ask, run what it asked for, ask again, until it stops. */
 async function converse(
   options: ChatTurnOptions,
   toolContext: ChatToolContext,
   registry: ToolRegistry,
   system: string,
-  conversationId: string,
-  turnId: string,
+  identity: TurnIdentity,
   state: TurnState,
   emit: ChatEmit,
 ): Promise<void> {
@@ -294,7 +315,7 @@ async function converse(
   // Rebuilt rather than appended to: a request carries the messages as they were when it was made,
   // and a caller holding one (the recording fake in the tests, or a future retry) must not find it
   // has grown a turn since.
-  let messages: readonly Message[] = history(options, conversationId, turnId)
+  let messages: readonly Message[] = history(options, identity)
 
   for (;;) {
     /**
@@ -348,7 +369,7 @@ async function converse(
       if (state.calls >= config.chat.maxToolCalls) break
       state.calls += 1
 
-      results.push(await handle(options, toolContext, registry, call, turnId, state, emit))
+      results.push(await handle(options, toolContext, registry, call, identity.turnId, state, emit))
       answered.push(call)
     }
 
@@ -436,6 +457,16 @@ function hold(
 ): ToolResult | null {
   const { database, config } = options
   const description = describeCall(toolContext, tool, call)
+  /**
+   * The same operation as the model may be told it: `describe` reads the row out of the database, so
+   * at `none` the model is told what it asked for by the arguments it asked with instead. The
+   * confirmation record above keeps the full description, because the card is rendered on the user's
+   * own screen from their own database and a card reading "delete task-1" would only have them confirm
+   * blind. `llmContent` governs what leaves the machine. Spec 09, criterion 13.
+   */
+  const toldTheModel = withholdsItemText(config.privacy)
+    ? describeCall(toolContext, tool, call, { fromDatabase: false })
+    : description
 
   if (tool.alwaysConfirm === true) {
     const confirmation = createConfirmation(
@@ -456,7 +487,7 @@ function hold(
 
     return refusal(
       call,
-      `Nothing was deleted. ${description} has been put to the user to confirm, which is how deleting always works here. Do not try again; say what you have proposed and why.`,
+      `Nothing was deleted. ${toldTheModel} has been put to the user to confirm, which is how deleting always works here. Do not try again; say what you have proposed and why.`,
       { retryable: false },
     )
   }
@@ -514,7 +545,7 @@ function hold(
 
   return refusal(
     call,
-    `Nothing was changed. This turn has already changed ${state.mutatedTaskIds.size} tasks, which is the point at which the rest of a turn is proposed rather than applied, so ${description} has been put to the user with the others. Carry on with what is left and say what you have proposed.`,
+    `Nothing was changed. This turn has already changed ${state.mutatedTaskIds.size} tasks, which is the point at which the rest of a turn is proposed rather than applied, so ${toldTheModel} has been put to the user with the others. Carry on with what is left and say what you have proposed.`,
     { retryable: false },
   )
 }
@@ -532,11 +563,13 @@ function describeCall(
   context: ChatToolContext,
   tool: { readonly name: string; describe?: (context: ChatToolContext, args: unknown) => string },
   call: ToolCall,
+  { fromDatabase = true }: { fromDatabase?: boolean } = {},
 ): string {
-  if (tool.describe !== undefined) return tool.describe(context, call.arguments)
+  if (fromDatabase && tool.describe !== undefined) return tool.describe(context, call.arguments)
 
   // No description of its own, so the call is named by what it addresses. Enough for a person to
-  // recognise it, and it never invents a title the arguments did not carry.
+  // recognise it, and it never invents a title the arguments did not carry, which is also why it is
+  // what the model is told at `none`: the arguments are the model's own words coming back.
   const args = (call.arguments ?? {}) as { id?: unknown; title?: unknown }
   if (typeof args.title === 'string') return `${tool.name}: “${args.title}”`
   if (typeof args.id === 'string') return `${tool.name} on ${args.id}`
@@ -591,10 +624,25 @@ async function drain(
   throw new LlmError('The model stream ended without an answer.')
 }
 
-/** The turns sent as context, oldest first, with anything that has no text left out. */
-function history(options: ChatTurnOptions, conversationId: string, turnId: string): Message[] {
+/**
+ * The turns sent as context, oldest first, with anything that has no text left out.
+ *
+ * None of them at `none`. A stored turn is prose about the user's items, written and answered while the
+ * policy allowed it, so replaying it verbatim would send titles and note excerpts the level in force now
+ * withholds from every other path. It is the same stale artefact as a plan summary drawn before the
+ * policy was lowered, which `prompt.ts` withholds, and two stale artefacts cannot get two answers. The
+ * message the user just sent is their own words and still goes; the prompt says the rest was withheld,
+ * so the model asks rather than answering from a conversation it cannot see. Spec 09, criterion 13.
+ */
+function history(
+  options: ChatTurnOptions,
+  { conversationId, turnId, askedId }: TurnIdentity,
+): Message[] {
+  const withheld = withholdsItemText(options.config.privacy)
+
   return contextMessages(options.database, conversationId, options.config.chat.contextMessages)
     .filter((message) => message.id !== turnId && message.content !== '')
+    .filter((message) => !withheld || message.id === askedId)
     .map((message) => ({ role: message.role, content: message.content }))
 }
 

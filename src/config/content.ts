@@ -19,7 +19,7 @@ export interface ContentPolicy {
  * cut. Recorded alongside anything this policy shaped, because a record saying `snippet` is only
  * readable later if it also says what `snippet` meant at the time. Dated, as the prompts are.
  */
-export const CONTENT_POLICY_VERSION = '2026-08-11.2'
+export const CONTENT_POLICY_VERSION = '2026-08-11.3'
 
 /** True when `level` permits at least as much as `needed`. */
 export function levelAllows(level: ContentLevel, needed: ContentLevel): boolean {
@@ -63,8 +63,9 @@ export interface TextToSend {
  * spec 09 counts a title as metadata and notes as the body, so `metadata` sends the one and not the
  * other.
  *
- * Both senders of a note call this, the item context and `get_task`, because two answers to whether a
- * note may leave the machine would mean the policy is decoration.
+ * Every sender of a note calls this, the item context, `get_task` and `list_projects`, because two
+ * answers to whether a note may leave the machine would mean the policy is decoration. A project's
+ * notes are the same column by another table: the body-shaped field of both is `notes`.
  */
 export function textToSend(
   text: string | null | undefined,
@@ -84,8 +85,9 @@ export function textToSend(
  *
  * Every send boundary asks this one question rather than each answering it for itself, for the reason
  * `textToSend` is shared: a level that withholds a title from one path cannot hand it over from
- * another. The item context, all six of spec 07's read tools and the day's context in the chat prompt
- * are the paths. Spec 09, criterion 13.
+ * another. The paths are the item context, all six of spec 07's read tools, its write tools and the
+ * descriptions and refusals they answer with, the turns of a conversation replayed as context, and the
+ * day's context in the chat prompt. Spec 09, criterion 13.
  */
 export function withholdsItemText(policy: Pick<ContentPolicy, 'llmContent'>): boolean {
   return policy.llmContent === 'none'

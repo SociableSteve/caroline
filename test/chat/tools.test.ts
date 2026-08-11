@@ -16,7 +16,7 @@ import { upsertSource } from '../../src/db/repositories/sources.js'
 import { createTask, getTask, getTaskTags, setTaskTags } from '../../src/db/repositories/tasks.js'
 import type { Database } from '../../src/db/connection.js'
 import { migratedDatabase } from '../helpers/temp-database.js'
-import { CHAT_NOW } from '../helpers/chat.js'
+import { CHAT_NOW, ITEM_TEXT, seedItemText } from '../helpers/chat.js'
 
 const config = loadConfig({
   file: { jobs: { timezone: 'Europe/London' } },
@@ -308,6 +308,60 @@ describe('list_projects', () => {
     })
   })
 
+  /**
+   * Spec 09, criterion 13 and the rule at its head: the body-shaped field of a project is `notes`,
+   * exactly as it is for a task, so it leaves the machine only as far as `llmContent` allows and
+   * through the same function. This tool sent the column verbatim at every level above `none`, which
+   * is one policy giving two answers about one column.
+   */
+  it('withholds a project’s notes at metadata and still answers with the title', async () => {
+    const database = migratedDatabase()
+    createProject(
+      database,
+      {
+        id: 'project-1',
+        title: 'Northwind renewal',
+        notes: 'Ring Ada about the indemnity clause.',
+      },
+      CHAT_NOW,
+    )
+
+    const answer = await run(database, 'list_projects', {}, { config: policyAt('metadata') })
+
+    expect(answer.data).toMatchObject({ projects: [{ title: 'Northwind renewal', notes: null }] })
+    expect(JSON.stringify(answer.data)).not.toContain('indemnity')
+  })
+
+  it('truncates a project’s notes at snippet and says it did', async () => {
+    const database = migratedDatabase()
+    createProject(
+      database,
+      { id: 'project-1', title: 'Northwind renewal', notes: `${'a'.repeat(30)}THE-TAIL` },
+      CHAT_NOW,
+    )
+
+    const answer = await run(database, 'list_projects', {}, { config: policyAt('snippet', 30) })
+
+    expect(answer.data).toMatchObject({
+      projects: [{ notes: 'a'.repeat(30), notesTruncated: true }],
+    })
+    expect(JSON.stringify(answer.data)).not.toContain('THE-TAIL')
+  })
+
+  it('answers with a project’s whole note at full, and claims no truncation', async () => {
+    const database = migratedDatabase()
+    createProject(
+      database,
+      { id: 'project-1', title: 'Northwind renewal', notes: 'The whole thing.' },
+      CHAT_NOW,
+    )
+
+    const answer = await run(database, 'list_projects', {}, { config: policyAt('full') })
+
+    expect(answer.data).toMatchObject({ projects: [{ notes: 'The whole thing.' }] })
+    expect(JSON.stringify(answer.data)).not.toContain('notesTruncated')
+  })
+
   it('filters by state without changing what stalled means', async () => {
     const database = migratedDatabase()
     createProject(database, { id: 'project-1', title: 'Ship Caroline' }, CHAT_NOW)
@@ -469,134 +523,19 @@ describe('list_waiting', () => {
  * this holds shut.
  */
 describe('every read tool at none', () => {
-  /** Every piece of item text the database below holds. None of it may appear in any answer. */
-  const CONTENT = [
-    'Northwind',
-    'indemnity',
-    'Book the venue',
-    'due today',
-    'A quiet day',
-    'Standup',
-    'Sign-off',
-    'Beatrix',
-    'legal',
-  ]
-
-  function seeded(): Database {
-    const database = migratedDatabase()
-    createProject(database, { id: 'project-1', title: 'Northwind renewal' }, CHAT_NOW)
-    createTask(
-      database,
-      {
-        id: 'task-1',
-        title: 'Review the Northwind contract',
-        notes: 'Ring about the indemnity clause.',
-        projectId: 'project-1',
-      },
-      CHAT_NOW,
-    )
-    setTaskTags(database, 'task-1', ['legal'])
-    createTask(
-      database,
-      {
-        id: 'task-2',
-        title: 'Sign-off from Beatrix',
-        status: 'waiting',
-        waitingOn: 'Beatrix',
-      },
-      CHAT_NOW - 10 * 24 * 60 * 60_000,
-    )
-    upsertCalendarEvent(
-      database,
-      {
-        calendarId: 'primary',
-        externalId: 'event-1',
-        summary: 'Standup',
-        startsAt: Date.UTC(2026, 5, 1, 9, 0, 0),
-        endsAt: Date.UTC(2026, 5, 1, 9, 30, 0),
-        allDay: false,
-        responseStatus: 'accepted',
-        transparency: 'opaque',
-        status: 'confirmed',
-        attendeeCount: 4,
-        url: null,
-      },
-      CHAT_NOW,
-    )
-    recordDailyPlan(database, {
-      planDate: '2026-06-01',
-      generatedAt: CHAT_NOW,
-      timeZone: 'Europe/London',
-      windowMinutes: 510,
-      busyMinutes: 30,
-      reserveMinutes: 96,
-      capacityMinutes: 384,
-      capacityVerified: true,
-      provider: 'ollama',
-      model: 'a-model',
-      promptVersion: '2026-08-10',
-      summary: 'A quiet day with one deadline.',
-      warnings: [],
-      entries: [
-        {
-          taskId: 'task-1',
-          title: 'Book the venue',
-          rank: 1,
-          rationale: 'It is due today.',
-          estimateMinutes: 30,
-        },
-      ],
-      overflow: [],
-      nudges: [
-        {
-          taskId: 'task-2',
-          title: 'Sign-off from Beatrix',
-          rank: 1,
-          waitingOn: 'Beatrix',
-          waitingSince: CHAT_NOW - 10 * 24 * 60 * 60_000,
-          pushedSinceReview: false,
-        },
-      ],
-    })
-    return database
-  }
-
-  const calls: readonly (readonly [string, unknown])[] = [
-    ['search_tasks', {}],
-    ['get_task', { id: 'task-1' }],
-    ['list_projects', {}],
-    ['get_daily_plan', {}],
-    ['get_capacity', {}],
-    ['list_waiting', {}],
-  ]
-
-  for (const [name, args] of calls) {
-    it(`withholds every item’s text from ${name}, and says the policy did`, async () => {
-      const answer = await run(seeded(), name, args, {
-        config: policyAt('none'),
-        calendarConnected: true,
-      })
-
-      const serialised = JSON.stringify(answer.data)
-      for (const withheld of CONTENT) expect(serialised).not.toContain(withheld)
-      // Said rather than left as a silence, so the model asks instead of answering from memory.
-      expect(serialised).toMatch(/content policy/i)
-    })
-  }
-
   it('still answers with the ids, so the model can ask the user about one of them', async () => {
-    const answer = await run(seeded(), 'search_tasks', {}, { config: policyAt('none') })
+    const answer = await run(seedItemText(), 'search_tasks', {}, { config: policyAt('none') })
     const tasks = (answer.data as { tasks: readonly { kind: string; id: string }[] }).tasks
 
-    expect(answer.data).toMatchObject({ total: 2, returned: 2 })
-    expect(tasks.map((task) => task.kind)).toEqual(['task', 'task'])
-    expect(tasks.map((task) => task.id).toSorted()).toEqual(['task-1', 'task-2'])
+    expect(answer.data).toMatchObject({ total: 3, returned: 3 })
+    expect(tasks.map((task) => task.kind)).toEqual(['task', 'task', 'task'])
+    expect(tasks.map((task) => task.id).toSorted()).toEqual(['task-1', 'task-2', 'task-3'])
   })
 
   /** A day's arithmetic is not an item's content, so the numbers still go. Only the diary is withheld. */
   it('still answers with the day’s numbers, and counts the meeting it will not name', async () => {
     const answer = await run(
-      seeded(),
+      seedItemText(),
       'get_capacity',
       {},
       { config: policyAt('none'), calendarConnected: true },
@@ -607,7 +546,7 @@ describe('every read tool at none', () => {
 
   /** The other half of the gate: `metadata` is not `none`, and a title is metadata. Spec 09's table. */
   it('still answers with the titles at metadata', async () => {
-    const answer = await run(seeded(), 'search_tasks', {}, { config: policyAt('metadata') })
+    const answer = await run(seedItemText(), 'search_tasks', {}, { config: policyAt('metadata') })
 
     expect(JSON.stringify(answer.data)).toContain('Review the Northwind contract')
   })
@@ -1008,5 +947,100 @@ describe('every write tool', () => {
     await run(database, 'update_task', { id: 'task-1', status: 'next_action' })
 
     expect(getTaskTags(database, 'task-1')).toEqual(['errand'])
+  })
+})
+
+/**
+ * Spec 09's rule that a level is a property of the boundary, applied to the boundaries that change
+ * things. A write tool answers with the row it wrote, and that row is item text the model never
+ * supplied: at `none` the item context gives the model an id and a withheld sentence, and "mark it
+ * done" then handed the title, the person it waits on and its project straight back.
+ */
+describe('every write tool at none', () => {
+  const calls: readonly (readonly [string, unknown])[] = [
+    ['create_task', { title: 'What the user just asked for' }],
+    ['update_task', { id: 'task-1', estimateMinutes: 45 }],
+    ['complete_task', { id: 'task-1' }],
+    ['mark_reviewed', { id: 'task-3' }],
+    ['delete_task', { id: 'task-1' }],
+    ['create_project', { title: 'What the user just named' }],
+    ['update_project', { id: 'project-1', state: 'done' }],
+  ]
+
+  for (const [name, args] of calls) {
+    it(`withholds every item’s text from ${name}, and says the policy did`, async () => {
+      const answer = await run(seedItemText(), name, args, { config: policyAt('none') })
+
+      const serialised = JSON.stringify(answer.data)
+      for (const withheld of ITEM_TEXT) expect(serialised).not.toContain(withheld)
+      // Said rather than left as a silence, so the model asks instead of answering from memory.
+      expect(serialised).toMatch(/content policy/i)
+    })
+  }
+
+  /** The change still happened, and the id of what changed still goes: only the text is withheld. */
+  it('still changes the task, and still says which one it changed', async () => {
+    const database = seedItemText()
+
+    const answer = await run(
+      database,
+      'complete_task',
+      { id: 'task-1' },
+      { config: policyAt('none') },
+    )
+
+    expect(answer.data).toMatchObject({ kind: 'task', id: 'task-1' })
+    expect(getTask(database, 'task-1')).toMatchObject({ status: 'done', statusSetBy: 'user' })
+  })
+
+  /**
+   * The planner will not draw a plan at all at `none` (spec 05), so a summary reaching this tool means
+   * the level changed under it. It is still the level in force now that decides, as it is for the plan
+   * summary in the day's context.
+   */
+  it('withholds a redrawn plan’s summary at none', async () => {
+    const answer = await run(
+      seedItemText(),
+      'regenerate_daily_plan',
+      {},
+      {
+        config: policyAt('none'),
+        regeneratePlan: () =>
+          Promise.resolve({ status: 'drawn', summary: 'A quiet day, with Northwind due.' }),
+      },
+    )
+
+    expect(JSON.stringify(answer.data)).not.toContain('Northwind')
+  })
+
+  /** A refusal is prose about the item, so it is held to the same level the answer is. */
+  it('withholds the title from a refusal at none', async () => {
+    const database = seedItemText()
+
+    const outcome = await refuse(
+      database,
+      'mark_reviewed',
+      { id: 'task-1' },
+      { config: policyAt('none') },
+    )
+
+    expect(outcome.message).not.toContain('Northwind')
+    expect(outcome.message).toContain('task-1')
+  })
+
+  /**
+   * The confirmation card is not a send boundary. It is rendered on the user's own screen from their
+   * own database, so it names the task they are about to delete however low `llmContent` is set: the
+   * policy governs what leaves the machine, and a card that said "delete task-1" would only make the
+   * user confirm blind. What the model is told instead is asserted in `turn.test.ts`.
+   */
+  it('still describes a delete by name for the user who has to confirm it', () => {
+    const database = seedItemText()
+
+    expect(
+      tool('delete_task').describe?.(context(database, { config: policyAt('none') }), {
+        id: 'task-1',
+      }),
+    ).toBe('Delete “Review the Northwind contract”')
   })
 })

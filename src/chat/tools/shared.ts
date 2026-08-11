@@ -3,8 +3,9 @@
  * one summary of a task every tool answers with, so two tools cannot describe the same task
  * differently.
  */
-import { withholdsItemText } from '../../config/content.js'
+import { WITHHELD_ITEM_TEXT, withholdsItemText } from '../../config/content.js'
 import { getProject } from '../../db/repositories/projects.js'
+import type { ProjectState } from '../../domain/project.js'
 import type { Task } from '../../domain/task.js'
 import { formatLocalDate, instantAt, localDateAt, parseLocalDate } from '../../domain/time.js'
 import type { LocalDate } from '../../domain/time.js'
@@ -71,8 +72,28 @@ export function describeDuration(minutes: number): string {
   return rest === 0 ? hourPart : `${hourPart} ${rest} minutes`
 }
 
-/** One task as every tool describes it. The notes are left to `get_task`, which is the detail. */
+/**
+ * What is answered in place of an item's own fields where the policy withholds them: the ids it was
+ * addressed by, and the sentence saying the rest was withheld. Said rather than dropped, so the model
+ * asks the user what the item is instead of answering about it from earlier in the conversation.
+ * Spec 09, criterion 13.
+ */
+export function withheldItem(kind: 'task' | 'project', id: string) {
+  return { kind, id, withheld: WITHHELD_ITEM_TEXT }
+}
+
+/**
+ * One task as every tool describes it, read and write alike. The notes are left to `get_task`, which
+ * is the detail.
+ *
+ * At `none` this is the ids and the withholding instead. A write tool answers with the row it wrote,
+ * and that row is item text the model never supplied: without this, a turn in which the item context
+ * gave the model an id and a withheld sentence would hand back the title, the person it waits on and
+ * its project the moment the user said "mark it done". Spec 09, criterion 13.
+ */
 export function taskSummary(context: ChatToolContext, task: Task) {
+  if (withholdsText(context)) return withheldItem('task', task.id)
+
   return {
     id: task.id,
     title: task.title,
@@ -88,4 +109,14 @@ export function taskSummary(context: ChatToolContext, task: Task) {
     waitingOn: task.waitingOn,
     updatedAt: asIso(task.updatedAt),
   }
+}
+
+/** One project as the write tools answer with it, held to the level a task's summary is held to. */
+export function projectSummary(
+  context: ChatToolContext,
+  project: { readonly id: string; readonly title: string; readonly state: ProjectState },
+) {
+  return withholdsText(context)
+    ? withheldItem('project', project.id)
+    : { id: project.id, title: project.title, state: project.state }
 }

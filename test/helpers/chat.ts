@@ -11,6 +11,11 @@ import type { CompletionRequest, ToolCall } from '../../src/llm/types.js'
 import { createChatService, type ChatEvent, type PlanRegeneration } from '../../src/chat/index.js'
 import type { ItemRef } from '../../src/domain/selection.js'
 import { createChangeFeed, type ChangeEvent } from '../../src/server/changes.js'
+import { upsertCalendarEvent } from '../../src/db/repositories/calendar-events.js'
+import { recordDailyPlan } from '../../src/db/repositories/daily-plans.js'
+import { createProject } from '../../src/db/repositories/projects.js'
+import { upsertSource } from '../../src/db/repositories/sources.js'
+import { createTask, setTaskTags } from '../../src/db/repositories/tasks.js'
 import { migratedDatabase } from './temp-database.js'
 
 /** The moment every turn in these tests happens at. A Monday morning, inside a working window. */
@@ -36,6 +41,130 @@ export function toolAnswer(
 /** A scripted answer that only talks. */
 export function textAnswer(text: string): FakeAnswer {
   return { text, toolCalls: [], usage: { inputTokens: 7, outputTokens: 3 }, stopReason: 'end_turn' }
+}
+
+/**
+ * Every piece of item text `seedItemText` writes: titles, notes, tags, a person's name, a meeting's
+ * summary, a plan's rationale and its summary. At `none` none of it may appear in anything a provider
+ * is handed. Spec 09, criterion 13.
+ */
+export const ITEM_TEXT: readonly string[] = [
+  'Northwind',
+  'indemnity',
+  'Contoso',
+  'Book the venue',
+  'due today',
+  'A quiet day',
+  'Standup',
+  'Sign-off',
+  'Beatrix',
+  'legal',
+]
+
+/**
+ * The items every content-policy sweep runs against. One fixture for two boundaries: the tools called
+ * directly, and the same tools called through a turn, whose results are read off the built request.
+ * A task in each of the shapes a tool answers about, a project with notes, a diary, and a plan.
+ */
+export function seedItemText(database: Database = migratedDatabase()): Database {
+  createProject(
+    database,
+    { id: 'project-1', title: 'Northwind renewal', notes: 'Signed off at Contoso last year.' },
+    CHAT_NOW,
+  )
+  createTask(
+    database,
+    {
+      id: 'task-1',
+      title: 'Review the Northwind contract',
+      notes: 'Ring about the indemnity clause.',
+      projectId: 'project-1',
+    },
+    CHAT_NOW,
+  )
+  setTaskTags(database, 'task-1', ['legal'])
+  createTask(
+    database,
+    { id: 'task-2', title: 'Sign-off from Beatrix', status: 'waiting', waitingOn: 'Beatrix' },
+    CHAT_NOW - 10 * 24 * 60 * 60_000,
+  )
+  // An open review, so `mark_reviewed` has something to discharge. Its author is the name that tool
+  // answers with, which is a person's name reaching a provider by a route of its own.
+  createTask(
+    database,
+    {
+      id: 'task-3',
+      title: 'Review the Northwind retry helper',
+      status: 'review',
+      statusSetBy: 'sync',
+    },
+    CHAT_NOW,
+  )
+  upsertSource(
+    database,
+    {
+      provider: 'github',
+      externalId: 'example-org/service#42',
+      taskId: 'task-3',
+      lifecycleState: 'awaiting_review',
+      metadata: { headSha: 'abc123', author: 'Beatrix' },
+    },
+    CHAT_NOW,
+  )
+  upsertCalendarEvent(
+    database,
+    {
+      calendarId: 'primary',
+      externalId: 'event-1',
+      summary: 'Standup',
+      startsAt: Date.UTC(2026, 5, 1, 9, 0, 0),
+      endsAt: Date.UTC(2026, 5, 1, 9, 30, 0),
+      allDay: false,
+      responseStatus: 'accepted',
+      transparency: 'opaque',
+      status: 'confirmed',
+      attendeeCount: 4,
+      url: null,
+    },
+    CHAT_NOW,
+  )
+  recordDailyPlan(database, {
+    planDate: '2026-06-01',
+    generatedAt: CHAT_NOW,
+    timeZone: 'Europe/London',
+    windowMinutes: 510,
+    busyMinutes: 30,
+    reserveMinutes: 96,
+    capacityMinutes: 384,
+    capacityVerified: true,
+    provider: 'ollama',
+    model: 'a-model',
+    promptVersion: '2026-08-10',
+    summary: 'A quiet day with one deadline.',
+    warnings: [],
+    entries: [
+      {
+        taskId: 'task-1',
+        title: 'Book the venue',
+        rank: 1,
+        rationale: 'It is due today.',
+        estimateMinutes: 30,
+      },
+    ],
+    overflow: [],
+    nudges: [
+      {
+        taskId: 'task-2',
+        title: 'Sign-off from Beatrix',
+        rank: 1,
+        waitingOn: 'Beatrix',
+        waitingSince: CHAT_NOW - 10 * 24 * 60 * 60_000,
+        pushedSinceReview: false,
+      },
+    ],
+  })
+
+  return database
 }
 
 export interface ChatHarnessOptions {

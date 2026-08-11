@@ -28,7 +28,7 @@ provider is disclosure to a third party. Storing it is a local retention decisio
 | Level | Includes |
 | --- | --- |
 | `none` | Nothing beyond internal ids. Classification is effectively disabled for that source |
-| `metadata` | Sender or author, recipients, subject or title, timestamps, labels, PR stats. No body |
+| `metadata` | Sender or author, recipients, subject or title, timestamps, labels, PR stats, and the prose Caroline wrote about its own scheduling: a plan's summary and a plan entry's rationale. No body |
 | `snippet` | Metadata plus the first `snippetChars` of the body |
 | `full` | Metadata plus the complete body |
 
@@ -49,11 +49,38 @@ provider is disclosure to a third party. Storing it is a local retention decisio
   body was written at, because the text cannot say which it is: three hundred characters may be
   a truncated snippet or a whole short body, and a downgrade has to tell them apart.
 - A level is a property of the boundary rather than of a route through it. `none` therefore withholds
-  an item's own fields from everything that reaches a provider: the item context sent unasked, and
-  every read tool the model may call. A title, a person's name and a rationale written about a task
-  are all the item's; what is not the item's still goes, so a count of matches, a day's capacity
-  arithmetic and the order a plan put its entries in are answered as they always were. Anything
-  withheld is said to be withheld, so the model asks rather than answering from memory.
+  an item's own fields from everything that reaches a provider: the item context sent unasked, every
+  read tool the model may call, every write tool's answer and the descriptions and refusals it answers
+  with, and the turns of the conversation replayed as context. A title, a person's name and a rationale
+  written about a task are all the item's; what is not the item's still goes, so a count of matches, a
+  day's capacity arithmetic and the order a plan put its entries in are answered as they always were.
+  Anything withheld is said to be withheld, so the model asks rather than answering from memory.
+- **A write tool is a send boundary too.** It answers with the row it wrote, which is item text the
+  model never supplied: at `none` the item context gives it an id and a sentence, and "mark it done"
+  would otherwise hand back the title, the name of the person the task waits on and its project. So a
+  write tool answers with the ids and the withholding, exactly as a read tool does, and the change
+  itself still happens: the policy governs what is said about the work, not whether the work is done.
+- **A rationale and a plan's summary are metadata, deliberately.** They are prose Caroline wrote about
+  its own scheduling rather than a body somebody wrote about a client's work, and they are the answer
+  to the question `get_daily_plan` exists to answer: why the day is in this order. Withholding them at
+  `metadata` would leave that tool returning a ranked list of ids with nothing to explain it, which is
+  not a level anybody would choose. They can name a task, so at `none` they are withheld with
+  everything else. This is a judgement about where one line falls, written down rather than left
+  implicit, so that moving it is a decision about a row of a table and not an accident.
+- **A stored turn is replayed only as far as the level in force now allows.** A conversation held at
+  `snippet` and then lowered to `none` would otherwise send its earlier turns verbatim, titles and note
+  excerpts included, which is the disclosure the level was lowered to stop, arriving by the one route
+  nobody inspects. So at `none` the turns before this one are not sent, and the model is told they were
+  withheld rather than left to conclude the conversation has only just begun. The message just sent is
+  the user's own words and goes as it always did. This is the same answer a plan summary drawn before
+  the policy was lowered gets, and for the same reason: two stale artefacts cannot get two answers.
+  Nothing is deleted by this, because `storeContent` governs the disk and this is the send boundary.
+- **A confirmation the user decides on is not a send boundary.** The card asking whether to delete a
+  task is rendered on the user's own screen from their own database, so it names the task however low
+  `llmContent` is set: a card reading "delete task-1" would only have somebody confirm blind. What the
+  model is told about the held operation is a send boundary, and at `none` the operation is named by the
+  arguments the model itself supplied. The same holds for the summary recorded against a change for the
+  transcript's undo control.
 - `retainContentDays` purges stored `content` older than the window on a daily job. Source
   rows, tasks and metadata survive; only the body text is dropped. Age is measured from when
   the body was written, not from when the item was last seen: a thread still in the inbox is
@@ -122,9 +149,11 @@ mailbox, and it is answered by the same `llmContent` level.
   nothing in it that `storeContent` has not already allowed onto the disk.
 - **The same level governs the tool.** `get_task` returns a task's notes, so it is held to
   `llmContent` in the same way and by the same function. Two answers to whether a note may leave the
-  machine would mean the policy is decoration. At `none` that holds for the rest of the task too: the
-  tool answers with the kind and the id and says the policy withheld the rest, as the context does,
-  because a level that withholds a title from the one cannot hand it over from the other.
+  machine would mean the policy is decoration. `list_projects` is the same case by another table: the
+  body-shaped field of a project is `notes` as much as a task's is, so the one function answers for
+  both. At `none` that holds for the rest of the item too: the tool answers with the kind and the id
+  and says the policy withheld the rest, as the context does, because a level that withholds a title
+  from the one cannot hand it over from the other.
 - **The payload preview shows a real one.** The Settings screen renders the context for the same real
   item it already previews a classification call for, built by the same function a turn is built with.
   A preview of a screen's worth of policy that does not include the newest thing leaving the machine is
@@ -222,10 +251,13 @@ Nothing Caroline creates lives outside its data directory.
     why, a name longer than the cap is refused, and an empty name is accepted and sends nothing about
     the person.
 13. With `llmContent: "metadata"`, a selected task's notes appear in no provider request payload,
-    neither in the item context nor in a `get_task` result, while its title does; with
-    `llmContent: "none"` nothing but its kind and id appears, on every path alike: the item context
-    and each of spec 07's read tools, every one of which says the policy withheld the rest rather
-    than answering with a title, a name or a rationale; with `llmContent: "snippet"` its notes are
-    truncated to `snippetChars` and said to be truncated. Asserted against the built request.
+    neither in the item context nor in a `get_task` result, while its title does, and a project's notes
+    go the same way through `list_projects`, being the same field of the same shape. With
+    `llmContent: "none"` nothing but an item's kind and id appears, on every path alike: the item
+    context, each of spec 07's read tools, each of its write tools and the descriptions and refusals
+    they answer with, and the turns of the conversation replayed as context. Every one of them says the
+    policy withheld the rest rather than answering with a title, a name or a rationale. With
+    `llmContent: "snippet"` notes are truncated to `snippetChars` and said to be truncated. Asserted
+    against the built request.
 14. The payload preview shows the item context for a real item, rendered by the same function that
     builds a turn's, so the screen cannot drift from what leaves the machine.

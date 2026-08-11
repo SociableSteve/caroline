@@ -26,7 +26,7 @@ import { isStaleWait } from '../domain/waiting.js'
  * where a day carried more than one change: two different prompts under one version would defeat the
  * point of having one.
  */
-export const CHAT_PROMPT_VERSION = '2026-08-11.3'
+export const CHAT_PROMPT_VERSION = '2026-08-11.4'
 
 /** Counts per status, the plan if there is one, and what is left of the day. Spec 07. */
 export interface ChatContext {
@@ -153,7 +153,15 @@ export interface PromptOptions extends PromptLimits {
    * sent and the payload preview read the same string the provider is handed. Spec 07.
    */
   readonly itemContext: string | null
+  /**
+   * True where the policy withheld the turns before this one, so the model is told it is not seeing the
+   * conversation rather than left to conclude the user has only just started talking. Spec 09.
+   */
+  readonly priorTurnsWithheld: boolean
 }
+
+/** What is said in place of a conversation `none` withheld. The turns are stored either way. */
+const PRIOR_TURNS_WITHHELD = `The content policy is set to send nothing about an item beyond its id, so the earlier turns of this conversation have been withheld from you: what was said in them was written when more could be sent. Do not claim to remember them. Ask the user what they mean rather than answering from what you no longer have.`
 
 /**
  * The system prompt. The rules are stated in full both ways round, because the read-only turn is
@@ -170,7 +178,9 @@ Today is ${context.today} (${context.timeZone}).
 ${JSON.stringify(contextPayload(context), null, 2)}
 
 That is all you are given about the day as a whole. Anything more specific, including any other task's title, you fetch with a tool, so that you are reading the system as it is now rather than as it was when this turn began.
-${options.itemContext === null ? '' : `\n${options.itemContext}\n`}
+${options.itemContext === null ? '' : `\n${options.itemContext}\n`}${
+    options.priorTurnsWithheld ? `\n${PRIOR_TURNS_WITHHELD}\n` : ''
+  }
 ${options.readOnly ? READ_ONLY_RULES : writeRules(options)}`
 }
 

@@ -53,9 +53,12 @@ of it needs.
 
 A tool call is the other half of this and is not governed by it: the context is sent unasked on every
 message, while `get_task` is the model deliberately fetching one item the conversation named. Every
-read tool is held to the same content level as the context, so one policy answers all of them: a level
+tool is held to the same content level as the context, so one policy answers all of them: a level
 that withholds a title from one path cannot hand it over from another, and a page of fifty titles from
-`search_tasks` is fifty times the disclosure of one from `get_task` rather than an exception to it.
+`search_tasks` is fifty times the disclosure of one from `get_task` rather than an exception to it. The
+write tools are held to it as well, because a tool that answers with the row it just wrote is answering
+with item text the model never supplied, and so are the turns of the conversation replayed as context,
+which were written when more could be sent. Spec 09 states it and owns the rule.
 
 ## Tools
 

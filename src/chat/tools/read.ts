@@ -34,6 +34,7 @@ import {
   describeDuration,
   MAX_ROWS,
   taskSummary,
+  withheldItem,
   withholdsText,
 } from './shared.js'
 
@@ -128,7 +129,7 @@ const getTaskTool = defineTool<{ readonly id: string }>({
     // from the one cannot hand it over from the other. Spec 09, criterion 13. The withholding is
     // stated, so the model asks rather than answering about a task it was not shown.
     if (withholdsText(context)) {
-      return { ok: true, data: { kind: 'task', id: task.id, withheld: WITHHELD_ITEM_TEXT } }
+      return { ok: true, data: withheldItem('task', task.id) }
     }
 
     // Notes are the body-shaped field of a task, so they leave the machine only as far as `llmContent`
@@ -220,12 +221,19 @@ const listProjectsTool = defineTool<{ readonly state?: ProjectState }>({
       data: {
         projects: listProjects(context.database, args.state).map((project) => {
           const nextAction = getProjectNextAction(context.database, project.id)
+          // The body-shaped field of a project is `notes`, exactly as it is for a task, so it goes
+          // through the one function every sender of a note goes through. Sending the column verbatim
+          // here would have `metadata` withhold a task's note and hand over a project's. Spec 09.
+          const notes = textToSend(project.notes, context.config.privacy)
 
           return {
             id: project.id,
             title: project.title,
             state: project.state,
-            notes: project.notes,
+            notes: notes.text,
+            // Said rather than left to be inferred, as in `get_task`: a model shown three hundred
+            // characters and told nothing would answer as though that were the whole note.
+            ...(notes.truncated ? { notesTruncated: true } : {}),
             stalled: stalled.has(project.id),
             nextAction: nextAction === null ? null : { id: nextAction.id, title: nextAction.title },
           }
