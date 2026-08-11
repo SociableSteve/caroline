@@ -1,11 +1,22 @@
 /*
  * The design system. Spec 10.
  *
- * Four short scales and five primitives, and every surface draws from them. A value not on a
- * scale is a defect rather than a judgement call, which is what `styles.test.ts` asserts: it
- * parses this file and fails on a literal in a spacing, `font-size`, `border-radius` or
- * `line-height` declaration, and on a colour that is not a token. Those are the properties the
- * scales cover; a `width` or a `grid-template-columns` is layout and is left to the rule.
+ * Four short scales, five primitives and an appearance model, and every surface draws from them. A
+ * value not on a scale is a defect rather than a judgement call, which is what `styles.test.ts`
+ * asserts: it parses this file and fails on a literal in a spacing, `font-size`, `border-radius` or
+ * `line-height` declaration, on a colour that is not a token, and on the two things this milestone
+ * removed for good (uppercasing and letter-spacing).
+ *
+ * The appearance model, in four sentences, because it is what M9's consistency was missing:
+ *
+ * - Depth, not outlines. A region is where it is because of its ground and its shadow. `--page` is
+ *   tinted, a panel is sunk into it, a card is raised out of it in white with `--shadow-1`.
+ * - A neutral ramp. Four grounds where one colour used to do three of their jobs, and two lines
+ *   where one `--line` was both a component's edge and a divider inside it.
+ * - Weight is scarce. `600` belongs to the one surface heading and nowhere else, `500` marks a
+ *   heading or the one value that is the point of its row, and everything else is `400`.
+ * - One filled primary per context. `.primary` is a filled action in `--accent`, so there is one
+ *   obvious thing to press in a row of controls and only one.
  *
  * Colour is never the only carrier of meaning. Every state a colour marks also says what it is in
  * words: a stale wait says "Stale", a completed plan entry says "done" beside the strikethrough, a
@@ -33,7 +44,7 @@
   --text-sm: 0.875rem;
   --text-base: 1rem;
   --text-lg: 1.125rem;
-  --text-xl: 1.375rem;
+  --text-xl: 1.75rem;
   --leading-tight: 1.25;
   --leading-normal: 1.5;
 
@@ -45,34 +56,53 @@
   /* Measure. Running text is capped so a line does not run past roughly 80 characters. */
   --measure: 76ch;
 
-  /* Colour, light. Every value meets AA against the ground it sits on. */
-  --page: #ffffff;
-  --surface: #f4f5f7;
+  /*
+   * Colour, light. Every value meets AA against the ground it sits on.
+   *
+   * The four grounds are a ramp and not three names for white: the page is tinted so that a card
+   * can be white and be seen to be raised, a panel is sunk into the page, and a well is sunk
+   * further still.
+   */
+  --page: #f2f3f6;
+  --surface: #e8eaef;
+  --surface-sunk: #dde1e8;
   --surface-raised: #ffffff;
-  --ink: #1a1a1a;
-  --ink-quiet: #55595f;
-  --line: #c8ccd2;
+  --ink: #16181c;
+  --ink-quiet: #4f545b;
+  --line-faint: #d3d8df;
+  --line: #b4bbc4;
   --accent: #1c4f8b;
+  --accent-ink: #ffffff;
   --alarm: #8b1c1c;
-  --alarm-surface: #fdeded;
+  --alarm-surface: #fbe4e4;
   --scrim: rgb(0 0 0 / 45%);
+  --shadow-1: 0 1px 2px rgb(16 24 40 / 10%), 0 1px 3px rgb(16 24 40 / 6%);
+  --shadow-2: 0 8px 24px rgb(16 24 40 / 16%);
 
   line-height: var(--leading-normal);
 }
 
-/* Designed, not inverted: the dark palette overrides the colour tokens and nothing else. */
+/*
+ * Designed, not inverted: the dark palette overrides the colour tokens and nothing else. The shadows
+ * are among them, because the same shadow over a light ground and a dark one is wrong on one of them.
+ */
 @media (prefers-color-scheme: dark) {
   :root {
-    --page: #16181c;
-    --surface: #1f2228;
-    --surface-raised: #262a31;
+    --page: #14161a;
+    --surface: #1d2025;
+    --surface-sunk: #101215;
+    --surface-raised: #272b32;
     --ink: #f2f3f5;
-    --ink-quiet: #b3b8c0;
-    --line: #3b4048;
+    --ink-quiet: #b1b7bf;
+    --line-faint: #2e333a;
+    --line: #454b54;
     --accent: #8fb8ea;
+    --accent-ink: #0f1216;
     --alarm: #f4a3a3;
     --alarm-surface: #3a2222;
     --scrim: rgb(0 0 0 / 65%);
+    --shadow-1: 0 1px 2px rgb(0 0 0 / 45%), 0 1px 3px rgb(0 0 0 / 35%);
+    --shadow-2: 0 8px 24px rgb(0 0 0 / 55%);
   }
 }
 
@@ -84,6 +114,7 @@ body {
 
 main {
   padding: var(--space-4) var(--space-5) var(--space-7);
+  min-width: 0;
 }
 
 h1,
@@ -92,9 +123,20 @@ h3 {
   line-height: var(--leading-tight);
 }
 
+/*
+ * The one surface heading, and the only thing set at 600. The gap to a panel heading was 0.25rem of
+ * font size and nothing else, which is not a hierarchy; it is now a rank of size and a rank of
+ * weight.
+ */
 h1 {
-  margin: 0 0 var(--space-4);
+  margin: 0 0 var(--space-5);
   font-size: var(--text-xl);
+  font-weight: 600;
+}
+
+h2,
+h3 {
+  font-weight: 500;
 }
 
 a {
@@ -140,10 +182,12 @@ button[disabled] {
 
 /* ---- The five primitives. A surface composes these; it does not restyle them. ---- */
 
-/* Panel: a titled region. The caller supplies the heading level, because the outline is theirs. */
+/*
+ * Panel: a titled region, sunk into the page. No border: the ground is what says where it is, and an
+ * outline around a region that already has a ground is the habit this milestone exists to break.
+ */
 .panel {
   background: var(--surface);
-  border: 1px solid var(--line);
   border-radius: var(--radius-md);
   padding: var(--space-3);
 }
@@ -185,7 +229,7 @@ button[disabled] {
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   font-size: var(--text-xs);
-  font-weight: 600;
+  font-weight: 500;
   color: var(--ink-quiet);
 }
 
@@ -223,11 +267,21 @@ button[disabled] {
   gap: var(--space-2);
 }
 
-/* The primary action of a row, which is the one taken most often. Spec 08. */
+/*
+ * The primary action of a context, which is the one taken most often. Filled, because accent text in
+ * an outlined box is a link wearing a button's clothes: at a glance it read as the same rank as
+ * everything beside it. One of these per row of controls. Spec 10.
+ */
 .primary {
-  font-weight: 600;
+  background: var(--accent);
   border-color: var(--accent);
-  color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 500;
+}
+
+.primary[disabled] {
+  color: var(--accent-ink);
+  opacity: 0.6;
 }
 
 /* ---- Shared appearance ---- */
@@ -262,7 +316,7 @@ button[disabled] {
   flex-wrap: wrap;
   gap: var(--space-2) var(--space-4);
   padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--line-faint);
   background: var(--surface);
 }
 
@@ -270,7 +324,7 @@ button[disabled] {
 .wordmark {
   margin: 0;
   font-size: var(--text-lg);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .app-header nav ul {
@@ -283,17 +337,90 @@ button[disabled] {
 }
 
 .app-header nav a[aria-current='page'] {
-  font-weight: 600;
+  font-weight: 500;
   text-decoration-thickness: 2px;
 }
 
 /* Pushed to the end where there is room, and wrapping under the nav where there is not: at 430px
-   the six links and two buttons do not share a line, and the header used to scroll sideways. */
+   the links and the buttons do not share a line, and the header used to scroll sideways. */
 .header-actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
   margin-left: auto;
+}
+
+/*
+ * The surface, and the chat rail beside it. Spec 08: chat is a companion rather than a route, so it
+ * takes a column of the shell rather than the whole of it.
+ */
+.app-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+
+.app-body.with-rail {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 24rem);
+}
+
+/*
+ * Sticky and scrolling on its own, so a long transcript does not lengthen the surface beside it, and
+ * so the composer stays reachable while the board is being read.
+ */
+.chat-rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--surface);
+  border-left: 1px solid var(--line-faint);
+  position: sticky;
+  top: 0;
+  /* Stretched to the height of the surface beside it and then capped at the viewport, so its ground
+     runs the full height of the screen rather than stopping under a short transcript. */
+  align-self: stretch;
+  max-height: 100vh;
+  overflow-y: auto;
+}
+
+.rail-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.rail-heading {
+  margin: 0;
+  font-size: var(--text-base);
+}
+
+.rail-conversations > summary {
+  color: var(--ink-quiet);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+/*
+ * Below the width where a rail leaves the surface usable it becomes the overlay quick capture
+ * already owns: out of the flow, above the surface, on a raised ground with a shadow to say so. It
+ * is closed from its own control, because it is a companion rather than a modal.
+ */
+@media (max-width: 60rem) {
+  .app-body.with-rail {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .chat-rail {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    max-height: none;
+    background: var(--surface-raised);
+    border-left: none;
+    box-shadow: var(--shadow-2);
+  }
 }
 
 /* Board */
@@ -346,15 +473,14 @@ button[disabled] {
   gap: var(--space-2);
   margin: 0 0 var(--space-2);
   font-size: var(--text-sm);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  color: var(--ink-quiet);
 }
 
 .column-number,
 .column-count {
   font-size: var(--text-xs);
   color: var(--ink-quiet);
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-faint);
   border-radius: var(--radius-sm);
   padding: 0 var(--space-1);
   font-variant-numeric: tabular-nums;
@@ -380,23 +506,29 @@ button[disabled] {
   overflow-y: auto;
 }
 
+/* A card is raised out of the page rather than drawn around: white ground, one soft shadow, no
+   outline. Spec 10's appearance model. */
 .card {
   display: block;
   background: var(--surface-raised);
-  border: 1px solid var(--line);
-  border-left: 4px solid var(--line);
   border-radius: var(--radius-md);
   padding: var(--space-2);
+  box-shadow: var(--shadow-1);
   cursor: grab;
 }
 
+/* Stale is said in a badge as well; this is the edge that lets the column be scanned for it. An
+   inset shadow rather than a border, so a flagged card is not a pixel wider than a calm one. */
 .card-stale {
-  border-left-color: var(--alarm);
+  box-shadow:
+    inset var(--space-1) 0 0 var(--alarm),
+    var(--shadow-1);
 }
 
 .card-title {
   margin: 0 0 var(--space-1);
   font-size: var(--text-base);
+  font-weight: 500;
 }
 
 /* Every one of these carries its meaning in words, so none of them depends on its colour. */
@@ -441,8 +573,6 @@ button[disabled] {
 
 .shortcuts h2 {
   font-size: var(--text-sm);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .shortcut-facts {
@@ -506,7 +636,7 @@ button[disabled] {
 
 .count {
   color: var(--ink);
-  font-weight: 600;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
 
@@ -526,7 +656,7 @@ button[disabled] {
   justify-content: space-between;
   gap: 0 var(--space-3);
   padding: var(--space-1) 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--line-faint);
 }
 
 .chase-title {
@@ -563,7 +693,7 @@ button[disabled] {
   justify-content: start;
   gap: var(--space-3) var(--space-6);
   padding-top: var(--space-3);
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--line-faint);
   font-size: var(--text-sm);
 }
 
@@ -576,8 +706,6 @@ button[disabled] {
 .strip-heading {
   margin: 0 0 var(--space-1);
   font-size: var(--text-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
   color: var(--ink-quiet);
 }
 
@@ -632,7 +760,7 @@ button[disabled] {
   align-items: baseline;
   gap: var(--space-1) var(--space-2);
   padding: var(--space-1) 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--line-faint);
 }
 
 .plan-rank {
@@ -686,11 +814,12 @@ button[disabled] {
   margin: 0 0 var(--space-3);
 }
 
+/* A well rather than an outline: the track is sunk and the fill is what is read. */
 .capacity-bar {
   display: block;
   width: 100%;
   height: var(--space-2);
-  border: 1px solid var(--line);
+  background: var(--surface-sunk);
   border-radius: var(--radius-pill);
   overflow: hidden;
 }
@@ -711,7 +840,7 @@ button[disabled] {
   display: flex;
   gap: var(--space-2);
   padding: var(--space-1) 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--line-faint);
 }
 
 .event-time {
@@ -774,7 +903,7 @@ button[disabled] {
 
 .project {
   padding: var(--space-3) 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--line-faint);
 }
 
 .project h3 {
@@ -816,14 +945,15 @@ button[disabled] {
   overflow: auto;
   background: var(--scrim);
   padding: var(--space-4);
+  z-index: 2;
 }
 
 .capture {
   width: min(30rem, 100%);
-  background: var(--page);
-  border: 1px solid var(--line);
+  background: var(--surface-raised);
   border-radius: var(--radius-md);
   padding: var(--space-4);
+  box-shadow: var(--shadow-2);
 }
 
 .capture h2 {
@@ -889,10 +1019,11 @@ button[disabled] {
   list-style: none;
 }
 
-/* A job's own panel sits raised on the surface behind it, and its name is a rank below a
-   surface heading rather than at it. */
+/* A job's own panel is raised out of the surface rather than sunk into it, and its name is a rank
+   below a surface heading rather than at it. */
 .job-status-list .panel {
   background: var(--surface-raised);
+  box-shadow: var(--shadow-1);
 }
 
 .job-name {
@@ -916,7 +1047,7 @@ button[disabled] {
 .run-history td {
   padding: var(--space-1) var(--space-2);
   text-align: left;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--line-faint);
 }
 
 .run-history .run-when {
@@ -932,6 +1063,7 @@ button[disabled] {
 }
 
 .settings-outcome {
+  margin: var(--space-2) 0 0;
   padding: var(--space-2);
   border: 1px solid var(--accent);
   border-radius: var(--radius-sm);
@@ -949,36 +1081,19 @@ button[disabled] {
   font-size: var(--text-sm);
 }
 
-/* The payload is read, not skimmed, so it keeps its shape and scrolls rather than wrapping. */
+/* The payload is read, not skimmed, so it keeps its shape and scrolls rather than wrapping. A well
+   sunk into the panel, because it is quoted matter rather than a region of its own. */
 .payload-preview {
   margin: 0 0 var(--space-3);
   padding: var(--space-3);
   overflow-x: auto;
-  border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  background: var(--surface);
+  background: var(--surface-sunk);
   font-size: var(--text-sm);
+  white-space: pre-wrap;
 }
 
 /* Chat: the transcript, what each turn changed, and what it is waiting to be told. Spec 07. */
-.chat-surface {
-  display: grid;
-  grid-template-columns: minmax(12rem, 18rem) minmax(0, 1fr);
-  gap: var(--space-5);
-  align-items: start;
-}
-
-@media (max-width: 50rem) {
-  .chat-surface {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-/* The surface's own heading spans both columns: it names the surface, not either column. */
-.chat-title {
-  grid-column: 1 / -1;
-  margin: 0;
-}
 
 .conversation-list {
   margin: 0;
@@ -988,12 +1103,12 @@ button[disabled] {
 
 .conversation-list li {
   padding: var(--space-1) 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--line-faint);
   font-size: var(--text-sm);
 }
 
 .chat-transcript {
-  margin: 0 0 var(--space-4);
+  margin: 0;
   padding: 0;
   list-style: none;
   display: flex;
@@ -1002,24 +1117,24 @@ button[disabled] {
   max-width: var(--measure);
 }
 
+/* A turn is raised out of the rail's ground. The user's own turns are not: the eye follows the
+   answers, and the question is already known. */
 .chat-turn {
   padding: var(--space-3);
-  border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--surface-raised);
+  box-shadow: var(--shadow-1);
 }
 
-/* The user's own turns sit back a little, so the eye follows the answers. */
 .chat-user {
   background: var(--surface);
+  box-shadow: none;
 }
 
 .chat-role {
   margin: 0 0 var(--space-1);
   color: var(--ink-quiet);
   font-size: var(--text-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .chat-text {
@@ -1066,11 +1181,10 @@ button[disabled] {
 
 .chat-note,
 .chat-readonly {
-  margin: 0 0 var(--space-3);
+  margin: 0;
   padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  background: var(--surface);
+  background: var(--surface-sunk);
   font-size: var(--text-sm);
   max-width: var(--measure);
 }
@@ -1078,7 +1192,7 @@ button[disabled] {
 .chat-composer {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: var(--space-2);
   max-width: var(--measure);
 }
 

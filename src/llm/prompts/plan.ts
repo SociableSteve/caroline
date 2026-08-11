@@ -16,7 +16,7 @@ import type { JsonSchema } from '../types.js'
  * change a plan. Dated rather than numbered, because what a reader of the history wants to
  * know is which era of the prompt a plan came from.
  */
-export const PLAN_PROMPT_VERSION = '2026-08-10'
+export const PLAN_PROMPT_VERSION = '2026-08-11'
 
 /**
  * The rules are stated even though they are enforced in code afterwards. A model told what
@@ -24,7 +24,7 @@ export const PLAN_PROMPT_VERSION = '2026-08-10'
  * no correcting is one whose ordering is the model's judgement rather than a rearrangement of
  * it. Spec 05 lists them; they are worth quoting closely.
  */
-export const PLAN_SYSTEM_PROMPT = `You draw one day's plan for one person, from the work they already have and the time they actually have free.
+export const PLAN_RULES = `You draw one day's plan for one person, from the work they already have and the time they actually have free.
 
 You are given the free capacity for the day in minutes, and the tasks that are eligible for it. Rank the tasks you would do, in order, and say why for each in one short sentence.
 
@@ -38,6 +38,15 @@ Rules:
 - summary is one or two sentences describing the shape of the day.
 
 You are proposing, not deciding. Nothing you answer changes any task.`
+
+/**
+ * The system prompt: the shared preamble, then the planner's own rules. The preamble is passed in
+ * rather than built here so that the string handed to the provider is the same one the payload
+ * preview shows, and so that a rationale is addressed to somebody by name. Spec 09.
+ */
+export function planSystemPrompt(preamble: string): string {
+  return `${preamble}\n\n${PLAN_RULES}`
+}
 
 /**
  * The answer's shape, as JSON Schema, carried as data. The adapters ask the provider for it

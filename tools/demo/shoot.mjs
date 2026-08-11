@@ -17,15 +17,20 @@ const PORT = Number(process.env.CDP_PORT ?? 9333)
 const BASE = process.env.BASE ?? 'http://127.0.0.1:5207'
 const OUT = process.env.OUT ?? '/tmp/caroline-demo/shots'
 
-/** Each surface, and the width to look at it at. */
+/**
+ * Each surface, and the width to look at it at. Chat is no longer one of them: it is a rail beside a
+ * surface, and `?conversation=` is what opens it, so it is shot where it is actually used. The
+ * narrow pair is where the rail collapses to an overlay and the six columns stack.
+ */
 const shots = [
   { name: 'dashboard', hash: '#/', width: 1440, height: 1100 },
   { name: 'board', hash: '#/board', width: 1440, height: 1100 },
+  { name: 'board-with-rail', hash: '#/board?conversation=', width: 1440, height: 1100 },
   { name: 'projects', hash: '#/projects', width: 1440, height: 900 },
-  { name: 'chat', hash: '#/chat', width: 1440, height: 900 },
   { name: 'jobs', hash: '#/jobs', width: 1440, height: 1000 },
-  { name: 'settings', hash: '#/settings', width: 1440, height: 900 },
+  { name: 'settings', hash: '#/settings', width: 1440, height: 1400 },
   { name: 'board-narrow', hash: '#/board', width: 430, height: 1200 },
+  { name: 'rail-narrow', hash: '#/board?conversation=', width: 430, height: 1200 },
   { name: 'dashboard-narrow', hash: '#/', width: 430, height: 1400 },
 ]
 

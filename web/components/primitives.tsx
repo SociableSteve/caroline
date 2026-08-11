@@ -1,8 +1,8 @@
 /**
  * The five primitives of spec 10. Each owns a pattern that was being rewritten per surface: a
  * titled region, a label-and-value grid, a state said in words, a labelled control, and a row of
- * actions. A surface composes these; it does not restyle them, which is what keeps six surfaces
- * reading as one system.
+ * actions. A surface composes these; it does not restyle them, which is what keeps the surfaces
+ * and the chat rail reading as one system.
  *
  * They live here, in this application's own directory, and they take the props this application
  * needs. There is no package and no case handled that does not occur.

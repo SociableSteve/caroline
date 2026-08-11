@@ -38,7 +38,9 @@ function preview(overrides: Partial<PrivacyPreview> = {}): PrivacyPreview {
       from: 'Sam Reed <sam.reed@example.com>',
       snippet: 'Could you take a look at the hub numbers?',
     },
-    promptVersion: '2026-08-10',
+    promptVersion: '2026-08-11',
+    preamble:
+      'You are Caroline, one person\'s task assistant. The person you are talking to has this name: "Steve".',
     ...overrides,
   }
 }
@@ -48,12 +50,14 @@ function renderSettings(overrides: Partial<Parameters<typeof Settings>[0]> = {})
     onConnectGoogle: vi.fn(),
     onDisconnectGoogle: vi.fn(),
     onRefreshPreview: vi.fn(),
+    onSaveUserName: vi.fn(async () => true),
   }
 
   render(
     <Settings
       google={google()}
       preview={preview()}
+      userName=""
       googleOutcome={null}
       {...handlers}
       {...overrides}
@@ -168,7 +172,7 @@ describe('the payload preview', () => {
 
     expect(within(section).getByText(/Hub numbers before Thursday/)).toBeInTheDocument()
     expect(within(section).getByText(/"snippet": "Could you take a look/)).toBeInTheDocument()
-    expect(within(section).getByText(/Prompt version 2026-08-10/)).toBeInTheDocument()
+    expect(within(section).getByText(/Prompt version 2026-08-11/)).toBeInTheDocument()
   })
 
   it('says there is nothing to preview on an empty inbox', () => {
@@ -190,6 +194,78 @@ describe('the payload preview', () => {
   it('waits for the server rather than showing an empty policy', () => {
     renderSettings({ preview: null, google: null })
 
-    expect(screen.getAllByText('Waiting for the server.')).toHaveLength(3)
+    // One per panel that has nothing to show yet: the account, the policy, the preamble and the
+    // payload. Counted rather than named, so a panel added without an empty state is noticed.
+    expect(screen.getAllByText('Waiting for the server.')).toHaveLength(4)
+  })
+})
+
+/**
+ * Spec 09: the name is data about a person, it goes to the model on every call, and the payload
+ * preview is where what leaves the machine is proved rather than described.
+ */
+describe('who Caroline is talking to', () => {
+  it('shows the name it has, and saves a new one', async () => {
+    const handlers = renderSettings({ userName: 'Steve' })
+
+    const section = panel(/who caroline is talking to/i)
+    expect(within(section).getByLabelText('Your name')).toHaveValue('Steve')
+
+    await userEvent.clear(within(section).getByLabelText('Your name'))
+    await userEvent.type(within(section).getByLabelText('Your name'), 'Ana')
+    await userEvent.click(within(section).getByRole('button', { name: 'Save' }))
+
+    expect(handlers.onSaveUserName).toHaveBeenCalledWith('Ana')
+  })
+
+  /** Clearing the field is how somebody says they would rather not be addressed by name. */
+  it('saves an empty name, and says what that means', async () => {
+    const handlers = renderSettings({ userName: 'Steve' })
+
+    const section = panel(/who caroline is talking to/i)
+    expect(within(section).getByText(/will not address you by name/i)).toBeInTheDocument()
+
+    await userEvent.clear(within(section).getByLabelText('Your name'))
+    await userEvent.click(within(section).getByRole('button', { name: 'Save' }))
+
+    expect(handlers.onSaveUserName).toHaveBeenCalledWith('')
+  })
+
+  it('says the name goes to the model, including a remote one', () => {
+    renderSettings()
+
+    expect(
+      within(panel(/who caroline is talking to/i)).getByText(/remote provider/i),
+    ).toBeInTheDocument()
+  })
+
+  it('does not claim to have saved a name the server refused', async () => {
+    renderSettings({ userName: 'Steve', onSaveUserName: vi.fn(async () => false) })
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(screen.queryByText(/^Saved\./)).not.toBeInTheDocument()
+  })
+
+  /**
+   * Criterion 9 again, for the one thing every call carries. A preview that does not show the name
+   * is a preview that no longer proves what it claims to prove.
+   */
+  it('shows the preamble that will actually be sent, word for word', () => {
+    renderSettings()
+
+    const section = panel(/what every chat and planning call says about you/i)
+
+    expect(within(section).getByText(/"Steve"/)).toBeInTheDocument()
+  })
+
+  it('says it is waiting rather than showing an empty preamble', () => {
+    renderSettings({ preview: null })
+
+    expect(
+      within(panel(/what every chat and planning call says about you/i)).getByText(
+        'Waiting for the server.',
+      ),
+    ).toBeInTheDocument()
   })
 })

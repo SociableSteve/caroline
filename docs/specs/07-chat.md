@@ -7,13 +7,16 @@ project, ask what today looks like and why.
 
 ## Shape
 
-A persistent conversation in the UI, streamed token by token. The model is given tools that
-operate on Caroline's database and nothing else. Conversations persist across restarts and
-are listed so an earlier one can be reopened.
+A persistent conversation, streamed token by token, in a rail beside whichever surface is showing
+rather than on a surface of its own: spec 08 owns that, and the reason for it is that asking about the
+board while the board is on screen is the whole point. The model is given tools that operate on
+Caroline's database and nothing else. Conversations persist across restarts and are listed so an
+earlier one can be reopened.
 
-Context supplied on every turn: current counts per status, today's plan if one exists, and
-today's remaining capacity. Task detail is fetched by the model through tools rather than
-dumped into the prompt, so the context stays small and the model works from current data.
+Context supplied on every turn: the shared prompt preamble, which names the system and the person it
+is talking to (spec 09), current counts per status, today's plan if one exists, and today's remaining
+capacity. Task detail is fetched by the model through tools rather than dumped into the prompt, so the
+context stays small and the model works from current data.
 
 ## Tools
 

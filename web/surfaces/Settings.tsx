@@ -6,19 +6,24 @@
  * nobody can check, so the exact payload a classification call would carry, for a real item, is on
  * the page. Spec 09, criterion 9.
  */
+import { useEffect, useState } from 'react'
 import type { GoogleStatus, PrivacyPreview } from '../api.js'
 import { formatDate } from '../format.js'
-import { Fact, Facts, Panel } from '../components/primitives.js'
+import { ActionRow, Fact, Facts, Field, Panel } from '../components/primitives.js'
 import { useSurfaceTitle } from '../title.js'
 
 export interface SettingsProps {
   readonly google: GoogleStatus | null
   readonly preview: PrivacyPreview | null
+  /** What Caroline calls the person using it. Empty is a supported answer. Spec 09. */
+  readonly userName: string
   /** What the callback put in the URL, so the screen can say how connecting went. */
   readonly googleOutcome: string | null
   readonly onConnectGoogle: () => void
   readonly onDisconnectGoogle: () => void
   readonly onRefreshPreview: () => void
+  /** Answers whether it saved, so a refused name is not reported as having been accepted. */
+  readonly onSaveUserName: (name: string) => Promise<boolean>
 }
 
 const outcomes: Record<string, string> = {
@@ -31,12 +36,23 @@ const outcomes: Record<string, string> = {
 export function Settings({
   google,
   preview,
+  userName,
   googleOutcome,
   onConnectGoogle,
   onDisconnectGoogle,
   onRefreshPreview,
+  onSaveUserName,
 }: SettingsProps) {
   useSurfaceTitle('Settings')
+  const [typed, setTyped] = useState(userName)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  // The server's answer wins whenever it changes: what is in the box otherwise survives a reload of
+  // the screen and could be a name that was refused.
+  useEffect(() => {
+    setTyped(userName)
+  }, [userName])
 
   return (
     <div className="settings-surface">
@@ -92,6 +108,58 @@ export function Settings({
         )}
       </Panel>
 
+      {/* Spec 09: a name is data about a person rather than deployment configuration, so it is
+          written here rather than hand-edited into `caroline.config.json`. */}
+      <Panel headingLevel={2} heading="Who Caroline is talking to">
+        <p>
+          Caroline tells the model your name so that it writes to you rather than about you. It is
+          sent on every chat and planning call, including to a remote provider.
+        </p>
+
+        <form
+          className="inline-form"
+          onSubmit={(event) => {
+            event.preventDefault()
+            setSaving(true)
+            setSaved(false)
+            void onSaveUserName(typed.trim())
+              .then((ok) => setSaved(ok))
+              // The shell reports its own write failures and answers false rather than rejecting,
+              // but a component that assumes that is a component that breaks when it stops being
+              // true. A rejection is a save that did not happen, which is what false already means.
+              .catch(() => setSaved(false))
+              .finally(() => setSaving(false))
+          }}
+        >
+          <Field label="Your name">
+            <input
+              name="userName"
+              value={typed}
+              autoComplete="off"
+              onChange={(event) => {
+                setTyped(event.target.value)
+                setSaved(false)
+              }}
+            />
+          </Field>
+          <ActionRow>
+            <button type="submit" className="primary" disabled={saving}>
+              {saving ? 'Saving' : 'Save'}
+            </button>
+          </ActionRow>
+        </form>
+
+        <p className="policy-note">
+          Leave it empty and Caroline will not address you by name, and will not send one.
+        </p>
+
+        {saved && (
+          <p role="status" className="settings-outcome">
+            Saved. The next turn and the next plan will use it.
+          </p>
+        )}
+      </Panel>
+
       <Panel headingLevel={2} heading="What leaves this machine">
         {preview === null ? (
           <p className="empty">Waiting for the server.</p>
@@ -122,6 +190,22 @@ export function Settings({
               Change these in <code>caroline.config.json</code> under <code>privacy</code>, then
               restart Caroline.
             </p>
+          </>
+        )}
+      </Panel>
+
+      {/* The preamble is the one thing every call carries, so it is previewed on its own rather
+          than inside the classification payload, which does not carry it. Spec 09. */}
+      <Panel headingLevel={2} heading="What every chat and planning call says about you">
+        {preview?.preamble === undefined ? (
+          <p className="empty">Waiting for the server.</p>
+        ) : (
+          <>
+            <p>
+              This is the preamble, word for word, as it will be sent. It is built from the same
+              function the model is handed, so it cannot drift from what leaves the machine.
+            </p>
+            <pre className="payload-preview">{preview.preamble}</pre>
           </>
         )}
       </Panel>

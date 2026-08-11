@@ -19,6 +19,7 @@ import {
   type PlanView,
   type PrivacyPreview,
   type ProjectView,
+  type SettingsView,
   type TaskView,
 } from './api.js'
 
@@ -41,7 +42,9 @@ export interface CarolineData {
   /** The Google connection, and what a classification call would send. Both read on demand. */
   readonly google: GoogleStatus | null
   readonly preview: PrivacyPreview | null
-  /** Reloads the two settings answers, which no other write invalidates. */
+  /** What Caroline calls the person using it, which goes to the model on every call. Spec 09. */
+  readonly userName: string
+  /** Reloads the settings answers, which no other write invalidates. */
   readonly reloadSettings: () => Promise<void>
   /** The configured waiting staleness threshold, defaulted until the config arrives. */
   readonly staleDays: number
@@ -87,6 +90,7 @@ export function useCarolineData(): CarolineData {
   const [calendar, setCalendar] = useState<CalendarDay | null>(null)
   const [google, setGoogle] = useState<GoogleStatus | null>(null)
   const [preview, setPreview] = useState<PrivacyPreview | null>(null)
+  const [userName, setUserName] = useState('')
   const [staleDays, setStaleDays] = useState(DEFAULT_STALE_DAYS)
   const [loading, setLoading] = useState(true)
   const [failure, setFailure] = useState<string | null>(null)
@@ -186,9 +190,10 @@ export function useCarolineData(): CarolineData {
     settingsGeneration.current += 1
     const mine = settingsGeneration.current
 
-    const [connection, payload] = await Promise.all([
+    const [connection, payload, settings] = await Promise.all([
       api.getGoogleStatus().catch(() => null),
       api.getPrivacyPreview().catch(() => null),
+      api.getSettings().catch((): SettingsView | null => null),
     ])
 
     // The same guard `reload` uses, for the same reason: opening Settings and pressing Refresh can
@@ -198,6 +203,9 @@ export function useCarolineData(): CarolineData {
 
     setGoogle(connection)
     setPreview(payload)
+    // A failed read leaves the last answer standing rather than blanking the field, which would
+    // read as "nobody has said" and invite the name being typed in again.
+    if (settings !== null) setUserName(settings.userName)
   }, [])
 
   useEffect(() => {
@@ -229,6 +237,7 @@ export function useCarolineData(): CarolineData {
     calendar,
     google,
     preview,
+    userName,
     staleDays,
     loading,
     failure,

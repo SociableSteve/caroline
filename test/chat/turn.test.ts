@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { getTranscript, listConversations } from '../../src/db/repositories/chat.js'
 import { latestDailyPlan, recordDailyPlan } from '../../src/db/repositories/daily-plans.js'
 import { createProject, getProject } from '../../src/db/repositories/projects.js'
+import { setUserName } from '../../src/db/repositories/settings.js'
 import { listSourcesForTask, upsertSource } from '../../src/db/repositories/sources.js'
 import { createTask, getTask, getTaskTags, setTaskTags } from '../../src/db/repositories/tasks.js'
 import { listLlmCalls } from '../../src/db/repositories/llm-calls.js'
@@ -947,6 +948,28 @@ describe('the context a turn is given', () => {
     expect(system).toContain('"todaysPlan": null')
     expect(system).toContain('"stalledProjects": 1')
     expect(system).toContain('Today is 2026-06-01')
+  })
+
+  /**
+   * Spec 09: the shared preamble names the person using Caroline. Without it a model writes about
+   * the user in the third person to the user's own face, and the name is also personal data leaving
+   * the machine, which is why it is asserted against the built request rather than the template.
+   */
+  it('names the person it is talking to, from the settings table', async () => {
+    const harness = chatHarness({ answers: [textAnswer('Answered.')] })
+    setUserName(harness.database, 'Steve', CHAT_NOW)
+
+    await harness.turn('What is in my inbox?')
+
+    expect(harness.requests[0]?.system).toContain('"Steve"')
+  })
+
+  it('says it does not know the name when nobody has given one', async () => {
+    const harness = chatHarness({ answers: [textAnswer('Answered.')] })
+
+    await harness.turn('What is in my inbox?')
+
+    expect(harness.requests[0]?.system).toMatch(/do not know their name/i)
   })
 
   it('bounds how much of a long conversation goes back to the model', async () => {

@@ -1,7 +1,7 @@
 /**
  * The shell, against a stubbed API: the surfaces are tested on their own, so what matters here
- * is the plumbing. Routing, quick capture from anywhere, writes reaching the right route, and
- * the change feed refreshing what is on screen.
+ * is the plumbing. Routing, the chat rail beside whichever surface is showing, quick capture from
+ * anywhere, writes reaching the right route, and the change feed refreshing what is on screen.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
@@ -143,6 +143,7 @@ function stubApi({
       if (url.startsWith('/api/chat/conversations')) return answer({ conversations: [] })
       if (url.startsWith('/api/integrations/google')) return answer(google)
       if (url.startsWith('/api/privacy/preview')) return answer(preview)
+      if (url.startsWith('/api/settings')) return answer({ userName: '' })
       if (url.startsWith('/api/health')) return answer(health)
       if (url.startsWith('/api/config')) return answer({ tasks: { waitingStaleDays: 7 } })
 
@@ -209,37 +210,6 @@ describe('the shell', () => {
 
     expect(await screen.findByRole('heading', { name: /^Inbox/ })).toBeInTheDocument()
     expect(screen.getByRole('article', { name: 'Captured' })).toBeInTheDocument()
-  })
-
-  it('shows chat when the hash asks for it', async () => {
-    stubApi()
-    window.location.hash = '#/chat'
-
-    render(<App />)
-
-    expect(await screen.findByRole('heading', { name: 'New conversation' })).toBeInTheDocument()
-    expect(screen.getByLabelText('Message')).toBeInTheDocument()
-  })
-
-  /**
-   * The chat surface reads its own answers, and only when it is opened: the conversation list and
-   * the status are of no use behind the board, and one of them is a read per surface change.
-   */
-  it('reads nothing for chat until chat is opened', async () => {
-    const calls = stubApi()
-
-    render(<App />)
-    await screen.findByRole('region', { name: /where everything is/i })
-    expect(calls.some((call) => call.url.startsWith('/api/chat'))).toBe(false)
-
-    window.location.hash = '#/chat'
-    window.dispatchEvent(new HashChangeEvent('hashchange'))
-
-    await waitFor(() => {
-      expect(calls.some((call) => call.url.startsWith('/api/chat/conversations'))).toBe(true)
-      // Both, so the test would notice either read being dropped rather than only the list.
-      expect(calls.some((call) => call.url.startsWith('/api/chat/status'))).toBe(true)
-    })
   })
 
   it('follows a hash change without a reload', async () => {
@@ -619,6 +589,32 @@ describe('settings through the shell', () => {
     expect(calls.some((call) => call.url.startsWith('/api/integrations/google'))).toBe(true)
   })
 
+  /**
+   * Spec 09: the name goes to the model on every call, so saving it re-reads the payload preview.
+   * A preview that did not move would no longer be showing what would actually be sent.
+   */
+  it('saves the name and re-reads what would be sent', async () => {
+    const calls = stubApi()
+    window.location.hash = '#/settings'
+
+    render(<App />)
+    await userEvent.type(await screen.findByLabelText('Your name'), 'Steve')
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(calls).toContainEqual({
+        method: 'PATCH',
+        url: '/api/settings',
+        body: { userName: 'Steve' },
+      }),
+    )
+    await waitFor(() =>
+      expect(
+        calls.filter((call) => call.url.startsWith('/api/privacy/preview')).length,
+      ).toBeGreaterThan(1),
+    )
+  })
+
   it('disconnects the account and reads the connection back', async () => {
     const calls = stubApi({
       google: {
@@ -641,5 +637,94 @@ describe('settings through the shell', () => {
         body: undefined,
       }),
     )
+  })
+})
+
+/**
+ * The chat rail. Spec 08: chat is a companion to whichever surface is showing rather than a route,
+ * because asking about the board while the board is on screen is the whole point and a route swap
+ * takes the board away to do it.
+ */
+describe('the chat rail', () => {
+  it('is not in the navigation, because it is not a surface', async () => {
+    stubApi()
+
+    render(<App />)
+    await screen.findByRole('region', { name: /where everything is/i })
+
+    const nav = screen.getByRole('navigation', { name: 'Surfaces' })
+    expect(within(nav).queryByRole('link', { name: 'Chat' })).not.toBeInTheDocument()
+    expect(within(nav).getAllByRole('link')).toHaveLength(5)
+  })
+
+  it('opens beside the board, leaving the board on screen', async () => {
+    stubApi({ tasks: [aTask({ id: 'task-1', title: 'Captured' })] })
+    window.location.hash = '#/board'
+
+    render(<App />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Chat' }))
+
+    expect(screen.getByRole('complementary', { name: 'Chat' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Message')).toBeInTheDocument()
+    // The point of a rail: the surface it was asked about is still there.
+    expect(screen.getByRole('article', { name: 'Captured' })).toBeInTheDocument()
+  })
+
+  it('reads nothing for chat until the rail is opened', async () => {
+    const calls = stubApi()
+
+    render(<App />)
+    await screen.findByRole('region', { name: /where everything is/i })
+    expect(calls.some((call) => call.url.startsWith('/api/chat'))).toBe(false)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Chat' }))
+
+    await waitFor(() => {
+      expect(calls.some((call) => call.url.startsWith('/api/chat/conversations'))).toBe(true)
+      // Both, so the test would notice either read being dropped rather than only the list.
+      expect(calls.some((call) => call.url.startsWith('/api/chat/status'))).toBe(true)
+    })
+  })
+
+  /** A conversation keeps a URL: one you cannot link to is one you cannot come back to. */
+  it('opens itself on the conversation the hash names', async () => {
+    stubApi()
+    window.location.hash = '#/board?conversation=conversation-1'
+
+    render(<App />)
+
+    expect(await screen.findByRole('complementary', { name: 'Chat' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /^Inbox/ })).toBeInTheDocument()
+  })
+
+  /** The rail's openness is in the hash, so a reload comes back to it rather than to a bare board. */
+  it('opens itself for a hash that asks for the rail without naming a conversation', async () => {
+    stubApi()
+    window.location.hash = '#/board?conversation='
+
+    render(<App />)
+
+    expect(await screen.findByRole('complementary', { name: 'Chat' })).toBeInTheDocument()
+  })
+
+  it('puts itself in the URL when opened from the header', async () => {
+    stubApi()
+    window.location.hash = '#/board'
+
+    render(<App />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Chat' }))
+
+    expect(window.location.hash).toBe('#/board?conversation=')
+  })
+
+  it('closes again, taking the conversation out of the URL with it', async () => {
+    stubApi()
+    window.location.hash = '#/board?conversation=conversation-1'
+
+    render(<App />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Close chat' }))
+
+    expect(screen.queryByRole('complementary', { name: 'Chat' })).not.toBeInTheDocument()
+    expect(window.location.hash).toBe('#/board')
   })
 })

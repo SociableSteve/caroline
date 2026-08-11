@@ -18,6 +18,7 @@ import { registerPlanRoutes } from './routes/plan.js'
 import { registerChatRoutes } from './routes/chat.js'
 import { registerIntegrationRoutes } from './routes/integrations.js'
 import { registerPrivacyRoutes } from './routes/privacy.js'
+import { registerSettingsRoutes } from './routes/settings.js'
 import {
   errorSerialiser,
   redactLogFields,
@@ -78,6 +79,7 @@ export function registerRoutes(
   registerChatRoutes(app, { config, database, changes, now, jobs })
   registerIntegrationRoutes(app, { config, database, google: jobs.google })
   registerPrivacyRoutes(app, { config, database, content: jobs.content, now })
+  registerSettingsRoutes(app, { database, now })
 }
 
 /**

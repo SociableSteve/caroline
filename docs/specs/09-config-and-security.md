@@ -64,6 +64,31 @@ Every settings control that changes exposure states its consequence in plain lan
 just its name. The UI shows, for the current configuration, exactly what a classification
 call would contain, using a real item, before it is used.
 
+## What Caroline is told about you
+
+Two facts go into a shared prompt preamble, carried by every call that produces prose a person reads:
+that the system is called Caroline, and the name of the person using it. The second is the one that
+matters, because without it the model writes about the user in the third person to the user's own
+face. The preamble is shared rather than chat's alone: the planner writes user-facing prose too, and
+its rationales were already in the second person without having been told who they were addressed to.
+
+- **It is data about a person, not deployment configuration.** The name lives in a `settings` table
+  and is written from the Settings surface. That is what avoids making `caroline.config.json`
+  writable, which would mean rewriting a file somebody hand-edited and deciding what a restart means
+  for it. The database path, bind address and port stay where they are.
+- **It leaves the machine.** The name goes to the provider on every chat and planning call, a remote
+  one included, so it is this spec's business rather than a UI detail. The payload preview shows the
+  rendered preamble, which is the entire reason that screen exists: a preview that does not show the
+  name is a preview that no longer proves what it claims to prove. It is built from the same
+  rendering the provider is handed, not from a second one that could drift from it.
+- **It is constrained rather than trusted.** It is free text from outside the program that ends up
+  inside a system prompt, so it is bounded in length, a single line with control characters refused,
+  and rendered as a quoted value in the preamble rather than concatenated into its instructions. A
+  refused name is refused rather than silently rewritten, and the reason is said in a sentence.
+- **An empty name is a supported state, not an error.** Somebody who would rather not be addressed by
+  name says so by clearing the field, and the preamble then omits that sentence entirely rather than
+  greeting nobody. Nothing about the person is sent in that case.
+
 ## Credentials
 
 - **Google**: OAuth desktop flow with PKCE, read-only scopes only (`gmail.readonly`,
@@ -149,3 +174,9 @@ Nothing Caroline creates lives outside its data directory.
 9. The settings screen can show the exact payload that would be sent for a given real item
    under the current policy.
 10. The documented deletion command leaves no Caroline-created file on disk.
+11. The name of the person using Caroline reaches the provider in the shared preamble, asserted
+    against the built request for both chat and the planner, and the payload preview shows that same
+    rendered preamble.
+12. A name containing a line break or any other control character is refused with a message saying
+    why, a name longer than the cap is refused, and an empty name is accepted and sends nothing about
+    the person.

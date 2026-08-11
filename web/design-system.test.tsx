@@ -1,5 +1,5 @@
 /**
- * The rules all six surfaces share. Spec 10, criteria 4 to 7 and 9.
+ * The rules all five surfaces share. Spec 10, criteria 4 to 7 and 9.
  *
  * The scales themselves are asserted against the stylesheet in `styles.test.ts`. What is here is
  * everything that only shows up once a surface is rendered: the heading outline, the title, the
@@ -11,12 +11,11 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { Board } from './surfaces/Board.js'
-import { Chat } from './surfaces/Chat.js'
 import { Dashboard } from './surfaces/Dashboard.js'
 import { Jobs } from './surfaces/Jobs.js'
 import { ProjectDetail, Projects } from './surfaces/Projects.js'
 import { Settings } from './surfaces/Settings.js'
-import { aProject, NOW } from './test-fixtures.js'
+import { aProject, aProposal, aReviewTask, aTask, NOW } from './test-fixtures.js'
 import { surfaceTitle } from './title.js'
 
 const boardHandlers = {
@@ -87,26 +86,6 @@ const surfaces: ReadonlyArray<{ name: string; title: string; render: () => void 
       ),
   },
   {
-    name: 'Chat',
-    title: 'Chat',
-    render: () =>
-      void render(
-        <Chat
-          status={null}
-          conversations={[]}
-          conversation={null}
-          messages={[]}
-          draft={null}
-          sending={false}
-          failure={null}
-          now={NOW}
-          onSend={vi.fn()}
-          onConfirm={vi.fn()}
-          onUndo={vi.fn()}
-        />,
-      ),
-  },
-  {
     name: 'Jobs',
     title: 'Jobs',
     render: () => void render(<Jobs jobs={[]} runs={[]} now={NOW} onRun={vi.fn()} />),
@@ -119,10 +98,12 @@ const surfaces: ReadonlyArray<{ name: string; title: string; render: () => void 
         <Settings
           google={null}
           preview={null}
+          userName=""
           googleOutcome={null}
           onConnectGoogle={vi.fn()}
           onDisconnectGoogle={vi.fn()}
           onRefreshPreview={vi.fn()}
+          onSaveUserName={vi.fn(async () => true)}
         />,
       ),
   },
@@ -139,7 +120,7 @@ describe('one heading outline per surface', () => {
     expect(headings[0]).toHaveTextContent(surface.title)
   })
 
-  // Criterion 6. Six routes that all read "Caroline" are six indistinguishable history entries.
+  // Criterion 6. Five routes that all read "Caroline" are five indistinguishable history entries.
   it.each(surfaces)('$name names itself in the document title', (surface) => {
     document.title = 'unset'
     surface.render()
@@ -191,6 +172,38 @@ describe('each primitive has one implementation', () => {
       .map((entry) => `${entry.file} should use ${use}`)
 
     expect(offenders).toEqual([])
+  })
+})
+
+/**
+ * One filled primary per context. Spec 10's appearance model: `.primary` is now a filled action, so
+ * two of them in one row of controls is two obvious things to press, which is none.
+ *
+ * A row of controls is the context, and not the surface: a board of review cards has a primary on
+ * each of them, and that is right, because a card is what is being acted on.
+ */
+describe('one filled primary per context', () => {
+  const boardWithEverything = () =>
+    render(
+      <Board
+        tasks={[aReviewTask(), aTask({ id: 'task-2', title: 'Captured', proposal: aProposal() })]}
+        projects={[]}
+        staleDays={7}
+        now={NOW}
+        {...boardHandlers}
+      />,
+    )
+
+  it.each([
+    { name: 'Board', render: boardWithEverything },
+    ...surfaces.map((surface) => ({ name: surface.name, render: surface.render })),
+  ])('$name puts at most one in any row of controls', ({ render: draw }) => {
+    draw()
+
+    const rows = Array.from(document.querySelectorAll('.action-row'))
+    expect(rows.map((row) => row.querySelectorAll('.primary').length).filter((n) => n > 1)).toEqual(
+      [],
+    )
   })
 })
 

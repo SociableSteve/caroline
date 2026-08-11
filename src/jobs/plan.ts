@@ -18,6 +18,7 @@ import {
   type DailyPlanNudgeInput,
 } from '../db/repositories/daily-plans.js'
 import { listProjects } from '../db/repositories/projects.js'
+import { getUserName } from '../db/repositories/settings.js'
 import { listTasks } from '../db/repositories/tasks.js'
 import { workingWindowForDate } from '../actions/capacity.js'
 import { waitingItemsFor } from '../actions/waiting.js'
@@ -38,9 +39,10 @@ import {
   buildPlanPayload,
   planRequestText,
   planSchema,
+  planSystemPrompt,
   PLAN_PROMPT_VERSION,
-  PLAN_SYSTEM_PROMPT,
 } from '../llm/prompts/plan.js'
+import { renderPreamble } from '../llm/prompts/preamble.js'
 
 export const PLAN_JOB = 'plan'
 
@@ -179,7 +181,13 @@ async function draw(
   const answer =
     provider === null
       ? { summary: 'Nothing is eligible for planning today.', entries: [] as RankedEntry[] }
-      : await ask(provider, config, day, planDate)
+      : await ask(
+          provider,
+          config,
+          day,
+          planDate,
+          renderPreamble({ userName: getUserName(database) }),
+        )
 
   const rules = applyPlanRules({
     ranked: answer.entries,
@@ -226,6 +234,8 @@ async function ask(
   config: Config,
   day: DayContext,
   planDate: string,
+  /** Who the plan is for, so its rationales are addressed to somebody. Spec 09. */
+  preamble: string,
 ): Promise<PlanAnswer> {
   const payload = buildPlanPayload({
     date: planDate,
@@ -240,7 +250,7 @@ async function ask(
   })
 
   const result = await provider.complete({
-    system: PLAN_SYSTEM_PROMPT,
+    system: planSystemPrompt(preamble),
     messages: [{ role: 'user', content: planRequestText(payload) }],
     schema: planSchema,
     maxTokens: config.llm.maxTokens,

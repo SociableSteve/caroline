@@ -30,6 +30,7 @@ both validation and typing. Errors follow one shape: `{ error: { code, message, 
 | `POST /api/chat/conversations/:id/undo` | Undo the last turn's changes (spec 07) |
 | `GET /api/jobs`, `POST /api/jobs/:name/run` | Run history, manual trigger |
 | `GET /api/config`, `PATCH /api/config` | Read and update runtime config, secrets redacted |
+| `GET /api/settings`, `PATCH /api/settings` | The settings the person owns rather than the deployment: today, the name Caroline addresses them by (spec 09) |
 | `GET /api/health` | Process, database, per-integration configured and last-run status |
 
 Server-sent events are used for chat streaming and for a lightweight change feed the UI
@@ -37,7 +38,7 @@ subscribes to, so a background job's results appear without a refresh.
 
 ## UI
 
-Six surfaces.
+Five surfaces and a companion.
 
 **Dashboard.** The morning question is "what am I doing today, and does it fit". The dashboard
 answers that first and everything else after, in three bands, in this order. The bands are fixed
@@ -112,10 +113,25 @@ This is not a history feature.
 **Projects.** List of projects with their derived next action, stalled ones marked. Drill
 into a project for its tasks.
 
-**Chat.** Transcript, streamed responses, inline records of what changed with undo, and
-confirmation prompts for deletes and bulk operations. Earlier conversations are listed beside
-it, with what each one has cost. Read-only is stated before anything is typed, and so is a
-turn that stopped at its tool-call limit.
+**Chat, the companion.** Chat is not a surface. It is a rail beside whichever surface is showing,
+because asking about the board while the board is on screen is the whole point and a route swap takes
+the board away to do it. It holds the transcript, streamed responses, inline records of what changed
+with undo, and confirmation prompts for deletes and bulk operations. Earlier conversations are behind
+a disclosure within it rather than in a column of their own: a rail is not wide enough for two
+columns, and the list is wanted when an earlier conversation is, not while one is being had.
+Read-only is stated before anything is typed, and so is a turn that stopped at its tool-call limit.
+
+It is closed by default and opened from the header, because a rail always on screen takes its width
+from the surface whether or not anything is being asked. Below the width where a rail leaves the
+surface usable it collapses to the overlay pattern quick capture already owns: out of the flow, above
+the surface, on a raised ground. It is a companion rather than a modal, so nothing behind it is
+declared inert and it is closed from its own control.
+
+Whether the rail is open, and which conversation it is reading, both live in the URL:
+`#/board?conversation=<id>` is the board with that conversation beside it, and an empty
+`?conversation=` is the rail open on one nobody has started yet. A conversation you cannot link to is
+one you cannot come back to; what it does not have is a surface of its own, so opening one never
+takes away the surface it is about.
 
 **Jobs.** What each background job is for, when it last ran and how that went, when it runs
 next, whether a run of failures is holding it back, and a button to run it now. Spec 06 owns
@@ -149,7 +165,7 @@ wrapping a set of them in list roles replaces that with list semantics and costs
 their place in the outline, which is a poor trade on the surfaces that most need an outline.
 
 Spec 10 owns the scales, the primitives and the appearance rules the surfaces draw from. What is
-here is the behaviour each surface owes the reader; what is there is what all six have in common.
+here is the behaviour each surface owes the reader; what is there is what they all have in common.
 
 ## Non-goals
 
@@ -205,3 +221,12 @@ The design pass adds the following, appended rather than renumbered for that rea
     error, and an error is rendered at the full width available to it.
 20. An age of less than a minute reads as "just now" wherever it appears, and never as "just now
     ago".
+
+The chat rail adds the following, appended for the same reason.
+
+21. The navigation lists five surfaces and no chat route, and `#/chat` resolves to the dashboard as
+    any other unrecognised hash does.
+22. The rail opens beside every surface without replacing it: with the rail open on the board, a card
+    on the board is still rendered.
+23. A hash naming a conversation opens the rail on it, and closing the rail removes it from the hash,
+    so a reload does not reopen a conversation that was closed.

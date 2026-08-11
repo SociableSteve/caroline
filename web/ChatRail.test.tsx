@@ -1,13 +1,16 @@
 /**
- * The chat surface. Spec 08 asks for a transcript, streamed responses, inline records of what
- * changed with undo, and confirmation prompts for deletes and bulk operations. What matters here is
- * that each of those is on the screen and says what it is, including the two things a person would
- * otherwise have to guess at: that chat is read-only, and that a turn stopped early.
+ * The chat rail. Spec 08 asks for a transcript, streamed responses, inline records of what changed
+ * with undo, and confirmation prompts for deletes and bulk operations. What matters here is that each
+ * of those is on the screen and says what it is, including the two things a person would otherwise
+ * have to guess at: that chat is read-only, and that a turn stopped early.
+ *
+ * It is a rail rather than a surface, so it carries no `h1` and its conversation links keep whichever
+ * surface it is open beside.
  */
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
-import { Chat } from './surfaces/Chat.js'
+import { ChatRail } from './components/ChatRail.js'
 import type {
   ChatChangeView,
   ChatConfirmationView,
@@ -96,6 +99,7 @@ interface Handlers {
   onSend: ReturnType<typeof vi.fn>
   onConfirm: ReturnType<typeof vi.fn>
   onUndo: ReturnType<typeof vi.fn>
+  onClose: ReturnType<typeof vi.fn>
 }
 
 function draw(
@@ -107,12 +111,18 @@ function draw(
     draft?: DraftTurn | null
     sending?: boolean
     failure?: string | null
+    hash?: string
   } = {},
 ): Handlers {
-  const handlers: Handlers = { onSend: vi.fn(), onConfirm: vi.fn(), onUndo: vi.fn() }
+  const handlers: Handlers = {
+    onSend: vi.fn(),
+    onConfirm: vi.fn(),
+    onUndo: vi.fn(),
+    onClose: vi.fn(),
+  }
 
   render(
-    <Chat
+    <ChatRail
       status={overrides.status === undefined ? aStatus() : overrides.status}
       conversations={overrides.conversations ?? []}
       conversation={overrides.conversation === undefined ? aConversation() : overrides.conversation}
@@ -121,6 +131,7 @@ function draw(
       sending={overrides.sending ?? false}
       failure={overrides.failure ?? null}
       now={NOW}
+      hash={overrides.hash ?? '#/board'}
       {...handlers}
     />,
   )
@@ -128,7 +139,7 @@ function draw(
   return handlers
 }
 
-describe('the chat surface', () => {
+describe('the chat rail', () => {
   it('invites a first message when there is nothing to show', () => {
     draw({ conversation: null })
 
@@ -213,16 +224,38 @@ describe('the chat surface', () => {
     expect(screen.getByText(/Looked at: search_tasks/)).toBeInTheDocument()
   })
 
-  it('lists the conversations, with a way to start a new one', () => {
+  /** The surface is kept: a conversation opened while reading the board is still about the board. */
+  it('lists the conversations, keeping the surface it is open beside', () => {
     draw({
+      hash: '#/board',
       conversations: [aConversation(), aConversation({ id: 'conversation-2', title: 'Chase Ana' })],
     })
 
-    expect(screen.getByRole('link', { name: 'New conversation' })).toHaveAttribute('href', '#/chat')
+    // Still open: starting a new conversation is not closing the rail that would hold it.
+    expect(screen.getByRole('link', { name: 'New conversation' })).toHaveAttribute(
+      'href',
+      '#/board?conversation=',
+    )
     expect(screen.getByRole('link', { name: 'Chase Ana' })).toHaveAttribute(
       'href',
-      '#/chat/conversation-2',
+      '#/board?conversation=conversation-2',
     )
+  })
+
+  /** The surface it sits beside owns the one `h1` on the page. Spec 10, criterion 5. */
+  it('carries no h1 of its own, because it is not a surface', () => {
+    draw()
+
+    expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument()
+  })
+
+  it('can be closed, since it takes width from the surface beside it', async () => {
+    const user = userEvent.setup()
+    const { onClose } = draw()
+
+    await user.click(screen.getByRole('button', { name: 'Close chat' }))
+
+    expect(onClose).toHaveBeenCalled()
   })
 
   it('marks the conversation being read as the current page', () => {

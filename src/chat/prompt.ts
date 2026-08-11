@@ -22,7 +22,7 @@ import { isStaleWait } from '../domain/waiting.js'
  * Bumped whenever the wording or the assembled context changes in a way that could change how
  * chat behaves. Dated rather than numbered, as for the other prompts.
  */
-export const CHAT_PROMPT_VERSION = '2026-08-10'
+export const CHAT_PROMPT_VERSION = '2026-08-11'
 
 /** Counts per status, the plan if there is one, and what is left of the day. Spec 07. */
 export interface ChatContext {
@@ -133,6 +133,12 @@ export interface PromptLimits {
 
 export interface PromptOptions extends PromptLimits {
   readonly readOnly: boolean
+  /**
+   * Who the model is and who it is talking to, rendered by `renderPreamble`. Passed in rather than
+   * built here, so that the string the provider is handed is the same one the payload preview shows.
+   * Spec 09.
+   */
+  readonly preamble: string
 }
 
 /**
@@ -141,7 +147,7 @@ export interface PromptOptions extends PromptLimits {
  * criterion 7 is exactly that it must not.
  */
 export function chatSystemPrompt(context: ChatContext, options: PromptOptions): string {
-  return `You are Caroline, one person's task assistant. You help them triage their inbox, reshape their projects, and understand what today looks like and why. Caroline is a GTD system: work sits in inbox, next_action, review, waiting, someday, reference or done.
+  return `${options.preamble} You help them triage their inbox, reshape their projects, and understand what today looks like and why. Caroline is a GTD system: work sits in inbox, next_action, review, waiting, someday, reference or done.
 
 Talk like a colleague who knows the system: short, specific, no preamble and no restating of the question. Where a number matters, give the number.
 

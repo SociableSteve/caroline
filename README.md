@@ -119,7 +119,9 @@ trail and the evaluation set for tuning the prompt later.
 ### Chat
 
 **Chat** discusses and changes your tasks in words: triage a pile of inbox items, reshape a project,
-ask what today looks like and why. The model is given tools that reach Caroline's own database and
+ask what today looks like and why. It is a rail beside whatever you are looking at rather than a
+place to go, because asking about the board while the board is on screen is the whole point. Open it
+from the header, on any surface; the conversation keeps a URL, so a link to one comes back to it. The model is given tools that reach Caroline's own database and
 nothing else, so it can search, read, create, update, complete, delete and replan, and it cannot
 send an email, comment on a pull request or touch your calendar. The tool list is the enforcement,
 not a rule it has been asked to follow.
@@ -134,7 +136,7 @@ Conversations are kept, listed by what they were about, and reopen with their fu
 what each one cost in tokens. A turn is recorded as it happens, so a dropped connection loses the
 live text and nothing else: reload and it is there.
 
-With a model that cannot use tools, chat says so at the top of the surface and answers from the
+With a model that cannot use tools, chat says so at the top of the rail and answers from the
 counts, the plan and the capacity it is given rather than pretending to make changes. For Ollama
 that is the default, because tool support depends on the model: set `llm.supportsTools` to `true`
 once you know yours calls them, or set it under `llm.overrides.chat` for the chat model alone.
@@ -170,9 +172,15 @@ requires `allowFullContentToRemoteProvider`, and startup fails if it is not set.
 be sent than is kept, which is the default, the body is fetched when the call is built and
 nothing is persisted from it.
 
+Your name goes out too, and deliberately: **Settings** is where you give it, and without it the
+model writes about you in the third person to your face. It is sent in the shared preamble on every
+chat and planning call, a remote provider included. Leave the field empty and Caroline neither
+addresses you by name nor sends one.
+
 **Settings** shows the exact payload a classification call would carry, for a real item in your
-inbox, under the policy as it stands. A policy nobody can see the effect of is a policy nobody
-can check. See [spec 09](docs/specs/09-config-and-security.md).
+inbox, under the policy as it stands, and the preamble word for word as it will be sent. A policy
+nobody can see the effect of is a policy nobody can check. See
+[spec 09](docs/specs/09-config-and-security.md).
 
 Caroline binds to `127.0.0.1` and has no login. Binding anywhere else requires an access
 token, enforced at startup.

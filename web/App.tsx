@@ -1,19 +1,19 @@
 /**
- * The shell: navigation between the surfaces, quick capture from anywhere, and the one place
- * writes are turned into API calls. The surfaces themselves take data and callbacks, so they
- * can be driven in a test without a server.
+ * The shell: navigation between the surfaces, the chat rail beside whichever one is showing, quick
+ * capture from anywhere, and the one place writes are turned into API calls. The surfaces themselves
+ * take data and callbacks, so they can be driven in a test without a server.
  */
 import { useCallback, useEffect, useState } from 'react'
 import { api, type ProjectState, type TaskInput, type TaskStatus } from './api.js'
 import { useChat } from './chat.js'
 import { useCarolineData } from './data.js'
-import { conversationHref, routeLinks, useRoute } from './router.js'
+import { chatRailHref, conversationHref, routeLinks, useLocation } from './router.js'
 import { Board } from './surfaces/Board.js'
-import { Chat } from './surfaces/Chat.js'
 import { Dashboard } from './surfaces/Dashboard.js'
 import { Jobs } from './surfaces/Jobs.js'
 import { ProjectDetail, Projects } from './surfaces/Projects.js'
 import { Settings } from './surfaces/Settings.js'
+import { ChatRail } from './components/ChatRail.js'
 import { QuickCapture } from './components/QuickCapture.js'
 import { productName } from './title.js'
 
@@ -41,6 +41,7 @@ export function App() {
     calendar,
     google,
     preview,
+    userName,
     staleDays,
     loading,
     failure,
@@ -48,12 +49,23 @@ export function App() {
     reload,
     reloadSettings,
   } = useCarolineData()
-  const route = useRoute()
+  const { route, chatOpen: chatInUrl, conversationId, hash } = useLocation()
   const [capturing, setCapturing] = useState(false)
   const [writeFailure, setWriteFailure] = useState<string | null>(null)
+  /**
+   * Whether the rail is open. Closed by default: a rail always on screen takes its width from the
+   * surface whether or not anything is being asked. Held here as well as in the hash so that a click
+   * shows it at once rather than a `hashchange` later, and followed from the hash below, so a
+   * reload, a back button and a shared link all agree about it.
+   */
+  const [chatOpen, setChatOpen] = useState(() => chatInUrl)
   // The clock the surfaces measure ages against. Held in state so that a render caused by
   // something else does not silently shift every age on the screen.
   const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    setChatOpen(chatInUrl)
+  }, [chatInUrl])
 
   useEffect(() => {
     const tick = setInterval(() => setNow(Date.now()), 60_000)
@@ -141,21 +153,26 @@ export function App() {
   const cardHandlers = { onStatusChange, onComplete, onDelete }
 
   /**
-   * Chat keeps its own state: it is the one surface whose answers arrive in pieces, and the board's
-   * one-fetch-serves-everything approach has nothing to offer it. What it shares with the rest of
-   * the UI is the reload, because a turn that moved a task has moved it for every other surface too.
+   * Chat keeps its own state: it is the one part of the UI whose answers arrive in pieces, and the
+   * board's one-fetch-serves-everything approach has nothing to offer it. What it shares with the
+   * rest of the UI is the reload, because a turn that moved a task has moved it for every other
+   * surface too.
    */
   const chat = useChat({
-    conversationId: route.name === 'chat' ? route.id : null,
-    active: route.name === 'chat',
+    conversationId,
+    active: chatOpen,
     onDataChanged: () => void reload(),
-    onConversationStarted: (id) => window.location.assign(conversationHref(id)),
+    onConversationStarted: (id) => {
+      // The surface is kept: a conversation started while reading the board is still about the
+      // board, and the URL is what makes it something to come back to.
+      window.location.hash = conversationHref(id, window.location.hash)
+    },
   })
 
   /**
    * The settings answers are read when Settings is opened rather than on every load: the payload
    * preview fetches a Gmail thread, and doing that behind the board would be a request nobody asked
-   * for. Re-read after connecting or disconnecting, which is the one thing that changes them.
+   * for. Re-read after connecting, disconnecting or renaming, which is what changes them.
    */
   useEffect(() => {
     if (route.name === 'settings') void reloadSettings()
@@ -177,6 +194,28 @@ export function App() {
     void (async () => {
       if (await write(() => api.disconnectGoogle())) await reloadSettings()
     })()
+
+  /**
+   * The name goes to the model on every call, so saving it re-reads the payload preview: the point
+   * of that screen is that it shows what would actually be sent, and a stale preview would not.
+   */
+  const onSaveUserName = async (name: string): Promise<boolean> => {
+    const saved = await write(() => api.patchSettings({ userName: name }))
+    if (saved) await reloadSettings()
+    return saved
+  }
+
+  const setChat = (open: boolean) => {
+    setChatOpen(open)
+    // And in the URL, which is where the rail's openness really lives. The conversation leaves with
+    // it: a hash naming a conversation nobody can see would reopen the rail on the next reload.
+    //
+    // Compared against the hash as it is now rather than against `chatInUrl`, which lags behind it
+    // until `hashchange` fires: opening and closing quickly would otherwise leave the close unwritten
+    // and the pending event would reopen the rail.
+    const next = chatRailHref(open, window.location.hash)
+    if (next !== window.location.hash) window.location.hash = next
+  }
 
   return (
     <>
@@ -204,68 +243,105 @@ export function App() {
           <button type="button" onClick={() => setCapturing(true)}>
             Quick capture
           </button>
+          {/* Chat is a companion to the surface rather than a place to go, so it is a control here
+              rather than a link in the navigation. Spec 08. */}
+          <button type="button" aria-expanded={chatOpen} onClick={() => setChat(!chatOpen)}>
+            Chat
+          </button>
         </div>
       </header>
 
-      <main>
-        {/* The message carries its own context, because the two cases read differently: the
-            whole board being unreachable, and one panel of it that could not be read while the
-            rest of the screen is current. */}
-        {failure !== null && (
-          <p role="alert" className="failure">
-            {failure}{' '}
-            <button type="button" onClick={() => void reload()}>
-              Try again
-            </button>
-          </p>
-        )}
+      <div className={chatOpen ? 'app-body with-rail' : 'app-body'}>
+        <main>
+          {/* The message carries its own context, because the two cases read differently: the
+              whole board being unreachable, and one panel of it that could not be read while the
+              rest of the screen is current. */}
+          {failure !== null && (
+            <p role="alert" className="failure">
+              {failure}{' '}
+              <button type="button" onClick={() => void reload()}>
+                Try again
+              </button>
+            </p>
+          )}
 
-        {writeFailure !== null && (
-          <p role="alert" className="failure">
-            {writeFailure}
-          </p>
-        )}
+          {writeFailure !== null && (
+            <p role="alert" className="failure">
+              {writeFailure}
+            </p>
+          )}
 
-        {/* Said out loud rather than left to be noticed: a screen showing a subset of the
-            tasks and not saying so is worse than one that admits it. */}
-        {unfetchedTaskTotal !== null && (
-          <p role="status" className="failure">
-            Showing {tasks.length} of {unfetchedTaskTotal} tasks. Complete or delete some, or narrow
-            what you are looking at.
-          </p>
-        )}
+          {/* Said out loud rather than left to be noticed: a screen showing a subset of the
+              tasks and not saying so is worse than one that admits it. */}
+          {unfetchedTaskTotal !== null && (
+            <p role="status" className="failure">
+              Showing {tasks.length} of {unfetchedTaskTotal} tasks. Complete or delete some, or
+              narrow what you are looking at.
+            </p>
+          )}
 
-        {loading ? (
-          <p>Loading.</p>
-        ) : route.name === 'board' ? (
-          <Board
-            tasks={tasks}
-            projects={projects}
-            staleDays={staleDays}
-            now={now}
-            onMarkReviewed={onMarkReviewed}
-            onAcceptProposal={onAcceptProposal}
-            onDismissProposal={onDismissProposal}
-            onUndoStatus={onUndoStatus}
-            {...cardHandlers}
-          />
-        ) : route.name === 'projects' ? (
-          <Projects
-            projects={projects}
-            onCreate={onCreateProject}
-            onStateChange={onProjectState}
-            onDelete={onDeleteProject}
-          />
-        ) : route.name === 'project' ? (
-          <ProjectDetail
-            project={projects.find((project) => project.id === route.id)}
-            tasks={tasks.filter((task) => task.projectId === route.id)}
-            staleDays={staleDays}
-            now={now}
-            {...cardHandlers}
-          />
-        ) : route.name === 'chat' ? (
-          <Chat
+          {loading ? (
+            <p>Loading.</p>
+          ) : route.name === 'board' ? (
+            <Board
+              tasks={tasks}
+              projects={projects}
+              staleDays={staleDays}
+              now={now}
+              onMarkReviewed={onMarkReviewed}
+              onAcceptProposal={onAcceptProposal}
+              onDismissProposal={onDismissProposal}
+              onUndoStatus={onUndoStatus}
+              {...cardHandlers}
+            />
+          ) : route.name === 'projects' ? (
+            <Projects
+              projects={projects}
+              onCreate={onCreateProject}
+              onStateChange={onProjectState}
+              onDelete={onDeleteProject}
+            />
+          ) : route.name === 'project' ? (
+            <ProjectDetail
+              project={projects.find((project) => project.id === route.id)}
+              tasks={tasks.filter((task) => task.projectId === route.id)}
+              staleDays={staleDays}
+              now={now}
+              {...cardHandlers}
+            />
+          ) : route.name === 'jobs' ? (
+            <Jobs jobs={jobStatus} runs={jobRuns} now={now} onRun={onRunJob} />
+          ) : route.name === 'settings' ? (
+            <Settings
+              google={google}
+              preview={preview}
+              userName={userName}
+              googleOutcome={route.outcome}
+              onConnectGoogle={onConnectGoogle}
+              onDisconnectGoogle={onDisconnectGoogle}
+              onRefreshPreview={() => void reloadSettings()}
+              onSaveUserName={onSaveUserName}
+            />
+          ) : (
+            <Dashboard
+              tasks={tasks}
+              projects={projects}
+              health={health}
+              jobRuns={jobRuns}
+              plan={plan}
+              history={planHistory}
+              calendar={calendar}
+              staleDays={staleDays}
+              now={now}
+              onRegeneratePlan={onRegeneratePlan}
+              regenerating={regenerating}
+              onComplete={onComplete}
+            />
+          )}
+        </main>
+
+        {chatOpen && (
+          <ChatRail
             status={chat.status}
             conversations={chat.conversations}
             conversation={chat.conversation}
@@ -274,38 +350,14 @@ export function App() {
             sending={chat.sending}
             failure={chat.failure}
             now={now}
+            hash={hash}
             onSend={chat.send}
             onConfirm={chat.confirm}
             onUndo={chat.undo}
-          />
-        ) : route.name === 'jobs' ? (
-          <Jobs jobs={jobStatus} runs={jobRuns} now={now} onRun={onRunJob} />
-        ) : route.name === 'settings' ? (
-          <Settings
-            google={google}
-            preview={preview}
-            googleOutcome={route.outcome}
-            onConnectGoogle={onConnectGoogle}
-            onDisconnectGoogle={onDisconnectGoogle}
-            onRefreshPreview={() => void reloadSettings()}
-          />
-        ) : (
-          <Dashboard
-            tasks={tasks}
-            projects={projects}
-            health={health}
-            jobRuns={jobRuns}
-            plan={plan}
-            history={planHistory}
-            calendar={calendar}
-            staleDays={staleDays}
-            now={now}
-            onRegeneratePlan={onRegeneratePlan}
-            regenerating={regenerating}
-            onComplete={onComplete}
+            onClose={() => setChat(false)}
           />
         )}
-      </main>
+      </div>
 
       <QuickCapture
         open={capturing}
