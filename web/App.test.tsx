@@ -843,6 +843,7 @@ describe('the chat rail', () => {
       error: null,
       changes: [],
       confirmations: [],
+      context: null,
     }
     const answered = {
       ...userTurn,
@@ -875,5 +876,99 @@ describe('the chat rail', () => {
     expect(await screen.findByText('What is in my inbox?')).toBeInTheDocument()
     await waitFor(() => expect(screen.getByText('Three things.')).toBeInTheDocument())
     expect(screen.getByRole('heading', { name: /^Inbox/ })).toBeInTheDocument()
+  })
+})
+
+/**
+ * The details panel, in the rail, beside whichever surface is showing. Spec 08's selection model: it
+ * lives in the hash, opening an item opens the rail, and closing the rail clears both.
+ */
+describe('the details panel', () => {
+  it('opens beside the board when a card’s title is clicked, leaving the board on screen', async () => {
+    stubApi({ tasks: [aTask({ id: 'task-1', title: 'Captured' })] })
+    window.location.hash = '#/board'
+
+    render(<App />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Captured' }))
+
+    expect(await screen.findByRole('region', { name: 'Details of Captured' })).toBeInTheDocument()
+    // The point of one rail: the board it was opened from is still there.
+    expect(screen.getByRole('article', { name: 'Captured' })).toBeInTheDocument()
+    expect(window.location.hash).toContain('item=task')
+  })
+
+  /** Criterion 28: a hash naming an item opens the rail on it, so a reload comes back to it. */
+  it('opens itself on the item the hash names', async () => {
+    stubApi({ tasks: [aTask({ id: 'task-1', title: 'Captured' })] })
+    window.location.hash = '#/board?item=task%3Atask-1'
+
+    render(<App />)
+
+    expect(await screen.findByRole('region', { name: 'Details of Captured' })).toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: 'Chat' })).toBeInTheDocument()
+  })
+
+  /** Criterion 29: gone is said, not fallen back from. */
+  it('says an item that is no longer here is gone', async () => {
+    stubApi({ tasks: [aTask({ id: 'task-1', title: 'Captured' })] })
+    window.location.hash = '#/board?item=task%3Adeleted'
+
+    render(<App />)
+
+    expect(
+      await screen.findByRole('region', { name: 'Details of Not here any more' }),
+    ).toBeInTheDocument()
+  })
+
+  it('closes the panel on a second click of the same title, and clears the hash', async () => {
+    stubApi({ tasks: [aTask({ id: 'task-1', title: 'Captured' })] })
+    window.location.hash = '#/board?item=task%3Atask-1'
+
+    render(<App />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Captured' }))
+
+    await waitFor(() => expect(window.location.hash).toBe('#/board'))
+    expect(screen.queryByRole('region', { name: /^Details of/ })).not.toBeInTheDocument()
+  })
+
+  /** Criterion 28: closing the rail takes the item with the conversation. */
+  it('is cleared when the rail is closed', async () => {
+    stubApi({ tasks: [aTask({ id: 'task-1', title: 'Captured' })] })
+    window.location.hash = '#/board?conversation=conversation-1&item=task%3Atask-1'
+
+    render(<App />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Close chat' }))
+
+    // The close is what the hash records, the rail being open by default, and it takes the item and
+    // the conversation with it.
+    expect(window.location.hash).toBe('#/board?chat=closed')
+    expect(screen.queryByRole('complementary', { name: 'Chat' })).not.toBeInTheDocument()
+  })
+
+  it('opens a project from the projects list', async () => {
+    stubApi({ projects: [aProject({ id: 'project-1', title: 'Ship it' })] })
+    window.location.hash = '#/projects'
+
+    render(<App />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Details' }))
+
+    expect(await screen.findByRole('region', { name: 'Details of Ship it' })).toBeInTheDocument()
+  })
+
+  /** Spec 07, rule 1: whatever is open goes with the next message, resolved when it is sent. */
+  it('sends the open item with the next message', async () => {
+    const calls = stubApi({ tasks: [aTask({ id: 'task-1', title: 'Captured' })] })
+    window.location.hash = '#/board?conversation=&item=task%3Atask-1'
+
+    render(<App />)
+    await userEvent.type(await screen.findByLabelText('Message'), 'What is this?')
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }))
+
+    await waitFor(() => {
+      expect(calls.find((call) => call.url === '/api/chat')?.body).toMatchObject({
+        message: 'What is this?',
+        selected: { kind: 'task', id: 'task-1' },
+      })
+    })
   })
 })

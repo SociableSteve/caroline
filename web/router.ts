@@ -7,8 +7,12 @@
  * (spec 08), so the conversation being read is a parameter of the location rather than a route of
  * its own: `#/board?conversation=abc` is the board, with that conversation open beside it. It still
  * has a URL, because a conversation you cannot link to is one you cannot come back to.
+ *
+ * The item open in the rail's details region travels the same way, for the same reason:
+ * `#/board?item=task:abc` is the board with that task open beside it.
  */
 import { useEffect, useState } from 'react'
+import { formatItemRef, parseItemRef, type ItemRef } from '../src/domain/selection.js'
 
 export type Route =
   | { readonly name: 'dashboard' }
@@ -32,6 +36,11 @@ export interface AppLocation {
   readonly chatOpen: boolean
   /** The conversation the rail is reading, or null for a new one. */
   readonly conversationId: string | null
+  /**
+   * The item open in the rail's details region, or null where nothing is. In the hash for the reason
+   * the conversation is: a thing you cannot link to is one you cannot come back to. Spec 08.
+   */
+  readonly selected: ItemRef | null
   /**
    * The hash as it stands, so that a link which opens a conversation can keep the surface and the
    * parameters it was built from rather than reading the address bar behind React's back.
@@ -57,12 +66,15 @@ const CONVERSATION_PARAM = 'conversation'
 const CHAT_PARAM = 'chat'
 const CHAT_CLOSED = 'closed'
 
+/** And the parameter the open item travels in, as `task:abc`. Spec 08's selection model. */
+const ITEM_PARAM = 'item'
+
 /**
  * The parameters that describe the rail rather than the surface, and so follow a surface link
  * across. Everything else in a query belongs to the surface it was on: the settings outcome is
  * about the connect that just happened, and carrying it to the board would be nonsense.
  */
-const RAIL_PARAMS: readonly string[] = [CONVERSATION_PARAM, CHAT_PARAM]
+const RAIL_PARAMS: readonly string[] = [CONVERSATION_PARAM, CHAT_PARAM, ITEM_PARAM]
 
 /** Anything unrecognised is the dashboard, which is the least surprising landing place. */
 export function parseRoute(hash: string): Route {
@@ -89,21 +101,27 @@ export function parseRoute(hash: string): Route {
   return { name: 'dashboard' }
 }
 
-/** The whole location: which surface, and which conversation is open beside it. */
+/** The whole location: which surface, and what is open in the rail beside it. */
 export function parseLocation(hash: string): AppLocation {
   const [, query = ''] = hash.replace(/^#\/?/, '').split('?')
   const params = new URLSearchParams(query)
   const raw = params.get(CONVERSATION_PARAM)
+  const item = params.get(ITEM_PARAM)
+  // An unparseable reference is nothing selected rather than a crash: the hash is something a person
+  // can type into. A well-formed reference naming a row that has gone is a different case, and the
+  // panel is what says so. Spec 08.
+  const selected = item === null ? null : parseItemRef(item)
 
   return {
     route: parseRoute(hash),
     hash,
-    // Open unless the hash says it was closed. A hash naming a conversation is asking for the rail
-    // either way, so it cannot be both.
-    chatOpen: raw !== null || params.get(CHAT_PARAM) !== CHAT_CLOSED,
+    // Open unless the hash says it was closed. A hash naming a conversation or an item is asking for
+    // the rail either way, so it cannot be both: the details panel is inside the rail.
+    chatOpen: raw !== null || selected !== null || params.get(CHAT_PARAM) !== CHAT_CLOSED,
     // An empty parameter is a new conversation rather than a conversation with an empty id, which
     // is what `#/board?conversation=` means when the rail has just been opened.
     conversationId: raw === null || raw === '' ? null : raw,
+    selected,
   }
 }
 
@@ -140,12 +158,30 @@ export function conversationHref(id: string | null, hash: string): string {
 }
 
 /**
+ * The same location with an item open in the rail's details region, or with none. Opening one is the
+ * rail open, so a close is cleared exactly as `conversationHref` clears it: the panel lives inside the
+ * rail, and an item nobody can see is not open.
+ */
+export function itemHref(ref: ItemRef | null, hash: string): string {
+  const [path = '', query = ''] = hash.replace(/^#/, '').split('?')
+  const params = new URLSearchParams(query)
+
+  if (ref === null) params.delete(ITEM_PARAM)
+  else {
+    params.set(ITEM_PARAM, formatItemRef(ref))
+    params.delete(CHAT_PARAM)
+  }
+
+  return withParams(path, params)
+}
+
+/**
  * The same location with the rail opened or closed. Only the close is written down: the rail is open
  * by default, so opening it is the absence of the parameter rather than a value of it, and a link
  * with nothing to say about chat is a link with the rail open beside the surface.
  *
- * Closing takes the conversation with it. A hash naming a conversation nobody can see would reopen
- * the rail on the next reload, which is not what closing it meant.
+ * Closing takes the conversation and the open item with it. Either would reopen the rail on the next
+ * reload, which is not what closing it meant.
  */
 export function chatRailHref(open: boolean, hash: string): string {
   const [path = '', query = ''] = hash.replace(/^#/, '').split('?')
@@ -154,6 +190,7 @@ export function chatRailHref(open: boolean, hash: string): string {
   if (open) params.delete(CHAT_PARAM)
   else {
     params.delete(CONVERSATION_PARAM)
+    params.delete(ITEM_PARAM)
     params.set(CHAT_PARAM, CHAT_CLOSED)
   }
 
@@ -162,8 +199,9 @@ export function chatRailHref(open: boolean, hash: string): string {
 
 /**
  * A link to another surface, keeping whatever the rail is doing. Chat is a companion to whichever
- * surface is showing (spec 08), so changing surface is not closing the rail and not leaving the
- * conversation behind either; without this, every surface link dropped both.
+ * surface is showing (spec 08), so changing surface is not closing the rail, not leaving the
+ * conversation behind, and not closing the item it was about either; without this, every surface link
+ * dropped all three.
  */
 export function surfaceHref(href: string, hash: string): string {
   const [path = ''] = href.replace(/^#/, '').split('?')

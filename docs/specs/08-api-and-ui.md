@@ -119,6 +119,42 @@ This is not a history feature.
 **Projects.** List of projects with their derived next action, stalled ones marked. Drill
 into a project for its tasks.
 
+**The rail, and what is in it.** The right rail has two regions, stacked: the details of the item that
+is open, above the conversation. One rail rather than two, because a details column beside a chat
+column costs roughly 38rem, which at 1440px leaves the board scrolled sideways more or less
+permanently. Stacking them also does the work a label would otherwise have to do, since the thing
+being discussed sits directly above the thing discussing it.
+
+Which items open a panel: tasks and projects, and nothing else. The test is not whether an item has
+fields worth showing but whether the conversation can then do anything with it, and every tool in
+spec 07's registry addresses a task or a project. A calendar event, a job run and a plan entry have
+none, so selecting one would send the model context it cannot act on. A plan entry is not a fourth
+kind: it names a task, and clicking one selects that task.
+
+The details region is pinned to the top of the rail and capped at a share of its height, scrolling
+within that cap, so a task with long notes never takes the rail from the conversation; in a short
+viewport the cap tightens rather than the transcript shrinking. The panel shows the item's own facts
+and its provenance, and it is a reading surface rather than a second place to act: the card and the
+project row keep the controls, because a control in two places is two places to keep in step.
+
+**The selection model.** The item that is open lives in the URL beside the conversation:
+`#/board?item=task:abc` is the board with that task in the rail, and `#/board?item=task:abc&conversation=xyz`
+is that task open beside that conversation. It is one of the parameters that describe the rail rather
+than the surface, so it survives a reload, a link, and a move to another surface or into a project's
+drill-in, for the reason the conversation does. It does not survive the item: an id naming nothing
+renders as gone and sends nothing, because a panel that quietly falls back to the last item that did
+exist is worse than an empty one.
+
+An open item is the rail open. A hash naming one opens it even where the hash also says `?chat=closed`,
+because the panel is inside the rail and an item nobody can see is not open; and closing the rail takes
+the item out of the hash along with the conversation, so nothing is left to reopen a rail that was
+closed.
+
+Whatever is selected when a message is sent goes to the model as context, which is spec 07's rule and
+spec 09's policy. The surface's part of it is that the selection is visible: the card or row that is
+open says so, and the panel names the item, so nothing is being sent about an item the user cannot see
+is selected.
+
 **Chat, the companion.** Chat is not a surface. It is a rail beside whichever surface is showing,
 because asking about the board while the board is on screen is the whole point and a route swap takes
 the board away to do it. It holds the transcript, streamed responses, inline records of what changed
@@ -160,7 +196,12 @@ hours and reserve, classification threshold.
 
 ### Interaction rules
 
-- Keyboard first on the board: move between items, change status, complete, capture.
+- Keyboard first on the board: move between items, change status, complete, capture, open the details
+  of the focused item.
+- A task is opened by clicking its title, not by a control added beside the others: a card's action row
+  is already at the width it can afford, and the title is the thing being pointed at. A project's name
+  is already a link to its own drill-in, so a project is opened from a control in its row instead,
+  where a list has the width a card does not.
 - Quick capture is reachable from anywhere and creates an inbox task.
 - Every task shows its provenance: which source it came from, with a link out, and why the
   classifier put it where it did.
@@ -256,3 +297,17 @@ same reason.
     the conversation it was reading.
 26. Sending a message renders the turn: the user's message, the answer as it streams, and the
     recorded turn that replaces it, with the surface beside the rail still on screen throughout.
+
+The details panel adds the following, appended for the same reason.
+
+27. Clicking a task's title on the board opens that task in the rail without leaving the board, and
+    the card says it is the one that is open.
+28. A hash naming an item opens the rail on that item's details, whether or not the hash also asks for
+    the rail to be closed, and closing the rail removes the item along with the conversation.
+29. A hash naming an item that no longer exists renders as gone rather than as another item's details.
+30. The details panel and the conversation are both in the rail, the panel above the conversation, and
+    the panel is bounded and scrolls within its own region rather than taking the rail's height.
+31. Clicking a plan entry's title on the dashboard opens the entry's task, and an entry whose task has
+    been deleted is not clickable.
+32. A link into a project's drill-in, and the link back out of it, each keep whatever the rail is
+    doing, so an open conversation and an open item both survive the move in either direction.

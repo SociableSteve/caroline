@@ -3,7 +3,13 @@
  * available from the keyboard alone. Spec 08 criteria 3 and 8.
  */
 import { useRef, type DragEvent, type KeyboardEvent } from 'react'
-import { boardStatuses, type ProjectView, type TaskStatus, type TaskView } from '../api.js'
+import {
+  boardStatuses,
+  type ItemRef,
+  type ProjectView,
+  type TaskStatus,
+  type TaskView,
+} from '../api.js'
 import { byOldestFirst, canMarkReviewed, statusLabel } from '../format.js'
 import { TaskCard } from '../components/TaskCard.js'
 import { Fact, Facts, Panel } from '../components/primitives.js'
@@ -22,6 +28,10 @@ export interface BoardProps {
   readonly onDismissProposal: (id: string) => void
   /** Puts the last status change back, the actor with it. Spec 08, criteria 16 and 17. */
   readonly onUndoStatus: (id: string) => void
+  /** Opens a task in the rail's details region. Spec 08, criterion 27. */
+  readonly onSelect: (item: ItemRef) => void
+  /** Which item the rail is showing, so the card that is open says so. */
+  readonly selected: ItemRef | null
 }
 
 /**
@@ -37,6 +47,7 @@ const shortcuts = [
   { keys: 'r', does: 'mark the focused review done, moving it to Waiting for' },
   { keys: 'a', does: 'accept the suggestion on the focused inbox task' },
   { keys: 'u', does: 'put the focused task’s last status change back' },
+  { keys: 'enter', does: 'open the focused task in the details rail' },
   { keys: 'c', does: 'quick capture, from anywhere' },
 ]
 
@@ -66,6 +77,8 @@ export function Board({
   onAcceptProposal,
   onDismissProposal,
   onUndoStatus,
+  onSelect,
+  selected,
 }: BoardProps) {
   useSurfaceTitle('Board')
   const grouped = group(tasks)
@@ -131,6 +144,11 @@ export function Board({
         event.preventDefault()
         if (task.proposal !== null) onAcceptProposal(task.id)
         return
+      case 'Enter':
+        // The card's own key, not the title button's: a key raised inside the card returns above.
+        // Opening the details is a read, so it is safe on any task and silent on none. Spec 08.
+        event.preventDefault()
+        return onSelect({ kind: 'task', id: task.id })
       case 'u':
         // A board move is one keypress, so putting one back is one too. Silent on a task that has
         // never been moved, where there is nothing to put back. Spec 08, criterion 17.
@@ -207,6 +225,8 @@ export function Board({
                       onAcceptProposal={onAcceptProposal}
                       onDismissProposal={onDismissProposal}
                       onUndoStatus={onUndoStatus}
+                      onSelect={onSelect}
+                      selected={selected?.kind === 'task' && selected.id === task.id}
                       onKeyDown={(event) => handleKeyDown(event, columnIndex, rowIndex)}
                       registerRef={(id, element) => {
                         if (element === null) cards.current.delete(id)

@@ -17,6 +17,8 @@ import type {
   ChatInverse,
   ChatRole,
 } from '../../domain/chat.js'
+import type { ContentLevel } from '../../domain/content.js'
+import type { SelectableKind } from '../../domain/selection.js'
 
 /** The title is what the list is read by, so a first message longer than this is cut. */
 export const CONVERSATION_TITLE_MAX = 80
@@ -61,6 +63,24 @@ export interface ChatConfirmationRecord {
   readonly decision: ChatConfirmationDecision | null
 }
 
+/**
+ * What a turn sent about the item the user had open. Spec 07, criterion 10: the record is of the
+ * resolved context, not of an id, because an id says nothing about what left the machine.
+ */
+export interface ChatTurnContextRecord {
+  readonly messageId: string
+  readonly kind: SelectableKind
+  readonly id: string
+  /** False where the item had gone by the time the message was sent. */
+  readonly found: boolean
+  readonly fields: readonly string[]
+  readonly contentLevel: ContentLevel
+  readonly policyVersion: string
+  /** The text the provider was handed, word for word. */
+  readonly rendered: string
+  readonly createdAt: number
+}
+
 export interface ChatMessageRecord {
   readonly id: string
   readonly conversationId: string
@@ -77,6 +97,8 @@ export interface ChatMessageRecord {
   readonly error: string | null
   readonly changes: readonly ChatChangeRecord[]
   readonly confirmations: readonly ChatConfirmationRecord[]
+  /** What was sent about the item that was open, or null where nothing was selected. Spec 07. */
+  readonly context: ChatTurnContextRecord | null
 }
 
 export interface Transcript {
@@ -94,6 +116,9 @@ const changeColumns = `id, message_id, position, tool, summary, entity, entity_i
 
 const confirmationColumns = `id, message_id, reason, tool, arguments, affected_count, summary,
   created_at, decided_at, decision`
+
+const turnContextColumns = `message_id, item_kind, item_id, item_found, fields, content_level,
+  policy_version, rendered, created_at`
 
 function nullableText(value: unknown): string | null {
   return value === null || value === undefined ? null : String(value)
@@ -341,6 +366,101 @@ function toMessage(database: Database, row: Row): ChatMessageRecord {
     error: nullableText(row.error),
     changes: listChanges(database, id),
     confirmations: listConfirmations(database, id),
+    context: getTurnContext(database, id),
+  }
+}
+
+export interface RecordTurnContextInput {
+  readonly messageId: string
+  readonly kind: SelectableKind
+  readonly id: string
+  readonly found: boolean
+  readonly fields: readonly string[]
+  readonly contentLevel: ContentLevel
+  readonly policyVersion: string
+  readonly rendered: string
+}
+
+/**
+ * Writes down what a turn sent about the item that was open. Once per turn, before the provider is
+ * asked anything, so a turn that then failed still says what it had already resolved to send.
+ */
+export function recordTurnContext(
+  database: Database,
+  input: RecordTurnContextInput,
+  now: number,
+): ChatTurnContextRecord {
+  database
+    .prepare(
+      `insert into chat_turn_contexts (${turnContextColumns}) values (
+         :message_id, :item_kind, :item_id, :item_found, :fields, :content_level,
+         :policy_version, :rendered, :created_at
+       )`,
+    )
+    .run({
+      message_id: input.messageId,
+      item_kind: input.kind,
+      item_id: input.id,
+      item_found: booleanToInteger(input.found),
+      fields: JSON.stringify([...input.fields]),
+      content_level: input.contentLevel,
+      policy_version: input.policyVersion,
+      rendered: input.rendered,
+      created_at: now,
+    })
+
+  const written = getTurnContext(database, input.messageId)
+  if (written === null)
+    throw new Error(`the context of turn ${input.messageId} vanished as it was written`)
+  return written
+}
+
+export function getTurnContext(
+  database: Database,
+  messageId: string,
+): ChatTurnContextRecord | null {
+  const row = database
+    .prepare(`select ${turnContextColumns} from chat_turn_contexts where message_id = ?`)
+    .get(messageId)
+
+  if (row === undefined) return null
+  return toTurnContext(row as Row)
+}
+
+/**
+ * The audited field list, as a list of strings whatever the column holds. Caroline's own JSON, so a
+ * value that is not a list of strings is a corrupt row rather than a case to support: an audit missing
+ * a line rather than a reason to fail reading the transcript, which an unwrapped parse would make it.
+ * Checked rather than cast, because the cast reached the screen, where the fields are joined into a
+ * sentence and a number has no `join`.
+ */
+function fieldsFrom(value: string | null): readonly string[] {
+  if (value === null) return []
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(value)
+  } catch {
+    return []
+  }
+
+  // Line by line, so one unreadable entry costs its own line rather than the whole list.
+  return Array.isArray(parsed)
+    ? parsed.filter((field): field is string => typeof field === 'string')
+    : []
+}
+
+function toTurnContext(row: Row): ChatTurnContextRecord {
+  return {
+    messageId: String(row.message_id),
+    kind: String(row.item_kind) as SelectableKind,
+    id: String(row.item_id),
+    found: Number(row.item_found) !== 0,
+    fields: fieldsFrom(nullableText(row.fields)),
+    contentLevel: String(row.content_level) as ContentLevel,
+    policyVersion: String(row.policy_version),
+    rendered: String(row.rendered),
+    createdAt: Number(row.created_at),
   }
 }
 

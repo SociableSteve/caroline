@@ -21,9 +21,11 @@ import {
   type ChatChangeRecord,
   type ChatConfirmationRecord,
   type ChatMessageRecord,
+  type ChatTurnContextRecord,
   type Conversation,
 } from '../../db/repositories/chat.js'
 import { createChatService, type ChatEvent, type PlanRegeneration } from '../../chat/index.js'
+import type { ItemRef } from '../../domain/selection.js'
 import { formatLocalDate, localDateAt } from '../../domain/time.js'
 import { PLAN_JOB } from '../../jobs/plan.js'
 import type { CarolineJobs } from '../../jobs/registry.js'
@@ -90,6 +92,23 @@ function toConfirmation(confirmation: ChatConfirmationRecord) {
   }
 }
 
+/**
+ * What the turn sent about the item that was open. Published so the conversation can be audited from
+ * the surface that had it: recording it and then keeping it to ourselves would make it a table rather
+ * than an audit. Spec 07, criterion 10.
+ */
+export function toTurnContext(context: ChatTurnContextRecord) {
+  return {
+    kind: context.kind,
+    id: context.id,
+    found: context.found,
+    fields: [...context.fields],
+    contentLevel: context.contentLevel,
+    policyVersion: context.policyVersion,
+    rendered: context.rendered,
+  }
+}
+
 function toMessage(message: ChatMessageRecord) {
   return {
     id: message.id,
@@ -107,6 +126,7 @@ function toMessage(message: ChatMessageRecord) {
     error: message.error,
     changes: message.changes.map(toChange),
     confirmations: message.confirmations.map(toConfirmation),
+    context: message.context === null ? null : toTurnContext(message.context),
   }
 }
 
@@ -250,11 +270,11 @@ export function registerChatRoutes(
    * The streamed turn. The body is validated by the schema before the socket is hijacked, so a bad
    * request still gets the standard error shape rather than an event stream saying so.
    */
-  app.post<{ Body: { conversationId?: string; message: string } }>(
+  app.post<{ Body: { conversationId?: string; message: string; selected?: ItemRef } }>(
     '/api/chat',
     { schema: { body: chatTurnBodySchema } },
     async (request, reply) => {
-      const { conversationId, message } = request.body
+      const { conversationId, message, selected } = request.body
 
       // Checked before the socket is hijacked, so a bad id is a 404 in the standard error shape like
       // every other route rather than a 200 carrying an error event. The turn refuses it again on
@@ -310,7 +330,13 @@ export function registerChatRoutes(
 
       try {
         const refusal = await chat.turn(
-          { ...(conversationId === undefined ? {} : { conversationId }), message },
+          {
+            ...(conversationId === undefined ? {} : { conversationId }),
+            message,
+            // Resolved from what was selected when the message was sent, which is why it travels with
+            // the message rather than being remembered against the conversation. Spec 07.
+            ...(selected === undefined ? {} : { selected }),
+          },
           emit,
         )
 

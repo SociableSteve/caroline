@@ -8,6 +8,7 @@
  * surface it is open beside.
  */
 import { describe, expect, it, vi } from 'vitest'
+import type { ReactNode } from 'react'
 import { render, screen, within } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { ChatRail } from './components/ChatRail.js'
@@ -82,6 +83,7 @@ function aMessage(overrides: Partial<ChatMessageView> & { id: string }): ChatMes
     role: 'assistant',
     content: 'Answered.',
     createdAt: NOW,
+    context: null,
     toolCalls: 0,
     toolCallLimitReached: false,
     readOnly: false,
@@ -112,6 +114,7 @@ function draw(
     sending?: boolean
     failure?: string | null
     hash?: string
+    details?: ReactNode
   } = {},
 ): Handlers {
   const handlers: Handlers = {
@@ -132,6 +135,7 @@ function draw(
       failure={overrides.failure ?? null}
       now={NOW}
       hash={overrides.hash ?? '#/board'}
+      details={overrides.details ?? null}
       {...handlers}
     />,
   )
@@ -443,5 +447,71 @@ describe('the things a person would otherwise have to guess at', () => {
     draw({ failure: 'Cannot reach the server' })
 
     expect(screen.getByRole('alert')).toHaveTextContent('Cannot reach the server')
+  })
+})
+
+/**
+ * The rail's two regions. Spec 08, criterion 30: the details of the item that is open, above the
+ * conversation, in one rail rather than two.
+ */
+describe('the details region', () => {
+  it('renders above the conversation it is the subject of', () => {
+    draw({ details: <p data-testid="details">The item</p> })
+
+    const rail = screen.getByRole('complementary', { name: 'Chat' })
+    const details = screen.getByTestId('details')
+    const composer = screen.getByLabelText('Message')
+
+    expect(rail).toContainElement(details)
+    // Above, so the thing being discussed sits over the thing discussing it.
+    expect(details.compareDocumentPosition(composer)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+  })
+
+  it('is absent when nothing is open, leaving the rail as it was', () => {
+    draw()
+
+    expect(screen.queryByTestId('details')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Message')).toBeInTheDocument()
+  })
+})
+
+/**
+ * What a turn sent about the open item, on the turn. Spec 07, criterion 10: an audit nobody can read
+ * is a table, so the record is shown rather than only stored.
+ */
+describe('what a turn sent about the item', () => {
+  const aContext = (overrides = {}) => ({
+    kind: 'task' as const,
+    id: 'task-1',
+    found: true,
+    fields: ['title', 'status'],
+    contentLevel: 'snippet',
+    policyVersion: '2026-08-11',
+    rendered: 'The rendered context, word for word.',
+    ...overrides,
+  })
+
+  it('names the fields, the level and the policy, and shows the text itself', async () => {
+    draw({ messages: [aMessage({ id: 'message-1', context: aContext() })] })
+
+    await userEvent.click(screen.getByText(/What was sent about the open task/))
+
+    expect(screen.getByText(/Fields sent: title, status\./)).toBeInTheDocument()
+    expect(screen.getByText(/Content level snippet, policy 2026-08-11\./)).toBeInTheDocument()
+    expect(screen.getByText('The rendered context, word for word.')).toBeInTheDocument()
+  })
+
+  it('says an item had gone rather than listing fields it never sent', () => {
+    draw({
+      messages: [aMessage({ id: 'message-1', context: aContext({ found: false, fields: [] }) })],
+    })
+
+    expect(screen.getByText(/had gone by the time this was sent/)).toBeInTheDocument()
+  })
+
+  it('says nothing at all about a turn that had no item open', () => {
+    draw({ messages: [aMessage({ id: 'message-1' })] })
+
+    expect(screen.queryByText(/What was sent about/)).not.toBeInTheDocument()
   })
 })

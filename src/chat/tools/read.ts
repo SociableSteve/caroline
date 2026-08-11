@@ -10,6 +10,7 @@
  * is kept beside it because that is what a later tool call has to pass back.
  */
 import { capacityForDate } from '../../actions/capacity.js'
+import { textToSend, WITHHELD_EVENT_TEXT, WITHHELD_ITEM_TEXT } from '../../config/content.js'
 import { waitingItemsFor } from '../../actions/waiting.js'
 import { listCalendarEvents } from '../../db/repositories/calendar-events.js'
 import { listClassifications } from '../../db/repositories/classifications.js'
@@ -27,7 +28,15 @@ import type { Source } from '../../domain/source.js'
 import { taskStatuses, type TaskStatus } from '../../domain/task.js'
 import { isStaleWait } from '../../domain/waiting.js'
 import { defineTool, type ChatTool } from '../types.js'
-import { asIso, dateFrom, describeDuration, MAX_ROWS, taskSummary } from './shared.js'
+import {
+  asIso,
+  dateFrom,
+  describeDuration,
+  MAX_ROWS,
+  taskSummary,
+  withheldItem,
+  withholdsText,
+} from './shared.js'
 
 interface SearchArguments {
   readonly query?: string
@@ -74,6 +83,21 @@ const searchTasks = defineTool<SearchArguments>({
       context.now,
     )
 
+    // A page of summaries is a page of titles, so it is held to the level one title is held to: at
+    // `none` the ids go and the withholding is stated, as in `get_task` and in the item context. The
+    // count of matches is not an item's content and still goes. Spec 09, criterion 13.
+    if (withholdsText(context)) {
+      return {
+        ok: true,
+        data: {
+          total: page.total,
+          returned: page.tasks.length,
+          tasks: page.tasks.map((task) => ({ kind: 'task', id: task.id })),
+          withheld: WITHHELD_ITEM_TEXT,
+        },
+      }
+    }
+
     return {
       ok: true,
       data: {
@@ -100,11 +124,27 @@ const getTaskTool = defineTool<{ readonly id: string }>({
     const task = getTask(context.database, args.id)
     if (task === null) return { ok: false, message: `There is no task with the id ${args.id}.` }
 
+    // At `none` nothing about a task goes but its kind and its id, exactly as in the item context:
+    // spec 07 has the tool and the context answered by one policy, so a level that withholds a title
+    // from the one cannot hand it over from the other. Spec 09, criterion 13. The withholding is
+    // stated, so the model asks rather than answering about a task it was not shown.
+    if (withholdsText(context)) {
+      return { ok: true, data: withheldItem('task', task.id) }
+    }
+
+    // Notes are the body-shaped field of a task, so they leave the machine only as far as `llmContent`
+    // allows, through the same function the item context uses. Two answers to whether a note may be
+    // sent would mean the policy is decoration. Spec 09.
+    const notes = textToSend(task.notes, context.config.privacy)
+
     return {
       ok: true,
       data: {
         ...taskSummary(context, task),
-        notes: task.notes,
+        notes: notes.text,
+        // Said rather than left to be inferred: a model shown three hundred characters and told
+        // nothing would answer as though that were the whole note.
+        ...(notes.truncated ? { notesTruncated: true } : {}),
         statusSetBy: task.statusSetBy,
         statusSetAt: asIso(task.statusSetAt),
         syncTracked: task.syncTracked,
@@ -157,6 +197,21 @@ const listProjectsTool = defineTool<{ readonly state?: ProjectState }>({
     properties: { state: { type: 'string', enum: projectStates } },
   },
   execute(context, args) {
+    // A project's title is content as a task's is, and its notes went verbatim here. Spec 09,
+    // criterion 13: at `none` the ids go and nothing else, whichever tool is asked.
+    if (withholdsText(context)) {
+      return {
+        ok: true,
+        data: {
+          projects: listProjects(context.database, args.state).map((project) => ({
+            kind: 'project',
+            id: project.id,
+          })),
+          withheld: WITHHELD_ITEM_TEXT,
+        },
+      }
+    }
+
     // The stalled set is computed over the active projects whatever the filter is, so asking for
     // one state cannot change what stalled means.
     const stalled = new Set(listStalledProjects(context.database).map((project) => project.id))
@@ -166,12 +221,19 @@ const listProjectsTool = defineTool<{ readonly state?: ProjectState }>({
       data: {
         projects: listProjects(context.database, args.state).map((project) => {
           const nextAction = getProjectNextAction(context.database, project.id)
+          // The body-shaped field of a project is `notes`, exactly as it is for a task, so it goes
+          // through the one function every sender of a note goes through. Sending the column verbatim
+          // here would have `metadata` withhold a task's note and hand over a project's. Spec 09.
+          const notes = textToSend(project.notes, context.config.privacy)
 
           return {
             id: project.id,
             title: project.title,
             state: project.state,
-            notes: project.notes,
+            notes: notes.text,
+            // Said rather than left to be inferred, as in `get_task`: a model shown three hundred
+            // characters and told nothing would answer as though that were the whole note.
+            ...(notes.truncated ? { notesTruncated: true } : {}),
             stalled: stalled.has(project.id),
             nextAction: nextAction === null ? null : { id: nextAction.id, title: nextAction.title },
           }
@@ -199,6 +261,30 @@ const getDailyPlan = defineTool<{ readonly date?: string }>({
     const plan = latestDailyPlan(context.database, date.text)
     if (plan === null) {
       return { ok: true, data: { date: date.text, plan: null, note: 'No plan has been drawn.' } }
+    }
+
+    // A plan is titles, rationales and a summary written about them, so all of it is item text. What
+    // survives `none` is the order the day was put in and the arithmetic behind it. Spec 09,
+    // criterion 13.
+    if (withholdsText(context)) {
+      const ranked = (item: { rank: number; taskId: string | null }) => ({
+        rank: item.rank,
+        taskId: item.taskId,
+      })
+
+      return {
+        ok: true,
+        data: {
+          date: plan.planDate,
+          generatedAt: asIso(plan.generatedAt),
+          capacityMinutes: plan.capacityMinutes,
+          capacityVerified: plan.capacityVerified,
+          planned: plan.entries.map(ranked),
+          overflow: plan.overflow.map(ranked),
+          chases: plan.nudges.map(ranked),
+          withheld: WITHHELD_ITEM_TEXT,
+        },
+      }
     }
 
     const entry = (item: {
@@ -273,16 +359,22 @@ const getCapacity = defineTool<{ readonly date?: string }>({
         capacityMinutes: capacity.capacityMinutes,
         capacity: describeDuration(capacity.capacityMinutes),
         verified: capacity.verified,
-        events: events.map((event) => ({
-          summary: event.summary,
-          startsAt: asIso(event.startsAt),
-          endsAt: asIso(event.endsAt),
-          allDay: event.allDay,
-          responseStatus: event.responseStatus,
-          consumesCapacity: consumesCapacity(event, {
-            countAllDayEvents: context.config.planning.countAllDayEvents,
-          }),
-        })),
+        // The numbers above are the day's arithmetic and are nobody's content. A meeting's summary is
+        // a title, so at `none` the day is counted rather than named. Spec 09, criterion 13.
+        ...(withholdsText(context)
+          ? { withheld: WITHHELD_EVENT_TEXT }
+          : {
+              events: events.map((event) => ({
+                summary: event.summary,
+                startsAt: asIso(event.startsAt),
+                endsAt: asIso(event.endsAt),
+                allDay: event.allDay,
+                responseStatus: event.responseStatus,
+                consumesCapacity: consumesCapacity(event, {
+                  countAllDayEvents: context.config.planning.countAllDayEvents,
+                }),
+              })),
+            }),
       },
     }
   },
@@ -317,13 +409,23 @@ const listWaiting = defineTool<{ readonly staleOnly?: boolean }>({
         pushedSinceReview: item.pushedSinceReview,
       }))
 
-    return {
-      ok: true,
-      data: {
-        staleAfterDays: waitingStaleDays,
-        items: args.staleOnly === true ? items.filter((item) => item.stale) : items,
-      },
+    const shown = args.staleOnly === true ? items.filter((item) => item.stale) : items
+
+    // A chase list is titles and the names of the people they are on, which spec 09 counts as
+    // metadata: at `none` neither goes, and the ids of what is outstanding are what is left. The
+    // filter is still applied, so a stale-only call still answers about the stale ones.
+    if (withholdsText(context)) {
+      return {
+        ok: true,
+        data: {
+          staleAfterDays: waitingStaleDays,
+          items: shown.map((item) => ({ kind: 'task', id: item.taskId })),
+          withheld: WITHHELD_ITEM_TEXT,
+        },
+      }
     }
+
+    return { ok: true, data: { staleAfterDays: waitingStaleDays, items: shown } }
   },
 })
 

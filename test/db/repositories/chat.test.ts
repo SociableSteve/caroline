@@ -16,11 +16,13 @@ import {
   getConfirmation,
   getConversation,
   getTranscript,
+  getTurnContext,
   inversesFor,
   lastChangedMessageId,
   listConversations,
   markChangeUndone,
   recordChange,
+  recordTurnContext,
 } from '../../../src/db/repositories/chat.js'
 import type { Database } from '../../../src/db/connection.js'
 import { migratedDatabase } from '../../helpers/temp-database.js'
@@ -208,6 +210,83 @@ describe('the context a turn is given', () => {
       'Three',
       'Four',
     ])
+  })
+})
+
+/**
+ * The record of what a turn sent about the open item, read back. Spec 07, criterion 10: an audit that
+ * says which id was selected is not an audit, so the fields are read as the list of fields they are.
+ * A row whose fields cannot be read is an audit missing a line rather than a reason to fail reading
+ * the transcript, and a value that parsed to something other than a list of strings would reach the
+ * screen, where the fields are joined into a sentence.
+ */
+describe('what a turn sent about the open item', () => {
+  function withContext(fields: string): { database: Database; messageId: string } {
+    const database = migratedDatabase()
+    const created = conversation(database)
+    const turn = appendMessage(
+      database,
+      { conversationId: created.id, role: 'assistant', content: 'Answered.' },
+      NOW,
+    )
+    recordTurnContext(
+      database,
+      {
+        messageId: turn.id,
+        kind: 'task',
+        id: 'task-1',
+        found: true,
+        fields: ['title'],
+        contentLevel: 'snippet',
+        policyVersion: '2026-08-11',
+        rendered: 'Rendered.',
+      },
+      NOW,
+    )
+    database
+      .prepare('update chat_turn_contexts set fields = ? where message_id = ?')
+      .run(fields, turn.id)
+
+    return { database, messageId: turn.id }
+  }
+
+  it('reads the fields it wrote', () => {
+    const { database, messageId } = withContext('["kind","id","title"]')
+
+    expect(getTurnContext(database, messageId)?.fields).toEqual(['kind', 'id', 'title'])
+  })
+
+  it('reads the rest of a turn whose fields are not JSON at all', () => {
+    const { database, messageId } = withContext('not json')
+
+    expect(getTurnContext(database, messageId)).toMatchObject({
+      fields: [],
+      rendered: 'Rendered.',
+    })
+  })
+
+  it('reads no fields from a value that is not a list', () => {
+    const { database, messageId } = withContext('123')
+
+    expect(getTurnContext(database, messageId)?.fields).toEqual([])
+  })
+
+  it('keeps the lines of a list that are strings and drops the ones that are not', () => {
+    const { database, messageId } = withContext('["title",7,null,"status"]')
+
+    expect(getTurnContext(database, messageId)?.fields).toEqual(['title', 'status'])
+  })
+
+  /** The transcript is the reader that must not fail: one unreadable row is not a lost conversation. */
+  it('still reads the transcript of a conversation holding a malformed row', () => {
+    const { database, messageId } = withContext('{"title":true}')
+    const conversationId = getConversation(database, listConversations(database)[0]?.id ?? '')?.id
+
+    const transcript = getTranscript(database, conversationId ?? '')
+
+    expect(transcript?.messages).toHaveLength(1)
+    expect(transcript?.messages[0]?.id).toBe(messageId)
+    expect(transcript?.messages[0]?.context?.fields).toEqual([])
   })
 })
 

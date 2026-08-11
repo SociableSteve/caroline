@@ -11,8 +11,16 @@
  *
  * None of them reaches an external system: writing back to GitHub, Gmail or Calendar is a
  * non-goal of spec 02 and spec 07 alike, and the absence of any such tool is the enforcement.
+ *
+ * Every one of them is a send boundary too, and held to `llmContent` exactly as the read tools are: a
+ * write tool answers with the row it wrote, which is item text the model never supplied. Spec 09's rule
+ * is that a level is a property of the boundary rather than of a route through it, so a title the item
+ * context withheld cannot come back through `complete_task`. The summaries recorded against a change
+ * are not this: they are written to the database and shown on the user's own screen, and nothing
+ * carries them to a provider.
  */
 import { markTaskReviewed, trackedStatuses } from '../../actions/tasks.js'
+import { WITHHELD_ITEM_TEXT } from '../../config/content.js'
 import { withTransaction } from '../../db/connection.js'
 import { createProject, getProject, updateProject } from '../../db/repositories/projects.js'
 import {
@@ -31,7 +39,7 @@ import {
   snapshotTask,
 } from '../snapshot.js'
 import { defineTool, type ChatTool, type ChatToolContext } from '../types.js'
-import { dateFrom, taskSummary, type DayArgument } from './shared.js'
+import { dateFrom, projectSummary, taskSummary, withholdsText, type DayArgument } from './shared.js'
 
 /** The statuses a task may be filed into from chat. Completing has its own tool. */
 const fileableStatuses = taskStatuses.filter((status) => status !== 'done')
@@ -108,6 +116,15 @@ function readDate(
 
   const day = dateFrom(context, raw)
   return day === null ? `"${raw}" is not a date. Use YYYY-MM-DD.` : day
+}
+
+/**
+ * How a task is named in a message the model reads. A refusal is prose about the item, so it is held to
+ * the level the answer is held to: at `none` the task is named by the id the model called the tool with
+ * and nothing else. Spec 09, criterion 13.
+ */
+function named(context: ChatToolContext, task: Task): string {
+  return withholdsText(context) ? task.id : `“${task.title}”`
 }
 
 /** A project id that names nothing is the model's mistake, and is worth saying so plainly. */
@@ -306,7 +323,7 @@ const completeTaskTool = defineTool<{ readonly id: string }>({
     })
 
     if (result === null || !result.applied) {
-      return { ok: false, message: `“${before.task.title}” could not be completed.` }
+      return { ok: false, message: `${named(context, before.task)} could not be completed.` }
     }
 
     return {
@@ -353,7 +370,7 @@ const markReviewedTool = defineTool<{ readonly id: string }>({
         }
       }
 
-      return { ok: false, message: refusalMessage(result.reason, before.task) }
+      return { ok: false, message: refusalMessage(context, result.reason, before.task) }
     }
 
     return {
@@ -377,17 +394,19 @@ const markReviewedTool = defineTool<{ readonly id: string }>({
   },
 })
 
-function refusalMessage(reason: string, task: Task): string {
+function refusalMessage(context: ChatToolContext, reason: string, task: Task): string {
+  const subject = named(context, task)
+
   if (reason === 'not-a-review') {
-    return `“${task.title}” is not an open pull request awaiting your review.`
+    return `${subject} is not an open pull request awaiting your review.`
   }
   if (reason === 'not-tracked') {
-    return `Sync tracking is off for “${task.title}”, so its review is no longer followed. The user can turn it back on from the board.`
+    return `Sync tracking is off for ${subject}, so its review is no longer followed. The user can turn it back on from the board.`
   }
   if (reason === 'unsynced') {
-    return `“${task.title}” has not been synced from GitHub yet, so there is nothing to mark against.`
+    return `${subject} has not been synced from GitHub yet, so there is nothing to mark against.`
   }
-  return `“${task.title}” could not be marked reviewed.`
+  return `${subject} could not be marked reviewed.`
 }
 
 const deleteTaskTool = defineTool<{ readonly id: string }>({
@@ -417,7 +436,14 @@ const deleteTaskTool = defineTool<{ readonly id: string }>({
 
     return {
       ok: true,
-      data: { deleted: args.id, title: before.task.title },
+      // The id of what went either way, and its title only as far as the policy allows: the model has
+      // to be able to say what it did, and at `none` what it did was delete an id.
+      data: {
+        deleted: args.id,
+        ...(withholdsText(context)
+          ? { withheld: WITHHELD_ITEM_TEXT }
+          : { title: before.task.title }),
+      },
       mutations: [
         {
           summary: `Deleted “${before.task.title}”`,
@@ -458,7 +484,7 @@ const createProjectTool = defineTool<{ readonly title: string; readonly notes?: 
 
     return {
       ok: true,
-      data: { id: project.id, title: project.title, state: project.state },
+      data: projectSummary(context, project),
       mutations: [
         {
           summary: `Created the project “${project.title}”`,
@@ -526,7 +552,7 @@ const updateProjectTool = defineTool<UpdateProjectArguments>({
 
     return {
       ok: true,
-      data: { id: updated.id, title: updated.title, state: updated.state },
+      data: projectSummary(context, updated),
       mutations: [
         {
           summary:
@@ -579,7 +605,15 @@ const regeneratePlanTool = defineTool<{ readonly date?: string }>({
 
     return {
       ok: true,
-      data: { date: today?.text ?? null, summary: outcome.summary },
+      data: {
+        date: today?.text ?? null,
+        // A plan's summary is prose about the day's tasks and can name one. The planner will not draw a
+        // plan at all at `none` (spec 05), so a summary arriving here means the level changed under it,
+        // and it is the level in force now that decides. Spec 09, criterion 13.
+        ...(withholdsText(context)
+          ? { withheld: WITHHELD_ITEM_TEXT }
+          : { summary: outcome.summary }),
+      },
       mutations: [
         {
           summary: `Redrew the plan for ${today?.text ?? 'today'}`,

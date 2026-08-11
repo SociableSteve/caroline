@@ -3,12 +3,14 @@
  * prompts are, so a change in behaviour is traceable to a change in what was asked.
  *
  * This is a send boundary for spec 09, and a narrow one: the context is counts, a plan summary and
- * a number of free minutes. No task title, let alone a message body, is assembled here. Detail
- * reaches the model only through a tool the model chose to call, which is spec 07's reason for
- * fetching rather than dumping and has the side effect of keeping this boundary trivial to check.
+ * a number of free minutes. No task title, let alone a message body, is assembled here, and the plan
+ * summary is the one line of it the content policy has anything to withhold. Detail reaches the model
+ * only through a tool the model chose to call, which is spec 07's reason for fetching rather than
+ * dumping and has the side effect of keeping this boundary trivial to check.
  */
 import { capacityForDate } from '../actions/capacity.js'
 import { waitingItemsFor } from '../actions/waiting.js'
+import { withholdsItemText } from '../config/content.js'
 import type { Config } from '../config/schema.js'
 import type { Database } from '../db/connection.js'
 import { latestDailyPlan } from '../db/repositories/daily-plans.js'
@@ -20,9 +22,11 @@ import { isStaleWait } from '../domain/waiting.js'
 
 /**
  * Bumped whenever the wording or the assembled context changes in a way that could change how
- * chat behaves. Dated rather than numbered, as for the other prompts.
+ * chat behaves. Dated rather than numbered, as for the other prompts, with a revision after the date
+ * where a day carried more than one change: two different prompts under one version would defeat the
+ * point of having one.
  */
-export const CHAT_PROMPT_VERSION = '2026-08-11'
+export const CHAT_PROMPT_VERSION = '2026-08-11.4'
 
 /** Counts per status, the plan if there is one, and what is left of the day. Spec 07. */
 export interface ChatContext {
@@ -80,7 +84,11 @@ export function buildChatContext({
       plan === null
         ? null
         : {
-            summary: plan.summary,
+            // The one piece of item text this boundary carries: a plan's summary is prose written
+            // about the day's tasks and can name one. The plan job will not draw a plan at all at
+            // `none` (spec 05), so this is the plan drawn before the policy was lowered, and the same
+            // question answers it here as answers the read tools. Spec 09, criterion 13.
+            summary: withholdsItemText(config.privacy) ? null : plan.summary,
             planned: plan.entries.length,
             done: plan.entries.filter((entry) => entry.done).length,
             capacityMinutes: plan.capacityMinutes,
@@ -139,7 +147,21 @@ export interface PromptOptions extends PromptLimits {
    * Spec 09.
    */
   readonly preamble: string
+  /**
+   * The item the user has open in the rail, rendered by `resolveItemContext`, or null where nothing is
+   * selected. Passed in already rendered for the same reason the preamble is: the record of what was
+   * sent and the payload preview read the same string the provider is handed. Spec 07.
+   */
+  readonly itemContext: string | null
+  /**
+   * True where the policy withheld the turns before this one, so the model is told it is not seeing the
+   * conversation rather than left to conclude the user has only just started talking. Spec 09.
+   */
+  readonly priorTurnsWithheld: boolean
 }
+
+/** What is said in place of a conversation `none` withheld. The turns are stored either way. */
+const PRIOR_TURNS_WITHHELD = `The content policy is set to send nothing about an item beyond its id, so the earlier turns of this conversation have been withheld from you: what was said in them was written when more could be sent. Do not claim to remember them. Ask the user what they mean rather than answering from what you no longer have.`
 
 /**
  * The system prompt. The rules are stated in full both ways round, because the read-only turn is
@@ -155,8 +177,10 @@ Today is ${context.today} (${context.timeZone}).
 
 ${JSON.stringify(contextPayload(context), null, 2)}
 
-That is all you are given. Anything more specific, including any task's title, you fetch with a tool, so that you are reading the system as it is now rather than as it was when this turn began.
-
+That is all you are given about the day as a whole. Anything more specific, including any other task's title, you fetch with a tool, so that you are reading the system as it is now rather than as it was when this turn began.
+${options.itemContext === null ? '' : `\n${options.itemContext}\n`}${
+    options.priorTurnsWithheld ? `\n${PRIOR_TURNS_WITHHELD}\n` : ''
+  }
 ${options.readOnly ? READ_ONLY_RULES : writeRules(options)}`
 }
 

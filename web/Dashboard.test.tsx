@@ -33,6 +33,9 @@ function renderDashboard(overrides: Partial<Parameters<typeof Dashboard>[0]> = {
       calendar={null}
       staleDays={7}
       now={NOW}
+      selected={null}
+      onSelect={vi.fn()}
+      hash="#/"
       onRegeneratePlan={() => {}}
       onComplete={() => {}}
       {...overrides}
@@ -639,5 +642,60 @@ describe('the background jobs panel', () => {
 
     expect(within(panel).getByText('failure')).toBeInTheDocument()
     expect(within(panel).queryByText('success')).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * Spec 08, criterion 31. A plan entry is not a fourth kind of item: it names a task, and clicking it
+ * opens that task. An entry whose task has been deleted is a record of what was proposed, and names
+ * nothing to open.
+ */
+describe('opening a plan entry in the details rail', () => {
+  it('opens the entry’s task', async () => {
+    const onSelect = vi.fn()
+    renderDashboard({
+      plan: aPlan({ entries: [aPlanEntry({ taskId: 'task-a', title: 'Hub numbers' })] }),
+      onSelect,
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: 'Hub numbers' }))
+
+    expect(onSelect).toHaveBeenCalledWith({ kind: 'task', id: 'task-a' })
+  })
+
+  it('says which entry is the one that is open', () => {
+    renderDashboard({
+      plan: aPlan({ entries: [aPlanEntry({ taskId: 'task-a', title: 'Hub numbers' })] }),
+      selected: { kind: 'task', id: 'task-a' },
+    })
+
+    expect(screen.getByRole('button', { name: 'Hub numbers' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+  })
+
+  it('leaves an entry whose task has been deleted as text', () => {
+    renderDashboard({
+      plan: aPlan({ entries: [aPlanEntry({ taskId: null, title: 'Something deleted' })] }),
+    })
+
+    expect(screen.queryByRole('button', { name: 'Something deleted' })).not.toBeInTheDocument()
+    expect(screen.getByText('Something deleted')).toBeInTheDocument()
+  })
+})
+
+/** Spec 08, criterion 32: the dashboard's stalled-project links carry the rail across too. */
+describe('the dashboard’s drill-in links', () => {
+  it('carries the open conversation into the drill-in', () => {
+    renderDashboard({
+      projects: [aProject({ id: 'project-1', title: 'Ship it', stalled: true, nextAction: null })],
+      hash: '#/?conversation=abc',
+    })
+
+    expect(screen.getByRole('link', { name: 'Ship it' })).toHaveAttribute(
+      'href',
+      '#/projects/project-1?conversation=abc',
+    )
   })
 })

@@ -4,18 +4,75 @@
  * take data and callbacks, so they can be driven in a test without a server.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { api, type ProjectState, type TaskInput, type TaskStatus } from './api.js'
+import { sameItem } from '../src/domain/selection.js'
+import {
+  api,
+  type ItemRef,
+  type ProjectState,
+  type ProjectView,
+  type TaskInput,
+  type TaskStatus,
+  type TaskView,
+} from './api.js'
 import { useChat } from './chat.js'
 import { useCarolineData } from './data.js'
-import { chatRailHref, conversationHref, routeLinks, surfaceHref, useLocation } from './router.js'
+import {
+  chatRailHref,
+  conversationHref,
+  itemHref,
+  routeLinks,
+  surfaceHref,
+  useLocation,
+} from './router.js'
 import { Board } from './surfaces/Board.js'
 import { Dashboard } from './surfaces/Dashboard.js'
 import { Jobs } from './surfaces/Jobs.js'
 import { ProjectDetail, Projects } from './surfaces/Projects.js'
 import { Settings } from './surfaces/Settings.js'
 import { ChatRail } from './components/ChatRail.js'
+import { DetailsPanel, type DetailsSubject } from './components/DetailsPanel.js'
 import { QuickCapture } from './components/QuickCapture.js'
 import { productName } from './title.js'
+
+/**
+ * What the details panel shows for the reference in the hash, or null where it names nothing that is
+ * loaded. Resolved from the data the surfaces are already drawing from rather than fetched: a panel
+ * that read the item again could show a different task from the card that opened it. Spec 08.
+ */
+function subjectFor(
+  selected: ItemRef | null,
+  tasks: readonly TaskView[],
+  projects: readonly ProjectView[],
+  allTasksLoaded: boolean,
+): DetailsSubject | null {
+  if (selected === null) return null
+
+  if (selected.kind === 'task') {
+    const task = tasks.find((candidate) => candidate.id === selected.id)
+    if (task === undefined) return null
+
+    return {
+      kind: 'task',
+      task,
+      projectTitle:
+        task.projectId === null
+          ? null
+          : (projects.find((project) => project.id === task.projectId)?.title ?? null),
+    }
+  }
+
+  const project = projects.find((candidate) => candidate.id === selected.id)
+  if (project === undefined) return null
+
+  return {
+    kind: 'project',
+    project,
+    tasks: tasks.filter((task) => task.projectId === project.id),
+    // Whether the client holds every task, so the panel's counts read as totals or as a floor. A
+    // filtered subset of a truncated list is still truncated.
+    allTasksLoaded,
+  }
+}
 
 /** A shortcut typed into a field is text, not a command. */
 function isTyping(target: EventTarget | null): boolean {
@@ -49,7 +106,7 @@ export function App() {
     reload,
     reloadSettings,
   } = useCarolineData()
-  const { route, chatOpen: chatInUrl, conversationId, hash } = useLocation()
+  const { route, chatOpen: chatInUrl, conversationId, selected, hash } = useLocation()
   const [capturing, setCapturing] = useState(false)
   const [writeFailure, setWriteFailure] = useState<string | null>(null)
   /**
@@ -150,7 +207,31 @@ export function App() {
     void write(() => api.patchProject(id, { state }))
   const onDeleteProject = (id: string) => void write(() => api.deleteProject(id))
 
-  const cardHandlers = { onStatusChange, onComplete, onDelete }
+  /**
+   * Opening an item, or closing the one that is open by clicking it again. The selection lives in the
+   * hash, so a reload and a shared link agree about it, and opening one opens the rail because the
+   * panel is inside it. Spec 08.
+   */
+  const onSelectItem = (item: ItemRef) => {
+    const next = sameItem(selected, item) ? null : item
+    if (next !== null) setChatOpen(true)
+
+    const href = itemHref(next, window.location.hash)
+    if (href !== window.location.hash) window.location.hash = href
+  }
+
+  const closeDetails = () => {
+    const href = itemHref(null, window.location.hash)
+    if (href !== window.location.hash) window.location.hash = href
+  }
+
+  const cardHandlers = {
+    onStatusChange,
+    onComplete,
+    onDelete,
+    onSelect: onSelectItem,
+    selected,
+  }
 
   /**
    * Chat keeps its own state: it is the one part of the UI whose answers arrive in pieces, and the
@@ -160,6 +241,8 @@ export function App() {
    */
   const chat = useChat({
     conversationId,
+    // Read at the moment a message is sent, from whatever is selected then. Spec 07, rule 1.
+    selected,
     active: chatOpen,
     onDataChanged: () => void reload(),
     onConversationStarted: (id) => {
@@ -302,6 +385,9 @@ export function App() {
           ) : route.name === 'projects' ? (
             <Projects
               projects={projects}
+              selected={selected}
+              hash={hash}
+              onSelect={onSelectItem}
               onCreate={onCreateProject}
               onStateChange={onProjectState}
               onDelete={onDeleteProject}
@@ -312,6 +398,7 @@ export function App() {
               tasks={tasks.filter((task) => task.projectId === route.id)}
               staleDays={staleDays}
               now={now}
+              hash={hash}
               {...cardHandlers}
             />
           ) : route.name === 'jobs' ? (
@@ -341,12 +428,26 @@ export function App() {
               onRegeneratePlan={onRegeneratePlan}
               regenerating={regenerating}
               onComplete={onComplete}
+              onSelect={onSelectItem}
+              selected={selected}
+              hash={hash}
             />
           )}
         </main>
 
         {chatOpen && (
           <ChatRail
+            details={
+              selected === null ? null : (
+                <DetailsPanel
+                  item={selected}
+                  subject={subjectFor(selected, tasks, projects, unfetchedTaskTotal === null)}
+                  staleDays={staleDays}
+                  now={now}
+                  onClose={closeDetails}
+                />
+              )
+            }
             status={chat.status}
             conversations={chat.conversations}
             conversation={chat.conversation}

@@ -10,7 +10,8 @@ import { createTask } from '../../src/db/repositories/tasks.js'
 import type { Database } from '../../src/db/connection.js'
 import { renderPreamble } from '../../src/llm/prompts/preamble.js'
 import { migratedDatabase } from '../helpers/temp-database.js'
-import { REQUEST_TIME, testServer } from '../helpers/test-server.js'
+import { resolveItemContext } from '../../src/chat/context.js'
+import { REQUEST_TIME, testConfig, testServer } from '../helpers/test-server.js'
 
 const DAY = 24 * 60 * 60_000
 
@@ -117,6 +118,39 @@ describe('GET /api/privacy/preview', () => {
       snippet: 'Could you take a look at the hub numbers?',
     })
     expect(body.promptVersion).toMatch(/\d{4}-\d{2}-\d{2}/)
+  })
+
+  /**
+   * Spec 09, criterion 14. The item context is the newest thing leaving the machine, so a preview
+   * without it is no longer a preview of the policy, and it is built by the function a turn builds it
+   * with rather than by a second rendering that could drift.
+   */
+  it('shows what a turn would send about the item as context', async () => {
+    const database = migratedDatabase()
+    const taskId = anIngestedThread(database, 'Could you take a look at the hub numbers?')
+    const { app } = await testServer({ database })
+
+    const body = (await app.inject({ method: 'GET', url: '/api/privacy/preview' })).json()
+
+    expect(body.itemContext).toMatchObject({
+      kind: 'task',
+      id: taskId,
+      found: true,
+      contentLevel: 'snippet',
+    })
+    expect(body.itemContext.fields).toContain('title')
+    expect(body.itemContext.rendered).toContain('Hub numbers before Thursday')
+    expect(body.itemContext.rendered).toBe(
+      resolveItemContext({ database, config: testConfig }, { kind: 'task', id: taskId }).rendered,
+    )
+  })
+
+  it('has no item context where there is no item to preview', async () => {
+    const { app } = await testServer()
+
+    const body = (await app.inject({ method: 'GET', url: '/api/privacy/preview' })).json()
+
+    expect(body.itemContext).toBeNull()
   })
 
   it('shows a named item when asked for one', async () => {

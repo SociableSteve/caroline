@@ -12,7 +12,7 @@
  * is read-only when the model cannot use tools, that a turn stopped because it ran out of tool calls
  * rather than because it had finished, and how many items a confirmation would affect.
  */
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import type {
   ChatChangeView,
   ChatConfirmationView,
@@ -26,6 +26,13 @@ import { conversationHref } from '../router.js'
 import { Field } from './primitives.js'
 
 export interface ChatRailProps {
+  /**
+   * The details of the item that is open, above the conversation. One rail rather than two: a details
+   * column beside a chat column leaves the board scrolled sideways more or less permanently, and
+   * stacking them does the work a label would otherwise have to do. Null where nothing is open.
+   * Spec 08.
+   */
+  readonly details?: ReactNode
   readonly status: ChatStatus | null
   readonly conversations: readonly ConversationView[]
   readonly conversation: ConversationView | null
@@ -153,6 +160,25 @@ function Turn({
         <Confirmation key={confirmation.id} confirmation={confirmation} onConfirm={onConfirm} />
       ))}
 
+      {/* What this turn sent about the item that was open. Recorded so the conversation can be
+          audited, and shown here because an audit nobody can read is a table. Spec 07, criterion 10.
+
+          Loosely compared on purpose: the server always sends the field, null included, but a turn
+          rendered from a payload that happened not to carry it must not blank the page. That is the
+          class of defect the SSE contract fix removed, and one guard is cheaper than another. */}
+      {message.context != null && (
+        <details className="turn-context">
+          <summary>What was sent about the open {message.context.kind}</summary>
+          <p className="change-note">
+            {message.context.found
+              ? `Fields sent: ${message.context.fields.join(', ')}.`
+              : 'It had gone by the time this was sent, and the model was told so.'}{' '}
+            Content level {message.context.contentLevel}, policy {message.context.policyVersion}.
+          </p>
+          <pre className="payload-preview">{message.context.rendered}</pre>
+        </details>
+      )}
+
       {/* Spec 07, criterion 6: a turn that ran out of tool calls says so, and what it did stands. */}
       {message.toolCallLimitReached && (
         <p role="status" className="chat-note">
@@ -171,6 +197,7 @@ function Turn({
 }
 
 export function ChatRail({
+  details = null,
   status,
   conversations,
   conversation,
@@ -198,6 +225,8 @@ export function ChatRail({
 
   return (
     <aside className="chat-rail" aria-label="Chat">
+      {details}
+
       <div className="rail-head">
         <h2 className="rail-heading">
           {conversation === null ? 'New conversation' : conversation.title}

@@ -26,6 +26,8 @@ const boardHandlers = {
   onAcceptProposal: vi.fn(),
   onDismissProposal: vi.fn(),
   onUndoStatus: vi.fn(),
+  onSelect: vi.fn(),
+  selected: null,
 }
 
 /** Every surface, at its emptiest, which is the state a clean checkout is in. */
@@ -47,6 +49,9 @@ const surfaces: ReadonlyArray<{ name: string; title: string; render: () => void 
           now={NOW}
           onRegeneratePlan={vi.fn()}
           onComplete={vi.fn()}
+          onSelect={vi.fn()}
+          selected={null}
+          hash="#/"
         />,
       ),
   },
@@ -63,6 +68,9 @@ const surfaces: ReadonlyArray<{ name: string; title: string; render: () => void 
       void render(
         <Projects
           projects={[]}
+          selected={null}
+          hash="#/projects"
+          onSelect={vi.fn()}
           onCreate={vi.fn(async () => true)}
           onStateChange={vi.fn()}
           onDelete={vi.fn()}
@@ -82,6 +90,9 @@ const surfaces: ReadonlyArray<{ name: string; title: string; render: () => void 
           onStatusChange={vi.fn()}
           onComplete={vi.fn()}
           onDelete={vi.fn()}
+          onSelect={vi.fn()}
+          selected={null}
+          hash="#/projects/project-1"
         />,
       ),
   },

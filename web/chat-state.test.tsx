@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { useChat } from './chat.js'
-import type { ChatStreamEvent } from './api.js'
+import type { ChatStreamEvent, ItemRef } from './api.js'
 import { chatTurnWire, NOW } from './test-fixtures.js'
 
 const conversation = {
@@ -119,16 +119,25 @@ function stubApi({ events = [], failStream = false }: StubOptions = {}) {
 
 interface ProbeOptions {
   readonly conversationId?: string | null
+  /** What the rail has open when a message is sent. Spec 07, rule 1. */
+  readonly selected?: ItemRef | null
   readonly onDataChanged?: () => void
   readonly onConversationStarted?: (id: string) => void
 }
 
 function Probe({
   conversationId = null,
+  selected = null,
   onDataChanged = () => {},
   onConversationStarted = () => {},
 }: ProbeOptions) {
-  const chat = useChat({ conversationId, active: true, onDataChanged, onConversationStarted })
+  const chat = useChat({
+    conversationId,
+    selected,
+    active: true,
+    onDataChanged,
+    onConversationStarted,
+  })
 
   return (
     <>
@@ -356,5 +365,40 @@ describe('useChat', () => {
     await user.click(screen.getByRole('button', { name: 'Undo' }))
 
     expect(calls.some((call) => call.url.endsWith('/undo'))).toBe(false)
+  })
+})
+
+/**
+ * The item the rail has open goes with the message rather than being remembered against the
+ * conversation. Spec 07, rules 1 and 3.
+ */
+describe('the item a message is sent with', () => {
+  it('sends what is selected at the moment the message goes', async () => {
+    const user = userEvent.setup()
+    const { calls } = stubApi()
+
+    render(<Probe selected={{ kind: 'task', id: 'task-1' }} />)
+    await user.click(screen.getByRole('button', { name: 'Send' }))
+
+    await waitFor(() => {
+      expect(calls.find((call) => call.url === '/api/chat')?.body).toMatchObject({
+        message: 'Triage my inbox',
+        selected: { kind: 'task', id: 'task-1' },
+      })
+    })
+  })
+
+  it('sends no item, and still sends the message, when nothing is selected', async () => {
+    const user = userEvent.setup()
+    const { calls } = stubApi()
+
+    render(<Probe />)
+    await user.click(screen.getByRole('button', { name: 'Send' }))
+
+    await waitFor(() => {
+      const body = calls.find((call) => call.url === '/api/chat')?.body as Record<string, unknown>
+      expect(body).toMatchObject({ message: 'Triage my inbox' })
+      expect(body).not.toHaveProperty('selected')
+    })
   })
 })

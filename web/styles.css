@@ -391,12 +391,96 @@ button[disabled] {
   gap: var(--space-2);
 }
 
+/*
+ * The heading beside it is a conversation title or an item's, so it is as long as it likes; without
+ * this the control wraps to two lines and the two of them squeeze each other.
+ */
+.rail-head > button {
+  white-space: nowrap;
+}
+
 .rail-heading {
   margin: 0;
   font-size: var(--text-base);
 }
 
 .rail-conversations > summary {
+  color: var(--ink-quiet);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+/*
+ * The rail's other region: the details of the item that is open, above the conversation. Spec 08.
+ *
+ * Pinned to the top of the rail and capped at a share of its height, scrolling within that cap, so a
+ * task with long notes never takes the rail from the conversation it is supposed to be the subject of.
+ * The ground is the rail's own, because it is a region of the rail rather than a card in it.
+ */
+.rail-details {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--line-faint);
+  background: var(--surface);
+  max-height: 45%;
+  overflow-y: auto;
+}
+
+.details-subheading {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--ink-quiet);
+}
+
+.details-notes p,
+.details-sources ul {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+}
+
+.details-sources ul {
+  padding-left: var(--space-4);
+}
+
+/*
+ * A title that opens its item in the rail. It reads as the text it replaced rather than as a control:
+ * the thing being pointed at is the thing that responds, and a card whose title were a button-shaped
+ * box would have three of them.
+ */
+.item-open {
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.item-open:hover {
+  text-decoration: underline;
+}
+
+/*
+ * Which card the rail is showing. An accent edge inside the card's own shadow rather than an outline,
+ * because an outline is what focus is: two rings of the same accent, one meaning focused and one
+ * meaning open, would be one ring nobody could read. The state is carried in words too, by the
+ * title's pressed state and by the panel naming the item. Spec 10.
+ */
+.card-open {
+  box-shadow:
+    var(--shadow-1),
+    inset 3px 0 0 0 var(--accent);
+}
+
+/* The record of what a turn sent about the open item, behind a disclosure. Spec 07. */
+.turn-context > summary {
   color: var(--ink-quiet);
   font-size: var(--text-sm);
   cursor: pointer;
@@ -420,6 +504,22 @@ button[disabled] {
     background: var(--surface-raised);
     border-left: none;
     box-shadow: var(--shadow-2);
+  }
+
+  /* The overlay's ground, so the pinned region does not show the surface through it. */
+  .rail-details {
+    background: var(--surface-raised);
+  }
+}
+
+/*
+ * A short viewport gives the height to the conversation: the cap on the details tightens rather than
+ * the transcript shrinking, because the rail is a place to have a conversation and the panel is only
+ * what it is about. Spec 08.
+ */
+@media (max-height: 44rem) {
+  .rail-details {
+    max-height: 40%;
   }
 }
 
@@ -914,6 +1014,16 @@ button[disabled] {
 .project.stalled {
   border-left: 4px solid var(--alarm);
   padding-left: var(--space-3);
+}
+
+/*
+ * The row the rail is showing, raised out of the list rather than edged. A left edge in the accent is
+ * what this started as, and a stalled project already has one in the alarm and a specificity to match:
+ * the open row and the row beside it were the same. A ground says it without competing with the state
+ * the edge is already carrying, which is what the four grounds are for. Spec 10.
+ */
+.project.project-open {
+  background: var(--surface-raised);
 }
 
 .project-next {

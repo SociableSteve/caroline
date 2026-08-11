@@ -16,6 +16,8 @@ import {
   CHAT_NOW,
   doneEvent,
   eventsOfType,
+  ITEM_TEXT,
+  seedItemText,
   streamedText,
   textAnswer,
   toolAnswer,
@@ -951,6 +953,44 @@ describe('the context a turn is given', () => {
   })
 
   /**
+   * Spec 09, criterion 13, on the one line of the day's context the policy has anything to withhold:
+   * a plan's summary is prose written about the day's tasks and can name one. No plan is drawn at all
+   * at `none` (spec 05), so this is the plan drawn before the policy was lowered, and the level it is
+   * read under is the one in force now rather than the one it was written under.
+   */
+  it('withholds a plan’s summary from the day’s context at none', async () => {
+    const harness = chatHarness({
+      answers: [textAnswer('Answered.')],
+      file: { privacy: { llmContent: 'none' } },
+    })
+    recordDailyPlan(harness.database, {
+      planDate: '2026-06-01',
+      generatedAt: CHAT_NOW,
+      timeZone: 'Europe/London',
+      windowMinutes: 510,
+      busyMinutes: 0,
+      reserveMinutes: 102,
+      capacityMinutes: 408,
+      capacityVerified: false,
+      provider: 'ollama',
+      model: 'a-model',
+      promptVersion: '2026-08-10',
+      summary: 'A quiet day, with the Northwind contract due.',
+      warnings: [],
+      entries: [],
+      overflow: [],
+      nudges: [],
+    })
+
+    await harness.turn('What does today look like?')
+
+    const system = harness.requests[0]?.system ?? ''
+    expect(system).not.toContain('Northwind')
+    // The arithmetic is nobody's content and still goes, so the day is still answerable.
+    expect(system).toContain('"capacityMinutes": 408')
+  })
+
+  /**
    * Spec 09: the shared preamble names the person using Caroline. Without it a model writes about
    * the user in the third person to the user's own face, and the name is also personal data leaving
    * the machine, which is why it is asserted against the built request rather than the template.
@@ -985,5 +1025,317 @@ describe('the context a turn is given', () => {
     // the whole week.
     expect(harness.requests.at(-1)?.messages.length).toBeLessThanOrEqual(2)
     expect(JSON.stringify(harness.requests.at(-1)?.messages)).not.toContain('First')
+  })
+})
+
+/**
+ * The item the user had open when they sent the message. Spec 07's rules for it: resolved per message,
+ * recorded as what was sent rather than as an id, and never carried over from an earlier turn.
+ */
+describe('the item a turn is talking about', () => {
+  /** Criterion 9. */
+  it('carries the selected item in the built request', async () => {
+    const harness = chatHarness({ answers: [textAnswer('It is in your inbox.')] })
+    createTask(harness.database, { id: 'task-1', title: 'Review the Northwind contract' }, CHAT_NOW)
+
+    await harness.turn('What should I do with this?', undefined, { kind: 'task', id: 'task-1' })
+
+    const system = harness.requests[0]?.system ?? ''
+    expect(system).toContain('Review the Northwind contract')
+    expect(system).toContain('“it”, “this” and “that” mean this one')
+  })
+
+  /** Criterion 9, the other half: nothing selected sends no item and the message still goes. */
+  it('sends no item and still answers when nothing is selected', async () => {
+    const harness = chatHarness({ answers: [textAnswer('Answered.')] })
+    createTask(harness.database, { id: 'task-1', title: 'A very distinctive title' }, CHAT_NOW)
+
+    const events = await harness.turn('What is in my inbox?')
+
+    expect(streamedText(events)).toBe('Answered.')
+    expect(harness.requests[0]?.system).not.toContain('A very distinctive title')
+    expect(doneEvent(events).message.context).toBeNull()
+  })
+
+  /**
+   * Criterion 10. An id is not what was sent: the record says which fields went, at which level, and
+   * in what words, and those words are the ones the request carried.
+   */
+  it('records the resolved context, and it is what the request carried', async () => {
+    const harness = chatHarness({ answers: [textAnswer('Answered.')] })
+    createTask(harness.database, { id: 'task-1', title: 'Review the contract' }, CHAT_NOW)
+
+    const done = doneEvent(
+      await harness.turn('What is this?', undefined, { kind: 'task', id: 'task-1' }),
+    )
+
+    expect(done.message.context).toMatchObject({
+      kind: 'task',
+      id: 'task-1',
+      found: true,
+      contentLevel: 'snippet',
+    })
+    expect(done.message.context?.fields).toContain('title')
+    // The one object read by three things, so the record cannot describe a request that was not made.
+    expect(harness.requests[0]?.system).toContain(done.message.context?.rendered ?? 'nothing')
+  })
+
+  /** Criterion 11: per message, not per conversation. */
+  it('records what each turn sent rather than sharing the first turn’s item', async () => {
+    const harness = chatHarness({ answers: [textAnswer('One.'), textAnswer('Two.')] })
+    createTask(harness.database, { id: 'task-1', title: 'The first one' }, CHAT_NOW)
+    createTask(harness.database, { id: 'task-2', title: 'The second one' }, CHAT_NOW)
+
+    const first = doneEvent(
+      await harness.turn('About this one', undefined, { kind: 'task', id: 'task-1' }),
+    )
+    await harness.turn('And this one', first.conversation.id, { kind: 'task', id: 'task-2' })
+
+    const turns = getTranscript(harness.database, first.conversation.id)?.messages ?? []
+    const contexts = turns
+      .filter((message) => message.role === 'assistant')
+      .map((message) => message.context?.id)
+
+    expect(contexts).toEqual(['task-1', 'task-2'])
+    expect(harness.requests[1]?.system).toContain('The second one')
+    expect(harness.requests[1]?.system).not.toContain('The first one')
+  })
+
+  /** And a turn sent with nothing selected after one that had an item does not inherit it. */
+  it('does not carry an item over to a turn that was sent without one', async () => {
+    const harness = chatHarness({ answers: [textAnswer('One.'), textAnswer('Two.')] })
+    createTask(harness.database, { id: 'task-1', title: 'The first one' }, CHAT_NOW)
+
+    const first = doneEvent(
+      await harness.turn('About this one', undefined, { kind: 'task', id: 'task-1' }),
+    )
+    await harness.turn('And in general?', first.conversation.id)
+
+    expect(harness.requests[1]?.system).not.toContain('The first one')
+  })
+
+  /** Criterion 12: an item deleted between selecting and sending is reported gone, not dropped. */
+  it('tells the model an item that has gone is gone, and still answers', async () => {
+    const harness = chatHarness({ answers: [textAnswer('That one is no longer there.')] })
+
+    const events = await harness.turn('What about this?', undefined, {
+      kind: 'task',
+      id: 'deleted-task',
+    })
+
+    expect(harness.requests[0]?.system).toContain('no longer there')
+    expect(streamedText(events)).toBe('That one is no longer there.')
+    // The kind, the id and the sentence saying it is gone are what went, so they are what is recorded.
+    expect(doneEvent(events).message.context).toMatchObject({
+      found: false,
+      fields: ['kind', 'id', 'note'],
+    })
+  })
+
+  /** Criterion 13: a read-only turn was still sent, so it carries the context and records it. */
+  it('carries and records the context on a read-only turn', async () => {
+    const harness = chatHarness({
+      answers: [textAnswer('Answered.')],
+      supportsTools: false,
+    })
+    createTask(harness.database, { id: 'task-1', title: 'Review the contract' }, CHAT_NOW)
+
+    const done = doneEvent(
+      await harness.turn('What is this?', undefined, { kind: 'task', id: 'task-1' }),
+    )
+
+    expect(harness.requests[0]?.system).toContain('Review the contract')
+    expect(done.message.context).toMatchObject({ id: 'task-1', found: true })
+  })
+
+  /**
+   * Spec 09, criterion 13, asserted against the built request rather than against the template: the
+   * whole point of the boundary is that it is checked where the bytes leave.
+   */
+  it('honours the content policy over the item’s notes', async () => {
+    const harness = chatHarness({
+      answers: [textAnswer('Answered.')],
+      file: { privacy: { llmContent: 'metadata' } },
+    })
+    createTask(
+      harness.database,
+      { id: 'task-1', title: 'Review the contract', notes: 'Ring Ada about the indemnity clause.' },
+      CHAT_NOW,
+    )
+
+    const done = doneEvent(
+      await harness.turn('What is this?', undefined, { kind: 'task', id: 'task-1' }),
+    )
+
+    expect(harness.requests[0]?.system).toContain('Review the contract')
+    expect(harness.requests[0]?.system).not.toContain('indemnity')
+    expect(done.message.context?.contentLevel).toBe('metadata')
+  })
+
+  it('carries a selected project as readily as a task', async () => {
+    const harness = chatHarness({ answers: [textAnswer('Answered.')] })
+    const project = createProject(
+      harness.database,
+      { id: 'project-1', title: 'Northwind renewal' },
+      CHAT_NOW,
+    )
+
+    await harness.turn('Where is this up to?', undefined, { kind: 'project', id: project.id })
+
+    expect(harness.requests[0]?.system).toContain('Northwind renewal')
+  })
+
+  /**
+   * Spec 09, criterion 13, on the path a refusal used to leave open. At `none` the context withholds
+   * the title and `get_task` refuses it, and a model told that will ask another tool: a search's page
+   * of summaries then carried the titles into the next request, which is the same disclosure by a
+   * different door. Asserted on the tool result the request actually carried.
+   */
+  it('withholds the titles from a search at none, on the request the tool result went in', async () => {
+    const harness = chatHarness({
+      answers: [
+        toolAnswer([{ name: 'search_tasks', arguments: {} }]),
+        textAnswer('I cannot see what they are called.'),
+      ],
+      file: { privacy: { llmContent: 'none' } },
+    })
+    createTask(harness.database, { id: 'task-1', title: 'Review the Northwind contract' }, CHAT_NOW)
+
+    await harness.turn('What is this?', undefined, { kind: 'task', id: 'task-1' })
+
+    const result = toolResultText(harness.requests[1]?.messages.at(-1))
+    expect(result).toContain('task-1')
+    expect(result).not.toContain('Northwind')
+    expect(result).toMatch(/content policy/i)
+    expect(harness.requests[1]?.system).not.toContain('Northwind')
+  })
+})
+
+/**
+ * Spec 09, criterion 13, asserted where the criterion says it is: against the built request, for every
+ * tool rather than for the three that had a request-level test. A tool result is serialised into the
+ * next request of the same turn, so the request is the boundary and a direct `execute()` call is one
+ * step short of it.
+ */
+describe('every tool at none, on the request its result went in', () => {
+  const calls: readonly (readonly [string, unknown])[] = [
+    ['search_tasks', {}],
+    ['get_task', { id: 'task-1' }],
+    ['list_projects', {}],
+    ['get_daily_plan', {}],
+    ['get_capacity', {}],
+    ['list_waiting', {}],
+    ['create_task', { title: 'What the user just asked for' }],
+    ['update_task', { id: 'task-1', estimateMinutes: 45 }],
+    ['complete_task', { id: 'task-1' }],
+    ['mark_reviewed', { id: 'task-3' }],
+    ['create_project', { title: 'What the user just named' }],
+    ['update_project', { id: 'project-1', state: 'done' }],
+  ]
+
+  for (const [name, args] of calls) {
+    it(`sends no item text back to the provider from ${name}`, async () => {
+      const harness = chatHarness({
+        answers: [
+          toolAnswer([{ name, arguments: args }]),
+          textAnswer('I cannot see what they are called.'),
+        ],
+        database: seedItemText(),
+        file: { privacy: { llmContent: 'none' } },
+      })
+
+      await harness.turn('Deal with it')
+
+      const result = toolResultText(harness.requests[1]?.messages.at(-1))
+      expect(result).toMatch(/content policy/i)
+      // The whole request, not only the tool result: the system prompt, the replayed turns and the
+      // result travel together, and the policy governs the payload rather than one field of it.
+      const request = JSON.stringify(harness.requests[1])
+      for (const withheld of ITEM_TEXT) expect(request).not.toContain(withheld)
+    })
+  }
+
+  /**
+   * The failure this closes, in the words it happens in: at `none` the model is given an id and a
+   * sentence saying the rest was withheld, the user says "mark it done", and the tool answered with
+   * the title, the name of the person it waited on and its project.
+   */
+  it('completes the task without telling the model what it was called', async () => {
+    const harness = chatHarness({
+      answers: [
+        toolAnswer([{ name: 'complete_task', arguments: { id: 'task-2' } }]),
+        textAnswer('Done.'),
+      ],
+      database: seedItemText(),
+      file: { privacy: { llmContent: 'none' } },
+    })
+
+    await harness.turn('Mark it done', undefined, { kind: 'task', id: 'task-2' })
+
+    expect(getTask(harness.database, 'task-2')).toMatchObject({ status: 'done' })
+    const result = toolResultText(harness.requests[1]?.messages.at(-1))
+    expect(result).toContain('task-2')
+    expect(result).not.toContain('Beatrix')
+  })
+
+  /**
+   * The second door into the same disclosure: a delete is held for the user, and the refusal the model
+   * is handed was built from `describe`, which reads the title out of the database. The user's own
+   * confirmation card still names the task, which is asserted in `tools.test.ts`.
+   */
+  it('withholds the title from the refusal a held delete answers with', async () => {
+    const harness = chatHarness({
+      answers: [
+        toolAnswer([{ name: 'delete_task', arguments: { id: 'task-1' } }]),
+        textAnswer('I have proposed it.'),
+      ],
+      database: seedItemText(),
+      file: { privacy: { llmContent: 'none' } },
+    })
+
+    const events = await harness.turn('Delete task-1')
+
+    const result = toolResultText(harness.requests[1]?.messages.at(-1))
+    expect(result).toContain('task-1')
+    expect(result).not.toContain('Northwind')
+    // The card the user decides on is built from the same call and still names what it would delete.
+    expect(eventsOfType(events, 'confirmation')[0]?.confirmation.summary).toBe(
+      'Delete “Review the Northwind contract”',
+    )
+  })
+})
+
+/**
+ * Spec 09's rule that a level is a property of the boundary, applied to the transcript. A conversation
+ * held at `snippet` and then lowered to `none` replayed its earlier turns verbatim, titles and note
+ * excerpts included, which is the same stale artefact the day's plan summary is: `prompt.ts` withholds
+ * that, and two stale artefacts must not get two answers.
+ */
+describe('the turns replayed as context', () => {
+  it('replays the conversation while the policy allows an item’s text', async () => {
+    const harness = chatHarness({
+      answers: [textAnswer('It is in your inbox.'), textAnswer('Still there.')],
+    })
+    const first = doneEvent(await harness.turn('What about the Northwind contract?'))
+
+    await harness.turn('And now?', first.conversation.id)
+
+    expect(JSON.stringify(harness.requests[1]?.messages)).toContain('Northwind')
+  })
+
+  it('withholds them at none, and says it did rather than pretending the turn is the first', async () => {
+    const harness = chatHarness({
+      answers: [textAnswer('It is in your inbox.'), textAnswer('Ask me again.')],
+      file: { privacy: { llmContent: 'none' } },
+    })
+    const first = doneEvent(await harness.turn('What about the Northwind contract?'))
+
+    await harness.turn('And now?', first.conversation.id)
+
+    expect(JSON.stringify(harness.requests[1]?.messages)).not.toContain('Northwind')
+    expect(harness.requests[1]?.system).toMatch(/earlier turns/i)
+    // The message just sent is the user's own words and still goes: withholding that would be a chat
+    // that ignores you.
+    expect(JSON.stringify(harness.requests[1]?.messages)).toContain('And now?')
   })
 })

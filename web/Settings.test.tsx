@@ -39,6 +39,15 @@ function preview(overrides: Partial<PrivacyPreview> = {}): PrivacyPreview {
       snippet: 'Could you take a look at the hub numbers?',
     },
     promptVersion: '2026-08-11',
+    itemContext: {
+      kind: 'task' as const,
+      id: 'task-1',
+      found: true,
+      fields: ['kind', 'id', 'title', 'status'],
+      contentLevel: 'snippet',
+      policyVersion: '2026-08-11',
+      rendered: 'The person you are talking to has one item open. {"title": "Hub numbers"}',
+    },
     preamble:
       'You are Caroline, one person\'s task assistant. The person you are talking to has this name: "Steve".',
     ...overrides,
@@ -194,9 +203,10 @@ describe('the payload preview', () => {
   it('waits for the server rather than showing an empty policy', () => {
     renderSettings({ preview: null, google: null })
 
-    // One per panel that has nothing to show yet: the account, the policy, the preamble and the
-    // payload. Counted rather than named, so a panel added without an empty state is noticed.
-    expect(screen.getAllByText('Waiting for the server.')).toHaveLength(4)
+    // One per panel that has nothing to show yet: the account, the policy, the preamble, the item
+    // context and the payload. Counted rather than named, so a panel added without an empty state is
+    // noticed.
+    expect(screen.getAllByText('Waiting for the server.')).toHaveLength(5)
   })
 })
 
@@ -267,5 +277,46 @@ describe('who Caroline is talking to', () => {
         'Waiting for the server.',
       ),
     ).toBeInTheDocument()
+  })
+})
+
+/**
+ * Spec 09, criterion 14. The item sent as context is the newest thing leaving the machine, so the
+ * screen that claims to show what leaves it has to show that too.
+ */
+describe('the item context preview', () => {
+  it('shows what a message about an open item would send, and at which level', () => {
+    renderSettings()
+
+    const section = panel(/what a message about an open item would send/i)
+
+    expect(within(section).getByText(/Fields sent: kind, id, title, status/)).toBeInTheDocument()
+    expect(within(section).getByText(/at content level.*snippet/)).toBeInTheDocument()
+    expect(within(section).getByText(/"title": "Hub numbers"/)).toBeInTheDocument()
+    expect(within(section).getByText(/Content policy version 2026-08-11/)).toBeInTheDocument()
+  })
+
+  it('says there is nothing to show where there is no real item', () => {
+    renderSettings({ preview: preview({ itemContext: null }) })
+
+    expect(
+      within(panel(/what a message about an open item would send/i)).getByText(
+        /Nothing is captured yet/,
+      ),
+    ).toBeInTheDocument()
+  })
+
+  /**
+   * A preview that has not arrived is not a preview saying nothing is captured. The distinction is the
+   * one every other panel on this screen already draws, and getting it wrong tells a person with a
+   * task open that they have none.
+   */
+  it('waits for the server rather than claiming nothing is captured', () => {
+    renderSettings({ preview: null })
+
+    const section = panel(/what a message about an open item would send/i)
+
+    expect(within(section).getByText('Waiting for the server.')).toBeInTheDocument()
+    expect(within(section).queryByText(/Nothing is captured yet/)).not.toBeInTheDocument()
   })
 })

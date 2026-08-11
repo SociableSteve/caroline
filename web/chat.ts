@@ -17,6 +17,7 @@ import {
   type ChatMessageView,
   type ChatStatus,
   type ConversationView,
+  type ItemRef,
 } from './api.js'
 
 /** The turn being streamed: what has arrived so far, and what it has done. */
@@ -49,6 +50,12 @@ export interface ChatState {
 export interface UseChatOptions {
   /** The conversation the route is on, or null for a new one. */
   readonly conversationId: string | null
+  /**
+   * The item open in the rail when a message is sent. Read at the moment of sending rather than
+   * remembered against the conversation: pinning it would have the model answering about an item that
+   * has since been closed. Spec 07, rule 1.
+   */
+  readonly selected: ItemRef | null
   /** Whether the surface is on screen. Nothing is fetched for a surface nobody is looking at. */
   readonly active: boolean
   /** Called when a turn changed tasks or projects, so the rest of the UI reloads. */
@@ -75,6 +82,7 @@ const emptyDraft: DraftTurn = {
 
 export function useChat({
   conversationId,
+  selected,
   active,
   onDataChanged,
   onConversationStarted,
@@ -144,6 +152,8 @@ export function useChat({
           {
             ...(conversationId === null ? {} : { conversationId }),
             message,
+            // Nothing selected sends no item and still sends the message. Spec 07, rule 3.
+            ...(selected === null ? {} : { selected }),
           },
           (event) => {
             if (event.type === 'conversation') {
@@ -234,7 +244,7 @@ export function useChat({
           onConversationStarted(startedConversation)
         })
     },
-    [conversationId, onConversationStarted, onDataChanged, refresh, sending],
+    [conversationId, onConversationStarted, onDataChanged, refresh, selected, sending],
   )
 
   const confirm = useCallback(

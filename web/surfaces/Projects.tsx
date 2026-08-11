@@ -4,15 +4,28 @@
  */
 import { useState } from 'react'
 import { projectStates } from '../../src/domain/project.js'
-import type { ProjectState, ProjectView, TaskStatus, TaskView } from '../api.js'
+import type { ItemRef, ProjectState, ProjectView, TaskStatus, TaskView } from '../api.js'
 import { statusLabel } from '../format.js'
-import { projectHref } from '../router.js'
+import { projectHref, surfaceHref } from '../router.js'
 import { TaskCard } from '../components/TaskCard.js'
 import { ActionRow, Badge, Field, Panel } from '../components/primitives.js'
 import { useSurfaceTitle } from '../title.js'
 
 export interface ProjectsProps {
   readonly projects: readonly ProjectView[]
+  /**
+   * Opens a project in the rail's details region. A project's name already links to its drill-in, so
+   * unlike a task it is opened from a control in its row, where a list has the width a card does not.
+   * Spec 08.
+   */
+  readonly onSelect: (item: ItemRef) => void
+  readonly selected: ItemRef | null
+  /**
+   * The hash the drill-in links are built from. The rail is a companion to whichever surface is showing
+   * (spec 08), so drilling into a project is not closing it and not leaving the conversation or the open
+   * item behind; without this the link dropped all three.
+   */
+  readonly hash: string
   /** Answers whether the project was created. The field keeps its text until it was. */
   readonly onCreate: (title: string) => Promise<boolean>
   readonly onStateChange: (id: string, state: ProjectState) => void
@@ -26,7 +39,15 @@ const stateLabels: Record<ProjectState, string> = {
   dropped: 'Dropped',
 }
 
-export function Projects({ projects, onCreate, onStateChange, onDelete }: ProjectsProps) {
+export function Projects({
+  projects,
+  selected,
+  onSelect,
+  hash,
+  onCreate,
+  onStateChange,
+  onDelete,
+}: ProjectsProps) {
   const [title, setTitle] = useState('')
   const [saving, setSaving] = useState(false)
   const [confirming, setConfirming] = useState<string | null>(null)
@@ -89,9 +110,14 @@ export function Projects({ projects, onCreate, onStateChange, onDelete }: Projec
         ) : (
           <ul className="project-list">
             {projects.map((project) => (
-              <li key={project.id} className={project.stalled ? 'project stalled' : 'project'}>
+              <li
+                key={project.id}
+                className={`project${project.stalled ? ' stalled' : ''}${
+                  selected?.kind === 'project' && selected.id === project.id ? ' project-open' : ''
+                }`}
+              >
                 <h3>
-                  <a href={projectHref(project.id)}>{project.title}</a>
+                  <a href={surfaceHref(projectHref(project.id), hash)}>{project.title}</a>
                 </h3>
 
                 <p className="project-next">
@@ -114,6 +140,14 @@ export function Projects({ projects, onCreate, onStateChange, onDelete }: Projec
                 </p>
 
                 <ActionRow>
+                  <button
+                    type="button"
+                    aria-pressed={selected?.kind === 'project' && selected.id === project.id}
+                    onClick={() => onSelect({ kind: 'project', id: project.id })}
+                  >
+                    Details
+                  </button>
+
                   <Field label={`State of ${project.title}`} hiddenLabel>
                     <select
                       value={project.state}
@@ -173,6 +207,10 @@ export interface ProjectDetailProps {
   readonly onStatusChange: (id: string, status: TaskStatus) => void
   readonly onComplete: (id: string) => void
   readonly onDelete: (id: string) => void
+  readonly onSelect: (item: ItemRef) => void
+  readonly selected: ItemRef | null
+  /** The hash the way back out is built from, so leaving the drill-in keeps the rail. Spec 08. */
+  readonly hash: string
 }
 
 export function ProjectDetail({
@@ -183,6 +221,9 @@ export function ProjectDetail({
   onStatusChange,
   onComplete,
   onDelete,
+  onSelect,
+  selected,
+  hash,
 }: ProjectDetailProps) {
   // The drill-in's name is the project's, which is what makes two of them tell apart in history.
   useSurfaceTitle(project?.title ?? 'Project')
@@ -192,7 +233,7 @@ export function ProjectDetail({
       <div className="project-detail">
         <h1>Project</h1>
         <p role="alert">That project is not here. It may have been deleted.</p>
-        <a href="#/projects">Back to projects</a>
+        <a href={surfaceHref('#/projects', hash)}>Back to projects</a>
       </div>
     )
   }
@@ -201,7 +242,7 @@ export function ProjectDetail({
 
   return (
     <div className="project-detail">
-      <a href="#/projects">Back to projects</a>
+      <a href={surfaceHref('#/projects', hash)}>Back to projects</a>
       <h1>{project.title}</h1>
 
       <p className="project-state">
@@ -241,6 +282,8 @@ export function ProjectDetail({
               onStatusChange={onStatusChange}
               onComplete={onComplete}
               onDelete={onDelete}
+              onSelect={onSelect}
+              selected={selected?.kind === 'task' && selected.id === task.id}
             />
           ))}
         </ul>
