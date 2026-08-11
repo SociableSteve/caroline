@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { api, type ProjectState, type TaskInput, type TaskStatus } from './api.js'
 import { useChat } from './chat.js'
 import { useCarolineData } from './data.js'
-import { chatRailHref, conversationHref, routeLinks, useLocation } from './router.js'
+import { chatRailHref, conversationHref, routeLinks, surfaceHref, useLocation } from './router.js'
 import { Board } from './surfaces/Board.js'
 import { Dashboard } from './surfaces/Dashboard.js'
 import { Jobs } from './surfaces/Jobs.js'
@@ -53,10 +53,10 @@ export function App() {
   const [capturing, setCapturing] = useState(false)
   const [writeFailure, setWriteFailure] = useState<string | null>(null)
   /**
-   * Whether the rail is open. Closed by default: a rail always on screen takes its width from the
-   * surface whether or not anything is being asked. Held here as well as in the hash so that a click
-   * shows it at once rather than a `hashchange` later, and followed from the hash below, so a
-   * reload, a back button and a shared link all agree about it.
+   * Whether the rail is open. Open by default: chat is the thing Caroline is for, and a rail that has
+   * to be opened again on every surface you land on is one that ends up unused. Held here as well as
+   * in the hash so that a click shows it at once rather than a `hashchange` later, and followed from
+   * the hash below, so a reload, a back button and a shared link all agree about it.
    */
   const [chatOpen, setChatOpen] = useState(() => chatInUrl)
   // The clock the surfaces measure ages against. Held in state so that a render caused by
@@ -227,7 +227,12 @@ export function App() {
           <ul>
             {routeLinks.map((link) => (
               <li key={link.name}>
-                <a href={link.href} aria-current={route.name === link.name ? 'page' : undefined}>
+                {/* The rail travels with the link: changing surface is not closing the companion
+                    to the last one, nor abandoning the conversation it was holding. */}
+                <a
+                  href={surfaceHref(link.href, hash)}
+                  aria-current={route.name === link.name ? 'page' : undefined}
+                >
                   {link.label}
                 </a>
               </li>

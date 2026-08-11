@@ -470,6 +470,22 @@ const chatEventTypes: readonly string[] = [
 ]
 
 /**
+ * Which events carry the record they name as their whole data field, and the field this client
+ * knows it by. The server sends `event: change` with the change itself as the data, because the
+ * event name has already said what it is; only `done`, which names two things, sends an object of
+ * them. Spreading every payload flat therefore left these four arriving with the field the reader
+ * looks for missing, and an `undefined` message appended to a transcript blanks the rail rendering
+ * it. The fields are the ones the union above names; `api.test.ts` drives each of them from the
+ * bytes the server writes, so the mapping cannot fall out of step with either end unnoticed.
+ */
+const namedPayload: Readonly<Record<string, string>> = {
+  conversation: 'conversation',
+  'user-message': 'message',
+  change: 'change',
+  confirmation: 'confirmation',
+}
+
+/**
  * One server-sent event, as a chat event. Comments and keep-alives have no `data:` line and are
  * skipped; so is an event whose data will not parse, because half an event is not one, and so is
  * one whose name this client does not know: passing it on would have the reader treat it as
@@ -488,7 +504,12 @@ function parseEvent(block: string): ChatStreamEvent | null {
   if (name === '' || data.length === 0 || !chatEventTypes.includes(name)) return null
 
   try {
-    return { type: name, ...(JSON.parse(data.join('\n')) as object) } as ChatStreamEvent
+    const payload = JSON.parse(data.join('\n')) as object
+    const named = namedPayload[name]
+
+    return (
+      named === undefined ? { type: name, ...payload } : { type: name, [named]: payload }
+    ) as ChatStreamEvent
   } catch {
     return null
   }

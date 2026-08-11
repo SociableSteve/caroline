@@ -36,6 +36,12 @@ both validation and typing. Errors follow one shape: `{ error: { code, message, 
 Server-sent events are used for chat streaming and for a lightweight change feed the UI
 subscribes to, so a background job's results appear without a refresh.
 
+A streamed chat event's name says what the payload is, and the payload is that thing: `event: change`
+carries the change record itself, and only the event that names two things carries an object of them.
+The records are the same ones the history routes return, so a live turn and a reopened one are
+rendered by one piece of code. Both ends have to agree about which events are which shape; where they
+did not, a turn arrived with the record missing and the rail rendered nothing.
+
 ## UI
 
 Five surfaces and a companion.
@@ -121,17 +127,27 @@ a disclosure within it rather than in a column of their own: a rail is not wide 
 columns, and the list is wanted when an earlier conversation is, not while one is being had.
 Read-only is stated before anything is typed, and so is a turn that stopped at its tool-call limit.
 
-It is closed by default and opened from the header, because a rail always on screen takes its width
-from the surface whether or not anything is being asked. Below the width where a rail leaves the
+It is open by default, and closed from its own control or from the header. M10 had it closed until
+asked for, on the grounds that a rail always on screen takes its width from the surface whether or
+not anything is being asked; driving it settled that the other way. Chat is the thing Caroline is
+for, and a rail that has to be opened again on every surface you land on is one that ends up unused.
+The width it costs is a width the surfaces are laid out for. Below the width where a rail leaves the
 surface usable it collapses to the overlay pattern quick capture already owns: out of the flow, above
 the surface, on a raised ground. It is a companion rather than a modal, so nothing behind it is
-declared inert and it is closed from its own control.
+declared inert.
 
-Whether the rail is open, and which conversation it is reading, both live in the URL:
-`#/board?conversation=<id>` is the board with that conversation beside it, and an empty
-`?conversation=` is the rail open on one nobody has started yet. A conversation you cannot link to is
-one you cannot come back to; what it does not have is a surface of its own, so opening one never
-takes away the surface it is about.
+Whether the rail is open, and which conversation it is reading, both live in the URL, so that a
+reload, the back button and a shared link all agree about them. `#/board?conversation=<id>` is the
+board with that conversation beside it; `#/board?chat=closed` is the board with the rail closed. It
+is the close that the hash records rather than the open, because open is the default and a URL should
+not have to say so: `#/board` is the board with the rail open on a conversation nobody has started
+yet. A conversation you cannot link to is one you cannot come back to; what it does not have is a
+surface of its own, so opening one never takes away the surface it is about.
+
+Both parameters travel with a link from one surface to another. Changing surface is not closing the
+companion to the last one, and it is not abandoning the conversation being had about it either: the
+rail is beside the surfaces rather than part of any one of them, so it survives a move between them
+in whichever state it was left.
 
 **Jobs.** What each background job is for, when it last ran and how that went, when it runs
 next, whether a run of failures is holding it back, and a button to run it now. Spec 06 owns
@@ -230,3 +246,13 @@ The chat rail adds the following, appended for the same reason.
     on the board is still rendered.
 23. A hash naming a conversation opens the rail on it, and closing the rail removes it from the hash,
     so a reload does not reopen a conversation that was closed.
+
+Driving M10's rail in a browser found two defects. Their fix adds the following, appended for the
+same reason.
+
+24. A hash that says nothing about chat loads with the rail open beside the surface; only
+    `?chat=closed` loads with it closed, and a close writes that parameter.
+25. Following a link from one surface to another leaves the rail as it was, open or closed, and keeps
+    the conversation it was reading.
+26. Sending a message renders the turn: the user's message, the answer as it streams, and the
+    recorded turn that replaces it, with the surface beside the rail still on screen throughout.

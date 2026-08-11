@@ -5,6 +5,7 @@
 import type {
   CalendarDay,
   CapacityView,
+  ChatStreamEvent,
   PlanEntryView,
   PlanView,
   ProjectView,
@@ -16,6 +17,37 @@ import type {
 
 export const NOW = Date.UTC(2026, 5, 10, 9, 0, 0)
 export const DAY = 24 * 60 * 60 * 1000
+
+/**
+ * Which streamed events carry the thing they name as their whole data field. Mirrors `toWireEvent`
+ * in `src/server/routes/chat.ts`, which is what the server tests pin: `event: change` sends the
+ * change itself, because the event name has already said what it is. Only `done`, which names two
+ * things, sends an object of them.
+ */
+const namedPayload: Readonly<Record<string, string>> = {
+  conversation: 'conversation',
+  'user-message': 'message',
+  change: 'change',
+  confirmation: 'confirmation',
+}
+
+/**
+ * A turn as the server writes it down the wire, so a test drives the client against the bytes it
+ * will really be given rather than against the shape it happens to read. Serialising these from the
+ * client's own event type was how a wire mismatch went unnoticed: both ends of the test agreed with
+ * each other and neither agreed with the server.
+ */
+export function chatTurnWire(events: readonly ChatStreamEvent[]): string {
+  return events
+    .map((event) => {
+      const { type, ...fields } = event as { type: string } & Record<string, unknown>
+      const named = namedPayload[type]
+      const data = named === undefined ? fields : fields[named]
+
+      return `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`
+    })
+    .join('')
+}
 
 export function aTask(overrides: Partial<TaskView> & { id: string; title: string }): TaskView {
   return {

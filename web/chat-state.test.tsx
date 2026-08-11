@@ -12,7 +12,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { useChat } from './chat.js'
 import type { ChatStreamEvent } from './api.js'
-import { NOW } from './test-fixtures.js'
+import { chatTurnWire, NOW } from './test-fixtures.js'
 
 const conversation = {
   id: 'conversation-1',
@@ -86,13 +86,7 @@ function stubApi({ events = [], failStream = false }: StubOptions = {}) {
 
         const stream = new ReadableStream<Uint8Array>({
           start(controller) {
-            const encoder = new TextEncoder()
-            for (const event of events) {
-              const { type, ...data } = event as { type: string }
-              controller.enqueue(
-                encoder.encode(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`),
-              )
-            }
+            controller.enqueue(new TextEncoder().encode(chatTurnWire(events)))
             controller.close()
           },
         })
@@ -213,6 +207,32 @@ describe('useChat', () => {
 
     await waitFor(() => expect(screen.getByTestId('draft')).toHaveTextContent('none'))
     expect(screen.getByTestId('messages')).toHaveTextContent('Recorded answer.')
+  })
+
+  /**
+   * The user's own turn arrives as an event of its own, and what the server sends is the message
+   * itself rather than a wrapper around it. Reading it as a bag of fields left `undefined` in the
+   * transcript, and rendering that is what blanked the page on send.
+   */
+  it('appends the user message the server recorded for the turn', async () => {
+    const user = userEvent.setup()
+    stubApi({
+      events: [
+        { type: 'conversation', conversation },
+        {
+          type: 'user-message',
+          message: aMessage({ id: 'message-2', role: 'user', content: 'Triage my inbox' }),
+        },
+        { type: 'text', text: 'Three things.' },
+      ] as unknown as ChatStreamEvent[],
+    })
+    // A turn in a conversation that did not exist yet, which is the first thing anybody does: the
+    // route change owns the read that follows, so what the stream said is still on screen.
+    render(<Probe />)
+
+    await user.click(screen.getByRole('button', { name: 'Send' }))
+
+    await waitFor(() => expect(screen.getByTestId('messages')).toHaveTextContent('Triage my inbox'))
   })
 
   it('shows what the turn changed while it is still running', async () => {

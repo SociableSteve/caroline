@@ -24,8 +24,10 @@ export interface AppLocation {
   readonly route: Route
   /**
    * Whether the URL asks for the rail. Its openness lives in the hash rather than only in a
-   * component, so that a reload, a back button and a shared link all agree about it. An empty
-   * `?conversation=` is the rail open on a conversation nobody has started yet.
+   * component, so that a reload, a back button and a shared link all agree about it. Open is the
+   * default, so what the hash records is a close: `?chat=closed`. An empty `?conversation=` is the
+   * rail open on a conversation nobody has started yet, which is what a link written before open
+   * was the default says.
    */
   readonly chatOpen: boolean
   /** The conversation the rail is reading, or null for a new one. */
@@ -47,6 +49,20 @@ export const routeLinks = [
 
 /** The query parameter the open conversation travels in, on whichever surface is showing. */
 const CONVERSATION_PARAM = 'conversation'
+
+/**
+ * The parameter a closed rail travels in, and its only value. Closing is what the hash records
+ * rather than opening, because the rail is open by default and a URL should not have to say so.
+ */
+const CHAT_PARAM = 'chat'
+const CHAT_CLOSED = 'closed'
+
+/**
+ * The parameters that describe the rail rather than the surface, and so follow a surface link
+ * across. Everything else in a query belongs to the surface it was on: the settings outcome is
+ * about the connect that just happened, and carrying it to the board would be nonsense.
+ */
+const RAIL_PARAMS: readonly string[] = [CONVERSATION_PARAM, CHAT_PARAM]
 
 /** Anything unrecognised is the dashboard, which is the least surprising landing place. */
 export function parseRoute(hash: string): Route {
@@ -76,12 +92,15 @@ export function parseRoute(hash: string): Route {
 /** The whole location: which surface, and which conversation is open beside it. */
 export function parseLocation(hash: string): AppLocation {
   const [, query = ''] = hash.replace(/^#\/?/, '').split('?')
-  const raw = new URLSearchParams(query).get(CONVERSATION_PARAM)
+  const params = new URLSearchParams(query)
+  const raw = params.get(CONVERSATION_PARAM)
 
   return {
     route: parseRoute(hash),
     hash,
-    chatOpen: raw !== null,
+    // Open unless the hash says it was closed. A hash naming a conversation is asking for the rail
+    // either way, so it cannot be both.
+    chatOpen: raw !== null || params.get(CHAT_PARAM) !== CHAT_CLOSED,
     // An empty parameter is a new conversation rather than a conversation with an empty id, which
     // is what `#/board?conversation=` means when the rail has just been opened.
     conversationId: raw === null || raw === '' ? null : raw,
@@ -110,18 +129,59 @@ export function conversationHref(id: string | null, hash: string): string {
   const params = new URLSearchParams(query)
 
   if (id === null) params.delete(CONVERSATION_PARAM)
-  else params.set(CONVERSATION_PARAM, id)
+  else {
+    params.set(CONVERSATION_PARAM, id)
+    // A conversation to read is the rail open, so a close left in the hash would contradict it.
+    params.delete(CHAT_PARAM)
+  }
 
-  const rest = params.toString()
-  return `#${path === '' ? '/' : path}${rest === '' ? '' : `?${rest}`}`
+  return withParams(path, params)
 }
 
 /**
- * The same location with the rail opened or closed. Opening it names no conversation yet, which is
- * the empty parameter: the rail is open, and the next thing said starts one.
+ * The same location with the rail opened or closed. Only the close is written down: the rail is open
+ * by default, so opening it is the absence of the parameter rather than a value of it, and a link
+ * with nothing to say about chat is a link with the rail open beside the surface.
+ *
+ * Closing takes the conversation with it. A hash naming a conversation nobody can see would reopen
+ * the rail on the next reload, which is not what closing it meant.
  */
 export function chatRailHref(open: boolean, hash: string): string {
-  return conversationHref(open ? '' : null, hash)
+  const [path = '', query = ''] = hash.replace(/^#/, '').split('?')
+  const params = new URLSearchParams(query)
+
+  if (open) params.delete(CHAT_PARAM)
+  else {
+    params.delete(CONVERSATION_PARAM)
+    params.set(CHAT_PARAM, CHAT_CLOSED)
+  }
+
+  return withParams(path, params)
+}
+
+/**
+ * A link to another surface, keeping whatever the rail is doing. Chat is a companion to whichever
+ * surface is showing (spec 08), so changing surface is not closing the rail and not leaving the
+ * conversation behind either; without this, every surface link dropped both.
+ */
+export function surfaceHref(href: string, hash: string): string {
+  const [path = ''] = href.replace(/^#/, '').split('?')
+  const [, query = ''] = hash.replace(/^#/, '').split('?')
+  const current = new URLSearchParams(query)
+  const params = new URLSearchParams()
+
+  for (const name of RAIL_PARAMS) {
+    const value = current.get(name)
+    if (value !== null) params.set(name, value)
+  }
+
+  return withParams(path, params)
+}
+
+/** A hash from a path and its parameters, landing on the dashboard where there is no path. */
+function withParams(path: string, params: URLSearchParams): string {
+  const rest = params.toString()
+  return `#${path === '' ? '/' : path}${rest === '' ? '' : `?${rest}`}`
 }
 
 export function useLocation(): AppLocation {

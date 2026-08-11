@@ -22,7 +22,7 @@ import type {
 } from '../api.js'
 import type { DraftTurn } from '../chat.js'
 import { ago } from '../format.js'
-import { chatRailHref, conversationHref } from '../router.js'
+import { conversationHref } from '../router.js'
 import { Field } from './primitives.js'
 
 export interface ChatRailProps {
@@ -212,9 +212,9 @@ export function ChatRail({
       <details className="rail-conversations">
         <summary>Conversations</summary>
         <p>
-          {/* The rail stays open: starting a new conversation is not closing the one thing that
-              was going to hold it. */}
-          <a href={chatRailHref(true, hash)}>New conversation</a>
+          {/* No conversation rather than the rail closed: the rail is open by default, so a hash
+              naming none is the rail open on one nobody has started yet. */}
+          <a href={conversationHref(null, hash)}>New conversation</a>
         </p>
 
         {conversations.length === 0 ? (
