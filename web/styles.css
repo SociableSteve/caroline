@@ -165,8 +165,15 @@ button[disabled] {
   font-size: var(--text-sm);
 }
 
+/*
+ * `min-width: 0` because a grid item's floor is its content, and a pull request's external id is
+ * one unbroken token: without this it refuses to shrink, pushes past the card and takes the label
+ * column down to one word per line with it.
+ */
 .facts dd {
   margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-size: var(--text-sm);
 }
 
@@ -508,10 +515,16 @@ button[disabled] {
 
 .chase-list li {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
-  gap: var(--space-3);
+  gap: 0 var(--space-3);
   padding: var(--space-1) 0;
   border-bottom: 1px solid var(--line);
+}
+
+.chase-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .chase-who,
@@ -525,17 +538,22 @@ button[disabled] {
   font-variant-numeric: tabular-nums;
 }
 
-/* A pull request the author has answered is a different kind of wait from one they have not. */
+/* A pull request the author has answered is a different kind of wait from one they have not. It
+   takes its own line: it is a sentence, and a sentence does not belong in a nowrap column. */
 .chase-pushed {
+  flex-basis: 100%;
   color: var(--ink-quiet);
   font-size: var(--text-sm);
 }
 
 /* The state of the machine: scanned to confirm nothing is broken, and read no further when
    nothing is. One strip, never at the weight of a band 1 panel. Spec 08. */
+/* A grid rather than a wrapping flex row: the sections are of very different heights, and flex
+   wrapping pushed the shortest of them onto a second row a full panel's height below the rest. */
 .state-strip {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, auto));
+  justify-content: start;
   gap: var(--space-3) var(--space-6);
   padding-top: var(--space-3);
   border-top: 1px solid var(--line);
@@ -599,10 +617,13 @@ button[disabled] {
   list-style: none;
 }
 
+/* Wraps rather than compresses: in the overflow panel, which is a quarter of the width of the
+   plan, an unwrapped row squeezed the title to one word a line and left the rationale beside it. */
 .plan-entry {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: var(--space-2);
+  gap: var(--space-1) var(--space-2);
   padding: var(--space-1) 0;
   border-bottom: 1px solid var(--line);
 }
@@ -614,6 +635,8 @@ button[disabled] {
 }
 
 .plan-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-weight: 500;
 }
 
