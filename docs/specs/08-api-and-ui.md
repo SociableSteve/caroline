@@ -139,11 +139,16 @@ project row keep the controls, because a control in two places is two places to 
 
 **The selection model.** The item that is open lives in the URL beside the conversation:
 `#/board?item=task:abc` is the board with that task in the rail, and `#/board?item=task:abc&conversation=xyz`
-is that task open beside that conversation. It survives a reload, a surface change and a link, for the
-reason the conversation does. It does not survive the item: an id naming nothing renders as gone and
-sends nothing, because a panel that quietly falls back to the last item that did exist is worse than an
-empty one. Selecting an item opens the rail, since the panel is inside it, and closing the rail clears
-the selection with the conversation, so nothing is left in the hash to reopen a rail that was closed.
+is that task open beside that conversation. It is one of the parameters that describe the rail rather
+than the surface, so it survives a reload, a link, and a move to another surface or into a project's
+drill-in, for the reason the conversation does. It does not survive the item: an id naming nothing
+renders as gone and sends nothing, because a panel that quietly falls back to the last item that did
+exist is worse than an empty one.
+
+An open item is the rail open. A hash naming one opens it even where the hash also says `?chat=closed`,
+because the panel is inside the rail and an item nobody can see is not open; and closing the rail takes
+the item out of the hash along with the conversation, so nothing is left to reopen a rail that was
+closed.
 
 Whatever is selected when a message is sent goes to the model as context, which is spec 07's rule and
 spec 09's policy. The surface's part of it is that the selection is visible: the card or row that is

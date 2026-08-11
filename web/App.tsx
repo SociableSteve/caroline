@@ -382,6 +382,7 @@ export function App() {
             <Projects
               projects={projects}
               selected={selected}
+              hash={hash}
               onSelect={onSelectItem}
               onCreate={onCreateProject}
               onStateChange={onProjectState}
@@ -424,6 +425,7 @@ export function App() {
               onComplete={onComplete}
               onSelect={onSelectItem}
               selected={selected}
+              hash={hash}
             />
           )}
         </main>

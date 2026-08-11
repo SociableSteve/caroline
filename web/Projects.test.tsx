@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { act, render, screen, waitFor } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { ProjectDetail, Projects } from './surfaces/Projects.js'
+import { parseLocation } from './router.js'
 import { aProject, aTask, NOW } from './test-fixtures.js'
 
 function renderProjects(overrides: Partial<Parameters<typeof Projects>[0]> = {}) {
@@ -17,7 +18,7 @@ function renderProjects(overrides: Partial<Parameters<typeof Projects>[0]> = {})
     onSelect: vi.fn(),
   }
 
-  render(<Projects projects={[]} selected={null} {...handlers} {...overrides} />)
+  render(<Projects projects={[]} selected={null} hash="#/projects" {...handlers} {...overrides} />)
 
   return handlers
 }
@@ -248,6 +249,52 @@ describe('opening a project in the details rail', () => {
     expect(screen.getByRole('link', { name: 'Ship it' })).toHaveAttribute(
       'href',
       '#/projects/project-1',
+    )
+  })
+})
+
+/**
+ * Spec 08, criterion 32. The rail is a companion to whichever surface is showing, so drilling into a
+ * project is not closing it and not leaving the conversation behind either: the drill-in link carries
+ * the rail's parameters exactly as the navigation does.
+ */
+describe('the drill-in link', () => {
+  it('carries the open conversation and the open item into the drill-in', () => {
+    renderProjects({
+      projects: [aProject({ id: 'project-1', title: 'Ship it' })],
+      hash: '#/projects?conversation=abc&item=task%3Atask-1',
+    })
+
+    const href = screen.getByRole('link', { name: 'Ship it' }).getAttribute('href') ?? ''
+
+    expect(parseLocation(href)).toMatchObject({
+      route: { name: 'project', id: 'project-1' },
+      conversationId: 'abc',
+      selected: { kind: 'task', id: 'task-1' },
+    })
+  })
+
+  it('carries a closed rail in, so drilling into a project does not reopen it', () => {
+    renderProjects({
+      projects: [aProject({ id: 'project-1', title: 'Ship it' })],
+      hash: '#/projects?chat=closed',
+    })
+
+    expect(screen.getByRole('link', { name: 'Ship it' })).toHaveAttribute(
+      'href',
+      '#/projects/project-1?chat=closed',
+    )
+  })
+
+  it('leaves behind the parameters that belonged to the surface being left', () => {
+    renderProjects({
+      projects: [aProject({ id: 'project-1', title: 'Ship it' })],
+      hash: '#/settings?google=connected&conversation=abc',
+    })
+
+    expect(screen.getByRole('link', { name: 'Ship it' })).toHaveAttribute(
+      'href',
+      '#/projects/project-1?conversation=abc',
     )
   })
 })

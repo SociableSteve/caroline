@@ -451,7 +451,7 @@ describe('the things a person would otherwise have to guess at', () => {
 })
 
 /**
- * The rail's two regions. Spec 08, criterion 27: the details of the item that is open, above the
+ * The rail's two regions. Spec 08, criterion 30: the details of the item that is open, above the
  * conversation, in one rail rather than two.
  */
 describe('the details region', () => {

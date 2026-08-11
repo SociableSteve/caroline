@@ -43,7 +43,7 @@ export type DetailsSubject =
 
 export interface DetailsPanelProps {
   readonly item: ItemRef
-  /** Null where the reference names nothing that is loaded. Spec 08, criterion 26. */
+  /** Null where the reference names nothing that is loaded. Spec 08, criterion 29. */
   readonly subject: DetailsSubject | null
   readonly staleDays: number
   readonly now: number

@@ -102,7 +102,7 @@ export function TaskCard({
       >
         {/* The title is the control that opens the task in the rail, so the thing being pointed at is
             the thing that responds, and the action row keeps the width it has. It stays a heading, so
-            the outline is unchanged. Spec 08, criterion 24. */}
+            the outline is unchanged. Spec 08, criterion 27. */}
         <h3 className="card-title">
           {onSelect === undefined ? (
             task.title

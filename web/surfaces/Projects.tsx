@@ -6,7 +6,7 @@ import { useState } from 'react'
 import { projectStates } from '../../src/domain/project.js'
 import type { ItemRef, ProjectState, ProjectView, TaskStatus, TaskView } from '../api.js'
 import { statusLabel } from '../format.js'
-import { projectHref } from '../router.js'
+import { projectHref, surfaceHref } from '../router.js'
 import { TaskCard } from '../components/TaskCard.js'
 import { ActionRow, Badge, Field, Panel } from '../components/primitives.js'
 import { useSurfaceTitle } from '../title.js'
@@ -20,6 +20,12 @@ export interface ProjectsProps {
    */
   readonly onSelect: (item: ItemRef) => void
   readonly selected: ItemRef | null
+  /**
+   * The hash the drill-in links are built from. The rail is a companion to whichever surface is showing
+   * (spec 08), so drilling into a project is not closing it and not leaving the conversation or the open
+   * item behind; without this the link dropped all three.
+   */
+  readonly hash: string
   /** Answers whether the project was created. The field keeps its text until it was. */
   readonly onCreate: (title: string) => Promise<boolean>
   readonly onStateChange: (id: string, state: ProjectState) => void
@@ -37,6 +43,7 @@ export function Projects({
   projects,
   selected,
   onSelect,
+  hash,
   onCreate,
   onStateChange,
   onDelete,
@@ -110,7 +117,7 @@ export function Projects({
                 }`}
               >
                 <h3>
-                  <a href={projectHref(project.id)}>{project.title}</a>
+                  <a href={surfaceHref(projectHref(project.id), hash)}>{project.title}</a>
                 </h3>
 
                 <p className="project-next">

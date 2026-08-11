@@ -35,6 +35,7 @@ function renderDashboard(overrides: Partial<Parameters<typeof Dashboard>[0]> = {
       now={NOW}
       selected={null}
       onSelect={vi.fn()}
+      hash="#/"
       onRegeneratePlan={() => {}}
       onComplete={() => {}}
       {...overrides}
@@ -645,7 +646,7 @@ describe('the background jobs panel', () => {
 })
 
 /**
- * Spec 08, criterion 28. A plan entry is not a fourth kind of item: it names a task, and clicking it
+ * Spec 08, criterion 31. A plan entry is not a fourth kind of item: it names a task, and clicking it
  * opens that task. An entry whose task has been deleted is a record of what was proposed, and names
  * nothing to open.
  */
@@ -681,5 +682,20 @@ describe('opening a plan entry in the details rail', () => {
 
     expect(screen.queryByRole('button', { name: 'Something deleted' })).not.toBeInTheDocument()
     expect(screen.getByText('Something deleted')).toBeInTheDocument()
+  })
+})
+
+/** Spec 08, criterion 32: the dashboard's stalled-project links carry the rail across too. */
+describe('the dashboard’s drill-in links', () => {
+  it('carries the open conversation into the drill-in', () => {
+    renderDashboard({
+      projects: [aProject({ id: 'project-1', title: 'Ship it', stalled: true, nextAction: null })],
+      hash: '#/?conversation=abc',
+    })
+
+    expect(screen.getByRole('link', { name: 'Ship it' })).toHaveAttribute(
+      'href',
+      '#/projects/project-1?conversation=abc',
+    )
   })
 })

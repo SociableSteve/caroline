@@ -51,6 +51,7 @@ const surfaces: ReadonlyArray<{ name: string; title: string; render: () => void 
           onComplete={vi.fn()}
           onSelect={vi.fn()}
           selected={null}
+          hash="#/"
         />,
       ),
   },
@@ -68,6 +69,7 @@ const surfaces: ReadonlyArray<{ name: string; title: string; render: () => void 
         <Projects
           projects={[]}
           selected={null}
+          hash="#/projects"
           onSelect={vi.fn()}
           onCreate={vi.fn(async () => true)}
           onStateChange={vi.fn()}

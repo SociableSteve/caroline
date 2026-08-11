@@ -161,8 +161,12 @@ function Turn({
       ))}
 
       {/* What this turn sent about the item that was open. Recorded so the conversation can be
-          audited, and shown here because an audit nobody can read is a table. Spec 07, criterion 10. */}
-      {message.context !== null && (
+          audited, and shown here because an audit nobody can read is a table. Spec 07, criterion 10.
+
+          Loosely compared on purpose: the server always sends the field, null included, but a turn
+          rendered from a payload that happened not to carry it must not blank the page. That is the
+          class of defect the SSE contract fix removed, and one guard is cheaper than another. */}
+      {message.context != null && (
         <details className="turn-context">
           <summary>What was sent about the open {message.context.kind}</summary>
           <p className="change-note">

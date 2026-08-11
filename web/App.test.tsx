@@ -843,6 +843,7 @@ describe('the chat rail', () => {
       error: null,
       changes: [],
       confirmations: [],
+      context: null,
     }
     const answered = {
       ...userTurn,
@@ -938,7 +939,9 @@ describe('the details panel', () => {
     render(<App />)
     await userEvent.click(await screen.findByRole('button', { name: 'Close chat' }))
 
-    expect(window.location.hash).toBe('#/board')
+    // The close is what the hash records, the rail being open by default, and it takes the item and
+    // the conversation with it.
+    expect(window.location.hash).toBe('#/board?chat=closed')
     expect(screen.queryByRole('complementary', { name: 'Chat' })).not.toBeInTheDocument()
   })
 

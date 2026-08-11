@@ -406,7 +406,7 @@ describe('the chat rail', () => {
   })
 
   /**
-   * The rail's second region. Spec 08, criterion 27: the details of the open item sit above the
+   * The rail's second region. Spec 08, criterion 30: the details of the open item sit above the
    * conversation, bounded, so a task with long notes never takes the rail from the conversation it is
    * supposed to be the subject of. Asserted against the stylesheet because it is layout, and jsdom
    * lays nothing out.

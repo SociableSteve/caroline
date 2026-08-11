@@ -108,7 +108,7 @@ describe('a project in the details panel', () => {
   })
 })
 
-/** Spec 08, criterion 26: an item that has gone says so rather than falling back to another. */
+/** Spec 08, criterion 29: an item that has gone says so rather than falling back to another. */
 describe('an item that is not there', () => {
   it('says so rather than rendering as empty', () => {
     render(

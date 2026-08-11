@@ -806,7 +806,7 @@ describe('a pull request whose notification email was suppressed', () => {
 })
 
 /**
- * Opening a task in the rail. Spec 08, criterion 24: the title is the control, because a card's action
+ * Opening a task in the rail. Spec 08, criterion 27: the title is the control, because a card's action
  * row is already at the width a column can afford and the title is the thing being pointed at.
  */
 describe('opening a task in the details rail', () => {

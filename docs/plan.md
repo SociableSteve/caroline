@@ -305,20 +305,26 @@ How the three open questions were settled, now written into specs 07, 08 and 09:
   different panel for that privilege. A plan entry is not a fourth kind: it names a task, and
   clicking one selects that task.
 - **Selection lives in the URL, exactly as the conversation does.** `#/board?item=task:abc` is the
-  board with that task open in the rail, so it survives a reload, a surface change and a link, for
-  the reason spec 08 already gives for the conversation: a thing you cannot link to is one you
-  cannot come back to. It does not survive the item: an id that names nothing renders as gone and
-  sends nothing, because a panel that quietly shows the last item that did exist is worse than an
-  empty one. Rule 3 above is about closing rather than about persistence: what has no fallback is a
-  selection the user cleared, not one they left open.
+  board with that task open in the rail. It is one of the parameters that describe the rail rather
+  than the surface, so it survives a reload, a link and a move between surfaces, for the reason spec
+  08 already gives for the conversation: a thing you cannot link to is one you cannot come back to.
+  It does not survive the item: an id that names nothing renders as gone and sends nothing, because a
+  panel that quietly shows the last item that did exist is worse than an empty one. Rule 3 above is
+  about closing rather than about persistence: what has no fallback is a selection the user cleared,
+  not one they left open.
 - **A short viewport gives the height to the conversation.** The details region is capped at a share
   of the rail's height and scrolls within its cap, pinned to the top of the rail so the conversation
   scrolls past it rather than under it. Below the height where both are cramped the cap tightens
   rather than the transcript shrinking, because the rail is a place to have a conversation and the
   panel is only what it is about.
 
-Selecting an item opens the rail, because the panel is inside it. Closing the rail clears both the
+Selecting an item opens the rail, because the panel is inside it, and closing the rail clears both the
 conversation and the selection, so nothing is left in the hash to reopen a rail the user closed.
+
+One thing the rail fix on main deliberately left is finished here for the same reason: a project's
+drill-in link carried no hash parameters, so drilling into a project landed with the rail open on a new
+conversation rather than the one being read. Those links go through `surfaceHref` as the navigation
+does. An open conversation surviving a drill-in is the same guarantee the details panel depends on.
 
 Exit: spec 07 gains the context rule and its audit record, spec 08 gains the rail's second region
 and the selection model, spec 09 gains the item-as-context policy.

@@ -261,8 +261,24 @@ describe('the item open in the rail', () => {
       '#/board?item=calendar_event%3Ae1',
       '#/board?item=task%3A',
     ]) {
-      expect(parseLocation(hash)).toMatchObject({ selected: null, chatOpen: false })
+      expect(parseLocation(hash).selected).toBeNull()
+      // And it is not an argument for the rail either: only a reference the panel could show is.
+      expect(parseLocation(`${hash}&chat=closed`).chatOpen).toBe(false)
     }
+  })
+
+  /** An open item is the rail open: the panel is inside it, and an item nobody can see is not open. */
+  it('opens the rail even where the hash also asks for it to be closed', () => {
+    expect(parseLocation('#/board?chat=closed&item=task%3Aabc')).toMatchObject({
+      chatOpen: true,
+      selected: { kind: 'task', id: 'abc' },
+    })
+  })
+
+  it('clears a contradicting close when an item is opened', () => {
+    expect(itemHref({ kind: 'task', id: 'abc' }, '#/board?chat=closed')).toBe(
+      '#/board?item=task%3Aabc',
+    )
   })
 
   it('round-trips through itemHref, keeping the surface and the conversation', () => {
@@ -291,5 +307,10 @@ describe('the item open in the rail', () => {
     expect(
       parseLocation(chatRailHref(false, '#/board?conversation=abc&item=task%3Aone')),
     ).toMatchObject({ chatOpen: false, conversationId: null, selected: null })
+  })
+
+  /** It describes the rail rather than the surface, so it follows a surface link across. */
+  it('travels to another surface with the rest of the rail', () => {
+    expect(surfaceHref('#/projects', '#/board?item=task%3Aabc')).toBe('#/projects?item=task%3Aabc')
   })
 })

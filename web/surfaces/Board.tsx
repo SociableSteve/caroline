@@ -28,7 +28,7 @@ export interface BoardProps {
   readonly onDismissProposal: (id: string) => void
   /** Puts the last status change back, the actor with it. Spec 08, criteria 16 and 17. */
   readonly onUndoStatus: (id: string) => void
-  /** Opens a task in the rail's details region. Spec 08, criterion 24. */
+  /** Opens a task in the rail's details region. Spec 08, criterion 27. */
   readonly onSelect: (item: ItemRef) => void
   /** Which item the rail is showing, so the card that is open says so. */
   readonly selected: ItemRef | null

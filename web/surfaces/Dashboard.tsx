@@ -43,7 +43,7 @@ import {
   statusLabel,
   waitingAge,
 } from '../format.js'
-import { projectHref } from '../router.js'
+import { projectHref, surfaceHref } from '../router.js'
 import { Panel } from '../components/primitives.js'
 import { useSurfaceTitle } from '../title.js'
 
@@ -64,9 +64,11 @@ export interface DashboardProps {
   /** True while a regeneration is in flight, so a second click cannot start another. */
   readonly regenerating?: boolean
   readonly onComplete: (taskId: string) => void
-  /** Opens a plan entry's task in the rail's details region. Spec 08, criterion 28. */
+  /** Opens a plan entry's task in the rail's details region. Spec 08, criterion 31. */
   readonly onSelect: (item: ItemRef) => void
   readonly selected: ItemRef | null
+  /** The hash the stalled-project links are built from, so a drill-in keeps the rail. Spec 08. */
+  readonly hash: string
 }
 
 /** One row per job: the history is long, and what the dashboard answers is "is it working". */
@@ -114,7 +116,7 @@ function PlanEntryLine({
 }) {
   // A plan entry is not a fourth kind of item: it names a task, and opening one opens that task. An
   // entry whose task has been deleted is a record of what was proposed and names nothing to open.
-  // Spec 08, criterion 28.
+  // Spec 08, criterion 31.
   const taskId = entry.taskId
   const open = taskId !== null && selected?.kind === 'task' && selected.id === taskId
 
@@ -250,6 +252,7 @@ export function Dashboard({
   onComplete,
   onSelect,
   selected,
+  hash,
 }: DashboardProps) {
   useSurfaceTitle('Dashboard')
   const latestRuns = latestRunPerJob(jobRuns)
@@ -429,7 +432,7 @@ export function Dashboard({
             <ul className="stalled-list">
               {stalled.map((project) => (
                 <li key={project.id}>
-                  <a href={projectHref(project.id)}>{project.title}</a>
+                  <a href={surfaceHref(projectHref(project.id), hash)}>{project.title}</a>
                   <span> has no next action</span>
                 </li>
               ))}
