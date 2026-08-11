@@ -11,6 +11,7 @@ import {
   type StatusChangeResult,
   type Task,
   type TaskStatus,
+  undoStatusChange,
 } from '../../domain/task.js'
 
 export interface CreateTaskInput extends Omit<NewTaskInput, 'id'> {
@@ -31,8 +32,8 @@ export interface TaskPatch {
 }
 
 const columns = `id, title, notes, status, project_id, sort_order, estimate_minutes, due_at,
-  defer_until, waiting_on, status_set_by, status_set_at, sync_tracked, created_at, updated_at,
-  completed_at`
+  defer_until, waiting_on, status_set_by, status_set_at, previous_status,
+  previous_status_set_by, sync_tracked, created_at, updated_at, completed_at`
 
 /** Manual ordering first, then stable tiebreaks so a list never reshuffles between reads. */
 const ordering = 'order by sort_order, created_at, id'
@@ -42,8 +43,8 @@ function writeTask(database: Database, task: Task): void {
     .prepare(
       `insert into tasks (${columns}) values (
          :id, :title, :notes, :status, :project_id, :sort_order, :estimate_minutes, :due_at,
-         :defer_until, :waiting_on, :status_set_by, :status_set_at, :sync_tracked, :created_at,
-         :updated_at, :completed_at
+         :defer_until, :waiting_on, :status_set_by, :status_set_at, :previous_status,
+         :previous_status_set_by, :sync_tracked, :created_at, :updated_at, :completed_at
        )
        on conflict (id) do update set
          title = excluded.title,
@@ -57,6 +58,8 @@ function writeTask(database: Database, task: Task): void {
          waiting_on = excluded.waiting_on,
          status_set_by = excluded.status_set_by,
          status_set_at = excluded.status_set_at,
+         previous_status = excluded.previous_status,
+         previous_status_set_by = excluded.previous_status_set_by,
          sync_tracked = excluded.sync_tracked,
          updated_at = excluded.updated_at,
          completed_at = excluded.completed_at`,
@@ -74,6 +77,8 @@ function writeTask(database: Database, task: Task): void {
       waiting_on: task.waitingOn,
       status_set_by: task.statusSetBy,
       status_set_at: task.statusSetAt,
+      previous_status: task.previousStatus,
+      previous_status_set_by: task.previousStatusSetBy,
       sync_tracked: booleanToInteger(task.syncTracked),
       created_at: task.createdAt,
       updated_at: task.updatedAt,
@@ -188,6 +193,26 @@ export function changeTaskStatus(
   if (result.applied) writeTask(database, result.task)
 
   return result
+}
+
+/**
+ * Puts the last status change back, the actor with it. Returns null where there is no such task,
+ * and the unchanged task where there is nothing to put back, so a route can tell a 404 from a 409.
+ * Spec 01, criteria 9 to 11.
+ */
+export function undoTaskStatus(
+  database: Database,
+  id: string,
+  at: number,
+): { readonly undone: boolean; readonly task: Task } | null {
+  const existing = getTask(database, id)
+  if (existing === null) return null
+
+  const result = undoStatusChange(existing, at)
+  if (!result.undone) return { undone: false, task: existing }
+
+  writeTask(database, result.task)
+  return { undone: true, task: result.task }
 }
 
 /** Turns the connector's lifecycle back on after the user opted out. Spec 01. */

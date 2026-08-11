@@ -8,6 +8,8 @@ import type { ProjectState, ProjectView, TaskStatus, TaskView } from '../api.js'
 import { statusLabel } from '../format.js'
 import { projectHref } from '../router.js'
 import { TaskCard } from '../components/TaskCard.js'
+import { ActionRow, Badge, Field, Panel } from '../components/primitives.js'
+import { useSurfaceTitle } from '../title.js'
 
 export interface ProjectsProps {
   readonly projects: readonly ProjectView[]
@@ -51,10 +53,13 @@ export function Projects({ projects, onCreate, onStateChange, onDelete }: Projec
     if (created) setTitle((current) => (current === sent ? '' : current))
   }
 
+  useSurfaceTitle('Projects')
+
   return (
     <div className="projects">
-      <section aria-labelledby="new-project-heading">
-        <h2 id="new-project-heading">New project</h2>
+      <h1>Projects</h1>
+
+      <Panel headingLevel={2} heading="New project">
         <form
           className="inline-form"
           onSubmit={(event) => {
@@ -62,24 +67,21 @@ export function Projects({ projects, onCreate, onStateChange, onDelete }: Projec
             void create()
           }}
         >
-          <label>
-            Outcome, phrased as a result
+          <Field label="Outcome, phrased as a result">
             <input
               name="title"
               value={title}
               onChange={(event) => setTitle(event.target.value)}
               autoComplete="off"
             />
-          </label>
+          </Field>
           <button type="submit" disabled={title.trim() === '' || saving}>
             Add project
           </button>
         </form>
-      </section>
+      </Panel>
 
-      <section aria-labelledby="projects-heading">
-        <h2 id="projects-heading">Projects</h2>
-
+      <Panel headingLevel={2} heading="All projects">
         {projects.length === 0 ? (
           <p className="empty">
             No projects yet. A project is an outcome that takes more than one action.
@@ -97,7 +99,12 @@ export function Projects({ projects, onCreate, onStateChange, onDelete }: Projec
                     <>
                       <span>No next action</span>
                       {/* Colour is not the only carrier: the word is on the card. */}
-                      {project.stalled && <span className="badge badge-stale"> Stalled</span>}
+                      {project.stalled && (
+                        <>
+                          {' '}
+                          <Badge tone="alarm">Stalled</Badge>
+                        </>
+                      )}
                     </>
                   ) : (
                     <>
@@ -106,9 +113,8 @@ export function Projects({ projects, onCreate, onStateChange, onDelete }: Projec
                   )}
                 </p>
 
-                <div className="project-actions">
-                  <label>
-                    <span className="visually-hidden">State of {project.title}</span>
+                <ActionRow>
+                  <Field label={`State of ${project.title}`} hiddenLabel>
                     <select
                       value={project.state}
                       onChange={(event) =>
@@ -121,7 +127,7 @@ export function Projects({ projects, onCreate, onStateChange, onDelete }: Projec
                         </option>
                       ))}
                     </select>
-                  </label>
+                  </Field>
 
                   {confirming === project.id ? (
                     <>
@@ -143,7 +149,7 @@ export function Projects({ projects, onCreate, onStateChange, onDelete }: Projec
                       Delete
                     </button>
                   )}
-                </div>
+                </ActionRow>
 
                 {confirming === project.id && (
                   <p className="warning">
@@ -154,7 +160,7 @@ export function Projects({ projects, onCreate, onStateChange, onDelete }: Projec
             ))}
           </ul>
         )}
-      </section>
+      </Panel>
     </div>
   )
 }
@@ -178,9 +184,13 @@ export function ProjectDetail({
   onComplete,
   onDelete,
 }: ProjectDetailProps) {
+  // The drill-in's name is the project's, which is what makes two of them tell apart in history.
+  useSurfaceTitle(project?.title ?? 'Project')
+
   if (project === undefined) {
     return (
       <div className="project-detail">
+        <h1>Project</h1>
         <p role="alert">That project is not here. It may have been deleted.</p>
         <a href="#/projects">Back to projects</a>
       </div>
@@ -192,11 +202,16 @@ export function ProjectDetail({
   return (
     <div className="project-detail">
       <a href="#/projects">Back to projects</a>
-      <h2>{project.title}</h2>
+      <h1>{project.title}</h1>
 
       <p className="project-state">
         <span className="label">State</span> {stateLabels[project.state]}
-        {project.stalled && <span className="badge badge-stale"> Stalled</span>}
+        {project.stalled && (
+          <>
+            {' '}
+            <Badge tone="alarm">Stalled</Badge>
+          </>
+        )}
       </p>
 
       {project.notes !== null && <p className="project-notes">{project.notes}</p>}
@@ -212,7 +227,7 @@ export function ProjectDetail({
         </p>
       )}
 
-      <h3>Tasks</h3>
+      <h2>Tasks</h2>
       {tasks.length === 0 ? (
         <p className="empty">No tasks in this project yet.</p>
       ) : (

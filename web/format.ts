@@ -29,12 +29,29 @@ const MINUTE = 60_000
 const HOUR = 60 * MINUTE
 const DAY = 24 * HOUR
 
+/** Not a duration but a moment, so it is the one age the word "ago" must not be added to. */
+const JUST_NOW = 'just now'
+
 /** Human, coarse, and never negative: "3 days", "5 hours", "just now". */
 export function formatAge(milliseconds: number): string {
-  if (milliseconds < MINUTE) return 'just now'
+  if (milliseconds < MINUTE) return JUST_NOW
   if (milliseconds < HOUR) return plural(Math.floor(milliseconds / MINUTE), 'minute')
   if (milliseconds < DAY) return plural(Math.floor(milliseconds / HOUR), 'hour')
   return plural(Math.floor(milliseconds / DAY), 'day')
+}
+
+/**
+ * The same age, said as a time in the past. "3 days ago", and "just now" rather than the
+ * "just now ago" that appending the word produced at four separate call sites.
+ */
+export function formatAgo(milliseconds: number): string {
+  const age = formatAge(milliseconds)
+  return age === JUST_NOW ? age : `${age} ago`
+}
+
+/** How long since a moment, said as a time in the past. Never negative. */
+export function ago(from: number, now: number): string {
+  return formatAgo(Math.max(0, now - from))
 }
 
 function plural(count: number, unit: string): string {
@@ -47,6 +64,33 @@ export function formatDate(epochMs: number): string {
     month: 'short',
     year: 'numeric',
   })
+}
+
+/**
+ * Which side of today a date falls. Spec 10: a date on its own asks the reader to know today's
+ * date and do the comparison, so anywhere one is shown the state is named instead.
+ *
+ * Compared by day rather than by instant, in the reader's own zone, because a task due at nine
+ * this morning is due today and not overdue by six hours.
+ */
+export type DueState = 'overdue' | 'today' | 'later'
+
+export function dueState(dueAt: number, now: number): DueState {
+  const startOfToday = new Date(now).setHours(0, 0, 0, 0)
+  if (dueAt < startOfToday) return 'overdue'
+  return dueAt < startOfToday + DAY ? 'today' : 'later'
+}
+
+/** A due date with its state named, and the date kept alongside it where there is one to keep. */
+export function formatDue(dueAt: number, now: number): string {
+  switch (dueState(dueAt, now)) {
+    case 'overdue':
+      return `Overdue, ${formatDate(dueAt)}`
+    case 'today':
+      return `Today, ${formatDate(dueAt)}`
+    case 'later':
+      return formatDate(dueAt)
+  }
 }
 
 /** A clock time in the reader's own locale. What the calendar column labels a block with. */

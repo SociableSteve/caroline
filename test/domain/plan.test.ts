@@ -32,6 +32,8 @@ function aTask(overrides: Partial<Task> & { id: string }): Task {
     waitingOn: null,
     statusSetBy: 'user',
     statusSetAt: NOW,
+    previousStatus: null,
+    previousStatusSetBy: null,
     syncTracked: false,
     createdAt: NOW,
     updatedAt: NOW,

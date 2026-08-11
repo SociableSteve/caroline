@@ -4,7 +4,9 @@
  * failures are holding it back, and a button to run it now.
  */
 import type { JobRun, JobStatus } from '../api.js'
-import { formatAge } from '../format.js'
+import { ago, formatAge } from '../format.js'
+import { Fact, Facts, Panel } from '../components/primitives.js'
+import { useSurfaceTitle } from '../title.js'
 
 export interface JobsProps {
   readonly jobs: readonly JobStatus[]
@@ -57,79 +59,72 @@ function when(at: number | null, now: number): string {
 }
 
 export function Jobs({ jobs, runs, now, onRun }: JobsProps) {
+  useSurfaceTitle('Jobs')
+
   return (
     <div className="jobs-surface">
-      <section aria-labelledby="schedule-heading">
-        <h2 id="schedule-heading">Background jobs</h2>
+      <h1>Jobs</h1>
 
+      <Panel headingLevel={2} heading="Background jobs">
         {jobs.length === 0 ? (
           <p className="empty">Nothing is scheduled.</p>
         ) : (
           <ul className="job-status-list">
             {jobs.map((job) => (
-              <li
-                key={job.job}
-                className={job.lastRun?.status === 'failure' ? 'job-failed' : undefined}
-              >
-                <h3>{job.job}</h3>
-                <p className="job-description">{descriptions[job.job] ?? ''}</p>
+              <li key={job.job}>
+                <Panel
+                  headingLevel={3}
+                  heading={job.job}
+                  headingClassName="job-name"
+                  className={job.lastRun?.status === 'failure' ? 'job-failed' : undefined}
+                >
+                  <p className="job-description">{descriptions[job.job] ?? ''}</p>
 
-                <dl className="job-facts">
-                  <dt>Schedule</dt>
-                  <dd>
-                    <code>{job.cron}</code>
-                  </dd>
+                  <Facts>
+                    <Fact label="Schedule">
+                      <code>{job.cron}</code>
+                    </Fact>
 
-                  <dt>Next run</dt>
-                  <dd>{job.running ? 'running now' : when(job.nextRunAt, now)}</dd>
+                    <Fact label="Next run">
+                      {job.running ? 'running now' : when(job.nextRunAt, now)}
+                    </Fact>
 
-                  <dt>Last run</dt>
-                  <dd>
-                    {job.lastRun === null
-                      ? 'never'
-                      : `${job.lastRun.status}, ${formatAge(Math.max(0, now - job.lastRun.finishedAt))} ago`}
-                  </dd>
+                    <Fact label="Last run">
+                      {job.lastRun === null
+                        ? 'never'
+                        : `${job.lastRun.status}, ${ago(job.lastRun.finishedAt, now)}`}
+                    </Fact>
 
-                  {job.lastRun !== null && (
-                    <>
-                      <dt>It did</dt>
-                      <dd>{summarise(job.lastRun)}</dd>
-                    </>
-                  )}
+                    {job.lastRun !== null && <Fact label="It did">{summarise(job.lastRun)}</Fact>}
 
-                  {job.lastRun?.error != null && (
-                    <>
-                      <dt>Error</dt>
-                      <dd className="job-error">{job.lastRun.error}</dd>
-                    </>
-                  )}
+                    {job.lastRun?.error != null && (
+                      <Fact label="Error" className="job-error">
+                        {job.lastRun.error}
+                      </Fact>
+                    )}
 
-                  {/* Said out loud, because a job that looks idle when it is being held back
+                    {/* Said out loud, because a job that looks idle when it is being held back
                       reads as a job that has stopped working. Spec 06, criterion 3. */}
-                  {job.consecutiveFailures > 0 && (
-                    <>
-                      <dt>Backing off</dt>
-                      <dd>
+                    {job.consecutiveFailures > 0 && (
+                      <Fact label="Backing off">
                         after {job.consecutiveFailures}{' '}
                         {job.consecutiveFailures === 1 ? 'failure' : 'failures'}, next attempt{' '}
                         {when(job.backoffUntil, now)}
-                      </dd>
-                    </>
-                  )}
-                </dl>
+                      </Fact>
+                    )}
+                  </Facts>
 
-                <button type="button" onClick={() => onRun(job.job)} disabled={job.running}>
-                  {job.running ? 'Running' : 'Run now'}
-                </button>
+                  <button type="button" onClick={() => onRun(job.job)} disabled={job.running}>
+                    {job.running ? 'Running' : 'Run now'}
+                  </button>
+                </Panel>
               </li>
             ))}
           </ul>
         )}
-      </section>
+      </Panel>
 
-      <section aria-labelledby="history-heading">
-        <h2 id="history-heading">Run history</h2>
-
+      <Panel headingLevel={2} heading="Run history">
         {runs.length === 0 ? (
           <p className="empty">Nothing has run yet.</p>
         ) : (
@@ -148,7 +143,7 @@ export function Jobs({ jobs, runs, now, onRun }: JobsProps) {
                 <tr key={run.id} className={run.status === 'failure' ? 'job-failed' : undefined}>
                   <td>{run.job}</td>
                   <td>{run.trigger}</td>
-                  <td>{formatAge(Math.max(0, now - run.finishedAt))} ago</td>
+                  <td className="run-when">{ago(run.finishedAt, now)}</td>
                   <td>{run.status}</td>
                   <td>{run.error ?? summarise(run)}</td>
                 </tr>
@@ -156,7 +151,7 @@ export function Jobs({ jobs, runs, now, onRun }: JobsProps) {
             </tbody>
           </table>
         )}
-      </section>
+      </Panel>
     </div>
   )
 }

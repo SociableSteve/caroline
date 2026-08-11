@@ -40,6 +40,57 @@ function renderDashboard(overrides: Partial<Parameters<typeof Dashboard>[0]> = {
   )
 }
 
+/**
+ * Spec 08, criterion 11. The morning question is "what am I doing today, and does it fit", so the
+ * surface answers that first and everything else after. The bands are fixed rows rather than one
+ * reflowing grid, because a reading path that changes with the window width is not a reading path.
+ */
+describe('the three bands', () => {
+  const bands = () => [...document.querySelectorAll('.band')]
+
+  it('reads today first, what wants a decision second, and the machine last', () => {
+    renderDashboard({
+      plan: aPlan({ entries: [aPlanEntry({ id: 'entry-1', title: 'Write the report' })] }),
+      calendar: aCalendarDay(),
+      projects: [aProject({ id: 'project-1', title: 'Ship it', stalled: true })],
+      health: nothingConfigured,
+    })
+
+    expect(bands().map((band) => band.className)).toEqual([
+      'band band-today',
+      'band band-decisions',
+      'band state-strip',
+    ])
+  })
+
+  it('leads with the plan and the calendar, and not with a count', () => {
+    renderDashboard({ plan: aPlan({ entries: [] }), calendar: aCalendarDay() })
+
+    const first = bands()[0] as HTMLElement
+    const headings = within(first)
+      .getAllByRole('heading')
+      .map((heading) => heading.textContent)
+
+    expect(headings).toEqual(['Today’s plan', 'Today’s calendar'])
+  })
+
+  /**
+   * The rule the previous version of this spec was missing, and the reason a count led a surface
+   * about work for three milestones. A count is not work.
+   */
+  it('gives nothing in the state of the machine the weight of a panel', () => {
+    renderDashboard({ health: nothingConfigured })
+
+    const strip = document.querySelector('.state-strip') as HTMLElement
+    const sections = [...strip.querySelectorAll('section')]
+
+    expect(sections.length).toBeGreaterThan(0)
+    for (const section of sections) {
+      expect(section.classList.contains('panel')).toBe(false)
+    }
+  })
+})
+
 describe('an empty Caroline', () => {
   it('renders without raising an alert', () => {
     renderDashboard({ health: null })
@@ -544,6 +595,28 @@ describe('the background jobs panel', () => {
     })
 
     expect(screen.getByText('GitHub answered 401 Unauthorized')).toBeInTheDocument()
+  })
+
+  /**
+   * Criterion 19. The rows are a grid, so a row carrying an error keeps the same three columns as
+   * one that does not, and the error takes the width beneath them rather than squeezing the rest
+   * of the row into nothing.
+   */
+  it('lays a row out the same whether or not it carries an error', () => {
+    renderDashboard({
+      jobRuns: [
+        { ...run, id: 'run-1', job: 'classify', status: 'success' },
+        { ...run, id: 'run-2', job: 'sync', status: 'failure', error: 'GitHub answered 401' },
+      ],
+    })
+
+    const rows = within(screen.getByRole('region', { name: /jobs/i })).getAllByRole('listitem')
+    const columns = (row: HTMLElement) =>
+      [...row.children].filter((child) => !child.classList.contains('job-error')).length
+
+    expect(rows).toHaveLength(2)
+    expect(columns(rows[0] as HTMLElement)).toBe(columns(rows[1] as HTMLElement))
+    expect(rows.some((row) => row.querySelector('.job-error') !== null)).toBe(true)
   })
 
   it('shows only the most recent run of a job, since the history has its own surface', () => {

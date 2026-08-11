@@ -38,7 +38,10 @@ become `--text-sm`.
 | `--text-base` | `1rem` | Body text, card titles, list items |
 | `--text-lg` | `1.125rem` | Panel headings |
 | `--text-xl` | `1.375rem` | Surface headings |
-| `--text-2xl` | `1.75rem` | A single large number, as in a count |
+
+There is no sixth size for a single large number. The counts were the only thing that wanted one,
+and spec 08's dashboard hierarchy condenses them into the state strip, where a number set at three
+times the size of the text around it would be the weighting this milestone exists to correct.
 
 Weights are `400`, `500` and `600`; nothing is bolder than `600` and nothing is lighter than
 `400`. Line height is `--leading-tight` (`1.25`) for headings and `--leading-normal` (`1.5`) for
@@ -63,6 +66,11 @@ moved here from spec 08 unchanged.
 | `--accent` | `#1c4f8b` | `#8fb8ea` | Links, focus, the primary action |
 | `--alarm` | `#8b1c1c` | `#f4a3a3` | Something wrong or overdue |
 | `--alarm-surface` | `#fdeded` | `#3a2222` | The ground behind an alarm |
+| `--scrim` | `rgb(0 0 0 / 45%)` | `rgb(0 0 0 / 65%)` | Behind the quick capture dialog |
+
+`--scrim` is the one colour the original palettes missed, because it was written into the quick
+capture rule rather than named: the same veil over a light page and a dark one is not the same
+veil, and a palette that stops short of the modal is a palette with a hole in it.
 
 Colour is a second carrier, never the first. Every state that a colour marks also says what it
 is in words: a stale wait says "Stale", a completed plan entry says "done" beside the

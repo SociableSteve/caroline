@@ -1,7 +1,14 @@
 /*
- * Two palettes, light and dark, both meeting WCAG AA against their backgrounds. Colour is
- * never the only carrier of meaning: a stale item and a stalled project say so in words, and
- * the colour is there to draw the eye rather than to hold the information. Spec 08.
+ * The design system. Spec 10.
+ *
+ * Four short scales and five primitives, and every surface draws from them. A value not on a
+ * scale is a defect rather than a judgement call, which is what `styles.test.ts` asserts: it
+ * parses this file and fails on a literal length in a spacing, size or radius property, and on a
+ * colour that is not a token.
+ *
+ * Colour is never the only carrier of meaning. Every state a colour marks also says what it is in
+ * words: a stale wait says "Stale", a completed plan entry says "done" beside the strikethrough, a
+ * calendar block that costs nothing says why, and a failed job prints its error.
  */
 :root {
   color-scheme: light dark;
@@ -10,30 +17,61 @@
     -apple-system,
     'Segoe UI',
     sans-serif;
-  line-height: 1.5;
 
+  /* Space. Seven steps, for every gap, padding and margin. */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+
+  /* Type. Five ranks of text, and the two line heights they are set in. */
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+
+  /* Radius. Three values: controls, panels, and the one pill. */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-pill: 999px;
+
+  /* Measure. Running text is capped so a line does not run past roughly 80 characters. */
+  --measure: 76ch;
+
+  /* Colour, light. Every value meets AA against the ground it sits on. */
   --page: #ffffff;
-  --ink: #1a1a1a;
-  --ink-quiet: #55595f;
   --surface: #f4f5f7;
   --surface-raised: #ffffff;
+  --ink: #1a1a1a;
+  --ink-quiet: #55595f;
   --line: #c8ccd2;
   --accent: #1c4f8b;
   --alarm: #8b1c1c;
   --alarm-surface: #fdeded;
+  --scrim: rgb(0 0 0 / 45%);
+
+  line-height: var(--leading-normal);
 }
 
+/* Designed, not inverted: the dark palette overrides the colour tokens and nothing else. */
 @media (prefers-color-scheme: dark) {
   :root {
     --page: #16181c;
-    --ink: #f2f3f5;
-    --ink-quiet: #b3b8c0;
     --surface: #1f2228;
     --surface-raised: #262a31;
+    --ink: #f2f3f5;
+    --ink-quiet: #b3b8c0;
     --line: #3b4048;
     --accent: #8fb8ea;
     --alarm: #f4a3a3;
     --alarm-surface: #3a2222;
+    --scrim: rgb(0 0 0 / 65%);
   }
 }
 
@@ -44,19 +82,25 @@ body {
 }
 
 main {
-  padding: 1rem 1.5rem 3rem;
+  padding: var(--space-4) var(--space-5) var(--space-7);
 }
 
 h1,
 h2,
 h3 {
-  line-height: 1.25;
+  line-height: var(--leading-tight);
+}
+
+h1 {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-xl);
 }
 
 a {
   color: var(--accent);
 }
 
+/* Focus is visible on everything interactive, the cards and their disclosure included. */
 :focus-visible {
   outline: 3px solid var(--accent);
   outline-offset: 2px;
@@ -70,8 +114,8 @@ textarea {
   color: inherit;
   background: var(--surface-raised);
   border: 1px solid var(--line);
-  border-radius: 0.25rem;
-  padding: 0.3rem 0.5rem;
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
 }
 
 button {
@@ -83,63 +127,107 @@ button[disabled] {
   color: var(--ink-quiet);
 }
 
-label {
-  display: inline-flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  font-size: 0.85rem;
-  color: var(--ink-quiet);
-}
-
 .visually-hidden {
   position: absolute;
   width: 1px;
   height: 1px;
-  margin: -1px;
   padding: 0;
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
 }
 
-/* Header and navigation */
+/* ---- The five primitives. A surface composes these; it does not restyle them. ---- */
 
-.app-header {
-  display: flex;
-  align-items: center;
-  gap: 1.5rem;
-  flex-wrap: wrap;
-  padding: 0.75rem 1.5rem;
-  border-bottom: 1px solid var(--line);
+/* Panel: a titled region. The caller supplies the heading level, because the outline is theirs. */
+.panel {
   background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
 }
 
-.app-header h1 {
+.panel-heading {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-lg);
+}
+
+/* Facts: the label-and-value grid the card, the job panel and the settings policy all wanted. */
+.facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-1) var(--space-2);
+  margin: 0 0 var(--space-2);
+}
+
+.facts dt {
+  color: var(--ink-quiet);
+  font-size: var(--text-sm);
+}
+
+.facts dd {
   margin: 0;
-  font-size: 1.25rem;
+  font-size: var(--text-sm);
 }
 
-.app-header nav ul {
-  display: flex;
-  gap: 1rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.app-header nav a[aria-current='page'] {
+/* Badge: a short state, in words, outlined in the colour that state calls for. */
+.badge {
+  display: inline-block;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
   font-weight: 600;
-  text-decoration-thickness: 2px;
+  color: var(--ink-quiet);
 }
 
-.app-header button {
-  margin-left: auto;
+.badge-alarm {
+  border-color: var(--alarm);
+  color: var(--alarm);
 }
+
+.badge-accent {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Field: a label above its control, wired together, so there is one answer to where a label sits. */
+.field {
+  display: inline-flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--ink-quiet);
+}
+
+.field > input,
+.field > select,
+.field > textarea {
+  color: var(--ink);
+  font-size: var(--text-base);
+}
+
+/* ActionRow: the primary action first, wrapping without reordering. */
+.action-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-2);
+}
+
+/* The primary action of a row, which is the one taken most often. Spec 08. */
+.primary {
+  font-weight: 600;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ---- Shared appearance ---- */
 
 .failure {
-  padding: 0.75rem 1rem;
+  padding: var(--space-3) var(--space-4);
   border: 1px solid var(--alarm);
-  border-radius: 0.25rem;
+  border-radius: var(--radius-sm);
   background: var(--alarm-surface);
   color: var(--alarm);
 }
@@ -151,57 +239,117 @@ label {
 
 .label {
   color: var(--ink-quiet);
-  font-size: 0.85rem;
-}
-
-.badge {
-  display: inline-block;
-  padding: 0 0.35rem;
-  border: 1px solid var(--alarm);
-  border-radius: 0.75rem;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--alarm);
+  font-size: var(--text-sm);
 }
 
 .warning {
   color: var(--alarm);
 }
 
-/* Board */
+/* Header and navigation */
 
-.board {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
-  gap: 1rem;
-  align-items: start;
+.app-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
 }
 
+/* Not a heading: each surface owns the one `h1` on the page, and it names the surface. Spec 10. */
+.wordmark {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+.app-header nav ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.app-header nav a[aria-current='page'] {
+  font-weight: 600;
+  text-decoration-thickness: 2px;
+}
+
+/* Pushed to the end where there is room, and wrapping under the nav where there is not: at 430px
+   the six links and two buttons do not share a line, and the header used to scroll sideways. */
+.header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+/* Board */
+
+/*
+ * Six columns are six columns. Where they do not fit, the board scrolls sideways within its own
+ * region rather than wrapping one of them onto a second row, which would put the layout in direct
+ * contradiction with the arrow keys. Spec 08.
+ */
+.board {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(15rem, 1fr);
+  gap: var(--space-3);
+  align-items: start;
+  overflow-x: auto;
+  padding-bottom: var(--space-2);
+}
+
+/* Below the width where six columns are usable, they stack and each is read whole. */
+@media (max-width: 60rem) {
+  .board {
+    grid-auto-flow: row;
+    grid-auto-columns: auto;
+    overflow-x: visible;
+  }
+}
+
+/*
+ * Each column scrolls on its own within a bounded height. Without it the page grows to the length
+ * of the longest column, two columns of very different lengths cannot be compared, and the status
+ * a card should move to can be off the bottom of the screen while the card is in view.
+ */
 .column {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 0.5rem;
-  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
   min-height: 6rem;
+  max-height: 70vh;
+}
+
+@media (max-width: 60rem) {
+  .column {
+    max-height: none;
+  }
 }
 
 .column-heading {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  margin: 0 0 0.5rem;
-  font-size: 0.95rem;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 
 .column-number,
 .column-count {
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   color: var(--ink-quiet);
   border: 1px solid var(--line);
-  border-radius: 0.25rem;
-  padding: 0 0.3rem;
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-1);
+  font-variant-numeric: tabular-nums;
 }
 
 .column-count {
@@ -211,10 +359,11 @@ label {
 .column-cards {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: var(--space-2);
   margin: 0;
   padding: 0;
   list-style: none;
+  overflow-y: auto;
 }
 
 .card {
@@ -222,8 +371,8 @@ label {
   background: var(--surface-raised);
   border: 1px solid var(--line);
   border-left: 4px solid var(--line);
-  border-radius: 0.35rem;
-  padding: 0.6rem;
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
   cursor: grab;
 }
 
@@ -232,88 +381,58 @@ label {
 }
 
 .card-title {
-  margin: 0 0 0.4rem;
-  font-size: 0.95rem;
-}
-
-.card-facts {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.1rem 0.5rem;
-  margin: 0 0 0.5rem;
-  font-size: 0.8rem;
-}
-
-.card-facts dt {
-  color: var(--ink-quiet);
-}
-
-.card-facts dd {
-  margin: 0;
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-base);
 }
 
 /* Every one of these carries its meaning in words, so none of them depends on its colour. */
 .card-flags {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.25rem;
-  margin: 0 0 0.5rem;
+  gap: var(--space-1);
+  margin: 0 0 var(--space-2);
   padding: 0;
   list-style: none;
 }
 
-.badge-pushed,
-.badge-proposed {
-  border-color: var(--accent);
-  color: var(--accent);
+/*
+ * A card's actions are not its facts. The primary action stays on the card and the rest go behind
+ * this disclosure: three controls abreast do not fit a 15rem column, and a card whose controls are
+ * taller than its content has the emphasis backwards. Spec 08.
+ */
+.card-more {
+  margin-top: var(--space-2);
 }
 
-.badge-untracked {
-  border-color: var(--ink-quiet);
+.card-more > summary {
+  font-size: var(--text-sm);
   color: var(--ink-quiet);
+  cursor: pointer;
 }
 
-.card-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  gap: 0.35rem;
-}
-
-/* Mark reviewed is the action taken most often on a Review card, so it leads. Spec 08. */
-.card-primary {
-  font-weight: 600;
-  border-color: var(--accent);
-  color: var(--accent);
+.card-more .action-row {
+  margin-top: var(--space-2);
 }
 
 .card-actions button,
 .card-actions select {
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
 }
 
 .shortcuts {
-  margin-top: 1.5rem;
-  font-size: 0.85rem;
+  margin-top: var(--space-5);
+  font-size: var(--text-sm);
   color: var(--ink-quiet);
 }
 
 .shortcuts h2 {
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 
-.shortcuts dl {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem 1.5rem;
+.shortcut-facts {
   margin: 0;
-}
-
-.shortcuts dl > div {
-  display: flex;
-  gap: 0.5rem;
 }
 
 .shortcuts dt {
@@ -323,47 +442,58 @@ label {
 
 /* Dashboard */
 
+/*
+ * Three bands, fixed rows, in the order spec 08 gives them: today, then what wants a decision,
+ * then the state of the machine. A reading path that changes with the window width is not a
+ * reading path, so the bands are rows and only the panels within a band reflow.
+ */
 .dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.band {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
-  gap: 1rem;
+  gap: var(--space-4);
   align-items: start;
 }
 
-.dashboard section {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 0.5rem;
-  padding: 0.75rem 1rem;
+/* Today leads at the full width of the surface: the plan, with the calendar beside it. */
+.band-today {
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
 }
 
-.dashboard h2 {
-  margin-top: 0;
-  font-size: 0.95rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+.band-decisions {
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+}
+
+@media (max-width: 60rem) {
+  .band-today {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .counts {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(6rem, 1fr));
-  gap: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
   margin: 0;
   padding: 0;
   list-style: none;
+  font-size: var(--text-sm);
+  color: var(--ink-quiet);
 }
 
 .counts li {
   display: flex;
-  flex-direction: column;
-  font-size: 0.8rem;
-  color: var(--ink-quiet);
+  gap: var(--space-1);
 }
 
 .count {
-  font-size: 1.5rem;
-  font-weight: 600;
   color: var(--ink);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .chase-list,
@@ -376,27 +506,86 @@ label {
   list-style: none;
 }
 
-.chase-list li,
-.job-list li,
-.integration-list li {
+.chase-list li {
   display: flex;
   justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.4rem 0;
+  gap: var(--space-3);
+  padding: var(--space-1) 0;
   border-bottom: 1px solid var(--line);
 }
 
 .chase-who,
 .chase-age {
   color: var(--ink-quiet);
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   white-space: nowrap;
+}
+
+.chase-age {
+  font-variant-numeric: tabular-nums;
 }
 
 /* A pull request the author has answered is a different kind of wait from one they have not. */
 .chase-pushed {
   color: var(--ink-quiet);
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
+}
+
+/* The state of the machine: scanned to confirm nothing is broken, and read no further when
+   nothing is. One strip, never at the weight of a band 1 panel. Spec 08. */
+.state-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-6);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line);
+  font-size: var(--text-sm);
+}
+
+.strip-section {
+  min-width: 0;
+}
+
+/* No ground, no border, no padding: nothing in band 3 is laid out at the weight of a band 1
+   panel, which is the rule this surface was missing. Spec 08, criterion 11. */
+.strip-heading {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-quiet);
+}
+
+.integration-list li {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.integration-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+}
+
+/*
+ * A job row is a grid rather than a flex line, so its columns align whether or not the row carries
+ * an error, and the error takes the full width beneath them rather than squeezing the rest of the
+ * row into nothing. Spec 08, criterion 19.
+ */
+.job-list li {
+  display: grid;
+  grid-template-columns: auto auto auto;
+  gap: 0 var(--space-2);
+  align-items: baseline;
+}
+
+.job-list .job-error {
+  grid-column: 1 / -1;
+}
+
+.job-when {
+  color: var(--ink-quiet);
+  font-variant-numeric: tabular-nums;
 }
 
 /* The daily plan (spec 05) */
@@ -413,8 +602,8 @@ label {
 .plan-entry {
   display: flex;
   align-items: baseline;
-  gap: 0.5rem;
-  padding: 0.4rem 0;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
   border-bottom: 1px solid var(--line);
 }
 
@@ -432,7 +621,7 @@ label {
 .plan-estimate,
 .plan-state {
   color: var(--ink-quiet);
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
 }
 
 .plan-estimate {
@@ -448,13 +637,14 @@ label {
 }
 
 .plan-summary {
-  margin: 0 0 0.5rem;
+  margin: 0 0 var(--space-2);
+  max-width: var(--measure);
 }
 
 .plan-warnings li {
   color: var(--ink-quiet);
-  font-size: 0.85rem;
-  padding: 0.2rem 0;
+  font-size: var(--text-sm);
+  padding: var(--space-1) 0;
 }
 
 /* The capacity bar. Its numbers are the ones the API gave, never recomputed here. Spec 08. */
@@ -462,16 +652,16 @@ label {
 .capacity {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-  margin: 0 0 0.75rem;
+  gap: var(--space-1);
+  margin: 0 0 var(--space-3);
 }
 
 .capacity-bar {
   display: block;
   width: 100%;
-  height: 0.6rem;
+  height: var(--space-2);
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   overflow: hidden;
 }
 
@@ -484,13 +674,13 @@ label {
 .capacity-detail,
 .capacity-unverified {
   color: var(--ink-quiet);
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
 }
 
 .calendar-column li {
   display: flex;
-  gap: 0.5rem;
-  padding: 0.3rem 0;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
   border-bottom: 1px solid var(--line);
 }
 
@@ -508,19 +698,20 @@ label {
 .event-free-reason {
   margin-left: auto;
   color: var(--ink-quiet);
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   white-space: nowrap;
 }
 
 .plan-history li {
   display: flex;
   justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.2rem 0;
-  font-size: 0.85rem;
+  gap: var(--space-3);
+  padding: var(--space-1) 0;
+  font-size: var(--text-sm);
 }
 
-.history-date {
+.history-date,
+.history-count {
   color: var(--ink-quiet);
   font-variant-numeric: tabular-nums;
 }
@@ -532,7 +723,7 @@ label {
 
 .job-error {
   color: var(--alarm);
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
 }
 
 /* Projects */
@@ -540,53 +731,47 @@ label {
 .projects {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
-  max-width: 55rem;
+  gap: var(--space-5);
+  max-width: var(--measure);
 }
 
 .inline-form {
   display: flex;
   align-items: end;
-  gap: 0.5rem;
+  gap: var(--space-2);
   flex-wrap: wrap;
 }
 
 .project {
-  padding: 0.75rem 0;
+  padding: var(--space-3) 0;
   border-bottom: 1px solid var(--line);
 }
 
 .project h3 {
-  margin: 0 0 0.25rem;
-  font-size: 1rem;
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-base);
 }
 
 .project.stalled {
   border-left: 4px solid var(--alarm);
-  padding-left: 0.75rem;
+  padding-left: var(--space-3);
 }
 
 .project-next {
-  margin: 0 0 0.5rem;
-  font-size: 0.9rem;
-}
-
-.project-actions {
-  display: flex;
-  align-items: end;
-  gap: 0.5rem;
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
 }
 
 .project-detail {
-  max-width: 45rem;
+  max-width: var(--measure);
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: var(--space-2);
 }
 
 .project-summary {
   color: var(--ink-quiet);
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
 }
 
 /* Quick capture */
@@ -599,16 +784,16 @@ label {
      clipped at both ends, which puts the heading and the first field out of reach. */
   place-items: safe center;
   overflow: auto;
-  background: rgb(0 0 0 / 45%);
-  padding: 1rem;
+  background: var(--scrim);
+  padding: var(--space-4);
 }
 
 .capture {
   width: min(30rem, 100%);
   background: var(--page);
   border: 1px solid var(--line);
-  border-radius: 0.5rem;
-  padding: 1rem 1.25rem 1.25rem;
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
 }
 
 .capture h2 {
@@ -618,10 +803,10 @@ label {
 .capture form {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: var(--space-3);
 }
 
-.capture label {
+.capture .field {
   width: 100%;
 }
 
@@ -634,26 +819,21 @@ label {
 
 .capture-hint {
   margin: 0;
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   color: var(--ink-quiet);
-}
-
-.capture-actions {
-  display: flex;
-  gap: 0.5rem;
 }
 
 /* A classifier suggestion, on the card, with its reasoning and how sure it was. Spec 04. */
 .card-proposal {
-  margin: 0 0 0.5rem;
-  padding: 0.5rem;
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2);
   border: 1px dashed var(--accent);
-  border-radius: 4px;
-  font-size: 0.8rem;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
 }
 
 .card-proposal p {
-  margin: 0 0 0.35rem;
+  margin: 0 0 var(--space-1);
 }
 
 .proposal-confidence,
@@ -663,143 +843,111 @@ label {
   color: var(--ink-quiet);
 }
 
-.proposal-actions {
-  display: flex;
-  gap: 0.35rem;
-}
-
-.proposal-actions button {
-  font-size: 0.8rem;
-}
-
 /* The jobs surface: one panel per job, then the history. Spec 06. */
 .jobs-surface {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: var(--space-5);
 }
 
 .job-status-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
-  gap: 0.75rem;
+  gap: var(--space-3);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.job-status-list li {
-  padding: 0.75rem;
-  border: 1px solid var(--line);
-  border-radius: 6px;
+/* A job's own panel sits raised on the surface behind it, and its name is a rank below a
+   surface heading rather than at it. */
+.job-status-list .panel {
   background: var(--surface-raised);
 }
 
-.job-status-list h3 {
-  margin: 0 0 0.25rem;
-  font-size: 1rem;
+.job-name {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-base);
 }
 
 .job-description {
-  margin: 0 0 0.5rem;
-  font-size: 0.85rem;
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
   color: var(--ink-quiet);
-}
-
-.job-facts {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.15rem 0.5rem;
-  margin: 0 0 0.75rem;
-  font-size: 0.8rem;
-}
-
-.job-facts dt {
-  color: var(--ink-quiet);
-}
-
-.job-facts dd {
-  margin: 0;
 }
 
 .run-history {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
 }
 
 .run-history th,
 .run-history td {
-  padding: 0.35rem 0.5rem;
+  padding: var(--space-1) var(--space-2);
   text-align: left;
   border-bottom: 1px solid var(--line);
+}
+
+.run-history .run-when {
+  font-variant-numeric: tabular-nums;
 }
 
 /* Settings: what leaves the machine, and the payload that proves it. Spec 09. */
 .settings-surface {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
-  max-width: 60rem;
+  gap: var(--space-5);
+  max-width: var(--measure);
 }
 
 .settings-outcome {
-  padding: 0.5rem;
+  padding: var(--space-2);
   border: 1px solid var(--accent);
-  border-radius: 4px;
-}
-
-.policy-facts {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.35rem 0.75rem;
-  margin: 0 0 0.75rem;
-}
-
-.policy-facts dt {
-  color: var(--ink-quiet);
-}
-
-.policy-facts dd {
-  margin: 0;
+  border-radius: var(--radius-sm);
 }
 
 .policy-consequence,
 .policy-note {
   color: var(--ink-quiet);
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
 }
 
 .scope-list {
-  margin: 0 0 0.75rem;
-  padding-left: 1.1rem;
-  font-size: 0.85rem;
+  margin: 0 0 var(--space-3);
+  padding-left: var(--space-4);
+  font-size: var(--text-sm);
 }
 
 /* The payload is read, not skimmed, so it keeps its shape and scrolls rather than wrapping. */
 .payload-preview {
-  margin: 0 0 0.75rem;
-  padding: 0.75rem;
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3);
   overflow-x: auto;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--surface);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
 }
 
 /* Chat: the transcript, what each turn changed, and what it is waiting to be told. Spec 07. */
 .chat-surface {
   display: grid;
   grid-template-columns: minmax(12rem, 18rem) minmax(0, 1fr);
-  gap: 1.5rem;
+  gap: var(--space-5);
   align-items: start;
-  max-width: 70rem;
 }
 
 @media (max-width: 50rem) {
   .chat-surface {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* The surface's own heading spans both columns: it names the surface, not either column. */
+.chat-title {
+  grid-column: 1 / -1;
+  margin: 0;
 }
 
 .conversation-list {
@@ -809,24 +957,25 @@ label {
 }
 
 .conversation-list li {
-  padding: 0.35rem 0;
+  padding: var(--space-1) 0;
   border-bottom: 1px solid var(--line);
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
 }
 
 .chat-transcript {
-  margin: 0 0 1rem;
+  margin: 0 0 var(--space-4);
   padding: 0;
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: var(--space-3);
+  max-width: var(--measure);
 }
 
 .chat-turn {
-  padding: 0.75rem;
+  padding: var(--space-3);
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: var(--surface-raised);
 }
 
@@ -836,29 +985,29 @@ label {
 }
 
 .chat-role {
-  margin: 0 0 0.35rem;
+  margin: 0 0 var(--space-1);
   color: var(--ink-quiet);
-  font-size: 0.8rem;
+  font-size: var(--text-xs);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 
 .chat-text {
-  margin: 0 0 0.5rem;
+  margin: 0 0 var(--space-2);
   white-space: pre-wrap;
 }
 
 /* What a turn changed. Bordered on one side rather than boxed: it is part of the turn. */
 .chat-changes {
-  margin: 0.5rem 0 0;
-  padding: 0.25rem 0 0.25rem 0.75rem;
+  margin: var(--space-2) 0 0;
+  padding: var(--space-1) 0 var(--space-1) var(--space-3);
   border-left: 3px solid var(--accent);
 }
 
 .chat-changes ul {
-  margin: 0 0 0.5rem;
-  padding-left: 1.1rem;
-  font-size: 0.9rem;
+  margin: 0 0 var(--space-2);
+  padding-left: var(--space-4);
+  font-size: var(--text-sm);
 }
 
 /* An undone change is kept on the screen, struck through: the record is that it happened and
@@ -870,45 +1019,40 @@ label {
 
 .change-note {
   color: var(--ink-quiet);
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
 }
 
 .chat-confirmation {
-  margin: 0.5rem 0 0;
-  padding: 0.5rem 0.75rem;
+  margin: var(--space-2) 0 0;
+  padding: var(--space-2) var(--space-3);
   border: 1px solid var(--alarm);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: var(--alarm-surface);
 }
 
 .chat-confirmation p {
-  margin: 0 0 0.5rem;
+  margin: 0 0 var(--space-2);
 }
 
 .chat-note,
 .chat-readonly {
-  margin: 0 0 0.75rem;
-  padding: 0.5rem 0.75rem;
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: var(--surface);
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
+  max-width: var(--measure);
 }
 
 .chat-composer {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-  max-width: 45rem;
+  gap: var(--space-1);
+  max-width: var(--measure);
 }
 
 .chat-composer textarea {
-  font: inherit;
-  padding: 0.5rem;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--surface-raised);
-  color: var(--ink);
   resize: vertical;
 }
 

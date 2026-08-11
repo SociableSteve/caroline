@@ -249,7 +249,7 @@ describe('what a turn changed', () => {
     })
 
     expect(screen.getByText('Completed “Book the venue”')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Undo these changes' }))
+    await user.click(screen.getByRole('button', { name: 'Undo the changes this turn made' }))
 
     expect(onUndo).toHaveBeenCalledWith('message-1')
   })
@@ -267,7 +267,7 @@ describe('what a turn changed', () => {
       ],
     })
 
-    const controls = screen.getAllByRole('button', { name: 'Undo these changes' })
+    const controls = screen.getAllByRole('button', { name: 'Undo the changes this turn made' })
     expect(controls).toHaveLength(1)
     // Named rather than counted: one control in the wrong place would pass a count on its own.
     const turn = controls[0]?.closest('li') as HTMLElement
@@ -282,7 +282,9 @@ describe('what a turn changed', () => {
 
     expect(screen.getByText('Completed “Book the venue”')).toBeInTheDocument()
     expect(screen.getByText('undone')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Undo these changes' })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Undo the changes this turn made' }),
+    ).not.toBeInTheDocument()
   })
 
   it('offers no undo for a change that cannot be put back', () => {
@@ -298,7 +300,9 @@ describe('what a turn changed', () => {
     })
 
     expect(screen.getByText('Redrew the plan')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Undo these changes' })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Undo the changes this turn made' }),
+    ).not.toBeInTheDocument()
   })
 })
 

@@ -6,6 +6,8 @@ import { useRef, type DragEvent, type KeyboardEvent } from 'react'
 import { boardStatuses, type ProjectView, type TaskStatus, type TaskView } from '../api.js'
 import { byOldestFirst, canMarkReviewed, statusLabel } from '../format.js'
 import { TaskCard } from '../components/TaskCard.js'
+import { Fact, Facts, Panel } from '../components/primitives.js'
+import { useSurfaceTitle } from '../title.js'
 
 export interface BoardProps {
   readonly tasks: readonly TaskView[]
@@ -18,6 +20,8 @@ export interface BoardProps {
   readonly onMarkReviewed: (id: string) => void
   readonly onAcceptProposal: (id: string) => void
   readonly onDismissProposal: (id: string) => void
+  /** Puts the last status change back, the actor with it. Spec 08, criteria 16 and 17. */
+  readonly onUndoStatus: (id: string) => void
 }
 
 /**
@@ -32,6 +36,7 @@ const shortcuts = [
   { keys: 'd', does: 'complete the focused task' },
   { keys: 'r', does: 'mark the focused review done, moving it to Waiting for' },
   { keys: 'a', does: 'accept the suggestion on the focused inbox task' },
+  { keys: 'u', does: 'put the focused task’s last status change back' },
   { keys: 'c', does: 'quick capture, from anywhere' },
 ]
 
@@ -60,7 +65,9 @@ export function Board({
   onMarkReviewed,
   onAcceptProposal,
   onDismissProposal,
+  onUndoStatus,
 }: BoardProps) {
+  useSurfaceTitle('Board')
   const grouped = group(tasks)
   const columns = boardStatuses.map((status) => grouped.get(status) ?? [])
   const cards = useRef(new Map<string, HTMLElement>())
@@ -124,6 +131,12 @@ export function Board({
         event.preventDefault()
         if (task.proposal !== null) onAcceptProposal(task.id)
         return
+      case 'u':
+        // A board move is one keypress, so putting one back is one too. Silent on a task that has
+        // never been moved, where there is nothing to put back. Spec 08, criterion 17.
+        event.preventDefault()
+        if (task.previousStatus !== null) onUndoStatus(task.id)
+        return
       default:
         break
     }
@@ -144,29 +157,36 @@ export function Board({
 
   return (
     <div className="board-surface">
-      <div className="board" role="list" aria-label="Board columns">
+      <h1>Board</h1>
+
+      {/* No list role over the columns. Each is a region with an accessible name, which is
+          already navigable; wrapping them in list semantics replaces that and costs the headings
+          their place in the outline. Spec 08, accessibility. */}
+      <div className="board">
         {boardStatuses.map((status, columnIndex) => {
           const column = columns[columnIndex] ?? []
 
           return (
-            <section
+            <Panel
               key={status}
               className="column"
-              role="listitem"
-              aria-label={`${statusLabel(status)}, ${column.length} ${
+              headingClassName="column-heading"
+              headingLevel={2}
+              label={`${statusLabel(status)}, ${column.length} ${
                 column.length === 1 ? 'task' : 'tasks'
               }`}
+              heading={
+                <>
+                  <span className="column-number" aria-hidden="true">
+                    {columnIndex + 1}
+                  </span>
+                  {statusLabel(status)}
+                  <span className="column-count">{column.length}</span>
+                </>
+              }
               onDragOver={(event) => event.preventDefault()}
               onDrop={(event) => onDrop(event, status)}
             >
-              <h2 className="column-heading">
-                <span className="column-number" aria-hidden="true">
-                  {columnIndex + 1}
-                </span>
-                {statusLabel(status)}
-                <span className="column-count">{column.length}</span>
-              </h2>
-
               {column.length === 0 ? (
                 <p className="empty">Nothing here.</p>
               ) : (
@@ -186,6 +206,7 @@ export function Board({
                       onMarkReviewed={onMarkReviewed}
                       onAcceptProposal={onAcceptProposal}
                       onDismissProposal={onDismissProposal}
+                      onUndoStatus={onUndoStatus}
                       onKeyDown={(event) => handleKeyDown(event, columnIndex, rowIndex)}
                       registerRef={(id, element) => {
                         if (element === null) cards.current.delete(id)
@@ -195,21 +216,22 @@ export function Board({
                   ))}
                 </ul>
               )}
-            </section>
+            </Panel>
           )
         })}
       </div>
 
       <section className="shortcuts" aria-labelledby="shortcuts-heading">
         <h2 id="shortcuts-heading">Keyboard</h2>
-        <dl>
+        {/* A key and what it does is the same label-and-value pair the cards and the job panels
+            show, so it is the same primitive. Spec 10. */}
+        <Facts className="shortcut-facts">
           {shortcuts.map((shortcut) => (
-            <div key={shortcut.keys}>
-              <dt>{shortcut.keys}</dt>
-              <dd>{shortcut.does}</dd>
-            </div>
+            <Fact key={shortcut.keys} label={shortcut.keys}>
+              {shortcut.does}
+            </Fact>
           ))}
-        </dl>
+        </Facts>
       </section>
     </div>
   )

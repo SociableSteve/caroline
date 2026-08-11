@@ -21,6 +21,7 @@ import {
   listTasks,
   setSyncTracking,
   setTaskTags,
+  undoTaskStatus,
   updateTask,
   type TaskPatch,
   type TaskQuery,
@@ -587,6 +588,39 @@ export function registerTaskRoutes(
 
       const at = now()
       markProposalDismissed(database, proposal.id, at)
+      announce(at)
+
+      return responseFor(id)
+    },
+  )
+
+  /**
+   * Putting the last status change back. Its own route because `PATCH` cannot express it: the API
+   * is the user, and a user cannot claim to be the classifier, but restoring the previous actor is
+   * the whole point. Spec 08, criteria 16 and 17.
+   *
+   * One step, and only the most recent change: this is not a history feature.
+   */
+  app.post<{ Params: { id: string } }>(
+    '/api/tasks/:id/undo-status',
+    {
+      schema: {
+        params: idParamsSchema,
+        response: { 200: taskResponseSchema },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params
+      const at = now()
+      const result = undoTaskStatus(database, id, at)
+      if (result === null) return notFound(reply, 'task')
+
+      if (!result.undone) {
+        return reply
+          .status(409)
+          .send(apiError('conflict', 'This task has no status change to put back'))
+      }
+
       announce(at)
 
       return responseFor(id)

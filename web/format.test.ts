@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ago,
   canMarkReviewed,
+  dueState,
   formatAge,
+  formatAgo,
+  formatDate,
+  formatDue,
   formatEstimate,
   hasOptedOutOfSync,
   hasPushedSinceReview,
@@ -34,6 +39,51 @@ describe('formatAge', () => {
     expect(formatAge(2 * 60 * 60_000)).toBe('2 hours')
     expect(formatAge(DAY)).toBe('1 day')
     expect(formatAge(9 * DAY)).toBe('9 days')
+  })
+})
+
+/**
+ * Spec 08, criterion 20. Four call sites appended the word "ago" to an age, and one of the ages
+ * is "just now", which is a moment rather than a duration.
+ */
+describe('formatAgo', () => {
+  it('says just now, and never just now ago', () => {
+    expect(formatAgo(0)).toBe('just now')
+    expect(formatAgo(59_000)).toBe('just now')
+  })
+
+  it('puts every other age in the past', () => {
+    expect(formatAgo(60_000)).toBe('1 minute ago')
+    expect(formatAgo(9 * DAY)).toBe('9 days ago')
+  })
+
+  it('never reads as the future, however the two clocks disagree', () => {
+    expect(ago(now + 60_000, now)).toBe('just now')
+  })
+})
+
+/**
+ * Spec 10: a date on its own asks the reader to know today's date and do the comparison, so
+ * anywhere one is shown the state is named. Spec 08, criterion 18.
+ */
+describe('dueState and formatDue', () => {
+  const midMorning = Date.UTC(2026, 5, 10, 9, 30)
+
+  it('names a date that has passed as overdue, and keeps the date', () => {
+    expect(dueState(midMorning - DAY, midMorning)).toBe('overdue')
+    expect(formatDue(midMorning - DAY, midMorning)).toMatch(/^Overdue, /)
+  })
+
+  it('names today as today, including a time earlier today', () => {
+    expect(dueState(midMorning, midMorning)).toBe('today')
+    // Due at nine this morning is due today, not overdue by half an hour.
+    expect(dueState(midMorning - 60 * 60_000, midMorning)).toBe('today')
+    expect(formatDue(midMorning, midMorning)).toMatch(/^Today, /)
+  })
+
+  it('leaves a later date as the date alone', () => {
+    expect(dueState(midMorning + DAY, midMorning)).toBe('later')
+    expect(formatDue(midMorning + DAY, midMorning)).toBe(formatDate(midMorning + DAY))
   })
 })
 

@@ -8,6 +8,8 @@
  */
 import type { GoogleStatus, PrivacyPreview } from '../api.js'
 import { formatDate } from '../format.js'
+import { Fact, Facts, Panel } from '../components/primitives.js'
+import { useSurfaceTitle } from '../title.js'
 
 export interface SettingsProps {
   readonly google: GoogleStatus | null
@@ -34,11 +36,13 @@ export function Settings({
   onDisconnectGoogle,
   onRefreshPreview,
 }: SettingsProps) {
+  useSurfaceTitle('Settings')
+
   return (
     <div className="settings-surface">
-      <section aria-labelledby="google-heading">
-        <h2 id="google-heading">Google account</h2>
+      <h1>Settings</h1>
 
+      <Panel headingLevel={2} heading="Google account">
         {googleOutcome !== null && (
           <p role="status" className="settings-outcome">
             {outcomes[googleOutcome] ?? 'Something happened while connecting to Google.'}
@@ -81,40 +85,35 @@ export function Settings({
               Not connected. Connecting opens Google in this browser and asks for read-only access
               to Gmail and Calendar. Caroline never writes to either.
             </p>
-            <button type="button" className="card-primary" onClick={onConnectGoogle}>
+            <button type="button" className="primary" onClick={onConnectGoogle}>
               Connect Google
             </button>
           </div>
         )}
-      </section>
+      </Panel>
 
-      <section aria-labelledby="policy-heading">
-        <h2 id="policy-heading">What leaves this machine</h2>
-
+      <Panel headingLevel={2} heading="What leaves this machine">
         {preview === null ? (
           <p className="empty">Waiting for the server.</p>
         ) : (
           <>
-            <dl className="policy-facts">
-              <dt>Sent to the model</dt>
-              <dd>
+            <Facts>
+              <Fact label="Sent to the model">
                 <strong>{preview.policy.llmContent}</strong>
                 {preview.policy.llmConsequence !== undefined && (
                   <span className="policy-consequence"> {preview.policy.llmConsequence}</span>
                 )}
-              </dd>
+              </Fact>
 
-              <dt>Stored on disk</dt>
-              <dd>
+              <Fact label="Stored on disk">
                 <strong>{preview.policy.storeContent}</strong>
                 {preview.policy.storeConsequence !== undefined && (
                   <span className="policy-consequence"> {preview.policy.storeConsequence}</span>
                 )}
-              </dd>
+              </Fact>
 
-              <dt>Snippet length</dt>
-              <dd>{preview.policy.snippetChars} characters</dd>
-            </dl>
+              <Fact label="Snippet length">{preview.policy.snippetChars} characters</Fact>
+            </Facts>
 
             {/* Editing these is a restart away: they live in the config file, and the two questions
                 they answer are the sort a person should decide deliberately rather than by dragging
@@ -125,11 +124,9 @@ export function Settings({
             </p>
           </>
         )}
-      </section>
+      </Panel>
 
-      <section aria-labelledby="preview-heading">
-        <h2 id="preview-heading">What a classification call would send</h2>
-
+      <Panel headingLevel={2} heading="What a classification call would send">
         {preview === null ? (
           <p className="empty">Waiting for the server.</p>
         ) : preview.item === null ? (
@@ -153,7 +150,7 @@ export function Settings({
             </button>
           </>
         )}
-      </section>
+      </Panel>
     </div>
   )
 }

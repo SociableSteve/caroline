@@ -29,6 +29,8 @@ export function aTask(overrides: Partial<TaskView> & { id: string; title: string
     waitingOn: null,
     statusSetBy: 'user',
     statusSetAt: NOW,
+    previousStatus: null,
+    previousStatusSetBy: null,
     syncTracked: false,
     createdAt: NOW,
     updatedAt: NOW,

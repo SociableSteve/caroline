@@ -43,6 +43,10 @@ export interface Task {
   readonly waitingOn: string | null
   readonly statusSetBy: StatusActor
   readonly statusSetAt: number
+  /** What `status` was before the most recent change, so that change can be put back. */
+  readonly previousStatus: TaskStatus | null
+  /** What `statusSetBy` was at the same moment. Null together with `previousStatus`. */
+  readonly previousStatusSetBy: StatusActor | null
   readonly syncTracked: boolean
   readonly createdAt: number
   readonly updatedAt: number
@@ -84,6 +88,9 @@ export function newTask(input: NewTaskInput, now: number): Task {
     waitingOn: input.waitingOn ?? null,
     statusSetBy,
     statusSetAt: now,
+    // Never changed, so there is nothing to put back. Spec 01, criterion 11.
+    previousStatus: null,
+    previousStatusSetBy: null,
     syncTracked: statusSetBy === 'sync',
     createdAt: now,
     updatedAt: now,
@@ -133,9 +140,52 @@ export function applyStatusChange(task: Task, change: StatusChange): StatusChang
       status: change.status,
       statusSetBy: change.by,
       statusSetAt: change.at,
+      // One step, not a history: each change overwrites the pair, so what is recoverable is the
+      // last change and nothing before it. Spec 01, criterion 8.
+      previousStatus: task.status,
+      previousStatusSetBy: task.statusSetBy,
       syncTracked: nextSyncTracked(task, change),
       completedAt: change.status === 'done' ? change.at : null,
       updatedAt: change.at,
+    },
+  }
+}
+
+export type UndoStatusResult =
+  | { readonly undone: true; readonly task: Task }
+  /** Nothing to put back: the task has not been changed since it was created. */
+  | { readonly undone: false }
+
+/**
+ * Putting the last status change back. It restores the actor as well as the status, which is the
+ * half that matters: a board move records `status_set_by = 'user'` and takes the task out of the
+ * classifier's reach for good, so a mistyped digit that only had its status restored would leave
+ * the classifier locked out and the undo would not have undone the part that cost anything.
+ * Spec 01, criterion 9.
+ *
+ * Undo is not itself a status change for the purpose of the previous pair: it clears it rather
+ * than recording what it undid, because recording it would make undo a toggle and lose the thing
+ * being restored. Criterion 10.
+ *
+ * Sync tracking is deliberately untouched. Opting out is permanent until the user re-enables it,
+ * and there is an explicit action for that; guessing at it here would re-enable a lifecycle they
+ * may have turned off deliberately several changes ago.
+ */
+export function undoStatusChange(task: Task, at: number): UndoStatusResult {
+  const { previousStatus, previousStatusSetBy } = task
+  if (previousStatus === null || previousStatusSetBy === null) return { undone: false }
+
+  return {
+    undone: true,
+    task: {
+      ...task,
+      status: previousStatus,
+      statusSetBy: previousStatusSetBy,
+      statusSetAt: at,
+      previousStatus: null,
+      previousStatusSetBy: null,
+      completedAt: previousStatus === 'done' ? at : null,
+      updatedAt: at,
     },
   }
 }

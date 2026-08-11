@@ -135,6 +135,8 @@ export const taskResponseSchema = {
     waitingOn: nullableString(TITLE_MAX),
     statusSetBy: { type: 'string' },
     statusSetAt: { type: 'integer' },
+    previousStatus: { type: 'string', nullable: true },
+    previousStatusSetBy: { type: 'string', nullable: true },
     syncTracked: { type: 'boolean' },
     createdAt: { type: 'integer' },
     updatedAt: { type: 'integer' },
