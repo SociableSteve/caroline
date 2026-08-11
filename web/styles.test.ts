@@ -16,58 +16,11 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { declarations, type Declaration } from '../test/helpers/css.js'
 
 // Read from the project root rather than from `import.meta.url`: these run under jsdom, where
 // the module URL is an `http:` one and `fileURLToPath` refuses it.
 const stylesheet = readFileSync(join(process.cwd(), 'web/styles.css'), 'utf8')
-
-interface Declaration {
-  readonly selector: string
-  /**
-   * The at-rules a declaration sits inside, if any. Without it a rule in a breakpoint and the
-   * base rule it overrides are indistinguishable, and an assertion about one silently reads the
-   * other: the source order decides, rather than the cascade.
-   */
-  readonly context: string
-  readonly property: string
-  readonly value: string
-}
-
-/**
- * Enough of a CSS parser for the two questions asked here: which selector a declaration sits
- * under, and what it says. Comments go first, so prose about a `0.85rem` that was removed cannot
- * fail a test about a `0.85rem` that is still there.
- */
-function declarations(css: string): Declaration[] {
-  const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, '')
-  const found: Declaration[] = []
-  const stack: string[] = []
-  let buffer = ''
-
-  for (const character of withoutComments) {
-    if (character === '{') {
-      stack.push(buffer.trim().replace(/\s+/g, ' '))
-      buffer = ''
-    } else if (character === '}' || character === ';') {
-      const [property = '', ...rest] = buffer.split(':')
-      const value = rest.join(':').trim()
-      if (value !== '') {
-        found.push({
-          selector: stack[stack.length - 1] ?? '',
-          context: stack.slice(0, -1).join(' '),
-          property: property.trim(),
-          value,
-        })
-      }
-      buffer = ''
-      if (character === '}') stack.pop()
-    } else {
-      buffer += character
-    }
-  }
-
-  return found
-}
 
 const all = declarations(stylesheet)
 

@@ -1,0 +1,395 @@
+/*
+ * The public site's own rules. Spec 11.
+ *
+ * The palette and the scales are not here: `site/build.ts` extracts them from `web/styles.css` and
+ * puts them above this file, so the site and the application share one set of decisions rather than
+ * two that drift. What is here is the shell round a document and the shape of the document itself,
+ * and it holds to spec 10's rules: a colour, a spacing, a font size and a radius are named as tokens
+ * and never as literals.
+ *
+ * The appearance model is spec 10's, in a place with more prose and fewer controls: the page is
+ * tinted, the header and the contents list are sunk panels on it, and the document itself is raised
+ * out of it in white. Running text is capped at `--measure` whatever the window does, because a
+ * setup guide read at 120 characters a line is a setup guide somebody loses their place in.
+ */
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Present until focused, and the first thing in the tab order: the header is five links long. */
+.skip {
+  position: absolute;
+  left: -100vw;
+  top: 0;
+  z-index: 2;
+  padding: var(--space-2) var(--space-4);
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-bottom-right-radius: var(--radius-md);
+}
+
+.skip:focus {
+  left: 0;
+}
+
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-5);
+  padding: var(--space-3) var(--space-5);
+  background: var(--surface);
+  border-bottom: 1px solid var(--line-faint);
+}
+
+.wordmark {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.site-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+}
+
+.site-nav a {
+  color: var(--ink-quiet);
+  text-decoration: none;
+}
+
+.site-nav a:hover,
+.site-nav a:focus-visible {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
+/* Where you are, said in the one way that is not colour alone. */
+.site-nav a[aria-current='page'] {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+main {
+  display: grid;
+  gap: var(--space-6);
+  align-items: start;
+  padding: var(--space-6) var(--space-5) var(--space-7);
+  margin: 0 auto;
+  /* A column of prose and no more. The pages with a contents list beside them take the wider cap. */
+  max-width: 58rem;
+}
+
+/*
+ * The document is the surface. It is raised out of the page rather than outlined on it, which is the
+ * appearance model M10 settled on, and it carries the padding so that the prose never touches an
+ * edge on a phone.
+ */
+article {
+  min-width: 0;
+  padding: var(--space-5) var(--space-6) var(--space-6);
+  background: var(--surface-raised);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-1);
+}
+
+article > * {
+  max-width: var(--measure);
+}
+
+h1 {
+  margin: 0 0 var(--space-5);
+  font-size: var(--text-xl);
+  font-weight: 600;
+  line-height: var(--leading-tight);
+}
+
+h2 {
+  margin: var(--space-7) 0 var(--space-4);
+  padding-top: var(--space-4);
+  font-size: var(--text-lg);
+  font-weight: 500;
+  line-height: var(--leading-tight);
+  border-top: 1px solid var(--line-faint);
+}
+
+h3 {
+  margin: var(--space-5) 0 var(--space-3);
+  font-size: var(--text-base);
+  font-weight: 500;
+  line-height: var(--leading-tight);
+}
+
+p,
+ul,
+ol {
+  margin: 0 0 var(--space-4);
+}
+
+li {
+  margin: 0 0 var(--space-2);
+}
+
+/* A nested list is a sub-point, not a new block: it closes up against the item that owns it. */
+li > ul,
+li > ol {
+  margin: var(--space-2) 0 0;
+}
+
+a {
+  color: var(--accent);
+  text-underline-offset: 0.15em;
+}
+
+code {
+  padding: 0 var(--space-1);
+  font-size: var(--text-sm);
+  background: var(--surface-sunk);
+  border-radius: var(--radius-sm);
+}
+
+pre {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-4);
+  overflow-x: auto;
+  background: var(--surface-sunk);
+  border-radius: var(--radius-md);
+}
+
+pre code {
+  padding: 0;
+  background: transparent;
+}
+
+/*
+ * A table states a fact per row, and one of them is the troubleshooting table, which is wider than
+ * any phone. It scrolls inside its own box rather than taking the page sideways with it, and it is
+ * allowed past the measure because a column of prose is not what a table is.
+ */
+.table-scroll {
+  max-width: 100%;
+  margin: 0 0 var(--space-5);
+  overflow-x: auto;
+}
+
+table {
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+th,
+td {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--line-faint);
+}
+
+th {
+  font-weight: 500;
+  background: var(--surface);
+}
+
+blockquote {
+  margin: 0 0 var(--space-4);
+  padding-left: var(--space-4);
+  border-left: 2px solid var(--line);
+  color: var(--ink-quiet);
+}
+
+hr {
+  margin: var(--space-6) 0;
+  border: 0;
+  border-top: 1px solid var(--line-faint);
+}
+
+/*
+ * The contents of a long document. Sunk into the page rather than raised out of it: it is a way into
+ * the document and not part of it.
+ */
+.toc {
+  padding: var(--space-4);
+  font-size: var(--text-sm);
+  background: var(--surface);
+  border-radius: var(--radius-md);
+}
+
+.toc h2 {
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--ink-quiet);
+  border-top: 0;
+}
+
+.toc ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.toc li {
+  margin: 0 0 var(--space-1);
+}
+
+.toc a {
+  color: var(--ink-quiet);
+  text-decoration: none;
+}
+
+.toc a:hover,
+.toc a:focus-visible {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+/*
+ * Wide enough for a column beside the document; below it the list sits above, where it still works.
+ * The two columns belong to the pages that have a contents list and not to every page, or a short
+ * document is rendered in the fifteen-rem column with two thirds of the window empty beside it.
+ */
+@media (min-width: 60rem) {
+  main.with-contents {
+    grid-template-columns: 15rem minmax(0, 1fr);
+    max-width: 74rem;
+  }
+
+  .toc {
+    position: sticky;
+    top: 4.5rem;
+    max-height: calc(100vh - 6rem);
+    overflow-y: auto;
+  }
+}
+
+/* The one paragraph a reader deciding whether they want this will certainly read. */
+.home article > p:first-of-type {
+  font-size: var(--text-lg);
+  color: var(--ink-quiet);
+}
+
+/*
+ * The two things to do next. Spec 10's rule about one filled primary per context holds here too:
+ * setting it up is the thing a reader who has decided wants, and everything else on the page is a
+ * link in running text.
+ */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin: var(--space-5) 0;
+}
+
+.actions a {
+  padding: var(--space-2) var(--space-4);
+  color: var(--ink);
+  text-decoration: none;
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.actions .primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent);
+  font-weight: 500;
+}
+
+.actions a:hover {
+  text-decoration: underline;
+}
+
+/*
+ * Three sources in, one direction, nothing out. Decorative, and hidden from a screen reader: the
+ * sections either side of it say the same thing in words.
+ */
+.flow {
+  width: 100%;
+  max-width: var(--measure);
+  height: auto;
+  margin: var(--space-5) 0 var(--space-2);
+}
+
+.flow-box rect {
+  fill: var(--surface-raised);
+  stroke: var(--line);
+}
+
+.flow-core {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.flow-label text {
+  fill: var(--ink);
+  font-size: var(--text-sm);
+  text-anchor: middle;
+}
+
+.flow-label .flow-quiet {
+  fill: var(--ink-quiet);
+  font-size: var(--text-xs);
+}
+
+.flow-arrow path {
+  fill: none;
+  stroke: var(--line);
+}
+
+.flow-head path {
+  fill: var(--line);
+}
+
+.site-footer {
+  padding: var(--space-5);
+  margin: 0 auto;
+  max-width: 74rem;
+  font-size: var(--text-sm);
+  color: var(--ink-quiet);
+  border-top: 1px solid var(--line-faint);
+}
+
+.site-footer p {
+  margin: 0 0 var(--space-2);
+  max-width: var(--measure);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/*
+ * A phone. The document keeps its padding down to where the prose would otherwise touch the edges,
+ * and the diagram goes: at this width its labels are six pixels tall, and the two sections either
+ * side of it say the same thing in words.
+ */
+@media (max-width: 40rem) {
+  main {
+    padding: var(--space-4) var(--space-3) var(--space-6);
+  }
+
+  article {
+    padding: var(--space-4);
+  }
+
+  .site-header {
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .flow {
+    display: none;
+  }
+}

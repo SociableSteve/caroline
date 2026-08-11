@@ -1,0 +1,67 @@
+name: Site
+
+# The public site, built from the documentation in this repository and published to GitHub Pages.
+# Spec 11.
+#
+# This workflow is the whole of the publishing, bar one setting: Pages has to be enabled for the
+# repository with its source set to GitHub Actions. Until it is, the deploy step fails and the build
+# step still tells you the site is sound, which is also what the `build:site` step in CI checks on
+# every pull request.
+
+on:
+  push:
+    branches: [main]
+    # A document, the generator, its stylesheet, or this workflow. Nothing else changes the site.
+    paths:
+      - 'README.md'
+      - 'docs/**'
+      - 'site/**'
+      - 'web/styles.css'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time, and the one in flight finishes: a half-published documentation site is worse
+# than a documentation site that is a minute out of date.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The job runs repository-controlled code, so the workflow token is not left behind in the
+          # local git config for it to find.
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build:site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    # Minting the Pages deployment token is what `id-token: write` is for. Nothing here writes to the
+    # repository.
+    permissions:
+      pages: write
+      id-token: write
+      contents: read
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

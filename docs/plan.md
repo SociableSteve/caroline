@@ -346,6 +346,11 @@ like one thing rather than two.
 
 The repository is public and has no Pages site configured, so there is nothing to unpick first.
 
+Spec 11 is new and states the pages, the rules that keep them one copy of the documentation, and the
+criteria. The generator is one file with the suite reading its output in memory, so every page can be
+compared with the document it renders. Enabling Pages, with its source set to GitHub Actions, is the
+one step that lives in repository settings rather than in the repository.
+
 Exit: a stranger can find out what Caroline is, decide whether they want it, and set it up,
 without being sent to a README in a source tree.
 
