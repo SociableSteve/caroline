@@ -645,6 +645,29 @@ describe('the site asks nothing of the reader', () => {
   })
 
   /**
+   * Two spellings of a handler, refused by two different mechanisms, both probed rather than reasoned
+   * about. `ONCLICK` is an attribute and is read as one. An attribute abutting the quote before it is not
+   * a tag `marked` will pass through, so the whole thing is escaped and reaches the page as text a
+   * browser prints rather than runs: the guarantee holds either way, and which way is worth pinning,
+   * because "the build refuses it" and "it never becomes a tag" fail differently if either changes.
+   */
+  it('never publishes a handler, whether it is refused or escaped', () => {
+    const shouting = override(
+      'docs/plan.md',
+      `# Caroline implementation plan\n\n<a href="plan.html" ONCLICK="alert(1)">x</a>\n`,
+    )
+    const abutting = override(
+      'docs/plan.md',
+      `# Caroline implementation plan\n\n<a href="plan.html"onclick="alert(1)">x</a>\n`,
+    )
+
+    expect(() => buildSite(shouting)).toThrow(/runs nothing/)
+    expect(buildSite(abutting).get('plan.html')).toContain(
+      '&lt;a href=&quot;plan.html&quot;onclick=',
+    )
+  })
+
+  /**
    * A quoted attribute value may contain a `>`, so a tag pattern that ends at the first one ends this
    * tag at its title and never reads its href: the one tag somebody would write to get a link past the
    * scheme check, and the same defect in the inline-handler check beside it.
