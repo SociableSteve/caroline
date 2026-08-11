@@ -176,7 +176,41 @@ and no email task beside it, in whatever status its refreshed lifecycle puts it,
 Review when it is awaiting the user and not otherwise; and a notification Caroline cannot
 resolve is classified normally. Spec 02 gains the connector's rule and a criterion per case.
 
-### M9. Release readiness
+### M9. The design pass
+
+Eight milestones built every panel spec 08 asked for and none of the judgements it did not ask
+for. Colour was the only axis anybody tokenised, so the rest were chosen per rule: seven values
+of border radius, eight font sizes for five ranks of text, ten spacing values for four ranks of
+gap. Spec 08 listed the dashboard's nine panels and assigned no rank, so they render in list
+order into one reflowing grid, and the least actionable of them leads a surface about work.
+
+Spec 10 is new and states the scales, the primitives and the appearance rules. Spec 08 gains a
+stated hierarchy for the dashboard, column and card rules for the board, and criteria 11 to 20.
+Spec 01 gains the previous-status pair that makes a board move reversible, and criteria 8 to 11.
+
+Three slices, in this order, because the first is behaviour-neutral and makes the other two
+cheap:
+
+1. **Tokens and primitives.** The four scales, the five primitives, and every surface moved onto
+   them. A stylesheet test parses the sheet and fails on a literal length in a spacing, size or
+   radius property, so the scales are enforced rather than encouraged. Nothing moves on screen
+   except spacing consistency. Spec 10 criteria 1 to 4, and the small defects the sweep reaches:
+   the `just now ago` phrasing, sentences used as visible button labels, and the header's
+   sideways overflow at 430px.
+2. **Dashboard hierarchy.** The three bands as fixed rows, the condensed state strip, and the
+   job rows that currently collapse whenever they carry an error. Spec 08 criteria 11 and 19,
+   spec 10 criteria 5 and 6.
+3. **Board density and reversibility.** Six columns that stay six and scroll independently, the
+   redundant status fact dropped, secondary controls behind a per-card disclosure, a due-date
+   treatment that distinguishes overdue from today from later, and the undo. The undo is the only
+   part of this milestone that reaches the database: a migration adding `previous_status` and
+   `previous_status_set_by`, and one route. Spec 08 criteria 12 to 18, spec 01 criteria 8 to 11.
+
+Exit: spec 10 in full, spec 08 criteria 11 to 20, spec 01 criteria 8 to 11. Criteria 1 to 10 of
+spec 08 keep their numbers and their tests, because thirty places in the code and the suite cite
+them by number.
+
+### M10. Release readiness
 
 Setup guide covering the Google Cloud project and OAuth consent, the GitHub token scopes
 and provider configuration. Content-policy documentation with the payload preview. Deletion
