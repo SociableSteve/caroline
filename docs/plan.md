@@ -210,13 +210,96 @@ Exit: spec 10 in full, spec 08 criteria 11 to 20, spec 01 criteria 8 to 11. Crit
 spec 08 keep their numbers and their tests, because thirty places in the code and the suite cite
 them by number.
 
-### M10. Release readiness
+### M10. The appearance model, the chat rail, and who Caroline is talking to
+
+M9 gave the six surfaces one set of decisions. It did not make those decisions: colour was the
+only axis anybody had chosen deliberately, and the rest were consistent rather than considered.
+Driving the seeded day in a browser is what settled it. Everything is a box inside a box, `--page`
+and `--surface-raised` are the same white so a card exists only because of its outline, there is
+one neutral where there should be four, the hierarchy between a surface heading and a panel
+heading is 0.25rem wide, four rules set small text in uppercase with tracking, and `.primary` is
+accent-coloured text in an outlined box rather than a filled action.
+
+Spec 10's Scales and Primitives sections survive. Its Rules section is rewritten around an
+appearance model it never had: elevation rather than outlines, a neutral ramp rather than one
+`--line`, weight as the scarce resource rather than everything at 600, and one filled primary per
+context. The accent hue does not move. The palette was the one thing that was already right.
+
+**The chat rail.** Chat stops being one of six routes and becomes a rail beside whatever surface
+you are on, because asking about the board while the board is on screen is the whole point and a
+route swap takes the board away to do it. Below the width where a rail leaves the surface usable
+it collapses to the overlay pattern quick capture already owns. Spec 08's "Six surfaces" becomes
+five and a companion.
+
+**Who it is talking to.** Two facts go into the shared prompt preamble: that the system is called
+Caroline, and the name of the person using it. The second is the one that matters, because without
+it the model writes about the user in the third person to the user's own face. The preamble is
+shared rather than chat's alone: the planner writes user-facing prose too, and its rationales are
+already in the second person without having been told who they are addressed to.
+
+The name is data about a person rather than deployment configuration, so it lives in a `settings`
+table and the Settings surface gains its first write path. That avoids making
+`caroline.config.json` writable, which would mean rewriting a file somebody hand-edited and
+deciding what a restart means for it.
+
+It is also personal data leaving the machine on every call to a remote provider, so it is spec
+09's business: the content policy states it, and the payload preview shows it, which is the entire
+reason that screen exists. A preview that does not show the name is a preview that no longer
+proves what it claims to prove.
+
+Exit: spec 10's appearance model in full, the rail on every surface, and a payload preview that
+shows the preamble it will actually send.
+
+### M11. The details panel, and what chat is talking about
+
+Clicking an item anywhere opens its details in the right rail, above the conversation. One rail
+rather than two: a details column beside a chat column costs roughly 38rem, which at 1440px leaves
+the board scrolled sideways more or less permanently. Stacking them also does the work a label
+would otherwise have to do, because the thing being discussed sits directly above the thing
+discussing it.
+
+The selected item goes to the model as context, so an open item is what "it" means. That is the
+feature, and it is also the part that needs rules rather than good intentions:
+
+1. **Context is per message, not per conversation.** It is resolved when a message is sent, from
+   whatever is selected then. Pinning it at the start of a conversation would have the model
+   answering about an item that has since been closed.
+2. **What was sent is recorded on the turn.** The transcript says which item a turn carried, for
+   the same reason every other change chat makes is written down: a conversation you cannot audit
+   is one you cannot trust.
+3. **Selecting nothing sends nothing.** There is no last-selected fallback. An item you closed is
+   an item you stopped talking about.
+4. **The content policy governs it.** A task's title and notes are content, and a title here can
+   carry a client's name. Spec 09 states which fields go, at which content level, and the payload
+   preview shows a real one.
+
+Open, to settle in the spec before anything is built: which items get a details panel (tasks
+certainly; projects, calendar events, job runs and plan entries are each arguable and each a
+different panel), whether selection survives a surface change or a reload, and what a short
+viewport does when the details and the conversation both want the height.
+
+Exit: spec 07 gains the context rule and its audit record, spec 08 gains the rail's second region
+and the selection model, spec 09 gains the item-as-context policy.
+
+### M12. Release readiness
 
 Setup guide covering the Google Cloud project and OAuth consent, the GitHub token scopes
 and provider configuration. Content-policy documentation with the payload preview. Deletion
 command. README, and a first tagged release.
 
 Exit: someone other than the author can set it up from the documentation alone.
+
+### M13. The public site
+
+A GitHub Pages site: what Caroline is, how to get started, and the documentation. It renders what
+M12 writes rather than restating it, because a setup guide maintained in two places is a setup
+guide that is wrong in one of them. It inherits M10's tokens, so the site and the application look
+like one thing rather than two.
+
+The repository is public and has no Pages site configured, so there is nothing to unpick first.
+
+Exit: a stranger can find out what Caroline is, decide whether they want it, and set it up,
+without being sent to a README in a source tree.
 
 ## Test strategy
 
