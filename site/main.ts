@@ -4,13 +4,15 @@
  * directory.
  *
  * The output directory is emptied first: a page renamed in the manifest would otherwise stay in the
- * artifact, and a stale page is worse than a missing one because it looks current.
+ * artifact, and a stale page is worse than a missing one because it looks current. It is not
+ * configurable, because the one thing this file does is a recursive delete and an argument would let
+ * `npm run build:site -- dist` take the compiled server and client with it.
  */
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { buildSite } from './build.js'
 
-const directory = process.argv[2] ?? 'dist/site'
+const directory = 'dist/site'
 const files = buildSite()
 
 rmSync(directory, { recursive: true, force: true })

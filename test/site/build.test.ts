@@ -115,6 +115,22 @@ describe('the site renders the documentation rather than restating it', () => {
 
       expect(lede).not.toBe('')
       expect(text(home)).toContain(text(plain(lede)))
+      // Written out rather than derived, because the assertion above computes the lede exactly as the
+      // build does and so agrees with it about the wrong paragraph as readily as the right one.
+      expect(text(home)).toContain('A single-user, self-hosted GTD system.')
+    })
+
+    /**
+     * A Windows checkout with `core.autocrlf` set separates paragraphs with `\r\n\r\n`. Splitting on
+     * `\n\n` there makes the whole README one block, and the home page loses the one paragraph it
+     * borrows.
+     */
+    it('finds that paragraph on a checkout with either line ending', () => {
+      const windows = override('README.md', source('README.md').replace(/\n/g, '\r\n'))
+
+      expect(buildSite(windows).get('index.html')).toContain(
+        'A single-user, self-hosted GTD system.',
+      )
     })
 
     it('instructs nobody: no commands, and no environment variable to set', () => {
@@ -231,6 +247,19 @@ describe('the links survive the move off GitHub', () => {
     expect(built.get('plan.html')).toContain('id="see-the-guide"')
     expect(built.get('plan.html')).toContain('id="apis--services"')
     expect(built.get('plan.html')).toContain('id="carolineconfigjson"')
+    // And the contents entry for that heading is a link with text in it, not a link with a link in
+    // it: a browser closes the outer anchor at the inner one, so half the entry would stop pointing
+    // at the fragment and the rest would leave the page from inside the contents list.
+    expect(built.get('plan.html')).toContain('<li><a href="#see-the-guide">See the guide</a></li>')
+  })
+
+  it('fails the build on a link that climbs out of the repository', () => {
+    const broken = override(
+      'docs/plan.md',
+      '# Caroline implementation plan\n\n[out](../../gone.md)\n',
+    )
+
+    expect(() => buildSite(broken)).toThrow(/outside the repository/)
   })
 
   // Criterion 5. A project site is served under a path. A root-relative link is one that works on
@@ -312,6 +341,20 @@ describe('the site and the application look like one thing', () => {
     )
 
     expect(literals).toEqual([])
+  })
+
+  /**
+   * `.flow-box rect` is a class and an element, and `.flow-core` is a class: the accent stroke lost to
+   * the neutral one on specificity rather than on source order, so the box the diagram is about was
+   * outlined like the seven around it. The selector has to name the element to outrank it.
+   */
+  it('outlines the middle of the diagram in the accent rather than losing to the box rule', () => {
+    const accent = own.find(
+      (rule) => rule.property === 'stroke' && rule.value === 'var(--accent)',
+    )?.selector
+
+    expect(accent).toBeDefined()
+    expect(accent).toContain('rect')
   })
 
   it('draws the icon in the accent colour the application uses, rather than a fourth blue', () => {

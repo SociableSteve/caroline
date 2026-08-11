@@ -330,7 +330,7 @@ hr {
   stroke: var(--line);
 }
 
-.flow-core {
+.flow-box rect.flow-core {
   stroke: var(--accent);
   stroke-width: 2;
 }

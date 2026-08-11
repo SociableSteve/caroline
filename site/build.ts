@@ -91,6 +91,13 @@ function manifest(sources: SiteSources): readonly SitePage[] {
 /** The pages of the repository as it stands, which is what the suite asserts against. */
 export const pages: readonly SitePage[] = manifest(repositorySources())
 
+/**
+ * The blocks of a document. Either line ending, because a Windows checkout with `core.autocrlf` set
+ * separates paragraphs with `\r\n\r\n`, and splitting on `\n\n` there makes every file one block: the
+ * home page loses the README's opening and every description becomes the whole document.
+ */
+const paragraphs = (markdown: string): string[] => markdown.split(/\r?\n\r?\n/)
+
 /** The first `#` heading of a document: what the document calls itself. */
 function headingOf(markdown: string): string {
   return (/^# (.+)$/m.exec(markdown)?.[1] ?? 'Caroline').trim()
@@ -137,11 +144,20 @@ const isAbsolute = (href: string): boolean =>
  */
 function repositoryUrl(sources: SiteSources): string {
   const url = String(JSON.parse(sources.read('package.json')).repository?.url ?? '')
-  const slugged = /github\.com[/:]([^/]+\/[^/.]+)/.exec(url)?.[1]
+  // The repository name may contain a dot. Only a trailing `.git` is a suffix, so it is anchored at
+  // the end rather than excluded from the name, which truncated `caroline.dev` to `caroline`.
+  const slugged = /github\.com[/:]([^/]+\/[^/]+?)(?:\.git)?$/.exec(url)?.[1]
   if (slugged === undefined) throw new Error('package.json names no GitHub repository to link to')
 
   return `https://github.com/${slugged}`
 }
+
+/**
+ * The id the layout puts on `<main>`, for the skip link. It seeds the heading identifiers so a heading
+ * rendering as "Content" fails the build rather than quietly producing a second `id="content"` and a
+ * fragment that lands on the shell instead of on the heading.
+ */
+const contentIdentifier = 'content'
 
 interface Rendered {
   readonly html: string
@@ -150,7 +166,7 @@ interface Rendered {
 }
 
 function render(markdown: string, page: SitePage, context: BuildContext): Rendered {
-  const identifiers = new Set<string>()
+  const identifiers = new Set<string>([contentIdentifier])
   const sections: { id: string; label: string }[] = []
   const marked = new Marked({ gfm: true })
 
@@ -194,7 +210,9 @@ function render(markdown: string, page: SitePage, context: BuildContext): Render
   // scroll box is wrapped round the rendered table rather than round a second rendering of it.
   const html = marked
     .parse(markdown, { async: false })
-    .replaceAll('<table>', '<div class="table-scroll"><table>')
+    // Any opening tag, not the bare one this renderer produces: a raw-HTML table with attributes would
+    // otherwise take the page sideways on a phone and collect a closing `</div>` it never opened.
+    .replace(/<table\b[^>]*>/g, (tag) => `<div class="table-scroll">${tag}`)
     .replaceAll('</table>', '</table></div>')
 
   return { html, sections }
@@ -212,6 +230,11 @@ function resolve(href: string, page: SitePage, context: BuildContext): string {
   if (path === '') return href
 
   const target = posix.normalize(posix.join(posix.dirname(page.source), path))
+  // A path that climbs out of the checkout is not a file in the repository, whatever happens to sit
+  // beside it on this machine: resolving it would publish a blob URL that is a 404 everywhere.
+  if (target.startsWith('../')) {
+    throw new Error(`${page.source} links to ${href}, which is outside the repository`)
+  }
   const output = context.outputs.get(target)
   if (output !== undefined) {
     return `${posix.relative(posix.dirname(page.output), output)}${fragment}`
@@ -243,14 +266,16 @@ interface BuildContext {
  * this" is written once, and `{{diagram}}` is the one picture.
  */
 function homePage(markdown: string, context: BuildContext): string {
-  const lede = (context.sources.read('README.md').split('\n\n')[1] ?? '').trim()
+  const lede = (paragraphs(context.sources.read('README.md'))[1] ?? '').trim()
   if (lede === '')
     throw new Error('the README has no opening paragraph for the home page to render')
 
+  // Function replacements, because a `$&` or a `` $` `` in the README's prose would otherwise be a
+  // substitution pattern rather than two characters of somebody's paragraph.
   return markdown
-    .replace('{{lede}}', lede)
-    .replace('{{diagram}}', diagram)
-    .replace('{{start}}', actions(context))
+    .replace('{{lede}}', () => lede)
+    .replace('{{diagram}}', () => diagram)
+    .replace('{{start}}', () => actions(context))
 }
 
 /**
@@ -319,8 +344,7 @@ const diagram = `<svg class="flow" viewBox="0 0 640 190" aria-hidden="true" focu
 
 /** The first paragraph, as plain text: what a search result or a shared link shows. */
 function description(markdown: string): string {
-  const paragraph = markdown
-    .split('\n\n')
+  const paragraph = paragraphs(markdown)
     .map((block) => block.trim())
     .find((block) => block !== '' && !block.startsWith('#') && !block.startsWith('|'))
   const sentence = (paragraph ?? '')
@@ -369,8 +393,11 @@ function layout(
         <ol>
           ${rendered.sections
             .map(
+              // The label is text and not the heading's rendered HTML: a heading carrying a link would
+              // otherwise put an anchor inside this one, which a browser closes early, and half the
+              // entry stops linking to the fragment while the rest leaves the page.
               (section) =>
-                `<li><a href="#${escapeAttribute(section.id)}">${section.label}</a></li>`,
+                `<li><a href="#${escapeAttribute(section.id)}">${escapeText(readAsText(section.label))}</a></li>`,
             )
             .join('\n          ')}
         </ol>
@@ -396,7 +423,7 @@ function layout(
         <a href="${escapeAttribute(context.repository)}" rel="noopener" target="_blank">Source</a>
       </nav>
     </header>
-    <main id="content" class="${page.output === 'index.html' ? 'home' : 'document'}${contents === '' ? '' : ' with-contents'}">
+    <main id="${contentIdentifier}" class="${page.output === 'index.html' ? 'home' : 'document'}${contents === '' ? '' : ' with-contents'}">
       ${contents}
       <article>
 ${rendered.html.trimEnd()}
