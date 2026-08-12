@@ -10,22 +10,26 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import {
-  examplesMarkdown,
-  payloadExamples,
-  regionOf,
-} from '../../tools/docs/content-policy-examples.js'
+import { payloadExamples, regionOf, regions } from '../../tools/docs/content-policy-examples.js'
 import { contentLevels } from '../../src/domain/content.js'
 
 const document = readFileSync(join(process.cwd(), 'docs/content-policy.md'), 'utf8')
 
 describe('the documented payloads are what the content policy produces', () => {
-  it('carries exactly what the generator generates, so nothing has drifted', () => {
-    expect(
-      regionOf(document),
-      'docs/content-policy.md no longer matches the code that builds the payloads: run npm run docs:examples',
-    ).toBe(examplesMarkdown())
-  })
+  /**
+   * Every region, rather than the payloads alone. The settings block used to sit outside the markers
+   * with the snippet cap written into it by hand, so lowering the schema's default left the page
+   * quoting 300 in one region and 250 in the next with nothing failing. Whatever this module owns is
+   * compared, so adding a region does not mean remembering to add an assertion for it.
+   */
+  for (const region of regions) {
+    it(`carries exactly what the generator generates for ${region.name}, so nothing has drifted`, () => {
+      expect(
+        regionOf(document, region),
+        `docs/content-policy.md no longer matches the code behind ${region.name}: run npm run docs:examples`,
+      ).toBe(region.markdown())
+    })
+  }
 
   it('shows every level, in the order the document tabulates them', () => {
     expect(payloadExamples().map((example) => example.level)).toEqual([...contentLevels])

@@ -147,8 +147,17 @@ const seeds: Seed[] = [
   { title: 'GitHub token scopes Caroline needs', status: 'reference', project: release.id },
 ]
 
-const created = seeds.map((seed) => {
-  const at = seed.setAt ?? NOW - 3 * DAY
+/**
+ * A distinct creation time each, in the order this file lists them.
+ *
+ * A column is read back `order by sort_order, created_at, id`, and `createTask` gives every task the
+ * same `sortOrder`. One shared `createdAt` for the whole list therefore left the tiebreak to a random
+ * UUID: every reseed dealt each column in a different order, and a picture of it was one shuffle out
+ * of many, which is not something a document can say anything positional about. A minute apart is
+ * enough to decide the order and small enough that the cards still read as three days old.
+ */
+const created = seeds.map((seed, index) => {
+  const at = seed.setAt ?? NOW - 3 * DAY + index * MINUTE
   const task = createTask(
     database,
     {
@@ -341,6 +350,26 @@ for (const [index, event] of events.entries()) {
 
 const planned = created.filter((task) => task.status === 'next_action')
 
+/**
+ * Why the planner put an entry where it did, read off the task rather than off its rank.
+ *
+ * By rank it said "Overdue since Monday" about whatever happened to be second or third, and the
+ * third entry here has no due date at all. Both the plan and the same task's card are published, in
+ * one document, so a reason that contradicts the card reads as the planner inventing reasons. The
+ * weekday comes from the date as well, so it cannot drift from it either.
+ */
+function rationaleFor(task: { readonly dueAt: number | null }): string {
+  if (task.dueAt === null) return 'Nothing forcing the date, but the release is waiting on it'
+  if (task.dueAt < today(0)) {
+    const weekday = new Date(task.dueAt).toLocaleDateString('en-GB', { weekday: 'long' })
+
+    return `Overdue since ${weekday}`
+  }
+  if (task.dueAt < today(0) + DAY) return 'Due today, and the longest single block you have'
+
+  return 'Due later this week, so it is worth starting before the deadline week'
+}
+
 recordDailyPlan(database, {
   planDate,
   generatedAt: today(7, 5),
@@ -359,8 +388,7 @@ recordDailyPlan(database, {
     taskId: task.id,
     title: task.title,
     rank: index + 1,
-    rationale:
-      index === 0 ? 'Due today, and the longest single block you have' : 'Overdue since Monday',
+    rationale: rationaleFor(task),
     estimateMinutes: task.estimateMinutes,
   })),
   overflow: planned.slice(3).map((task, index) => ({

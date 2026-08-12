@@ -285,3 +285,5 @@ Two decisions about it:
     document and those functions disagree. Documentation of what leaves the machine is a promise about
     somebody's mail, so it is checked rather than reviewed: a documented payload that has drifted from
     the code is worse than no example. None of them carries an address or anything shaped like a key.
+    The same document's block of privacy defaults is generated from the schema that declares them and
+    checked the same way, so no default in it is a second copy anybody maintains.

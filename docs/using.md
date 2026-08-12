@@ -117,9 +117,9 @@ on how sure it is:
   its reasoning in a sentence or two, and a better title if it has one. **Accept** takes it, and the
   status becomes yours. **Dismiss** drops the suggestion and leaves the task where it is.
 
-The third inbox card in the board picture above is the unsure case: `Caroline suggests Next actions
-(62% confident)`, with the reasoning and a proposed retitle under it. `a` is **Accept** from the
-keyboard.
+`Re: Q3 capacity numbers for the board pack`, in the Inbox column of the board picture above, is the
+unsure case: `Caroline suggests Next actions (62% confident)`, with the reasoning and a proposed
+retitle under it. `a` is **Accept** from the keyboard.
 
 It never proposes done, and it never sets a due date. Completing something is a human act, and
 deadlines come from people rather than from a model.
