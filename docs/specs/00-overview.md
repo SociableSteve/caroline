@@ -29,8 +29,15 @@ multi-tenancy, no shared server, no account system.
                 |     +----- chat (tool use) ---------------+     |
                 |                                                 |
                 |  Fastify HTTP API  <--->  React SPA             |
-                +-----------------------------------------------+
+                |         ^                                       |
+                +---------|---------------------------------------+
+                          |
+                   MCP client (an assistant, on this machine)
 ```
+
+The MCP endpoint is the third arrow into the process and the only one an external program drives
+(spec 12). It is off unless turned on, loopback only, and reaches the same tool registry chat
+reaches rather than a surface of its own.
 
 ### Stack
 
@@ -73,7 +80,9 @@ system to be worth running.
 - Multi-user or hosted operation. No tenancy, no per-user OAuth brokering. A single-user instance
   reachable over a network is supported, and spec 13 is what makes it safe: one person logs in and
   proves they own the instance. What remains a non-goal is tenancy, not exposure.
-- Mobile or native clients.
+- Mobile or native clients. That is about clients Caroline ships: there is one user interface and
+  it is the browser one. An assistant connecting over MCP is not one of these, because Caroline
+  publishes a tool surface for it rather than a client (spec 12).
 - Full GTD orthodoxy: no contexts, no weekly-review workflow, no tickler file beyond a
   deferred date on a task.
 - Time tracking, or any claim about what you actually did with the day.

@@ -36,12 +36,22 @@ both validation and typing. Errors follow one shape: `{ error: { code, message, 
 | `POST /api/auth/login` | Starts the login flow and answers with the provider's authorization URL. Public |
 | `GET /api/auth/callback` | The provider's redirect: exchanges the code, checks the identity, sets the cookie. Public |
 | `POST /api/auth/logout` | Revokes the session and clears the cookie |
+| `POST /api/mcp` | The MCP endpoint, where one is enabled. Its body is JSON-RPC and its semantics are spec 12's; the envelope carries a schema like every other route, so criterion 1 holds |
+| `/api/mcp/authorize` and `POST /api/mcp/token` | The authorisation code flow for an MCP client: the consent screen and the token endpoint (spec 12) |
+| `GET /.well-known/oauth-protected-resource`, with and without the endpoint's path appended, and `GET /.well-known/oauth-authorization-server` | The metadata documents a client discovers Caroline through |
 
 Where authentication is required, the API is gated in one place: a single request-level check over
 the registered route list, with the three public auth routes above as its only exceptions (spec 13).
 `GET /api/health` is not one of them, because it names the version and which integrations are
 configured. Nothing outside `/api` is gated, because the SPA shell holds no user content and serving
 it is what lets the login screen be a state of the client.
+
+**Everything is under `/api`, with one named exception: those metadata documents.** The discovery
+order a conformant client follows is the path-suffixed well-known document and then the
+unsuffixed one, both at the root, so a document served under `/api` is a document no client
+looks for. The exception is named here and the test that asserts the prefix carries it with this
+reason, rather than being loosened to whatever passes. The endpoint itself stays under `/api`,
+which keeps the rest of that assertion true.
 
 Server-sent events are used for chat streaming and for a lightweight change feed the UI
 subscribes to, so a background job's results appear without a refresh.
@@ -171,6 +181,11 @@ the board away to do it. It holds the transcript, streamed responses, inline rec
 with undo, and confirmation prompts for deletes and bulk operations. Earlier conversations are behind
 a disclosure within it rather than in a column of their own: a rail is not wide enough for two
 columns, and the list is wanted when an earlier conversation is, not while one is being had.
+
+An MCP client's run of calls is a conversation too (spec 12), so it appears in that list, labelled
+as one and named with the client that was talking. Labelled rather than behind a filter, because
+being in the list beside the rest is what makes it readable and undoable with no new surface, and
+a run of writes nobody can find is not an audit trail.
 Read-only is stated before anything is typed, and so is a turn that stopped at its tool-call limit.
 
 It is open by default, and closed from its own control or from the header. M10 had it closed until
@@ -203,6 +218,15 @@ surface that does.
 **Settings.** Integration status and connect flows, schedules, LLM provider and model,
 content policies (spec 09) with their consequences spelled out in plain language, working
 hours and reserve, classification threshold.
+
+It is also where an MCP client is approved: the consent screen the authorisation flow lands on,
+naming the client asking, and a list of the clients already approved with a way to revoke one.
+That is the surface's second write path after the user's name, and it is here rather than in a
+client's own interface because an approval decided anywhere else is an approval Caroline cannot
+show you afterwards.
+
+Where an access token is configured, the SPA carries it on every request it makes and on the
+change feed, which is the browser's half of spec 09's request-level check.
 
 ### Interaction rules
 
@@ -329,3 +353,10 @@ Authentication (spec 13) adds the following, appended for the same reason.
     hash.
 34. A deep link followed while unauthenticated returns to that same hash once the login succeeds.
 35. A 401 from any call puts the app into the login state rather than retrying the call.
+
+The MCP endpoint adds the following, appended for the same reason.
+
+36. Every registered route begins with `/api`, except the well-known metadata documents named above,
+    which are served from the root because that is where a client's discovery order looks for them.
+    The MCP endpoint itself is under `/api`, and the exception is a named list rather than a relaxed
+    assertion.

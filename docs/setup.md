@@ -26,8 +26,16 @@ Read it in order. Each integration ends with a way to check it actually works be
   compiler at install time.
 - **git**, to clone it.
 - **A browser on the same machine.** Caroline binds to `127.0.0.1` and has no login. Binding it
-  anywhere else is possible and requires an access token, and is not what the rest of this guide
-  assumes.
+  anywhere else is possible and is not what the rest of this guide assumes. Read the next
+  paragraph before you do it.
+
+Binding elsewhere requires `CAROLINE_ACCESS_TOKEN`, and as of version 1.0 that token is checked
+only when Caroline starts: nothing checks it against a request, so a Caroline bound to a routable
+address serves the whole API, the effective configuration included, to anyone who can reach the
+port. The requirement reads as though the token protects something, and it does not yet. It is a
+defect rather than a design, and the first slice of M15 in [the plan](plan.md) makes the token a
+request requirement. Until then, treat the bind address as the only access control
+there is and put Caroline behind a tunnel you already trust rather than on an interface.
 
 Optional, one per integration: a GitHub account whose review requests you want to see, a Google
 account whose mail and calendar you want read, and either an API key for Anthropic or OpenAI or a
@@ -441,7 +449,7 @@ Nothing has started and nothing has been written when you see one of those. Fix 
 | What you see | What it is |
 | --- | --- |
 | `Caroline cannot start: llm.apiKey must not appear in caroline.config.json` | A secret in the config file. The message names the environment variable to use instead |
-| `Caroline cannot start: server.host is "0.0.0.0", which is not loopback` | The UI has no login, so a non-loopback bind requires `CAROLINE_ACCESS_TOKEN` |
+| `Caroline cannot start: server.host is "0.0.0.0", which is not loopback` | The UI has no login, so a non-loopback bind requires `CAROLINE_ACCESS_TOKEN`. Setting it satisfies the check at startup and nothing more: as of version 1.0 no request is checked against it, so the bind address is still the whole of the access control. See [step 1](#1-what-you-need) |
 | `Caroline cannot start: privacy.llmContent is "full" with the remote provider` | Sending whole bodies to a third party needs `privacy.allowFullContentToRemoteProvider` set deliberately. See [content-policy.md](content-policy.md) |
 | `EADDRINUSE` on 5123 | Something else has the port. `CAROLINE_PORT` moves it, and the Google redirect URI has to move with it |
 | `SyntaxError` about `node:sqlite`, or a version complaint at startup | Node older than 24.2.0 |

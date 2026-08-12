@@ -201,9 +201,14 @@ Four things about a conversation that are rules rather than good intentions:
 - **Every change is recorded in the transcript with an Undo**, and the undo is the inverse operation
   that was stored when the change was made rather than a guess at one afterwards.
 - **Deleting always waits for you**, however clear the instruction. So does the rest of a turn once it
-  has changed more than ten tasks, which is the runaway case: `chat.bulkConfirmThreshold`.
-- **A turn has a budget**: twenty-five tool calls by default, `chat.maxToolCalls`, and Caroline says so
-  if it runs out rather than pretending it finished.
+  has changed more than ten tasks, which is the runaway case: `chat.bulkConfirmThreshold`. That count
+  is a session's rather than a browser turn's, so it holds the same way for anything else that reaches
+  the same tools: what starts it counting again is your deciding the confirmation, not your sending
+  another message.
+- **A turn in this rail has a budget**: twenty-five tool calls by default, `chat.maxToolCalls`, and
+  Caroline says so if it runs out rather than pretending it finished. The budget is here because the
+  calls are on Caroline's model and Caroline's bill, so it is a property of this rail and not of the
+  tools themselves.
 - **No model, or a model that cannot call tools, degrades rather than breaks.** The rail says which at
   the top, naming the model where there is one: a model that cannot use tools means chat can answer
   questions but cannot change anything, and no model configured at all means it cannot do either yet.

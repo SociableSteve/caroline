@@ -16,6 +16,7 @@ in what order it gets built, with what tooling, and how each piece is proved.
 | Tests | Vitest for server and client, Testing Library for components | One runner, watch mode for red-green |
 | Lint | ESLint flat config + Prettier | Standard |
 | CI | GitHub Actions: lint, typecheck, test, build | Blocking on the branch |
+| MCP | The MCP TypeScript SDK's resource-server package with its Fastify middleware, for the surface only | Protocol conformance is what a hand roll gets wrong, and revision `2026-07-28`'s required headers, error codes and `server/discover` are all new. The authorisation server is Caroline's own code instead: the SDK's lives in a package named for legacy support, and the consent screen belongs on the Settings surface (spec 12) |
 
 Layout:
 
@@ -469,6 +470,131 @@ would be exposed without a login. A loopback install's behaviour is unchanged, a
 assert the behaviour of the removed access token change with it: slice 1 takes out the startup guard
 `test/config/load.test.ts` asserts, and `CAROLINE_ACCESS_TOKEN` is the fixture secret in
 `test/config/redact.test.ts`, `test/server/logging.test.ts` and `test/server/config-route.test.ts`.
+### M16. The MCP server
+
+Caroline's tool registry has one caller. Spec 07 built fourteen tools over the domain with the content
+policy, an audit trail and undo behind every one of them, and the only thing that may call them is the
+model Caroline itself configures, through a rail in a browser. Everything an agent working on the
+user's behalf might do to the board, it has to do by being that model.
+
+This milestone gives the registry a second caller: an MCP server, so an assistant the user already
+works in can capture a task without leaving what they are doing, and can process what is already
+there. Reviews are the case that motivates it. A pull request in Review carries its URL, its size
+estimate and its place in the connector's state machine; an assistant that can read the pull request
+can now read the queue and discharge the user's part of it through the same `mark_reviewed` the
+board's button calls, with the same attribution to `sync` and the same undo that puts the connector's
+state machine back as well as the task.
+
+**The same registry, not a second one.** The tools are spec 07's, reached through the same
+`executeTool`, so the content policy, the change records, the confirmation gate and undo all apply
+without being written twice. Four things had to move for that. The gate that holds a delete and a bulk
+edit lived inside the turn loop and becomes a decision both callers make. A session is a conversation,
+because the change records are keyed to a turn and a conversation is what makes them visible and
+undoable, so `chat_conversations` gains the source that says which kind it was and the name of the
+client that was talking. The turn, which for a browser is a message and back, becomes the run of
+writes between one confirmation decision and the next: an agent working unattended may change ten
+tasks before a person has to look at the screen, which is the number chat already uses and the reason
+it exists. And the session itself has to be invented, because the revision of the protocol this
+implements deleted sessions from it: there is no handshake and no session identifier, so a
+conversation is one client's run of calls, continued while they keep arriving and started again after
+a gap of thirty minutes by default. That is Caroline's rule rather than the protocol's, and spec 12
+says so, because a reader who assumes otherwise will go looking for the part of the specification that
+mandates it.
+
+**`llmContent` governs it, and there is no second dial.** An MCP server inverts spec 09's question:
+the boundary is still a language model, but the model connects in and the data leaves in tool
+responses. The level that withholds a title from `get_task` in the rail withholds it from `get_task`
+over MCP, by the same function, or the settings screen's sentence about what leaves the machine is
+decoration. Three consequences are stated rather than discovered. At `none` the surface answers ids
+and a withholding, which is what the level means. An MCP client counts as a remote provider whatever
+`llm.provider` says, so complete bodies over it need the same explicit allowance a hosted provider
+needs, and the person running a local model is not exempt: the model on the other end of an MCP
+connection is not theirs. And a confirmation is still decided on Caroline's own screen, although the
+protocol now offers a way to ask through the client, because spec 09's reason for exempting a
+confirmation from the policy is that it is rendered from the user's own database in front of them.
+Nothing about the person goes at all, because Caroline is not the one writing this prompt.
+
+Three slices, in this order, because the first is behaviour-neutral for every install the
+documentation describes and the other two are incoherent without it. Two different credentials appear
+across them and they are not the same one: the first is the API's and it stays, the second is the MCP
+endpoint's and the third slice deletes it.
+
+1. **The credential check that should already have been there.** `server.accessToken` has been a
+   startup precondition since M0 and has never been checked against a request. A non-loopback bind
+   demands a token, and then serves the whole API to anyone who can reach the port, the effective
+   configuration and every write route included. Spec 09's criterion asked only for the startup check
+   and passes; the sentence above it says the token is required because the UI has no login, which
+   reads as a claim that it protects something. It is a defect predating this milestone, and it is
+   fixed here rather than separately because a milestone cannot write a credential check for one
+   endpoint and leave the rest of the API open: a boundary that holds for the new surface and not the
+   old one is not a boundary. One request hook, registered where every route is registered rather than
+   remembered per route, and the token reaches the change feed as a cookie set from it, because a
+   browser cannot put a header on an `EventSource` and a query parameter puts a credential in a URL.
+   An install with no token configured behaves exactly as it did, which is every install the setup
+   guide describes, and an install that had set one and relied on it not being enforced is broken by
+   this on purpose.
+
+2. **The surface, and a credential that is scaffolding.** Streamable HTTP on the port Caroline already
+   listens on, in the same process, because one database handle and one change feed mean a task an
+   assistant creates appears on the open board. Off unless turned on, and loopback only, enforced at
+   startup exactly as the full-content guard is: a tool whose documented posture is that the bind
+   address is the boundary does not get to become a service by way of a config key. `Origin` and
+   `Host` are validated because a page in the user's own browser can post to `127.0.0.1`. The
+   credential is a bearer token of the endpoint's own, and it is temporary by design: it is here so
+   the tool surface can be built and proved before the authorisation server exists, which is what
+   keeps a fault in one from being mistaken for a fault in the other. Its criteria say so, rather than
+   being written as promises the next slice will break. The tool surface itself is the derived
+   session, the extracted gate, `list_reviews`, `get_overview`, the derived annotations and the audit
+   rows: one row per session and one per call, holding the tool, whether it was held, the level in
+   force and a count, and none of the text that was answered.
+
+3. **The authorisation server, and the end of the bearer token.** A shared secret in an environment
+   variable verifies a caller exactly as well as the permissions on that environment do, and the
+   specification's answer for a caller that should be verified is OAuth 2.1. There is no half of it to
+   adopt: protected resource metadata has to name an authorisation server, and a client is required to
+   refuse one that cannot prove it supports PKCE, so a metadata document describing a server that
+   does not exist is a claim a conformant client will catch. So Caroline becomes both: a resource
+   server that validates the audience of every token and refuses one issued for anything else, and an
+   authorisation server with an authorisation code flow, PKCE, single-use codes, refresh, a consent
+   screen on the Settings surface, and its metadata where the discovery order looks for it. Slice 2's
+   bearer token is removed with it, setting and all rather than left as a dead key, and the
+   consequence is stated rather than softened: a client that cannot do OAuth 2.1 cannot connect. The
+   API's own token is untouched by any of that.
+
+   Dynamic client registration is not built, and for once that is the specification's own advice
+   rather than an argument with it: the revision this implements deprecates it in favour of client
+   identifiers that are URLs, which is a document to fetch and check rather than an endpoint that
+   mints credentials for anything that can reach the port. That fetch is the one place this milestone
+   makes the posture worse rather than better, and it is written down as what it is. Every other
+   outbound destination Caroline has was chosen by the user: GitHub because they made a token, Google
+   because they walked a consent screen, the model because they named it in a file. This one is chosen
+   by whatever is trying to connect, which is a different kind of thing to allow, so spec 09 says so
+   in those words rather than adding a fourth line to a list. It goes over `https`, to an address that
+   is resolved and then checked to be a public one before anything connects to it, under a size cap
+   and a time cap, following no redirect to another host, and only while somebody is at the keyboard
+   approving a client.
+
+Spec 12 is new and states the transport, the authorisation, the tools and the session. Spec 07 gains
+the session as the unit the gate counts in and the one read tool it was missing, spec 09 gains the MCP
+boundary, the request check and the amended outbound rule, spec 08 gains the endpoint and the metadata
+documents that cannot live under `/api`, spec 00 gains the third arrow into the process, and spec 02 is
+unchanged: the review lifecycle already had everything this needed. The payloads published in
+`docs/content-policy.md` gain the MCP boundary at all four levels, generated by the same functions and
+failing the same test on drift, because a promise about what leaves the machine is worth exactly what
+its newest boundary is checked to. No new screenshot: the two surfaces this adds are a label on the
+conversation list and a screen that appears once per client, and the seeded day has no MCP client in
+it, so a shot would mean seeding an approval to photograph it.
+
+Exit: an assistant configured against a running Caroline can capture a task, read the review queue,
+discharge a review and have the board show all three without a refresh; a delete it proposes waits for
+a person; the eleventh task it changes waits with it; the whole run is a conversation that can be read
+back and undone; and with `llmContent: none` it can do all of that while being told nothing but ids.
+The assistant got in by running an authorisation code flow with PKCE against Caroline's own consent
+screen, nothing but a token Caroline issued is accepted on that endpoint, no bearer setting survives
+to suggest otherwise, the endpoint is reachable from no other machine, and a request to any route
+without the token an install has configured is refused wherever it arrives. Spec 12 in full, spec 07
+criterion 14, spec 08 criterion 33, spec 09 criteria 16 to 18, and spec 09 criterion 15 extended to
+the new boundary.
 
 ## Test strategy
 
@@ -492,6 +618,8 @@ assert the behaviour of the removed access token change with it: slice 1 takes o
 | Classification quality is poor at `snippet` | The `classifications` table is the evaluation set; tune the prompt against real corrections before loosening the content policy |
 | Gmail thread churn causes reclassification noise | Content hashing plus the rule that only inbox tasks requeue; watch it in M5 |
 | Scope creep into write-back | Spec 02 and spec 07 both state it as a non-goal, and the chat tool registry enforces it |
+| A protocol revision that moves under us | Revision `2026-07-28` deleted sessions, the handshake and server-initiated requests, and deprecated three features with a stated removal window. The revision Caroline implements is named in spec 12 and asserted in a test, so an upgrade is a decision rather than a drift |
+| The client metadata document fetch as a request forgery surface | It is the first outbound destination a caller rather than the user chooses. Spec 09's outbound rule names it as that kind of thing, and the guards are spec 12 criteria 34 to 39: `https` only, resolve then check then connect to the checked address, size and time caps, no cross-host redirect, and only while somebody is approving a client |
 
 ## Open questions, not blocking
 

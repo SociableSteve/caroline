@@ -23,6 +23,7 @@ spec disagree, one of them is a defect: decide which, fix that one.
 | [09-config-and-security.md](09-config-and-security.md) | Configuration, credentials, data-exposure posture |
 | [10-design-system.md](10-design-system.md) | The scales, primitives and appearance rules the surfaces share |
 | [11-public-site.md](11-public-site.md) | The site that publishes these documents, and how it stays one copy of them |
+| [12-mcp-server.md](12-mcp-server.md) | The tool surface for an external assistant, and how it is authorised |
 | [13-authentication.md](13-authentication.md) | Who may reach Caroline over a network, and how they prove it |
 
 ## Conventions
