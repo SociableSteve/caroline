@@ -430,17 +430,20 @@ and the third is what stops the second from quietly becoming Google-only:
 
 1. **The boundary.** One `onRequest` check registered where every route is registered, and
    `authRequired` derived once from the bind address, `server.publicUrl` and `auth.mode`. Every
-   startup guard: no provider, an empty allowlist or a missing public URL where authentication is
-   required refuses to start, and an `http` public URL off loopback is refused with no override. The
+   startup guard: no provider or an empty allowlist where authentication is required refuses to
+   start, a missing public URL refuses where the bind is not loopback, and an `http` public URL off
+   loopback is refused with no override. A loopback install that asks for a login needs no public
+   URL, because its redirect URI is the loopback address it is already listening on. The
    forwarded-header refusal, which turns a proxy in front of a loopback bind from a silent
    misconfiguration into a message naming the setting. `server.accessToken` removed outright, with
-   `CAROLINE_ACCESS_TOKEN` failing loudly rather than being ignored. Spec 13 criteria 1 to 8, spec
-   09 criterion 7 as amended. A loopback install behaves exactly as it does today, which is every
-   install that exists.
+   `CAROLINE_ACCESS_TOKEN` failing loudly rather than being ignored, as a runtime check so that
+   `npm run delete-data` still runs. Spec 13 criteria 1 to 8, 31 and 32, spec 09 criterion 7 as
+   amended. A loopback install behaves exactly as it does today, which is every install that
+   exists.
 2. **The provider and the session.** OIDC discovery fetched lazily and cached, the authorization
    code flow with PKCE, identity token claim validation, the mandatory allowlist and subject
    pinning, the `sessions` table and migration `0011-sessions.ts`, the cookie, logout, the Origin
-   check, the login screen, and what revocation does to the change feed and to a chat turn already
+   check that applies where authentication is required, the login screen, and what revocation does to the change feed and to a chat turn already
    streaming. Spec 13 criteria 9 to 26, spec 09 criteria 16 and 17, spec 08 criteria 33 to 35.
 3. **The second provider, proven.** A fixture-driven run of the whole flow against a second
    provider's recorded discovery document and token response, with no code change, and a
