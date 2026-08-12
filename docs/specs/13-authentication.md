@@ -77,35 +77,73 @@ quietly serving, and there is no half-open state to reason about later.
 | No provider configured (`auth.provider.clientId` null) | There would be no way to log in, so the instance would be exposed and unusable at once |
 | `auth.allow` empty | The provider will authenticate anybody with an account there. An empty allowlist on an exposed instance is no authentication at all, with ceremony |
 | `server.publicUrl` unset, **where `server.host` is not loopback** | The redirect URI cannot be derived, and Caroline would have to guess its own outside address |
-| `server.publicUrl` scheme not `https`, where its host is not loopback | A session cookie over plaintext is the exact failure this spec exists to prevent |
+| `server.publicUrl` scheme not `https`, unless **both** its host and `server.host` are loopback | A session cookie over plaintext is the exact failure this spec exists to prevent |
 
 The public URL is demanded by the **bind**, not by `authRequired`. That distinction is the whole
 reason rule 3 exists rather than being dead configuration. A loopback install that wants a login
 needs no outside address: its redirect URI is `http://127.0.0.1:<port>`, built from the bind and
-the port it is already listening on, which RFC 8252 makes a valid loopback redirect URI. Tying
+the port it is already listening on (bracketed where the bind is an IPv6 literal, as below), which
+RFC 8252 makes a valid loopback redirect URI. Tying
 the demand to `authRequired` instead would close a circle where rule 2 makes authentication
 required because the public URL is set and the refusal makes the public URL mandatory because
 authentication is required, leaving no configuration in which rule 3 changes anything.
 
-The configurations that follow, one row per shape. Three of them run, and each of the three is
-reachable:
+The configurations that follow, one row per shape. `authRequired` and whether the process starts are
+separate columns because they are separate facts, and the start column reports only what the shape
+itself decides. The three refusals that are orthogonal to the shape (no client id, an empty
+allowlist, and a public URL that is not `https` where either the bind or the URL's host is not
+loopback) apply on top, to every row whose `authRequired` is true.
 
-| Bind | `server.publicUrl` | `auth.mode` | Outcome | Redirect URI derived from |
-| --- | --- | --- | --- | --- |
-| loopback | unset | `auto` | `authRequired` false | not needed, there is no login |
-| loopback | unset | `required` | `authRequired` true | the loopback bind and port, over `http` |
-| either | set | either | `authRequired` true | `server.publicUrl` |
-| not loopback | unset | either | refuses to start | |
+| Bind | `server.publicUrl` | `auth.mode` | `authRequired` | Starts, on this shape alone | Redirect URI derived from |
+| --- | --- | --- | --- | --- | --- |
+| loopback | unset | `auto` | false | yes, and nothing further is required of it | not needed, there is no login |
+| loopback | unset | `required` | true | yes | the loopback bind and port, over `http` |
+| loopback | set | either | true | yes, and this is the only shape in which an `http` public URL is accepted, and then only where its host is loopback too | `server.publicUrl` |
+| not loopback | set | either | true | yes, where the public URL is `https` | `server.publicUrl` |
+| not loopback | unset | either | true | no: the redirect URI cannot be derived | |
 
-**The public origin**, where this spec uses the term, is the origin of `server.publicUrl` where
-it is set, and the loopback origin the process is bound to (`http://<host>:<port>`) where it is
-not. Where `authRequired` is false there is no public origin, because nothing derives a redirect
-URI or checks an `Origin` header.
+Four of the five shapes run, three of them with a login, and each of those three is reachable.
+
+**The public origin**, where this spec uses the term, is the origin of `server.publicUrl` where it is
+set, and the origin the process is bound to where it is not: `http://<host>:<port>`, with the host in
+brackets where it is an IPv6 literal, because that is what an IPv6 address in a URL requires. A bind
+on `::1` therefore gives `http://[::1]:5123` and one on `::ffff:127.0.0.1` gives
+`http://[::ffff:127.0.0.1]:5123`, while `127.0.0.1` and `localhost` give the unbracketed form. Where
+`authRequired` is false there is no public origin, because nothing derives a redirect URI or checks
+an `Origin` header.
+
+**The acceptable origins** are a set rather than that one string, and what the set contains depends
+on where the public origin came from.
+
+- **Where `server.publicUrl` is set**, the set is exactly its origin. An operator who declares an
+  outside address has said which origin a browser reaches Caroline at, and there is no second one.
+- **Where it is not**, the bind is loopback (every other bind refuses to start without a public URL),
+  and the set is **every loopback origin**: any origin whose host is in the loopback set above, on
+  any port and on either scheme. `http://localhost:5123` and `http://127.0.0.1:5173` are as
+  acceptable as the exact string the bind happened to use. The public origin remains one string, and
+  it is still the only thing a redirect URI is derived from: it is the comparison that widens, not
+  the derivation.
+
+The second of those is a decision on the merits rather than a convenience. Every loopback origin
+reaches this one socket, so none of them is a different security context from another: whoever can
+open `http://localhost:5123` can open `http://127.0.0.1:5123`, and the Vite dev server on a port of
+its own proxies to that same socket while the browser sits on the dev port. Privileging the exact
+bind string would refuse a write from `http://localhost:5123` while serving the identical write from
+`http://127.0.0.1:5123`, a distinction neither the browser nor the person makes, and it would refuse
+the login itself on the one configuration a loopback login exists for. What the set does not do is
+grow beyond loopback: a public URL narrows it to one origin, which is the case where the distinction
+between origins is real.
 
 There is deliberately no override for the `https` rule. A Tailscale or VPN-only deployment can
 terminate TLS itself, and an override flag for this is the flag that gets pasted out of a forum
-post into a public deployment. A loopback public URL may be `http`, because there is no network
-between the browser and the socket to protect.
+post into a public deployment. A public URL may be `http` only where its host is loopback **and**
+`server.host` is loopback, because only then is there no network between the browser and the socket to
+protect. The bind is half of that test rather than a redundant extra: `server.host: "0.0.0.0"` with
+`server.publicUrl: "http://127.0.0.1:5123"` is refused, because the URL's host says nothing about who
+can reach the socket, and rule 1 above is the reason. Without the bind in the test that configuration
+would satisfy every row of the table and then issue a plaintext session cookie on a socket the
+network can reach, which is the exact outcome the row above calls the failure this spec exists to
+prevent.
 
 **Every refusal this spec adds is a runtime check**, in `load.ts`'s existing sense of the word:
 a check about running rather than about the configuration being well formed, so it is skipped
@@ -143,7 +181,7 @@ route. A boundary remembered per route is a boundary somebody forgets, and the r
 already centralised for exactly this reason: spec 08 criterion 1's test walks it so a route
 cannot slip past by living somewhere the test does not look.
 
-Exempt, and the exemption list is itself asserted:
+Exempt from this check, and the exemption list is itself asserted:
 
 - `GET /api/auth/status`, `POST /api/auth/login` and `GET /api/auth/callback`. A login flow
   cannot require a session.
@@ -155,6 +193,14 @@ Not exempt, deliberately: `GET /api/health`. It names the version and which inte
 configured, and a liveness probe is served just as well by a 401 as by a 200. A monitor that
 genuinely needs a 200 wants a route that says nothing but "ok", and that can be added when
 somebody asks for it.
+
+The exemption is from the session check and from nothing else. The `Origin` check below is a separate
+mechanism and it applies to `POST /api/auth/login` and `POST /api/auth/logout` like any other write.
+That works because the login is started from a page the browser already has open at an acceptable
+origin: the public origin on an exposed install, and any loopback origin on a loopback one. Both
+halves matter. A login flow cannot require a session, so the session check has to let it through; a
+login flow is started by a browser that has an origin, so the `Origin` check does not have to let it
+through, and the acceptable set is what makes that true rather than an exemption.
 
 ## Who is allowed in
 
@@ -181,7 +227,12 @@ authorization decision is Caroline's alone, and it is an allowlist.
   happens to share a string with a Workspace one, from inheriting the instance. It is the small
   amount of trust on first use worth having, and it is recorded rather than assumed: the
   allowlist is the thing a human can write down, and `sub` is the thing that is actually
-  stable.
+  stable. **The pin lives in the existing `settings` table**, one row per allowlist entry that has
+  been matched, keyed by the entry. It cannot live in a `sessions` row, because a pin has to outlive
+  logout and expiry and a session row is the thing that goes away; and it needs no table of its own,
+  because `settings` is a key-value table whose own reason for existing is facts about the person
+  rather than about the deployment, and whose comment says the next setting is a row rather than a
+  migration. So migration `0011-sessions.ts` remains the only schema change this spec makes.
 
 An allowlist rather than claim-on-first-login, because the window between deploying an exposed
 instance and logging into it for the first time is a window in which whoever gets there first
@@ -192,14 +243,19 @@ entirely.
 
 An opaque random value in a cookie, with a row in a new `sessions` table.
 
-- **Value.** 32 bytes of `randomBytes`, base64url, from the same helper the existing OAuth
-  state uses. The database stores only its SHA-256 hash, so the file holds nothing that can be
+- **Value.** 32 bytes of `randomBytes`, encoded base64url with `Buffer.toString('base64url')`, in a
+  helper of its own under `src/auth/`. That is the same encoding the Google data client's OAuth state
+  uses and deliberately not the same code: the `base64Url` function there is module-private, and it
+  is in the client whose reuse this spec discourages everywhere else. Nor is it the same size: that
+  state is 16 bytes where this is 32. The database stores only its SHA-256 hash, so the file holds nothing that can be
   presented as a session. That is not encryption at rest, which spec 09 rules out. It is not
   storing the credential in the first place.
 - **Cookie attributes.** `HttpOnly`, `SameSite=Lax`, `Path=/`, no `Domain`. `Secure` and the
   `__Host-` prefix whenever the public origin is `https`, and neither where it is `http`, because
   a browser refuses a `__Host-` cookie without `Secure` and a loopback `http` deployment would
-  simply not work. `Max-Age` is set from the idle window so the browser
+  simply not work. An `http` public origin is possible only where both the bind and the public URL's
+  host are loopback, which is what keeps this from being a plaintext cookie on a socket the network
+  can reach. `Max-Age` is set from the idle window so the browser
   forgets it too, but the row is the authority.
 - **A cookie rather than a bearer header.** `EventSource` cannot set a request header, and the
   change feed is opened with it. A header-only scheme would mean either a credential in a URL,
@@ -229,7 +285,8 @@ writing down why they are sufficient rather than asserting that they are.
 2. No response on any route carries a CORS header, ever. So even where a foreign page can cause
    a request, it cannot read the answer.
 3. **Where `authRequired` is true**, any request whose method is not `GET` or `HEAD`, and whose
-   `Origin` header is present and is not the public origin, is refused before it reaches a route.
+   `Origin` header is present and is not one of the acceptable origins, is refused before it reaches
+   a route.
    That closes the cases where a browser sends the cookie on a same-site-but-not-same-origin
    request, and it is a check on a header the browser sets rather than on one the caller chooses
    to be believed about.
@@ -240,6 +297,13 @@ browsers do send `Origin` on same-origin writes, including from the Vite dev ser
 its own. An unscoped check would refuse every write on every loopback install, which is every
 install that exists. So where authentication is not required, no `Origin` check is applied at
 all. The forwarded-header refusal is the check that surface does get, and it is a different one.
+
+The dev server is also why a loopback install's acceptable origins are every loopback origin rather
+than the one string the bind used. `auth.mode: "required"` turns the check on with the bind still on
+loopback, so scoping the check to `authRequired` is not on its own enough: a check comparing against
+the exact bind string would refuse the dev server on that configuration, and would refuse the login
+being started from `http://localhost:<port>`, which is the same failure moved one configuration
+along. The scope and the set are two halves of one answer.
 
 The SPA is same-origin, so nothing about it changes. A CSRF token would add a mechanism, a
 second endpoint and a client-side store for a case those three already cover.
@@ -391,7 +455,7 @@ each of them takes a restart, as spec 09 says of the file generally.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `server.publicUrl` | `null` | The URL the browser reaches Caroline at. Setting it makes authentication required, and the redirect URI is derived from it. Required where the bind is not loopback, and only there |
+| `server.publicUrl` | `null` | The URL the browser reaches Caroline at. Setting it makes authentication required, and the redirect URI is derived from it. Required where the bind is not loopback, and only there. Must be `https` unless both its host and `server.host` are loopback |
 | `auth.mode` | `"auto"` | `auto` derives the boundary from the bind and the public URL. `required` demands a session on a loopback bind as well, and needs no public URL to do it |
 | `auth.allow` | `[]` | Allowed identities: an email address, or `sub:<value>`. At most 20 entries, each at most 320 characters, the same bounds `integrations.google.calendarIds` carries. Required and non-empty wherever authentication is required |
 | `auth.sessionIdleDays` | `7` | Rolling idle window, in days. At least 1, at most 30 |
@@ -513,7 +577,8 @@ into that state rather than retrying, which is the one client-side rule this spe
 
 - Multi-user accounts, roles or scopes, and any per-identity separation of data.
 - TLS termination. That is the reverse proxy's job, and it is why `server.publicUrl` must be
-  `https` off loopback rather than why Caroline should learn to hold a certificate.
+  `https` wherever either it or the bind is not loopback, rather than why Caroline should learn to
+  hold a certificate.
 - Local passwords, or any credential Caroline itself issues to a human.
 - MFA. That is the provider's job, and delegating login is how Caroline gets it.
 - Rate limiting and lockout.
@@ -533,8 +598,9 @@ into that state rather than retrying, which is the one client-side rule this spe
 ## Acceptance criteria
 
 Numbered by slice: 1 to 8 are the boundary, 9 to 26 are the provider and the session, 27 to 30
-are the second provider. 31 and 32 are appended, and belong to slice 1: criteria are appended and
-never renumbered, because the code and the suite cite them by number.
+are the second provider. 31 and 32 are appended and belong to slice 1, and 33 and 34 are appended and
+belong to slice 2: criteria are appended and never renumbered, because the code and the suite cite
+them by number.
 
 **Slice 1: the boundary.**
 
@@ -548,15 +614,20 @@ never renumbered, because the code and the suite cite them by number.
    `auth.allow` empty, and `server.publicUrl` unset where `server.host` is not loopback. A
    loopback bind with no `server.publicUrl` does not fail for want of one.
 4. `server.publicUrl` set makes authentication required whatever the bind address is, and a
-   public URL whose scheme is not `https` fails at startup unless its host is loopback. Each
-   asserted separately.
+   public URL whose scheme is not `https` fails at startup unless **both** its host and `server.host`
+   are loopback. Each asserted separately, and the case the bind half of that test exists for is
+   asserted by name: `server.host: "0.0.0.0"` with `server.publicUrl: "http://127.0.0.1:5123"` fails
+   at startup rather than starting and issuing a cookie without `Secure`.
 5. `0.0.0.0` and `::` count as non-loopback, and on such a bind a request arriving over loopback
    still requires a session.
 6. With authentication not required, a request carrying `X-Forwarded-For` or `Forwarded` is
    answered 400 with a message naming `server.publicUrl`. Separately, no forwarded header is read
    for any other decision on any path, and Fastify's `trustProxy` is off: asserted by inspecting
    the source under `src/server/` for either header name and for `trustProxy`, in the style of
-   `test/chat/registry.test.ts`.
+   `test/chat/registry.test.ts`. The occurrences the inspection may find are enumerated, as they are
+   in criterion 7: for the two header names, the refusal's own guard and the message it builds, and
+   nothing else; for `trustProxy`, exactly one, an explicit `trustProxy: false` in the Fastify options
+   in `buildServer`, which is written out to be legible rather than because the default differs.
 7. `CAROLINE_ACCESS_TOKEN` in the environment fails at startup, naming the variable and what
    replaced it. Separately, `server.accessToken` in the configuration file fails as it always did.
    Separately again, no code reads either value for any decision, asserted by inspecting the source
@@ -577,7 +648,8 @@ never renumbered, because the code and the suite cite them by number.
     is not. It carries no client secret and no PKCE verifier.
 11. The discovery document is fetched on the first login attempt and never at startup or on a
     schedule, is cached thereafter, and a provider that cannot be reached is reported to the
-    login screen as unreachable rather than as an internal error.
+    login screen as unreachable rather than as an internal error. Each of the three asserted
+    separately.
 12. A discovery document is refused with a message naming what was wrong in each of these cases,
     each asserted separately: no authorization endpoint, no token endpoint, an `issuer` differing
     from the configured one, either endpoint not `https`, and
@@ -593,10 +665,14 @@ never renumbered, because the code and the suite cite them by number.
 16. An identity that is not on `auth.allow` is refused: no session, a 403 whose body names no
     address, and a log line recording that a login was refused and for which subject.
 17. The first successful login pins the id_token's `sub` to the allowlist entry it matched, and a
-    later login matching that entry with a different subject is refused.
+    later login matching that entry with a different subject is refused. The pin is a `settings` row
+    keyed by the allowlist entry, so it survives logout, the expiry of every session and a restart:
+    asserted by refusing that later login after the first session has been revoked and the process
+    restarted.
 18. The session cookie is `HttpOnly`, `SameSite=Lax` and `Path=/` with no `Domain`, carries
     `Secure` and the `__Host-` prefix whenever the public origin is `https`, and carries neither
-    where it is `http`, which is the loopback case.
+    where it is `http`, which is reachable only where both the bind and the public URL's host are
+    loopback, per criterion 4.
 19. The `sessions` row holds a hash of the session value and never the value, asserted by
     searching the database file for the value handed to the browser.
 20. A session expires at the idle window or at the absolute cap, whichever is sooner, and an
@@ -609,10 +685,15 @@ never renumbered, because the code and the suite cite them by number.
     recorded, so reloading the conversation shows it complete. This is spec 08 criterion 7 under
     revocation.
 24. Where authentication is required, a request whose method is not `GET` or `HEAD` and whose
-    `Origin` is present and is not the public origin is refused before it reaches a route. Where
-    authentication is not required, no request is refused on account of its `Origin`, whatever its
-    method, including one carrying a different port's origin as the dev server sends. Asserted
-    separately, and separately again: no response on any route carries a CORS header.
+    `Origin` is present and is not one of the acceptable origins is refused before it reaches a route.
+    The acceptable set depends on the configuration, and each half is asserted separately: where
+    `server.publicUrl` is set it is exactly that URL's origin, and any other origin is refused; where
+    it is not set, and the bind is therefore loopback, every loopback origin on any port is accepted,
+    so a write carrying `http://localhost:<port>` or the dev server's port is served while one
+    carrying a non-loopback origin is refused. Where authentication is not required, no request is
+    refused on account of its `Origin`, whatever its method, including one carrying a different port's
+    origin as the dev server sends. Asserted separately, and separately again: no response on any
+    route carries a CORS header.
 25. No session value, authorization code, id_token or client secret appears in any log line or
     response body, and `GET /api/config` returns the `auth` block with `clientSecret` redacted by
     `secretPaths` and everything else present.
@@ -646,3 +727,22 @@ never renumbered, because the code and the suite cite them by number.
     the server would refuse to start on still loads, and `npm run delete-data` runs on it,
     including with `CAROLINE_ACCESS_TOKEN` set in the environment. The ban on
     `server.accessToken` in the configuration file still applies with `runtimeChecks` false.
+
+**Appended, and belonging to slice 2.**
+
+33. On the configuration criterion 31 makes reachable, a loopback bind with `auth.mode: "required"`
+    and no `server.publicUrl`, a login can be **completed** and not merely required. A
+    `POST /api/auth/login` carrying `Origin: http://localhost:<port>`, which is not the string the
+    bind used, is answered with an authorization URL rather than refused; the callback it leads to
+    sets the session cookie; and the next request to a gated route carrying that cookie is served
+    rather than answered 401. Asserted separately, the same `POST /api/auth/login` carrying a
+    loopback origin on a different port, as the Vite dev server sends, is answered the same way. This
+    criterion exists because criteria 24 and 31 were each right on their own while together they
+    left a configuration in which the login could not be started, and asserting a 401 is not
+    asserting that a login works.
+34. Every origin this spec derives from a bind is a well-formed URL for every host in the loopback
+    set, and so is the redirect URI derived from it: `::1` gives `http://[::1]:<port>` and
+    `::ffff:127.0.0.1` gives `http://[::ffff:127.0.0.1]:<port>`, with the brackets an IPv6 literal in
+    a URL requires, while `127.0.0.1` and `localhost` give the unbracketed form. Asserted by parsing
+    what was derived and comparing the parsed origin, so a string that only looks right does not
+    pass.

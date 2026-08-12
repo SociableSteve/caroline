@@ -431,8 +431,10 @@ and the third is what stops the second from quietly becoming Google-only:
 1. **The boundary.** One `onRequest` check registered where every route is registered, and
    `authRequired` derived once from the bind address, `server.publicUrl` and `auth.mode`. Every
    startup guard: no provider or an empty allowlist where authentication is required refuses to
-   start, a missing public URL refuses where the bind is not loopback, and an `http` public URL off
-   loopback is refused with no override. A loopback install that asks for a login needs no public
+   start, a missing public URL refuses where the bind is not loopback, and an `http` public URL is
+   refused unless both the bind and the URL's own host are loopback, with no override. A plaintext
+   public URL is keyed to the bind as well as to its own host because the URL's host says nothing
+   about who can reach the socket. A loopback install that asks for a login needs no public
    URL, because its redirect URI is the loopback address it is already listening on. The
    forwarded-header refusal, which turns a proxy in front of a loopback bind from a silent
    misconfiguration into a message naming the setting. `server.accessToken` removed outright, with
@@ -442,9 +444,12 @@ and the third is what stops the second from quietly becoming Google-only:
    exists.
 2. **The provider and the session.** OIDC discovery fetched lazily and cached, the authorization
    code flow with PKCE, identity token claim validation, the mandatory allowlist and subject
-   pinning, the `sessions` table and migration `0011-sessions.ts`, the cookie, logout, the Origin
-   check that applies where authentication is required, the login screen, and what revocation does to the change feed and to a chat turn already
-   streaming. Spec 13 criteria 9 to 26, spec 09 criteria 16 and 17, spec 08 criteria 33 to 35.
+   pinning as a `settings` row, which is why `0011-sessions.ts` is the only migration this milestone
+   adds, the cookie, logout, the Origin check that applies where authentication is required and
+   accepts any loopback origin where the install is on loopback, the login screen, and what
+   revocation does to the change feed and to a chat turn already
+   streaming. Spec 13 criteria 9 to 26, 33 and 34, spec 09 criteria 16 and 17, spec 08 criteria 33 to
+   35.
 3. **The second provider, proven.** A fixture-driven run of the whole flow against a second
    provider's recorded discovery document and token response, with no code change, and a
    source-inspection test that refuses a Google host, endpoint or non-standard claim under
