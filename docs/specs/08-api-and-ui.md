@@ -32,6 +32,16 @@ both validation and typing. Errors follow one shape: `{ error: { code, message, 
 | `GET /api/config` | Read the effective configuration, secrets redacted. Read-only: nothing in `caroline.config.json` is written back from the UI, per spec 09 |
 | `GET /api/settings`, `PATCH /api/settings` | The settings the person owns rather than the deployment: today, the name Caroline addresses them by (spec 09) |
 | `GET /api/health` | Process, database, per-integration configured and last-run status |
+| `GET /api/auth/status` | Whether authentication is required, whether this request has a session, and the provider's label (spec 13). Public |
+| `POST /api/auth/login` | Starts the login flow and answers with the provider's authorization URL. Public |
+| `GET /api/auth/callback` | The provider's redirect: exchanges the code, checks the identity, sets the cookie. Public |
+| `POST /api/auth/logout` | Revokes the session and clears the cookie |
+
+Where authentication is required, the API is gated in one place: a single request-level check over
+the registered route list, with the three public auth routes above as its only exceptions (spec 13).
+`GET /api/health` is not one of them, because it names the version and which integrations are
+configured. Nothing outside `/api` is gated, because the SPA shell holds no user content and serving
+it is what lets the login screen be a state of the client.
 
 Server-sent events are used for chat streaming and for a lightweight change feed the UI
 subscribes to, so a background job's results appear without a refresh.
@@ -311,3 +321,11 @@ The details panel adds the following, appended for the same reason.
     been deleted is not clickable.
 32. A link into a project's drill-in, and the link back out of it, each keep whatever the rail is
     doing, so an open conversation and an open item both survive the move in either direction.
+
+Authentication (spec 13) adds the following, appended for the same reason.
+
+33. The login screen is what the shell renders when the API says the request is unauthenticated,
+    and it is not a surface: the navigation still lists five, and no auth route resolves in the
+    hash.
+34. A deep link followed while unauthenticated returns to that same hash once the login succeeds.
+35. A 401 from any call puts the app into the login state rather than retrying the call.

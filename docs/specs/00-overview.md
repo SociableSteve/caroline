@@ -70,7 +70,9 @@ system to be worth running.
 
 - Writing back to GitHub, Gmail or Calendar. Caroline reads. A later version may apply
   Gmail labels, and the ingestion spec keeps that door open, but v1 does not.
-- Multi-user or hosted operation. No tenancy, no per-user OAuth brokering.
+- Multi-user or hosted operation. No tenancy, no per-user OAuth brokering. A single-user instance
+  reachable over a network is supported, and spec 13 is what makes it safe: one person logs in and
+  proves they own the instance. What remains a non-goal is tenancy, not exposure.
 - Mobile or native clients.
 - Full GTD orthodoxy: no contexts, no weekly-review workflow, no tickler file beyond a
   deferred date on a task.

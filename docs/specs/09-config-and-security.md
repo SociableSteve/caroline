@@ -171,6 +171,14 @@ mailbox, and it is answered by the same `llmContent` level.
   screen can say what went wrong, which is safe because it comes from a fixed vocabulary and the
   screen maps it to a sentence of its own rather than rendering it.
 - **GitHub**: a fine-grained personal access token, read-only, from the environment.
+- **The login provider**: a client id in the configuration file and a client secret from the
+  environment only, as `CAROLINE_AUTH_CLIENT_SECRET`, in the same three lists as every other
+  configured secret so that one entry covers `GET /api/config` and every log line (spec 13). It is
+  a second client, distinct from the Google client the Gmail and Calendar integration uses,
+  because a login needs a registered `https` redirect and no mail scopes.
+- **The browser session**: an opaque value held by the browser in a cookie and stored only as a
+  hash in the database, so the file holds nothing that can be presented as a session. It is
+  removed by `npm run delete-data` because it is in the database that command deletes.
 - **LLM keys**: environment variables only. A key present in the config file is a startup
   error.
 - Secrets are redacted in API responses, logs and error messages. A test asserts that no
@@ -198,11 +206,20 @@ concern.
 
 ## Network posture
 
-- Binds to `127.0.0.1` by default. Binding to any other interface requires setting an
-  access token, enforced at startup, because the UI has no login.
+- Binds to `127.0.0.1` by default. On loopback the socket is the boundary and nothing is
+  required of a caller.
+- Binding to any other interface, declaring a `server.publicUrl`, or asking for a login
+  explicitly requires authentication: a person proves who they are to an identity provider
+  before anything answers (spec 13). It is enforced by one request-level check covering every
+  registered route, and a configuration that would expose Caroline without a login refuses to
+  start. There is no shared-secret alternative, and `server.accessToken` is gone: a secret in an
+  environment variable identifies nobody and cannot be revoked without a restart.
 - No inbound webhooks. All integration traffic is outbound polling (spec 02).
-- Outbound destinations are limited to the configured providers: GitHub, Google and the
-  configured LLM endpoint. No telemetry, no analytics, no crash reporting.
+- Outbound destinations are limited to destinations the user named in the configuration:
+  GitHub, Google, the configured LLM endpoint, and the identity provider's discovery document
+  and token endpoint (spec 13). The identity provider belongs on that list for the same reason
+  the LLM endpoint does: `auth.provider.issuer` is written by the user in the configuration file,
+  exactly as `llm.baseUrl` is. No telemetry, no analytics, no crash reporting.
 
 ## Configuration mechanics
 
@@ -257,7 +274,10 @@ Two decisions about it:
    the count.
 5. Content older than `retainContentDays` is purged while its source row and task survive.
 6. No secret value appears in any log line, API response or error message.
-7. Binding to a non-loopback address without an access token fails at startup.
+7. Binding to a non-loopback address without authentication configured fails at startup, naming
+   the settings involved. The claim is the one this criterion has always made, that a
+   non-loopback bind must not be unprotected; what satisfies it is a login rather than a shared
+   token (spec 13).
 8. `GET /api/config` returns the full effective configuration with every secret field
    redacted.
 9. The settings screen can show the exact payload that would be sent for a given real item
@@ -287,3 +307,13 @@ Two decisions about it:
     the code is worse than no example. None of them carries an address or anything shaped like a key.
     The same document's block of privacy defaults is generated from the schema that declares them and
     checked the same way, so no default in it is a second copy anybody maintains.
+
+Authentication (spec 13) adds the following, appended rather than renumbered because criterion
+numbers are cited by the code and the suite.
+
+16. With authentication required, no route under `/api` other than the three public auth routes is
+    served to a request carrying no valid session, asserted over the registered route list rather
+    than route by route.
+17. No value belonging to the login flow or to a session appears in any log line or response body,
+    on any path: neither the session value, nor the authorization code, nor the identity token, nor
+    the provider's client secret.
