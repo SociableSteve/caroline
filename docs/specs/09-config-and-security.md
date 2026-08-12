@@ -44,6 +44,22 @@ provider is disclosure to a third party. Storing it is a local retention decisio
   `allowFullContentToRemoteProvider: true`. Without it, startup fails with an explanation
   rather than quietly downgrading. With Ollama, `isLocal` is true and the guard does not
   apply.
+- **An MCP client counts as a remote provider whatever `llm.provider` says**, so `llmContent:
+  "full"` with the MCP server enabled requires `allowFullContentToRemoteProvider: true` as
+  well, `ollama` included, and startup fails naming all three settings otherwise. The guard is
+  otherwise checked against the configured provider's `isLocal`, which is true only for Ollama;
+  somebody running Ollama therefore has `llmContent: "full"` with the flag off legitimately,
+  and that is safe today because nothing leaves the machine. Enable an MCP server and complete
+  bodies can leave through a client whose model Caroline cannot see and has no way to ask
+  about, so the local-model exemption has lost its premise on that surface rather than been
+  withdrawn arbitrarily. Spec 12 owns the surface.
+- **The MCP surface is this same boundary reached through a different port.** `llmContent`
+  governs every MCP tool response, by the same functions that answer for chat, and there is no
+  second dial: this level names how much of an item may be given to a language model, and the
+  destination on both sides is a language model. Two dials would raise which one governs when
+  the chat provider and the MCP client are the same model. At `none` an MCP client is answered
+  ids and a withholding sentence and is close to useless, which is what the level means rather
+  than an exception to carve. Nothing about the person is sent over MCP at all: see below.
 - Changing `storeContent` to a lower level purges content already stored above that level
   on the next run, and says how many rows it cleared. Each source row records the level its
   body was written at, because the text cannot say which it is: three hundred characters may be
@@ -81,6 +97,14 @@ provider is disclosure to a third party. Storing it is a local retention decisio
   model is told about the held operation is a send boundary, and at `none` the operation is named by the
   arguments the model itself supplied. The same holds for the summary recorded against a change for the
   transcript's undo control.
+
+  **That reason is also why elicitation is refused over MCP.** The protocol offers a way to ask the user
+  a question through their own client's interface, which looks like the obvious way to confirm a delete.
+  It is not: the exemption above exists because the card is rendered on the user's own screen from their
+  own database, and asking through the client would push that text out through the client, turning the
+  one thing exempt from this policy into a disclosure. So a confirmation is decided on Caroline's own
+  screen whichever caller proposed the operation. Written down here rather than left to a later reader
+  to take for an oversight.
 - `retainContentDays` purges stored `content` older than the window on a daily job. Source
   rows, tasks and metadata survive; only the body text is dropped. Age is measured from when
   the body was written, not from when the item was last seen: a thread still in the inbox is
@@ -121,6 +145,11 @@ its rationales were already in the second person without having been told who th
 - **An empty name is a supported state, not an error.** Somebody who would rather not be addressed by
   name says so by clearing the field, and the preamble then omits that sentence entirely rather than
   greeting nobody. Nothing about the person is sent in that case.
+- **Nothing about the person goes over MCP, whatever the name is set to.** The preamble is a system
+  prompt Caroline writes, and Caroline does not write an external client's, so the two facts in it have
+  nowhere to go on that surface and are not sent. Stated rather than left as an accident of the
+  transport, because it is a guarantee somebody may want to rely on: the MCP surface sends nothing about
+  the person, only about the work.
 
 ## The item sent as context
 
@@ -181,6 +210,16 @@ mailbox, and it is answered by the same `llmContent` level.
   removed by `npm run delete-data` because it is in the database that command deletes.
 - **LLM keys**: environment variables only. A key present in the config file is a startup
   error.
+- **The tokens Caroline issues** to an MCP client (spec 12): in the database rather than in a
+  file or the configuration, registered as runtime secrets through the same mechanism Google's
+  access and refresh tokens use, so the guarantee below covers values that arrive after startup
+  as well as configured ones, and removed by `npm run delete-data` because they are in the
+  database it deletes. In the finished surface there is no static MCP token at all: a token
+  Caroline issued through the authorisation code flow is the only credential it accepts. Spec 12's
+  second slice has one for as long as it takes to build the surface before the authorisation
+  server exists, and it follows the rule above rather than making an exception to it:
+  `mcp.accessToken` comes from `CAROLINE_MCP_ACCESS_TOKEN` and from nowhere else, naming it in the
+  config file is a startup error like any other secret, and spec 12's third slice deletes it.
 - Secrets are redacted in API responses, logs and error messages. A test asserts that no
   configured secret value appears in any log line or HTTP response body.
 - Redaction matches secret values literally, and runs on values before anything encodes
@@ -214,12 +253,40 @@ concern.
   registered route, and a configuration that would expose Caroline without a login refuses to
   start. There is no shared-secret alternative, and `server.accessToken` is gone: a secret in an
   environment variable identifies nobody and cannot be revoked without a restart.
+- **The MCP endpoint is off by default (`mcp.enabled`, false), loopback only and enforced at
+  startup: enabling it with `server.host` set to anything but loopback fails naming both keys**, and
+  from spec 12's third slice the only
+  credential it accepts is a token Caroline issued through its own authorisation code flow with
+  PKCE. `Origin` is validated with a `403` and `Host` is validated against DNS rebinding,
+  because loopback is not a boundary against other software on the machine and a page in the
+  user's own browser can be made to POST to `127.0.0.1`. Spec 12 owns that surface. It is a
+  second boundary rather than a relaxation of this one: nothing about it makes a routable bind
+  more sensible than it was, and it is a second credential rather than a reopening of the one
+  spec 13 removed: an MCP token is issued by Caroline, scoped to one client, and revocable
+  without a restart, which is what `server.accessToken` never was.
 - No inbound webhooks. All integration traffic is outbound polling (spec 02).
 - Outbound destinations are limited to destinations the user named in the configuration:
   GitHub, Google, the configured LLM endpoint, and the identity provider's discovery document
   and token endpoint (spec 13). The identity provider belongs on that list for the same reason
   the LLM endpoint does: `auth.provider.issuer` is written by the user in the configuration file,
-  exactly as `llm.baseUrl` is. No telemetry, no analytics, no crash reporting.
+  exactly as `llm.baseUrl` is. One further destination is permitted, and only while a person is
+  approving an MCP client: that client's metadata document. No telemetry, no analytics, no crash
+  reporting.
+
+  **That last one is a different kind of entry, not one more line of a list.** The named
+  providers are destinations **the user** chose: GitHub because they made a token, Google
+  because they walked a consent screen, the LLM endpoint and the identity provider because they
+  named them in a file. A client metadata document is at a URL **a caller** supplied, which
+  makes it the first outbound destination in Caroline's history that the user did not choose,
+  and a request forgery surface. It is permitted because the alternative was the registration
+  endpoint the MCP specification now deprecates, and it is permitted only under the guards spec
+  12 states as criteria: `https` only; the address resolved, then checked to be a public one,
+  then connected to as resolved, so that a DNS answer cannot smuggle a private address past the
+  check and a second resolution cannot substitute one; a size cap enforced while reading; a time
+  cap on the whole fetch; no redirect followed to another host; and no fetch at all outside an
+  authorisation request somebody is at the keyboard for. Anything else of this kind has to make
+  the same argument from scratch. This entry is not a precedent for allowing a caller to choose a
+  destination.
 
 ## Configuration mechanics
 
@@ -260,7 +327,13 @@ Two decisions about it:
 - Per-item or per-sender privacy rules, redaction, or PII detection in v1. The policy is
   global. Selective rules are a plausible v2 and would get their own spec.
 - Encryption at rest, secret managers, or OS keychain integration.
-- Audit logging beyond `job_runs`, `classifications` and `llm_calls`.
+- Audit logging beyond `job_runs`, `classifications` and `llm_calls`, with one named exception:
+  the MCP surface records a row per derived session and a row per tool call (spec 12), because
+  chat's disclosures are covered by sitting under an `llm_calls` row and a turn, and over MCP
+  there is no `llm_calls` row at all. Writes there are covered by the change records; reads would
+  otherwise be covered by nothing, and a client could read the whole board and leave no trace.
+  Those rows hold the tool, an arguments digest, whether the call was held, the level and policy
+  version in force and a count of items answered, and never the answered text.
 - Any multi-user access control.
 
 ## Acceptance criteria
@@ -307,6 +380,10 @@ Two decisions about it:
     the code is worse than no example. None of them carries an address or anything shaped like a key.
     The same document's block of privacy defaults is generated from the schema that declares them and
     checked the same way, so no default in it is a second copy anybody maintains.
+    The published payloads cover the MCP tool response at those same four levels, by the same
+    generation and the same drift test: this criterion is extended to that boundary rather than joined
+    by a second one, because the reasoning applies to it at least as strongly, and one criterion
+    covering both boundaries cannot drift apart the way two would.
 
 Authentication (spec 13) adds the following, appended rather than renumbered because criterion
 numbers are cited by the code and the suite.
@@ -317,3 +394,22 @@ numbers are cited by the code and the suite.
 17. No value belonging to the login flow or to a session appears in any log line or response body,
     on any path: neither the session value, nor the authorization code, nor the identity token, nor
     the provider's client secret.
+
+The MCP surface adds the following, appended for the same reason. It had a third, a request-level
+check on `server.accessToken`, written while authentication was still an unwritten milestone: both
+were drafted against the same next free number, and authentication landed first, so 16 and 17 above
+are its and these take the numbers after them. That third criterion is not among them. Spec 13
+criteria 7 and 8 answer the same question differently and better, by removing the token outright and
+putting a session check under `/api` in its place, so there is nothing left for it to assert. It is
+dropped rather than marked superseded, which the convention above permits only because it was never
+merged: no code and no test cites it, and citation is the whole reason the convention exists.
+
+18. With the MCP server enabled, `llmContent: "full"` and `allowFullContentToRemoteProvider: false`,
+    startup fails naming all three settings, whatever `llm.provider` is set to, `ollama` included.
+19. The only outbound destinations the process attempts are the configured providers and, during an
+    authorisation request for an MCP client, that client's metadata document over `https`, to an address
+    resolved and checked to be public before anything connects to it and connected to as resolved, under
+    a size cap enforced while reading and a time cap on the whole fetch, following no redirect to another
+    host. No such fetch happens at startup, on a schedule or during a token request. Asserted over the
+    whole process rather than over the module that makes the fetch, so that a later addition cannot slip
+    in beside it.

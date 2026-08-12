@@ -36,12 +36,31 @@ both validation and typing. Errors follow one shape: `{ error: { code, message, 
 | `POST /api/auth/login` | Starts the login flow and answers with the provider's authorization URL. Public |
 | `GET /api/auth/callback` | The provider's redirect: exchanges the code, checks the identity, sets the cookie. Public |
 | `POST /api/auth/logout` | Revokes the session and clears the cookie |
+| `POST /api/mcp` | The MCP endpoint, where one is enabled. Its body is JSON-RPC and its semantics are spec 12's. It declares a schema like every other route, and it is criterion 1's one exception in what it answers with: a violation comes back as a JSON-RPC error rather than in the standard error shape, because that shape is the one thing an MCP client cannot parse. Criterion 37 |
+| `/api/mcp/authorize` and `POST /api/mcp/token` | The authorisation code flow for an MCP client: the consent screen and the token endpoint (spec 12) |
+| `GET /.well-known/oauth-protected-resource`, with and without the endpoint's path appended, and `GET /.well-known/oauth-authorization-server` | The metadata documents a client discovers Caroline through |
 
 Where authentication is required, the API is gated in one place: a single request-level check over
 the registered route list, with the three public auth routes above as its only exceptions (spec 13).
 `GET /api/health` is not one of them, because it names the version and which integrations are
 configured. Nothing outside `/api` is gated, because the SPA shell holds no user content and serving
 it is what lets the login screen be a state of the client.
+
+**Every route this API declares is under `/api`, and the metadata documents are the named
+exception.** The discovery order a conformant client follows is the path-suffixed well-known
+document and then the unsuffixed one, both at the root, so a document served under `/api` is a
+document no client looks for. The exception is named here and the test that asserts the prefix
+carries it with this reason, rather than being loosened to whatever passes. The MCP endpoint itself
+stays under `/api`, which keeps the rest of that assertion true.
+
+The static SPA shell and its assets are not an exception to that, because they are not a declared
+route: `@fastify/static` is registered at the root, ahead of everything above, and serves whatever
+the built bundle contains. Spec 13 draws the same line for the session check, exempting everything
+outside `/api` and naming the shell and its assets as what that means, and this assertion is scoped
+the same way for the same reason. Scoping it to the declared routes rather than to the whole
+registered route list is deliberate: the wildcard is registered only where a built bundle exists, so
+an assertion over everything registered would pass in a CI job with no bundle and be false on a
+machine that has one.
 
 Server-sent events are used for chat streaming and for a lightweight change feed the UI
 subscribes to, so a background job's results appear without a refresh.
@@ -171,6 +190,11 @@ the board away to do it. It holds the transcript, streamed responses, inline rec
 with undo, and confirmation prompts for deletes and bulk operations. Earlier conversations are behind
 a disclosure within it rather than in a column of their own: a rail is not wide enough for two
 columns, and the list is wanted when an earlier conversation is, not while one is being had.
+
+An MCP client's run of calls is a conversation too (spec 12), so it appears in that list, labelled
+as one and named with the client that was talking. Labelled rather than behind a filter, because
+being in the list beside the rest is what makes it readable and undoable with no new surface, and
+a run of writes nobody can find is not an audit trail.
 Read-only is stated before anything is typed, and so is a turn that stopped at its tool-call limit.
 
 It is open by default, and closed from its own control or from the header. M10 had it closed until
@@ -203,6 +227,20 @@ surface that does.
 **Settings.** Integration status and connect flows, schedules, LLM provider and model,
 content policies (spec 09) with their consequences spelled out in plain language, working
 hours and reserve, classification threshold.
+
+It is also where an MCP client is approved: the consent screen the authorisation flow lands on,
+naming the client asking, and a list of the clients already approved with a way to revoke one.
+That is the surface's second write path after the user's name, and it is here rather than in a
+client's own interface because an approval decided anywhere else is an approval Caroline cannot
+show you afterwards.
+
+How the SPA authenticates itself is **spec 13's, and is settled there rather than here.** An earlier
+draft of this paragraph had the SPA carrying a configured access token on every request and on the
+change feed, which assumed a page with no login had been given the token somehow and said nothing
+about how. Spec 13 answered it by removing the token instead (its criterion 7) and giving the browser
+a session cookie behind a login, with the shell and its assets served without one (its criterion 8).
+Nothing about the MCP endpoint's own credential changes with that: the two are separate, and spec 12
+says which is which.
 
 ### Interaction rules
 
@@ -247,7 +285,9 @@ here is the behaviour each surface owes the reader; what is there is what they a
 ## Acceptance criteria
 
 1. Every route declares a schema, and a request violating it returns 400 in the standard
-   error shape.
+   error shape. Extended in place, rather than joined by a criterion that would leave two places
+   saying what the shape is: `POST /api/mcp` still declares a schema and still refuses a violation,
+   but answers it as JSON-RPC, and it is the only exception. Criterion 37 states it.
 2. `GET /api/config` never returns an API key, token or refresh token, in any field.
 3. Moving a task between board columns results in `status_set_by = 'user'`.
 4. The dashboard renders correctly with no plan, no calendar and no integrations
@@ -329,3 +369,20 @@ Authentication (spec 13) adds the following, appended for the same reason.
     hash.
 34. A deep link followed while unauthenticated returns to that same hash once the login succeeds.
 35. A 401 from any call puts the app into the login state rather than retrying the call.
+
+The MCP endpoint adds the following, appended for the same reason.
+
+36. Every route this API declares begins with `/api`, except the well-known metadata documents named
+    above, which are served from the root because that is where a client's discovery order looks for
+    them. The MCP endpoint itself is under `/api`, and the exception is a named list rather than a
+    relaxed assertion. The assertion is over the declared routes and says so, because the static
+    shell is registered at the root by `@fastify/static` and only where a built bundle exists: an
+    assertion over the whole registered route list would be false on a machine with a bundle and pass
+    in a job without one, which is the worst of both. Spec 13 criterion 8 is the counterpart that
+    says what is true of the shell, namely that it is served without a session while everything under
+    `/api` but the three public auth routes is not.
+37. `POST /api/mcp` is criterion 1's one exception, as a named list rather than a relaxed assertion:
+    it declares a schema like every other route, and a request violating it is answered as a JSON-RPC
+    error object rather than in the standard error shape, because a JSON-RPC caller cannot parse that
+    shape. Criterion 1 holds unchanged for every other route, which is asserted by keeping the
+    exception a list of one. Spec 12 states the same resolution from its side as its criterion 43.

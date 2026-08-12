@@ -70,6 +70,12 @@ Read:
 - `get_daily_plan(date?)`
 - `get_capacity(date?)`
 - `list_waiting(staleOnly?)` for chase conversations: what is outstanding, on whom, how long
+- `list_reviews(includeWaiting?)`: the review queue with its pull request provenance in one call,
+  each task's URL, repository, number, size estimate, when the review was requested and where it
+  is in the connector's lifecycle, optionally with the waiting side beside it. Written for the
+  MCP surface (spec 12), where a `get_task` per row is N+1 calls to answer the first question
+  asked, and it belongs in the shared registry rather than a caller's own list. Chat gains it,
+  which it arguably should have had for the chase conversation `list_waiting` was written for
 
 Write:
 
@@ -82,8 +88,19 @@ Write:
 - `update_project(id, changes)`
 - `regenerate_daily_plan(date?)`
 
+Every write tool declares whether it is idempotent, which is a required field on the definition
+rather than an optional one. Chat itself does not read it: it exists because MCP advertises an
+`idempotentHint` per tool (spec 12), that annotation is derived from the definition rather than
+written out per tool, and there was nothing on the definition to derive it from, so a tool would
+have been advertised on a default nobody chose. Required rather than optional so that a write tool
+added later cannot skip the decision. `complete_task` and `mark_reviewed` are the two that declare
+it true.
+
 There is no tool that reaches an external system. Chat cannot send email, comment on a PR
-or create a calendar event, and the tool list is the enforcement.
+or create a calendar event, and the tool list is the enforcement. Two callers now rely on that
+guarantee rather than one (spec 12), which is why it is asserted over what the tool modules
+import rather than over the list: a list is a promise about the tools somebody remembered, and
+the imports are a property of the code.
 
 ## Write policy
 
@@ -117,6 +134,17 @@ user supplied the input; the machine made the move.
   something rebuilt from a description of it, and it is recorded against the same turn, so
   undo still covers it.
 
+  **The turn is a session's, and a browser turn is one kind of session.** The gate itself is
+  unchanged; what it counts over is named here because the registry has a second caller (spec
+  12) and a message and back is not the only shape a run of writes comes in. A session's turn is
+  the run of writes between one confirmation decision and the next. For a browser that is a
+  message and back, because a turn ends when the model stops. For an MCP client, whose session
+  may last all day, it is the writes since the last confirmation was decided: the first write
+  opens a turn, the turn accumulates until the gate trips, and once the user has confirmed or
+  rejected, the next write opens a new turn and the count starts again. Either way the threshold
+  means what it was written to mean, ten tasks may change before a person looks at the screen,
+  and undo covers the last turn of the conversation.
+
   A confirmation is decided once. The model is told plainly that nothing happened and that
   the user has been asked, so that it does not report a change it did not make.
 
@@ -129,7 +157,8 @@ user supplied the input; the machine made the move.
 - Tool calls are validated against their schemas before execution. A malformed call returns
   a structured error to the model, which may retry once.
 - A turn is capped at a configurable number of tool calls (default 25) to bound cost and
-  stop loops.
+  stop loops. The cost it bounds is Caroline's, so it is a property of a turn this surface
+  drives and does not apply to a caller whose model and bill are its own (spec 12).
 - If the configured provider or model cannot use tools (spec 03), chat runs read-only and
   says so plainly rather than claiming changes it did not make: no tool is offered at all,
   because a model that cannot call one cannot call a read tool either, the turn is recorded
@@ -138,7 +167,9 @@ user supplied the input; the machine made the move.
 
 ## Non-goals
 
-- Voice, mobile, or a chat surface outside the app.
+- Voice, mobile, or a chat surface outside the app. The registry, as against the chat surface, is
+  deliberately callable by something that is not chat: spec 12 names the one thing that does, and
+  it is a tool surface for an assistant rather than a second place to hold a conversation.
 - Autonomous action between turns. Chat acts only while you are talking to it.
 - Access to email or PR content beyond what the storage content policy has already
   retained.
@@ -171,3 +202,9 @@ cite the numbers above.
 12. A selected item that has been deleted between selecting and sending is reported to the model as
     gone, and the message is still answered.
 13. A read-only turn carries the context and records it, because it was still sent.
+
+The registry's second caller adds the following, appended for the same reason.
+
+14. A session's turn boundary is the confirmation decision: the writes after one are counted against
+    the threshold afresh, and undo covers that run rather than the one before it. Asserted for both
+    callers, a browser turn and an MCP session (spec 12), through the one decision both of them make.
