@@ -63,10 +63,10 @@ describe('the screenshots are generated from the seeded day', () => {
   })
 
   /**
-   * The seeded day is what the pictures show, and the site publishes them, so it should read as the
-   * invention it is. The items always were invented; what an owner does is decide whether a stranger
-   * can tell. A plausible repository under a real organisation's name reads as that organisation's
-   * work, so the reserved example owner is asserted here rather than trusted to stay.
+   * The seeded day is what the pictures show, and the site publishes them, so its contents are as
+   * public as the prose. The fixtures were scrubbed of real names and repositories for this reason and
+   * the seed is now read the same way: an owner that is not the reserved example one would put somebody
+   * else's organisation on a page of this site.
    */
   it('seeds no repository outside the example owner, and no address', () => {
     const seed = source('tools/demo/seed.ts')

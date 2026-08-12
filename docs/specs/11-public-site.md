@@ -63,11 +63,10 @@ front of it.
 **Pictures are generated, not captured.** The documentation shows the board, the dashboard and the
 rail, and every one of those images is `tools/demo/shoot.mjs` driving the built client against the
 seeded demonstration day. A hand-captured screenshot would be two things this site cannot have: stale
-the first time a surface changed, and a picture of somebody's own board. The seeded items are invented,
-and on a published page they should read that way: a plausible repository name under a real
-organisation's would leave a stranger unsure whose pull requests they are looking at, so the reserved
-example owner is used instead. Each image is taken in both palettes and the document carries both, so a
-reader sees the application in the theme they are reading the page in.
+the first time a surface changed, and a picture of somebody's real work. The seeded day is therefore
+held to what the fixtures are held to, no real name, address or repository identifier, because these
+images are published. Each is taken in both palettes and the document carries both, so a reader sees
+the application in the theme they are reading the page in.
 
 **Static, and nothing fetched.** No client-side JavaScript, no web fonts, no analytics and no
 external requests of any kind. The pages read offline, and nothing about who read what leaves the
