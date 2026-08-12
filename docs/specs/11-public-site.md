@@ -124,7 +124,8 @@ lives in repository settings rather than in the repository.
 11. One workflow builds and deploys the site, on a push to `main` and on demand, with the `pages` and
     `id-token` permissions it needs for that and no write permission on the repository's contents.
 12. Every image the site publishes comes from `docs/images`, is named in the shot list of
-    `tools/demo/shoot.mjs`, exists in both palettes, and is shown by a document: an image nothing shows
-    fails, as does an image from anywhere else, and so does a document embedding one that is not there.
-    The seeded day those images are taken from names no address and no repository outside the reserved
-    example owner. Every published image carries alternative text.
+    `tools/demo/shoot.mjs`, exists in both palettes, and is shown by a document, the specs included.
+    The build refuses an image from anywhere else, a document embedding one that is not there, and a
+    fragment on an image reference that is not a palette; the suite refuses an image no document shows,
+    which the build cannot see. The seeded day those images are taken from names no address and no
+    repository outside the reserved example owner. Every published image carries alternative text.
