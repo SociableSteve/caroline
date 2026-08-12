@@ -61,9 +61,9 @@ of them.
    traffic is not, and no request header can be trusted to say which. A declaration in the
    configuration can be.
 3. **`auth.mode` is `required`.** Somebody who wants a login on a loopback install can have
-   one. This is the only rule that can be the sole reason `authRequired` is true, and it is a
-   rule with an effect precisely because the public URL is not demanded of a loopback bind: see
-   below.
+   one. This is the only way to get a login on a loopback install that declares no public URL,
+   and it is a rule with an effect precisely because the public URL is not demanded of a loopback
+   bind: see below.
 
 ### What startup refuses
 
