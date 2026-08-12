@@ -44,10 +44,24 @@ a picture of the pair is what the documentation carried.
 
 The seed also refuses to run on a day `planning.workingDays` does not include, and says so. There is no
 capacity on such a day, so the dashboard shows "Today is not a working day" where `docs/using.md` reads
-the arithmetic out of the picture, and a reshoot at a weekend would commit that over a plan with three
-entries and a capacity warning with the whole suite green. Seed and shoot on a working day, or say in the
-config that this one is. It refuses on a day whose capacity swallows every next action too, since the
-overflow and the warning are two of the states these pictures exist to show.
+the arithmetic out of the picture, and a reshoot at a weekend would commit that over a plan with four
+entries and two warnings with the whole suite green. Seed and shoot on a working day, or say in the
+config that this one is.
+
+The day's plan is not written out in `seed.ts` either: it is drawn by `runPlanning`, the same function
+the scheduler and **Regenerate** call, from a scripted provider standing in for a model so that nothing
+reaches a network. So the entries, their order, the review entry spec 05 criterion 7 promises, the chase
+nudges, the overflow and every warning are the application's output rather than somebody's picture of
+it. Written by hand they drifted, and the published dashboard ended up showing a plan with no review in
+it, a warning about the reserve that no line of Caroline can emit, none of the unverified-capacity
+warning a real run does emit, and a chase list holding an item the chase rule would not have selected.
+The seed then refuses if that plan comes out without an overflow, a warning, a review entry or a chase
+nudge, since each of those is a panel `docs/using.md` reads out of a picture no test can open. It prints
+the plan it drew, which is the thing to read before committing a reshoot.
+
+Each run starts by deleting the database file. Nothing in the seed is an upsert on a stable key, so a
+second run against the same file used to deal six projects and two of every card, and it is what makes
+a refusal above cost nothing.
 
 `--docs` is the one of them whose output is committed: three shots, in both palettes, into
 `docs/images`, which is where `docs/using.md` and the site take them from. Those images are published,
@@ -80,5 +94,5 @@ early if the failed purge run is what you are there to look at.
 The seed puts the states that are easy to get wrong on the screen at once: a wait past the
 staleness threshold beside one that is not, a task overdue and another due today, a pull request
 whose author has pushed since you reviewed it, a proposal below the confidence threshold with its
-reasoning, a stalled project, a plan with an overflow and a warning, and a job that failed with an
-error long enough to test the row it sits in.
+reasoning, a stalled project, a plan with an overflow, a review entry and two warnings, and a job
+that failed with an error long enough to test the row it sits in.

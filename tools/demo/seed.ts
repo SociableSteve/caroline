@@ -11,10 +11,10 @@
  *
  * Never point this at the real database. It writes into a path of its own and says which.
  */
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
-import { capacityForDate, workingWindowForDate } from '../../src/actions/capacity.js'
+import { workingWindowForDate } from '../../src/actions/capacity.js'
 import { loadConfig, readConfigFile } from '../../src/config/load.js'
 import { openCarolineDatabase } from '../../src/db/index.js'
 import { createProject } from '../../src/db/repositories/projects.js'
@@ -28,6 +28,12 @@ import { createConversation, appendMessage, finishMessage } from '../../src/db/r
 import type { StatusActor, TaskStatus } from '../../src/domain/task.js'
 import type { CalendarResponseStatus } from '../../src/domain/calendar.js'
 import type { JobRunStatus } from '../../src/domain/job.js'
+import { runPlanning } from '../../src/jobs/plan.js'
+import { createFakeProvider } from '../../src/llm/fake.js'
+import type { LlmProvider, LlmRuntime } from '../../src/llm/index.js'
+import { withSchemaValidation } from '../../src/llm/structured.js'
+import { CLASSIFICATION_PROMPT_VERSION } from '../../src/llm/prompts/classification.js'
+import { PLAN_PROMPT_VERSION } from '../../src/llm/prompts/plan.js'
 import { formatLocalDate, localDateAt } from '../../src/domain/time.js'
 // The client's own formatter, so a sentence in the seeded conversation and the capacity bar
 // photographed beside it cannot say the same quantity two ways.
@@ -53,6 +59,18 @@ if (step === '' || step.startsWith('..') || isAbsolute(step)) {
 
 // SQLite will not create the directory for us, and on a clean machine there is not one.
 mkdirSync(dirname(databasePath), { recursive: true })
+
+/**
+ * Every run starts from an empty file, and the refusals below are why it has to.
+ *
+ * Nothing here is an upsert on a stable key: `createProject` and `createTask` insert a new row with
+ * a new id each time, so a second run against the same file dealt six projects and two of every
+ * card, and a run that refused halfway left a part of a day for the next one to add itself to.
+ * Deleting first makes the seed idempotent and makes a refusal cost nothing, which is what lets the
+ * checks below sit after the plan has been drawn, where the plan is the thing being checked. The
+ * path is the scratch one validated above, and WAL keeps two files beside it.
+ */
+for (const suffix of ['', '-wal', '-shm']) rmSync(`${databasePath}${suffix}`, { force: true })
 
 /**
  * The configuration this script and the server share.
@@ -317,7 +335,18 @@ for (const pr of pullRequests) {
   )
 }
 
-/** A pull request already reviewed, now waiting on its author, with a push since. */
+/**
+ * A pull request already reviewed, now waiting on its author, with a push since.
+ *
+ * Past the staleness threshold on purpose, and by the age rather than by being listed: this is the
+ * item the chase list exists for, since a review the author has pushed to is quietly yours again,
+ * and `chaseNudges` selects it only if `isStaleWait` says so. At six days it was inside the default
+ * seven and the seeded plan named it anyway, which is a picture of a rule the code does not have.
+ * The wait runs from `actedAt` for a pull request and from the status change for anything else, so
+ * both are the same moment here and the two dashboard panels agree about its age.
+ */
+const REVIEWED_WAIT_DAYS = 8
+
 const reviewed = createTask(
   database,
   {
@@ -326,7 +355,7 @@ const reviewed = createTask(
     statusSetBy: 'sync',
     waitingOn: 'jordan-eng',
   },
-  NOW - 6 * DAY,
+  NOW - REVIEWED_WAIT_DAYS * DAY,
 )
 upsertSource(
   database,
@@ -337,11 +366,11 @@ upsertSource(
     title: 'Split the connector interface',
     taskId: reviewed.id,
     lifecycleState: 'reviewed',
-    actedAt: NOW - 6 * DAY,
+    actedAt: NOW - REVIEWED_WAIT_DAYS * DAY,
     actedAtMarker: 'sha-old',
     metadata: { author: 'jordan-eng', headSha: 'sha-new', headCommittedAt: NOW - 2 * HOUR },
   },
-  NOW - 6 * DAY,
+  NOW - REVIEWED_WAIT_DAYS * DAY,
 )
 
 // ---- A classifier proposal below the threshold, on the first inbox item ----
@@ -361,7 +390,8 @@ if (inboxItem !== undefined) {
       projectSuggestion: null,
       applied: false,
       model: 'claude-sonnet-5',
-      promptVersion: 'classify-v1',
+      // The version the classify job would have stamped on it, not a name invented here.
+      promptVersion: CLASSIFICATION_PROMPT_VERSION,
       error: null,
     },
     NOW - 2 * HOUR,
@@ -410,63 +440,20 @@ for (const [index, event] of events.entries()) {
 // ---- Today's plan ----
 
 /**
- * The capacity the running server will compute for today, from the events just written.
- *
- * Not four numbers written out here: the plan's window, meetings, reserve and what is left come from
- * `capacityForDate`, which is what `GET /api/calendar` answers with and what the capacity bar draws.
- * Hand-written figures are how the seeded plan came to warn that there was no capacity left beside a
- * bar showing more than two free hours, and a picture of that contradiction is what the documentation
- * carries. `false` for connected, because nothing here connects a calendar: the diary is seeded
- * directly, which is exactly the Unverified case `docs/using.md` describes.
- */
-const capacity = capacityForDate(database, config, localToday, false)
-
-const nextActions = created.filter((task) => task.status === 'next_action')
-
-/**
- * The plan, fitted rather than asserted: next actions in order while what is left after the reserve
- * can hold the next one, and the rest overflow. The warning and the overflow's reason are then true
- * because of how the split was made, not because somebody kept two sums in step by hand.
- */
-const planned: typeof nextActions = []
-const overflowed: typeof nextActions = []
-let unplanned = capacity.capacityMinutes
-
-for (const task of nextActions) {
-  const minutes = task.estimateMinutes ?? config.planning.defaultEstimateMinutes
-
-  if (minutes <= unplanned) {
-    unplanned -= minutes
-    planned.push(task)
-  } else {
-    overflowed.push(task)
-  }
-}
-
-/**
- * The demonstration is of a plan with an overflow and a warning in it, which the README lists among
- * the states it puts on screen at once and `docs/using.md` reads out of the pictures. A day whose
- * capacity swallowed every next action would take that picture away silently, so it is checked here:
- * the estimates above are the thing to raise.
- */
-if (overflowed.length === 0) {
-  throw new Error(
-    `Every next action fits inside today's ${capacity.capacityMinutes} free minutes, so this plan ` +
-      'has no overflow and no capacity warning, which are two of the states the pictures in ' +
-      'docs/images show. Raise the estimates in this file, or lower the capacity, until one is left out.',
-  )
-}
-
-/**
  * Why the planner put an entry where it did, read off the task rather than off its rank.
  *
  * By rank it said "Overdue since Monday" about whatever happened to be second or third, and the
  * third entry here has no due date at all. Both the plan and the same task's card are published, in
  * one document, so a reason that contradicts the card reads as the planner inventing reasons. The
- * weekday comes from the date as well, so it cannot drift from it either.
+ * weekday comes from the date as well, so it cannot drift from it either, and the project decides
+ * which undated sentence applies, so the offsite is not told the release is waiting on it.
  */
-function rationaleFor(task: { readonly dueAt: number | null }): string {
-  if (task.dueAt === null) return 'Nothing forcing the date, but the release is waiting on it'
+function rationaleFor(task: { readonly dueAt: number | null; readonly projectId: string | null }) {
+  if (task.dueAt === null) {
+    return task.projectId === release.id
+      ? 'Nothing forcing the date, but the release is waiting on it'
+      : 'Nothing forcing the date, and nobody else is blocked on it'
+  }
   if (task.dueAt < today(0)) {
     const weekday = new Date(task.dueAt).toLocaleDateString('en-GB', { weekday: 'long' })
 
@@ -477,62 +464,103 @@ function rationaleFor(task: { readonly dueAt: number | null }): string {
   return 'Due later this week, so it is worth starting before the deadline week'
 }
 
-recordDailyPlan(database, {
-  planDate,
-  generatedAt: today(7, 5),
-  timeZone: config.jobs.timezone,
-  windowMinutes: capacity.windowMinutes,
-  busyMinutes: capacity.busyMinutes,
-  reserveMinutes: capacity.reserveMinutes,
-  capacityMinutes: capacity.capacityMinutes,
-  capacityVerified: capacity.verified,
-  provider: 'anthropic',
-  model: 'claude-sonnet-5',
-  promptVersion: 'plan-v1',
+/**
+ * The model's part of a plan, and only the model's part: an order, and one sentence each.
+ *
+ * Everything else about the plan below is the planner's, because the planner is what draws it. This
+ * is a scripted answer standing in for a provider, so no shoot touches a network, and it names the
+ * next actions in the order this file lists them; the ordering rule, the review entry, the fit, the
+ * overflow, the nudges and the warnings are then whatever the code makes of that.
+ */
+const nextActions = created.filter((task) => task.status === 'next_action')
+
+const plannerAnswer = {
   summary: 'Two meetings in the middle of the day, so the writing goes first thing.',
-  /**
-   * What was left out and why, in a sentence with no number in it. The count comes from the split
-   * above, and "less than it needs" is true of anything in that list by construction: the previous
-   * wording said there was no capacity left after the reserve, which the bar beside it disproved.
-   */
-  warnings: [
-    overflowed.length === 1
-      ? 'One next action was left out: less is left after the reserve than it needs.'
-      : `${overflowed.length} next actions were left out: less is left after the reserve than they need.`,
-  ],
-  entries: planned.map((task, index) => ({
+  entries: nextActions.map((task) => ({
     taskId: task.id,
-    title: task.title,
-    rank: index + 1,
     rationale: rationaleFor(task),
     estimateMinutes: task.estimateMinutes,
   })),
-  overflow: overflowed.map((task, index) => ({
-    taskId: task.id,
-    title: task.title,
-    rank: index + 1,
-    rationale: 'Would not fit inside the capacity left',
-    estimateMinutes: task.estimateMinutes,
-  })),
-  nudges: [
-    {
-      taskId: null,
-      title: 'Signed statement of work from Legal',
-      rank: 1,
-      waitingOn: 'Legal',
-      waitingSince: NOW - 31 * DAY,
-      pushedSinceReview: false,
-    },
-    {
-      taskId: reviewed.id,
-      title: 'example-org/caroline#37 Split the connector interface',
-      rank: 2,
-      waitingOn: 'jordan-eng',
-      waitingSince: NOW - 6 * DAY,
-      pushedSinceReview: true,
-    },
-  ],
+}
+
+const planner = withSchemaValidation(
+  createFakeProvider({
+    answers: [{ structured: plannerAnswer, text: JSON.stringify(plannerAnswer) }],
+    // The provider the demo configuration names, so the plan row records what somebody following
+    // tools/demo/README.md would get. Nothing is sent: the answer above is the whole of the call.
+    name: 'ollama',
+    model: 'llama3.1',
+  }),
+)
+
+const llm: LlmRuntime = { isConfigured: () => true, for: (): LlmProvider => planner }
+
+/**
+ * The plan, drawn by the code that draws plans.
+ *
+ * `runPlanning` is what the scheduler runs and what **Regenerate** runs, so the entries, their
+ * order, the review criterion 7 guarantees, the chase nudges, the overflow and every warning are
+ * the application's own output rather than a picture of one. Written out by hand they drifted: the
+ * published dashboard showed a plan with no review in it, a warning about the reserve that no line
+ * of Caroline can emit, none of the unverified-capacity warning that a real run does emit, and a
+ * chase list holding an item the chase rule would not have selected.
+ *
+ * `false` for connected, because nothing here connects a calendar: the diary is seeded directly,
+ * which is exactly the Unverified case `docs/using.md` describes. Seven in the morning for the
+ * clock, because that is when the plan job runs, and the capacity is read from the events just
+ * written rather than from four numbers repeated here.
+ */
+const planning = await runPlanning({
+  database,
+  config,
+  llm,
+  calendarConnected: () => false,
+  now: () => today(7, 5),
+  date: localToday,
 })
+
+const plan = planning.plan
+
+if (plan === null) {
+  throw new Error(
+    `The planner drew no plan for ${planDate}: ${planning.error ?? 'it reported no reason'}.`,
+  )
+}
+
+const plannedMinutes = plan.entries.reduce(
+  (total, entry) => total + (entry.estimateMinutes ?? 0),
+  0,
+)
+const unplanned = plan.capacityMinutes - plannedMinutes
+
+/**
+ * The states these pictures exist to show, checked rather than hoped for.
+ *
+ * The README lists them among what the seed puts on one screen, and `docs/using.md` reads each of
+ * them out of a published PNG. No test can read a PNG, so a day that quietly lost one would leave
+ * the suite green over a document describing something the picture does not show. Hence a refusal
+ * here, where the reason can be said. Nothing before this point is left behind by it: the database
+ * file is deleted at the top of this script, so a refused run leaves no half-seeded day.
+ */
+const absent = [
+  ['an overflow, which is the "If there is time" panel', plan.overflow.length > 0],
+  ['a warning, which is the sentence under the plan', plan.warnings.length > 0],
+  [
+    'a review entry, which spec 05 criterion 7 promises',
+    plan.entries.some((entry) => entry.taskStatus === 'review'),
+  ],
+  ['a chase nudge, which is the "Worth a chase" panel', plan.nudges.length > 0],
+] as const
+
+const missing = absent.filter(([, present]) => !present).map(([what]) => what)
+
+if (missing.length > 0) {
+  throw new Error(
+    `The plan drawn for ${planDate} has no ${missing.join(', and no ')}. Raise the estimates in ` +
+      'this file, lower the capacity, or age a wait past tasks.waitingStaleDays until each is back, ' +
+      'because docs/using.md reads all of them out of the pictures in docs/images.',
+  )
+}
 
 // A fortnight of history behind it, so the strip has something to show. A quieter diary than today's,
 // in the same window and against the same reserve, so no row of it contradicts any other.
@@ -544,22 +572,26 @@ for (let back = 1; back <= 5; back += 1) {
     planDate: date,
     generatedAt: NOW - back * DAY,
     timeZone: config.jobs.timezone,
-    windowMinutes: capacity.windowMinutes,
+    windowMinutes: plan.windowMinutes,
     busyMinutes: historicBusyMinutes,
-    reserveMinutes: capacity.reserveMinutes,
-    capacityMinutes: capacity.windowMinutes - historicBusyMinutes - capacity.reserveMinutes,
-    capacityVerified: capacity.verified,
-    provider: 'anthropic',
-    model: 'claude-sonnet-5',
-    promptVersion: 'plan-v1',
+    reserveMinutes: plan.reserveMinutes,
+    capacityMinutes: plan.windowMinutes - historicBusyMinutes - plan.reserveMinutes,
+    capacityVerified: plan.capacityVerified,
+    provider: plan.provider,
+    model: plan.model,
+    // What today's run stamped on its own plan, so a history row cannot claim an era of the
+    // prompt that never existed.
+    promptVersion: PLAN_PROMPT_VERSION,
     summary: null,
     warnings: [],
-    entries: planned.map((task, index) => ({
+    // The titles of today's plan, with no task behind them: these are a record of what was
+    // proposed on a day that has gone, which is what the strip draws.
+    entries: plan.entries.map((entry) => ({
       taskId: null,
-      title: task.title,
-      rank: index + 1,
+      title: entry.title,
+      rank: entry.rank,
       rationale: null,
-      estimateMinutes: task.estimateMinutes,
+      estimateMinutes: entry.estimateMinutes,
     })),
     overflow: [],
     nudges: [],
@@ -654,8 +686,8 @@ finishMessage(
      * say five and a half hours free where the bar said five hours three minutes.
      */
     content:
-      `Today's plan takes ${formatEstimate(capacity.capacityMinutes - unplanned)} of the ` +
-      `${formatEstimate(capacity.capacityMinutes)} free, with the architecture review taking the ` +
+      `Today's plan takes ${formatEstimate(plannedMinutes)} of the ` +
+      `${formatEstimate(plan.capacityMinutes)} free, with the architecture review taking the ` +
       'middle of your day.\n\nThe procurement questionnaire is two days overdue and only needs half ' +
       'an hour, so it is worth taking first if the writing can wait until tomorrow.',
     toolCalls: 3,
@@ -672,6 +704,18 @@ finishMessage(
 console.log(`Seeded ${databasePath}`)
 console.log(`  ${created.length + pullRequests.length + 2} tasks, 3 projects, a plan and 8 runs`)
 console.log(
-  `  ${planDate}: ${capacity.capacityMinutes} free minutes, ${capacity.capacityMinutes - unplanned} planned, ` +
-    `${overflowed.length} left over with ${unplanned} to spare`,
+  `  ${planDate}: ${plan.capacityMinutes} free minutes, ${plannedMinutes} planned, ` +
+    `${plan.overflow.length} left over with ${unplanned} to spare`,
 )
+
+/**
+ * The plan read back out of the database, because it is the part of this day nobody can check by
+ * reading this file: the entries, the review, the chase list, the overflow and the warnings are the
+ * planner's, and this is what the pictures and `docs/using.md` have to agree with.
+ */
+for (const entry of plan.entries) {
+  console.log(`  ${entry.rank}. ${entry.title} (${entry.estimateMinutes ?? '?'} min)`)
+}
+for (const entry of plan.overflow) console.log(`  if there is time: ${entry.title}`)
+for (const nudge of plan.nudges) console.log(`  worth a chase: ${nudge.title}`)
+for (const warning of plan.warnings) console.log(`  warning: ${warning}`)

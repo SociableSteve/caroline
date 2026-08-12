@@ -261,6 +261,37 @@ describe('fitting the day', () => {
     expect(result.overflow.map((entry) => entry.taskId)).toEqual(['huge'])
   })
 
+  /**
+   * Criterion 16. The overflow list is on the screen, but a reader is looking at the plan, and
+   * "this is all of it" and "this is as much of it as fitted" are different claims.
+   */
+  it('warns that something did not fit rather than only listing it', () => {
+    const result = applyTo(
+      [ranked('a', 120), ranked('b', 120), ranked('c', 120)],
+      ['a', 'b', 'c'].map((taskId) => aCandidate({ taskId })),
+      240,
+    )
+
+    expect(result.warnings.join(' ')).toMatch(/did not fit/i)
+  })
+
+  it('says nothing of the sort when the whole answer fitted', () => {
+    const result = applyTo([ranked('a', 30)], [aCandidate({ taskId: 'a' })], 240)
+
+    expect(result.warnings).toEqual([])
+  })
+
+  /**
+   * A day with no capacity already has a warning about it, and it is the reason nothing fitted.
+   * Two sentences saying so is one more than the reader needs.
+   */
+  it('leaves a day with no capacity its own single warning', () => {
+    const result = applyTo([ranked('a', 30)], [aCandidate({ taskId: 'a' })], 0)
+
+    expect(result.warnings).toHaveLength(1)
+    expect(result.warnings.join(' ')).toMatch(/no free capacity/i)
+  })
+
   /** Spec 05: a day with no capacity produces a plan with no work items and says so. */
   it('plans nothing at all when capacity is zero or negative', () => {
     const result = applyTo([ranked('a', 30)], [aCandidate({ taskId: 'a' })], -20)

@@ -384,6 +384,17 @@ Four kinds of example, each where it belongs rather than in a document of its ow
    organisation's name is one a stranger could read as that organisation's work, and a published page
    is where that matters. Spec 11 gains criterion 12.
 
+Publishing that day is what forced this milestone's one change to the application. The seeded plan was
+written out by hand, so the dashboard picture showed a plan the planner cannot draw: no review entry
+where criterion 7 guarantees one, a warning about the reserve that no line of Caroline emits, none of
+the unverified-capacity warning a real run does emit, and a chase list holding an item the staleness
+rule would not have selected. The seed now draws the day with `runPlanning` and a scripted provider, so
+the entries, their order, the review, the nudges, the overflow and the warnings are the code's output
+and a picture of them cannot say anything the code will not. Doing that left one real gap rather than a
+seeding mistake: `docs/using.md` promises a warning about what the plan could not fit, the overflow list
+was the only thing saying so, and a plan that silently drops a next action should say it did. Spec 05
+gains criterion 16.
+
 Exit: somebody who has never seen Caroline can read the documentation and know what to type. The two
 claims that could rot are tests: the payloads against the code, and the images against the shot list
 and the seed.

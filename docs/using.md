@@ -131,19 +131,25 @@ The dashboard is the morning screen. Reading it top to bottom:
 ![The dashboard: today's plan, today's calendar, and the four panels under them](images/dashboard.png#gh-light-mode-only)
 ![The dashboard: today's plan, today's calendar, and the four panels under them](images/dashboard-dark.png#gh-dark-mode-only)
 
-- **Today's plan** is what the planner proposed, in order, with a sentence each saying why, and any
-  warning about what it could not fit. **Regenerate** redraws it against the tasks and the calendar
-  as they stand now. It is a proposal and not a commitment: complete things from it, or ignore it.
+- **Today's plan** is what the planner proposed: a line about the shape of the day, then any warning
+  it has to give, then the entries in order with a sentence each saying why. The two warnings in the
+  picture are both the planner's own, and are the two things it wants you to know before you read
+  the list: it could not fit everything, and the capacity it was drawn against is unverified. At
+  least one review is in there whenever something is waiting on you and the day has room for it,
+  whether the model thought of it or not. **Regenerate** redraws it against the tasks and the
+  calendar as they stand now. It is a proposal and not a commitment: complete things from it, or
+  ignore it.
 - **Today's calendar** is the capacity arithmetic, spelled out: the working window, less the meetings
   you accepted, less the reserve held back for interruptions, and what is left. Declined meetings do
   not count against you. **Unverified** means no calendar is connected, which is not the same as no
   meetings being known: as the picture above shows, the arithmetic still uses whatever events are in
   the database, and what is missing is anything confirming they are current.
 - **Gone quiet** is what has been waiting on somebody else longer than the staleness threshold, with
-  who it is on and for how long. **Worth a chase** is the planner's own pick of those, and for a pull
-  request it says whether the author has pushed anything since you reviewed it, which is the case
-  where a review is quietly yours again.
-- **If there is time** is what the plan left over.
+  who it is on and for how long, read as things stand now. **Worth a chase** is the same list as the
+  planner saw when it drew the plan, so something that crossed the threshold since this morning is in
+  the first and not yet in the second. For a pull request it adds whether the author has pushed
+  anything since you reviewed it, which is the case where a review is quietly yours again.
+- **If there is time** is what the plan left over, and the warning above it says there was something.
 - **Stalled projects** are projects with no next action. That is the one thing a GTD system can tell
   you that you cannot see by looking at a list.
 

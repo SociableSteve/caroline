@@ -58,7 +58,9 @@ Rules the plan must obey, enforced in code after the model returns rather than t
 the prompt:
 
 - Total estimated minutes must not exceed capacity. Entries beyond capacity are moved to an
-  explicit "if there is time" overflow list rather than dropped.
+  explicit "if there is time" overflow list rather than dropped, and the plan carries a warning
+  saying that something did not fit. The list is what was left out; the warning is what stops a
+  plan that is only part of the day from reading as the whole of it.
 - Overdue and due-today tasks appear before discretionary work.
 - Review items are not starved: at least one review appears in the plan whenever the review
   queue is non-empty and capacity allows.
@@ -114,3 +116,10 @@ for the last fourteen days.
 14. An entry naming a task that was not a candidate does not reach the plan, and the plan says
     it was left out.
 15. Regenerating a date that is not today is refused, so an earlier day's record stands.
+
+The published demonstration day added the following, appended rather than renumbered because the
+code and the suite cite these by number.
+
+16. A plan that could not fit everything carries a warning saying so, as well as listing what was
+    left over. The warning names no count and no number of minutes, so it cannot come to disagree
+    with the list or the capacity drawn beside it.
