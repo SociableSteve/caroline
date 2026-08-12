@@ -193,9 +193,9 @@ Four things about a conversation that are rules rather than good intentions:
   has changed more than ten tasks, which is the runaway case: `chat.bulkConfirmThreshold`.
 - **A turn has a budget**: twenty-five tool calls by default, `chat.maxToolCalls`, and Caroline says so
   if it runs out rather than pretending it finished.
-- **No model, or a model that cannot call tools, degrades rather than breaks.** The rail says so at
-  the top: with Ollama and `llm.supportsTools` unset it can read and answer but not change anything,
-  and with no model configured at all it says that instead.
+- **No model, or a model that cannot call tools, degrades rather than breaks.** The rail says which at
+  the top, naming the model where there is one: a model that cannot use tools means chat can answer
+  questions but cannot change anything, and no model configured at all means it cannot do either yet.
 
 ## Projects
 
