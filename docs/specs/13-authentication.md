@@ -166,8 +166,10 @@ be turned into a bypass, and the refusal teaches the operator the exact setting 
 
 Where `authRequired` is true, forwarded headers are not read at all, because no decision
 depends on a client address. `request.ip` stays the socket address for logging, and Fastify's
-`trustProxy` is left off: an address taken from a header is caller-chosen bytes in a log line,
-which is the thing spec 09's URL rule already refuses.
+`trustProxy` is off, written out as `trustProxy: false` rather than left to its default so that the
+intent is legible and the source inspection in criterion 6 has one occurrence to expect: an address
+taken from a header is caller-chosen bytes in a log line, which is the thing spec 09's URL rule
+already refuses.
 
 A trusted-proxy mode, for somebody already running an authenticating gateway, is not in this
 spec. The honest shape for it is a named header plus a secret shared with the proxy, which is a
