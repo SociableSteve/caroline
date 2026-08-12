@@ -33,7 +33,7 @@ Binding elsewhere requires `CAROLINE_ACCESS_TOKEN`, and as of version 1.0 that t
 only when Caroline starts: nothing checks it against a request, so a Caroline bound to a routable
 address serves the whole API, the effective configuration included, to anyone who can reach the
 port. The requirement reads as though the token protects something, and it does not yet. It is a
-defect rather than a design, and the first slice of M15 in [the plan](plan.md) makes the token a
+defect rather than a design, and the first slice of M16 in [the plan](plan.md) makes the token a
 request requirement. Until then, treat the bind address as the only access control
 there is and put Caroline behind a tunnel you already trust rather than on an interface.
 

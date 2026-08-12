@@ -147,7 +147,7 @@ The two are easily conflated, so they are named apart here and everywhere below.
 
 Neither substitutes for the other. `server.accessToken` has been a startup precondition since
 M0 and was never checked against a request, which is a defect spec 09 now states plainly and
-M15's first slice fixes; the fix is described there and in spec 09 rather than here, because
+M16's first slice fixes; the fix is described there and in spec 09 rather than here, because
 the API's credential is not this surface's. Removing the MCP bearer credential in slice 3 did
 nothing to it.
 
