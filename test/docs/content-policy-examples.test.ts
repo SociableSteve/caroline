@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { payloadExamples, regionOf, regions } from '../../tools/docs/content-policy-examples.js'
-import { contentLevels } from '../../src/domain/content.js'
+import { contentLevelRank, contentLevels, type ContentLevel } from '../../src/domain/content.js'
 
 const document = readFileSync(join(process.cwd(), 'docs/content-policy.md'), 'utf8')
 
@@ -31,8 +31,38 @@ describe('the documented payloads are what the content policy produces', () => {
     })
   }
 
-  it('shows every level, in the order the document tabulates them', () => {
-    expect(payloadExamples().map((example) => example.level)).toEqual([...contentLevels])
+  /**
+   * Read out of the document, because both orders live there and neither is safe to assume. This used
+   * to compare `payloadExamples().map(level)` with `contentLevels`, which is the array the function
+   * maps over: the same list on both sides, nothing about the page checked. Reordering `contentLevels`
+   * to put `full` before `snippet` and regenerating therefore shipped a table listing them that way,
+   * payload sections in the opposite order, and `full`'s note ("The above, with the body whole") over a
+   * `metadata` payload, with the whole suite green.
+   *
+   * What holds the page together is that both sequences run from least exposure to most, since every
+   * note describes its level as the one above it plus something. So that is what is asserted, of the
+   * committed file, in the two places the levels appear in it.
+   */
+  it('tabulates the levels and shows their payloads in one order, least exposure first', () => {
+    const byExposure = [...contentLevels].sort((a, b) => contentLevelRank[a] - contentLevelRank[b])
+
+    const positionsOf = (locate: (level: ContentLevel) => string): number[] =>
+      byExposure.map((level) => {
+        const needle = locate(level)
+        expect(document, `${needle} is not in docs/content-policy.md`).toContain(needle)
+
+        return document.indexOf(needle)
+      })
+
+    const ascending = (positions: readonly number[]): number[] => [...positions].sort((a, b) => a - b)
+    const rows = positionsOf((level) => `| \`${level}\` |`)
+    const blocks = positionsOf((level) => `### \`${level}\``)
+
+    expect(rows, 'the table of levels is not in order of exposure').toEqual(ascending(rows))
+    expect(blocks, 'the payload sections are not in order of exposure').toEqual(ascending(blocks))
+    // Every level has both, so a level with a row and no payload block cannot pass the two above.
+    expect(rows).toHaveLength(contentLevels.length)
+    expect(blocks).toHaveLength(contentLevels.length)
   })
 
   /**

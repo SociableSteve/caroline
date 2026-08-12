@@ -14,7 +14,8 @@
 import { mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
-import { loadConfig } from '../../src/config/load.js'
+import { capacityForDate, workingWindowForDate } from '../../src/actions/capacity.js'
+import { loadConfig, readConfigFile } from '../../src/config/load.js'
 import { openCarolineDatabase } from '../../src/db/index.js'
 import { createProject } from '../../src/db/repositories/projects.js'
 import { createTask, setTaskTags } from '../../src/db/repositories/tasks.js'
@@ -27,6 +28,10 @@ import { createConversation, appendMessage, finishMessage } from '../../src/db/r
 import type { StatusActor, TaskStatus } from '../../src/domain/task.js'
 import type { CalendarResponseStatus } from '../../src/domain/calendar.js'
 import type { JobRunStatus } from '../../src/domain/job.js'
+import { formatLocalDate, localDateAt } from '../../src/domain/time.js'
+// The client's own formatter, so a sentence in the seeded conversation and the capacity bar
+// photographed beside it cannot say the same quantity two ways.
+import { formatEstimate } from '../../web/format.js'
 
 /**
  * Under the system temporary directory, and refused anywhere else.
@@ -49,8 +54,29 @@ if (step === '' || step.startsWith('..') || isAbsolute(step)) {
 // SQLite will not create the directory for us, and on a clean machine there is not one.
 mkdirSync(dirname(databasePath), { recursive: true })
 
+/**
+ * The configuration this script and the server share.
+ *
+ * `CAROLINE_CONFIG` is the same variable `npm start` reads, and the README points both at one file,
+ * because the plan written here is fitted against a capacity the server computes: the window, the
+ * meetings and the reserve decide what fits, and two configurations that agree today are how a
+ * seeded plan came to claim there was no capacity left in two free hours. The database path is this
+ * script's own whatever the file says, since it migrates and writes whatever it opens.
+ */
+const settings = (
+  process.env.CAROLINE_CONFIG === undefined
+    ? {}
+    : (readConfigFile(resolve(process.env.CAROLINE_CONFIG)) ?? {})
+) as Record<string, unknown>
+const fileDatabase = (settings.database ?? {}) as Record<string, unknown>
+const fileJobs = (settings.jobs ?? {}) as Record<string, unknown>
+
 const config = loadConfig({
-  file: { database: { path: databasePath }, jobs: { timezone: 'Europe/London' } },
+  file: {
+    ...settings,
+    database: { ...fileDatabase, path: databasePath },
+    jobs: { ...fileJobs, timezone: fileJobs.timezone ?? 'Europe/London' },
+  },
   env: {} as NodeJS.ProcessEnv,
 })
 const database = openCarolineDatabase(config)
@@ -60,14 +86,42 @@ const MINUTE = 60_000
 const HOUR = 60 * MINUTE
 const DAY = 24 * HOUR
 
+/** Today, as the server will read it: from the clock, in the configured timezone. */
+const localToday = localDateAt(NOW, config.jobs.timezone)
+const planDate = formatLocalDate(localToday)
+
+/**
+ * A day the configuration calls a working day, or nothing.
+ *
+ * The server takes "today" from its own clock, so a seeded day cannot be moved off the weekend:
+ * pinning the plan to Friday would leave a Sunday dashboard with no plan and an empty calendar, which
+ * is a different wrong picture rather than a fix. At a weekend `workingWindowForDate` returns null and
+ * the capacity bar draws "Today is not a working day, so there is no capacity to plan." where
+ * `docs/using.md` promises the capacity arithmetic spelled out, above a plan with entries and a
+ * warning about capacity. No test can read a PNG, so the suite would stay green over a false picture.
+ * Hence a refusal here, where the reason can be said, rather than a picture nobody would question.
+ */
+if (workingWindowForDate(config, localToday) === null) {
+  const weekday = new Date(NOW).toLocaleDateString('en-GB', {
+    weekday: 'long',
+    timeZone: config.jobs.timezone,
+  })
+
+  throw new Error(
+    `${planDate} is a ${weekday}, which planning.workingDays does not include, so there is no ` +
+      'capacity to plan into and the dashboard would show none. The pictures in docs/images are of ' +
+      'a working day and docs/using.md reads the arithmetic out of them, so seed and shoot on a ' +
+      'working day, or add this weekday to planning.workingDays in the config file both this script ' +
+      'and the server read (CAROLINE_CONFIG).',
+  )
+}
+
 /** Today at a wall-clock hour, so the calendar column reads like a working day. */
 function today(hour: number, minute = 0): number {
   const date = new Date(NOW)
   date.setHours(hour, minute, 0, 0)
   return date.getTime()
 }
-
-const planDate = new Date(NOW).toISOString().slice(0, 10)
 
 // ---- Projects ----
 
@@ -96,12 +150,19 @@ const seeds: Seed[] = [
   { title: 'Invitation: architecture guild, Thursday', status: 'inbox', by: 'sync' },
   { title: 'Expenses for the Lisbon trip need submitting', status: 'inbox', by: 'user' },
 
-  // Next actions, including the two due states the cards now name.
+  /**
+   * Next actions, including the two due states the cards now name.
+   *
+   * The estimates are what makes the plan below have an overflow: three of them come to more than the
+   * day's capacity less the fourth, so the fourth does not fit and the plan says so. The seed checks
+   * that rather than trusting it, because both the warning and the "If there is time" panel are
+   * published pictures and `docs/using.md` reads them out.
+   */
   {
     title: 'Write the H2 throughput section',
     status: 'next_action',
     project: hub.id,
-    estimate: 90,
+    estimate: 150,
     due: today(17),
     tags: ['writing'],
   },
@@ -116,9 +177,9 @@ const seeds: Seed[] = [
     title: 'Draft the setup guide for the Google Cloud project',
     status: 'next_action',
     project: release.id,
-    estimate: 45,
+    estimate: 90,
   },
-  { title: 'Book the venue for the team offsite', status: 'next_action', estimate: 15 },
+  { title: 'Book the venue for the team offsite', status: 'next_action', estimate: 45 },
 
   // Waiting, one of them well past the staleness threshold.
   {
@@ -348,7 +409,53 @@ for (const [index, event] of events.entries()) {
 
 // ---- Today's plan ----
 
-const planned = created.filter((task) => task.status === 'next_action')
+/**
+ * The capacity the running server will compute for today, from the events just written.
+ *
+ * Not four numbers written out here: the plan's window, meetings, reserve and what is left come from
+ * `capacityForDate`, which is what `GET /api/calendar` answers with and what the capacity bar draws.
+ * Hand-written figures are how the seeded plan came to warn that there was no capacity left beside a
+ * bar showing more than two free hours, and a picture of that contradiction is what the documentation
+ * carries. `false` for connected, because nothing here connects a calendar: the diary is seeded
+ * directly, which is exactly the Unverified case `docs/using.md` describes.
+ */
+const capacity = capacityForDate(database, config, localToday, false)
+
+const nextActions = created.filter((task) => task.status === 'next_action')
+
+/**
+ * The plan, fitted rather than asserted: next actions in order while what is left after the reserve
+ * can hold the next one, and the rest overflow. The warning and the overflow's reason are then true
+ * because of how the split was made, not because somebody kept two sums in step by hand.
+ */
+const planned: typeof nextActions = []
+const overflowed: typeof nextActions = []
+let unplanned = capacity.capacityMinutes
+
+for (const task of nextActions) {
+  const minutes = task.estimateMinutes ?? config.planning.defaultEstimateMinutes
+
+  if (minutes <= unplanned) {
+    unplanned -= minutes
+    planned.push(task)
+  } else {
+    overflowed.push(task)
+  }
+}
+
+/**
+ * The demonstration is of a plan with an overflow and a warning in it, which the README lists among
+ * the states it puts on screen at once and `docs/using.md` reads out of the pictures. A day whose
+ * capacity swallowed every next action would take that picture away silently, so it is checked here:
+ * the estimates above are the thing to raise.
+ */
+if (overflowed.length === 0) {
+  throw new Error(
+    `Every next action fits inside today's ${capacity.capacityMinutes} free minutes, so this plan ` +
+      'has no overflow and no capacity warning, which are two of the states the pictures in ' +
+      'docs/images show. Raise the estimates in this file, or lower the capacity, until one is left out.',
+  )
+}
 
 /**
  * Why the planner put an entry where it did, read off the task rather than off its rank.
@@ -373,25 +480,34 @@ function rationaleFor(task: { readonly dueAt: number | null }): string {
 recordDailyPlan(database, {
   planDate,
   generatedAt: today(7, 5),
-  timeZone: 'Europe/London',
-  windowMinutes: 510,
-  busyMinutes: 105,
-  reserveMinutes: 60,
-  capacityMinutes: 345,
-  capacityVerified: true,
+  timeZone: config.jobs.timezone,
+  windowMinutes: capacity.windowMinutes,
+  busyMinutes: capacity.busyMinutes,
+  reserveMinutes: capacity.reserveMinutes,
+  capacityMinutes: capacity.capacityMinutes,
+  capacityVerified: capacity.verified,
   provider: 'anthropic',
   model: 'claude-sonnet-5',
   promptVersion: 'plan-v1',
   summary: 'Two meetings in the middle of the day, so the writing goes first thing.',
-  warnings: ['One next action was left out: there is no capacity left after the reserve.'],
-  entries: planned.slice(0, 3).map((task, index) => ({
+  /**
+   * What was left out and why, in a sentence with no number in it. The count comes from the split
+   * above, and "less than it needs" is true of anything in that list by construction: the previous
+   * wording said there was no capacity left after the reserve, which the bar beside it disproved.
+   */
+  warnings: [
+    overflowed.length === 1
+      ? 'One next action was left out: less is left after the reserve than it needs.'
+      : `${overflowed.length} next actions were left out: less is left after the reserve than they need.`,
+  ],
+  entries: planned.map((task, index) => ({
     taskId: task.id,
     title: task.title,
     rank: index + 1,
     rationale: rationaleFor(task),
     estimateMinutes: task.estimateMinutes,
   })),
-  overflow: planned.slice(3).map((task, index) => ({
+  overflow: overflowed.map((task, index) => ({
     taskId: task.id,
     title: task.title,
     rank: index + 1,
@@ -418,24 +534,27 @@ recordDailyPlan(database, {
   ],
 })
 
-// A fortnight of history behind it, so the strip has something to show.
+// A fortnight of history behind it, so the strip has something to show. A quieter diary than today's,
+// in the same window and against the same reserve, so no row of it contradicts any other.
+const historicBusyMinutes = 90
+
 for (let back = 1; back <= 5; back += 1) {
-  const date = new Date(NOW - back * DAY).toISOString().slice(0, 10)
+  const date = formatLocalDate(localDateAt(NOW - back * DAY, config.jobs.timezone))
   recordDailyPlan(database, {
     planDate: date,
     generatedAt: NOW - back * DAY,
-    timeZone: 'Europe/London',
-    windowMinutes: 510,
-    busyMinutes: 90,
-    reserveMinutes: 60,
-    capacityMinutes: 360,
-    capacityVerified: true,
+    timeZone: config.jobs.timezone,
+    windowMinutes: capacity.windowMinutes,
+    busyMinutes: historicBusyMinutes,
+    reserveMinutes: capacity.reserveMinutes,
+    capacityMinutes: capacity.windowMinutes - historicBusyMinutes - capacity.reserveMinutes,
+    capacityVerified: capacity.verified,
     provider: 'anthropic',
     model: 'claude-sonnet-5',
     promptVersion: 'plan-v1',
     summary: null,
     warnings: [],
-    entries: planned.slice(0, 3).map((task, index) => ({
+    entries: planned.map((task, index) => ({
       taskId: null,
       title: task.title,
       rank: index + 1,
@@ -529,8 +648,16 @@ finishMessage(
   database,
   answer.id,
   {
+    /**
+     * The answer the rail publishes, against the same figures the capacity bar beside it draws, and
+     * through the same formatter, because the two are photographed together: this sentence used to
+     * say five and a half hours free where the bar said five hours three minutes.
+     */
     content:
-      'Three things planned against five and a half hours free, with the architecture review taking the middle of your day.\n\nThe procurement questionnaire is two days overdue and only needs half an hour, so it is worth taking first if the writing can wait until tomorrow.',
+      `Today's plan takes ${formatEstimate(capacity.capacityMinutes - unplanned)} of the ` +
+      `${formatEstimate(capacity.capacityMinutes)} free, with the architecture review taking the ` +
+      'middle of your day.\n\nThe procurement questionnaire is two days overdue and only needs half ' +
+      'an hour, so it is worth taking first if the writing can wait until tomorrow.',
     toolCalls: 3,
     toolCallLimitReached: false,
     readOnly: false,
@@ -544,3 +671,7 @@ finishMessage(
 
 console.log(`Seeded ${databasePath}`)
 console.log(`  ${created.length + pullRequests.length + 2} tasks, 3 projects, a plan and 8 runs`)
+console.log(
+  `  ${planDate}: ${capacity.capacityMinutes} free minutes, ${capacity.capacityMinutes - unplanned} planned, ` +
+    `${overflowed.length} left over with ${unplanned} to spare`,
+)
