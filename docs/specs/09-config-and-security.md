@@ -214,9 +214,12 @@ mailbox, and it is answered by the same `llmContent` level.
   file or the configuration, registered as runtime secrets through the same mechanism Google's
   access and refresh tokens use, so the guarantee below covers values that arrive after startup
   as well as configured ones, and removed by `npm run delete-data` because they are in the
-  database it deletes. There is no entry here for a static MCP token, because there is not one:
-  a token Caroline issued through the authorisation code flow is the only credential that
-  surface accepts.
+  database it deletes. In the finished surface there is no static MCP token at all: a token
+  Caroline issued through the authorisation code flow is the only credential it accepts. Spec 12's
+  second slice has one for as long as it takes to build the surface before the authorisation
+  server exists, and it follows the rule above rather than making an exception to it:
+  `mcp.accessToken` comes from `CAROLINE_MCP_ACCESS_TOKEN` and from nowhere else, naming it in the
+  config file is a startup error like any other secret, and spec 12's third slice deletes it.
 - Secrets are redacted in API responses, logs and error messages. A test asserts that no
   configured secret value appears in any log line or HTTP response body.
 - Redaction matches secret values literally, and runs on values before anything encodes
@@ -250,7 +253,9 @@ concern.
   route under `/api`, and a configuration that would expose Caroline without a login refuses to
   start. There is no shared-secret alternative, and `server.accessToken` is gone: a secret in an
   environment variable identifies nobody and cannot be revoked without a restart.
-- **The MCP endpoint is off by default, loopback only and enforced at startup**, and the only
+- **The MCP endpoint is off by default (`mcp.enabled`, false), loopback only and enforced at
+  startup: enabling it with `server.host` set to anything but loopback fails naming both keys**, and
+  from spec 12's third slice the only
   credential it accepts is a token Caroline issued through its own authorisation code flow with
   PKCE. `Origin` is validated with a `403` and `Host` is validated against DNS rebinding,
   because loopback is not a boundary against other software on the machine and a page in the

@@ -67,13 +67,17 @@ The deprecated HTTP+SSE transport is not supported.
 
 The choice here is binary, and that finding is what settled the design rather than any
 preference about ceremony. A protected MCP server acts as an OAuth 2.1 resource server.
-Offering authorisation at all is optional, but once offered, protected resource metadata
-(RFC 9728) MUST name at least one authorisation server, and a conformant client MUST refuse to
-proceed when that server's metadata does not advertise `code_challenge_methods_supported`. So
-there is no half of OAuth to adopt: a static token behind published metadata describing an
-authorisation server that does not exist is not a shortcut, it is a claim a conformant client
-catches. Either Caroline runs a real OAuth 2.1 authorisation server with PKCE, or it does not
-claim OAuth. **Caroline runs the authorisation server.**
+Offering authorisation at all is optional, but once offered, the protected resource metadata
+document MUST include `authorization_servers` naming at least one authorisation server, and a
+conformant client MUST refuse to proceed when that server's metadata does not advertise
+`code_challenge_methods_supported`. That first MUST is MCP's own, from its profile of RFC 9728
+rather than from RFC 9728, where `authorization_servers` is OPTIONAL: the protocol requires an
+MCP server to implement RFC 9728 and then requires the field the RFC leaves optional. It is
+attributed here because a reader checking the RFC will not find it there. So there is no half of
+OAuth to adopt: a static token behind published metadata describing an authorisation server that
+does not exist is not a shortcut, it is a claim a conformant client catches. Either Caroline runs
+a real OAuth 2.1 authorisation server with PKCE, or it does not claim OAuth. **Caroline runs the
+authorisation server.**
 
 Delegating to Google was considered and is rejected. Caroline is already a Google OAuth
 client, but that client is a desktop client with read-only Gmail and Calendar scopes: it
@@ -106,6 +110,41 @@ Tokens Caroline issues are runtime secrets and register as such through the mech
 tokens already use, access tokens as rotating and refresh tokens as lasting, so spec 09's
 guarantee that no secret appears in a log line or a response body covers values that arrive
 after startup without a second mechanism being invented for them.
+
+### The one knowing deviation: both identifiers are `http`
+
+Caroline's loopback bind and this conformance argument are in direct tension, and the tension is
+stated here rather than discovered by whoever implements criterion 26.
+
+Two identifiers are constrained to `https` by the documents this design leans on. RFC 8414
+section 2 defines the authorisation server's `issuer` as a URL that uses the `https` scheme. RFC
+9728 section 1.2 defines the protected resource's resource identifier the same way, a URL using
+the `https` scheme with no fragment, and MCP's canonical server URI is that identifier: every
+example the protocol gives of a valid one is `https`. Caroline listens on loopback `http` by a
+decision the Shape section refuses to reopen, so both identifiers are
+`http://127.0.0.1:<port>`, and both are therefore non-conformant. Neither the protocol nor either
+RFC carves out an exception for loopback, and this spec does not pretend one exists.
+
+RFC 8252 is the nearest sanctioned exception and it does not reach. Sections 7.3 and 8.3 permit
+the `http` scheme for a native application's loopback **redirect URI**, on the reasoning that the
+request never leaves the device, and that is exactly what the port-agnostic redirect matching
+above relies on: a client's `http://127.0.0.1:<ephemeral>/callback` is conformant, and Caroline
+accepting it is not a deviation. RFC 8252 says nothing about issuer identifiers or resource
+identifiers, so it sanctions the redirect and not these two.
+
+So the design is conformant in every respect except the scheme of those two identifiers, and that
+one is a deliberate local-only deviation with a consequence that is not argued away: **a client
+that validates the scheme of an issuer or a resource identifier will refuse to connect to
+Caroline, and there is nothing Caroline can do about it that is worth doing.** A self-signed
+certificate on loopback trades a scheme check for a trust-store problem on every client and makes
+the setup guide worse; a real certificate needs a name Caroline does not have; and the tunnel
+argument in the Shape section is the answer for anybody who needs a `https` origin, because a
+tunnel terminating on loopback gives the client the `https` identifier it wants without Caroline
+deciding it is safe to be on a network. What Caroline owes the client instead is internal
+consistency, which is a real conformance requirement and is criterion 42: the `issuer` in the
+authorisation server metadata is byte-identical to the identifier the well-known URL was built
+from, which is what a client is required to check, and the `resource` in the protected resource
+metadata is the endpoint's own origin and path.
 
 ### What is deliberately not built
 
@@ -142,14 +181,50 @@ The two are easily conflated, so they are named apart here and everywhere below.
 
 | | What it protects | Where it is stated |
 | --- | --- | --- |
-| `server.accessToken` | The existing HTTP API and the SPA that uses it, on every route | Spec 09 |
-| Tokens Caroline issues through the flow above | The MCP endpoint only | This spec |
+| `server.accessToken` | A startup precondition on a non-loopback bind, and nothing more until M15 | Spec 09 |
+| `mcp.accessToken`, slice 2 only | The MCP endpoint, until slice 3 deletes it | This spec |
+| Tokens Caroline issues through the flow above | The MCP endpoint only, from slice 3 | This spec |
 
-Neither substitutes for the other. `server.accessToken` has been a startup precondition since
-M0 and was never checked against a request, which is a defect spec 09 now states plainly and
-M16's first slice fixes; the fix is described there and in spec 09 rather than here, because
-the API's credential is not this surface's. Removing the MCP bearer credential in slice 3 did
-nothing to it.
+None of them substitutes for another. `server.accessToken` has been a startup precondition since M0
+and was never checked against a request, which is a defect spec 09 now states plainly and **M15**
+fixes: the fix belongs to the outward-facing authentication milestone, not to this one, because a
+browser with no login cannot be given a static credential to carry and inventing the way it is given
+one is M15's subject rather than a slice of this milestone. See the note above criteria 1 to 4. What
+this milestone does to that credential is nothing at all, which criterion 33 asserts. Removing the
+MCP bearer credential in slice 3 does nothing to it either.
+
+## Configuration
+
+The settings this surface adds, named here rather than left to whoever writes the code, because
+six criteria below require a startup message that names a setting or a value to vary and a
+criterion that cannot name its key is a criterion somebody has to invent. They follow spec 09's
+mechanics without exception: declared in the strict schema with a default, readable through
+`GET /api/config`, and a secret among them comes from the environment only.
+
+| Key | Type and bounds | Default | What it is |
+| --- | --- | --- | --- |
+| `mcp.enabled` | boolean | `false` | Whether the endpoint and the metadata documents are registered at all. Off by default is criterion 5 |
+| `mcp.sessionIdleMinutes` | integer, 1 to 1440 | `30` | The idle window that ends a derived session. Thirty minutes is a number rather than a principle, which is why it is a key |
+| `mcp.clientMetadata.maxResponseBytes` | integer, 1024 to 1048576 | `65536` | The size cap on a client metadata document, enforced while the body is read |
+| `mcp.clientMetadata.timeoutMs` | integer, 100 to 60000 | `5000` | The time cap on the whole fetch of one |
+| `mcp.accessToken` | string or null, environment only | `null` | Slice 2's bearer credential, from `CAROLINE_MCP_ACCESS_TOKEN`. Removed by slice 3 |
+
+Three things about that list.
+
+`mcp.accessToken` follows `server.accessToken` exactly: it is a field of the effective
+configuration and never of the file, it is fed only by its environment variable, it is in the
+secret paths so redaction and the log scrubber both cover it, and a configuration file naming it
+fails at startup pointing at the variable instead. That is spec 09's rule about secrets rather
+than a choice made here, and it is why criterion 32's assertion about the removed setting is
+about the environment variable and the file key together.
+
+The canonical resource URI is not a setting. It is derived from `server.host` and `server.port`
+and the endpoint's path, because a configurable identifier is an identifier that can be
+configured to disagree with the address the process is actually reachable at, which is the one
+thing criterion 42 exists to prevent.
+
+`chat.bulkConfirmThreshold` governs this surface too, unchanged, and `chat.maxToolCalls` does not
+apply to it at all: see Errors and limits. Neither gets an MCP-side twin.
 
 ## The client metadata document fetch
 
@@ -185,11 +260,11 @@ The guards, each of which is a criterion below rather than prose:
 
 ## Network posture
 
-- Loopback only, enforced at startup: a configuration that enables MCP with `server.host` set
-  to anything else fails, naming both settings, in the same shape as the existing full-content
-  guard. A tool whose documented posture is that the bind address is the boundary does not get
-  to become a service by way of a config key.
-- Off by default.
+- Loopback only, enforced at startup: a configuration setting `mcp.enabled` to `true` with
+  `server.host` set to anything but a loopback name fails, naming both of those settings, in the
+  same shape as the existing full-content guard. A tool whose documented posture is that the bind
+  address is the boundary does not get to become a service by way of a config key.
+- Off by default, which is `mcp.enabled` defaulting to `false`.
 - `Origin` is validated where it is present, and a request naming a host Caroline did not
   expect is answered `403` before any tool runs. `Host` is validated against DNS rebinding.
   Loopback is not a boundary against other software on the machine, and a page in the user's
@@ -214,8 +289,8 @@ client that was talking, and spec 08's conversation list labels it.
 **How one is derived.** The client's declared name, from the `clientInfo` the protocol says a
 request SHOULD carry, plus an idle window: calls from one client continue one conversation
 while they keep arriving inside the window, and a call after a longer gap starts a new one. The
-window is thirty minutes by default and configurable. Thirty minutes is a number rather than a
-principle; what matters is that it is written down and can be changed.
+window is `mcp.sessionIdleMinutes`, thirty minutes by default. Thirty minutes is a number rather
+than a principle; what matters is that it is written down, named, and can be changed.
 
 A request declaring no client name is attributed to an unnamed client rather than refused,
 because the field is a SHOULD and refusing a conformant request would be Caroline inventing a
@@ -241,25 +316,35 @@ The registry is spec 07's, by reference rather than restated, reached through th
 without being written twice. `tools/list` answers with the same JSON Schema object
 `executeTool` validates against, rather than a copy of it that could drift.
 
-Two differences from what chat sees.
+Two differences from what chat has today, and only one of them is a difference between the two
+callers: `list_reviews` goes into the shared registry, so both callers get it and `tools/list` is
+the registry unchanged in that respect, while `get_overview` exists on this surface alone. That
+distinction is what criterion 11 counts, so it is drawn here rather than left to be inferred.
 
-- **One addition, `list_reviews`.** Getting the review queue otherwise means
+- **One addition to the shared registry, `list_reviews`.** Getting the review queue otherwise means
   `search_tasks(status: 'review')` and then a `get_task` per row for the pull request URL, the
   size estimate and the lifecycle position: N+1 calls to answer the first question a
   review-processing agent asks. `list_reviews(includeWaiting?)` answers it in one, optionally
   with the waiting side too, which is the "you reviewed it and nothing has happened since"
   list. It goes in the shared registry rather than an MCP-only list, so chat gains it as well,
   which it arguably should have had for the chase conversation `list_waiting` was written for.
-- **One substitution, `get_overview`.** Chat sends the day's context unasked on every message,
-  and Caroline does not own an external client's system prompt, so there is nowhere for it to
-  go. It becomes a tool the client may call, returning the object the prompt assembles today.
+- **One substitution, `get_overview`, on this surface only.** Chat sends the day's context unasked
+  on every message, and Caroline does not own an external client's system prompt, so there is
+  nowhere for it to go. It becomes a tool the client may call, returning the object the prompt
+  assembles today, defined in the same shape every other tool is and executed through the same
+  `executeTool`, so the content policy, the audit row and the derived annotations reach it without
+  an exception. It is not added to chat's list, because chat is already sent what it answers.
 
-Annotations are derived from the registry rather than written per tool: a read tool is
-`readOnlyHint: true`, a write tool is not, `delete_task` is the only `destructiveHint: true`,
-and `complete_task` and `mark_reviewed` are `idempotentHint: true`. `destructiveHint` defaults
-to true when `readOnlyHint` is false, so saying nothing would advertise every write as
-destructive and invite a confirmation prompt on `create_task`. Deriving them means a tool added
-later cannot be annotated wrongly by omission.
+Annotations are derived from the tool definition rather than written per tool: `readOnlyHint` from
+`kind`, `destructiveHint` from `alwaysConfirm`, so `delete_task` is the only
+`destructiveHint: true`, and `idempotentHint` from an idempotency field this milestone adds to the
+definition, declared `true` on `complete_task` and `mark_reviewed`. That field is the one piece
+the registry does not already carry: `kind` and `alwaysConfirm` are there, idempotency is not, and
+deriving an annotation from nothing is how a claim about a tool gets invented. It is required on
+every write tool rather than optional, so a write tool added without an idempotency decision fails
+to compile and then fails criterion 12, which is the whole point of deriving rather than writing
+them out. `destructiveHint` defaults to true when `readOnlyHint` is false, so saying nothing would
+advertise every write as destructive and invite a confirmation prompt on `create_task`.
 
 ## Confirmation, and where the human is
 
@@ -343,6 +428,17 @@ holds the version in force, which is the thing that has to be readable later.
   `MCP-Protocol-Version` header that disagrees with the body. The API's standard
   `{ error: { code, message, details? } }` shape (spec 08) is the HTTP API's and is not used
   inside a JSON-RPC body, which has a shape of its own.
+- **On this one route, JSON-RPC framing wins over the API's error envelope, and that is a
+  decision rather than an omission.** Spec 08 criterion 1 requires every route to declare a
+  schema and a request violating it to be answered `400` in the standard shape, which the global
+  `setErrorHandler` does for every Fastify validation failure. Applied here it would answer a
+  malformed JSON-RPC body with the one thing an MCP client cannot parse, so the two rules collide
+  and this is the resolution: the endpoint still declares a schema, but it validates and answers
+  its own errors, so no response leaves it in the API's shape. Concretely the route carries its
+  own error handler rather than falling through to the shared one, and its schema failure becomes
+  a JSON-RPC error object. Spec 08 names this route as criterion 1's one exception and pins it
+  with a criterion of its own, so the exception is a named list rather than a loosened assertion,
+  in exactly the way that spec already treats the `/api` prefix.
 - A refusal from the registry reaches the client as a tool result marked as an error rather
   than as a protocol error, because a tool that declined to do something is a tool that
   answered. A held operation is one of those.
@@ -383,13 +479,28 @@ holds the version in force, which is the thing that has to be readable later.
 
 ## Implementation notes that are decisions
 
-- **Slice 2 uses the MCP TypeScript SDK's resource-server package with its Fastify middleware;
-  slice 3 is Caroline's own code.** The SDK ships the bearer verification, the protected
-  resource metadata, and the `Origin` and `Host` helpers, and this revision's required headers,
-  error codes and `server/discover` are precisely what a hand roll gets wrong. The
-  authorisation server half lives in a package named for legacy support, and the consent screen
-  belongs on the Settings surface, so slice 3 is written here instead. Caroline's dependency
-  list is short and this adds to it, which is the cost being accepted.
+- **Slice 2 takes the protocol from the MCP TypeScript SDK and the credential work is Caroline's
+  own.** The SDK is a scope of packages rather than one, and which of them ships what decides how
+  much is written here, so they are named: `@modelcontextprotocol/server` for the protocol and the
+  tool surface, `@modelcontextprotocol/node` for the streamable HTTP transport over Node's request
+  and response, and `@modelcontextprotocol/fastify` for the `Host` and `Origin` validation hooks,
+  which is a Fastify plugin and fits Caroline's existing app. This revision's required headers,
+  error codes and `server/discover` are precisely what a hand roll gets wrong, and taking them
+  from the SDK is the reason for the dependency.
+- **The bearer verification and the protected resource metadata document are not taken from the
+  SDK, because it ships them for Express only.** `requireBearerAuth` and `mcpAuthMetadataRouter`
+  are exports of `@modelcontextprotocol/express`; the Fastify package's exports are
+  `createMcpFastifyApp`, `hostHeaderValidation`, `localhostHostValidation`, `originValidation` and
+  `localhostOriginValidation`, and none of them touches a token. Mounting Express middleware
+  inside Fastify to get them is a worse trade than writing a `401` with a `WWW-Authenticate`
+  header and a small JSON document, both of which are pinned by criteria here. This is stated
+  because the earlier draft of this spec staked slice 2 on an SDK "resource-server package with
+  its Fastify middleware", and there is no such package: a slice planned against it would have
+  been planned against something that does not exist.
+- **The authorisation server is Caroline's own code in slice 3.** The SDK's authorisation server
+  half lives in a package named for legacy support, and the consent screen belongs on the Settings
+  surface. Caroline's dependency list is short and the three packages above add to it, which is
+  the cost being accepted.
 - **The endpoint is served under `/api`; only the well-known metadata documents are not.** Spec
   08 owns that exception and names it, because the discovery order a client follows requires
   them at the root.
@@ -397,39 +508,66 @@ holds the version in force, which is the thing that has to be readable later.
 ## Acceptance criteria
 
 Numbered by slice, and each is asserted from the slice that introduces it onwards unless it says
-otherwise. Exactly one says otherwise: criterion 7 is asserted against slice 2 only, because it is
-a startup precondition on a credential that is configured, and slice 3's only credential is a
-token issued at runtime, so there is nothing left for startup to require. Criterion 32 is what
-holds in its place from slice 3 on.
+otherwise. Two say otherwise.
 
-Nothing here is kept as a record of an earlier state. Criteria stay in place once code and tests
-cite them by number, which is why the specs append rather than renumber, and none of this document
-is cited yet.
+Criterion 7 is asserted against slice 2 only, because it is a startup precondition on a credential
+that is configured, and slice 3's only credential is a token issued at runtime, so there is nothing
+left for startup to require. Criterion 32 is what holds in its place from slice 3 on.
 
-**Slice 1: the API's credential check.** Spec 09 owns the posture; these are its tests.
+**Criteria 1 to 4 are superseded by M15 and are not to be implemented from as written.** They are
+left in place, because these specs append rather than renumber and a superseded criterion is said
+to be superseded rather than removed, and the paragraph under the slice 1 heading says what went
+wrong with them. Numbering is unaffected: slice 2 is the first slice of this milestone that gets
+built.
 
-1. With `server.accessToken` configured, a request to any route in the process that does not
-   present it is refused, and every route behaves identically in that respect, asserted over
-   the registered route list rather than route by route.
-2. With `server.accessToken` configured, a request presenting it is answered normally, and the
-   comparison of the presented value against the configured one takes time independent of how
-   much of it matches.
-3. With no `server.accessToken` configured, no request is refused for want of one, so a
-   loopback install with no token behaves exactly as it did before this milestone.
-4. The browser reaches the change feed and the streamed chat turn under a configured token, and
-   the token appears in no log line and in no response body, which is spec 09 criterion 6
-   applied to however it is carried.
+Nothing else here is kept as a record of an earlier state. Criteria stay in place once code and
+tests cite them by number, which is why the specs append rather than renumber, and none of this
+document is cited yet.
 
-**Slice 2: the surface.**
+**Slice 1: the API's credential check. Superseded by M15, and deferred to it.** Spec 09 owns the
+posture, and these were meant to be its tests.
 
-5. With MCP disabled, no MCP endpoint and no metadata document is registered at all, asserted
+They cannot be built as written, which is a stronger statement than the one this milestone
+originally made about them. Criterion 1 asks for the token on any route in the process, and spec 09
+criterion 16 on any registered route. `buildApp` registers `@fastify/static` at the root before
+`registerRoutes`, so the SPA shell is a registered route, and requiring the token on it means the
+browser cannot fetch `index.html` at all. Scoping the check to `/api` does not rescue it either:
+spec 09 says the UI has no login, and nothing in specs 08, 09 or 12 says how a page with no login
+obtains the token it is then asked to carry. Spec 09's sentence about the token reaching the change
+feed as a cookie set once from the page presupposes the page already has it, which is the same
+circle drawn smaller. A browser SPA cannot be protected by a static credential the browser has no
+way to be given, and inventing a way is the whole subject of M15.
+
+So the fix moves to M15, which is the outward-facing authentication milestone and the right owner
+of it, rather than being half-specified here. What stays here and in spec 09 is the defect
+statement: the token has never been checked against a request, that is a defect and not an
+out-of-date spec, and the documentation says so plainly today. What goes is the claim that this
+milestone's first slice fixes it.
+
+1. **Superseded by M15. Not to be implemented as written.** With `server.accessToken` configured, a
+   request to any route in the process that does not present it is refused, and every route behaves
+   identically in that respect, asserted over the registered route list rather than route by route.
+2. **Superseded by M15. Not to be implemented as written.** With `server.accessToken` configured, a
+   request presenting it is answered normally, and the comparison of the presented value against
+   the configured one takes time independent of how much of it matches.
+3. **Superseded by M15. Not to be implemented as written.** With no `server.accessToken`
+   configured, no request is refused for want of one, so a loopback install with no token behaves
+   exactly as it did before this milestone.
+4. **Superseded by M15. Not to be implemented as written.** The browser reaches the change feed and
+   the streamed chat turn under a configured token, and the token appears in no log line and in no
+   response body, which is spec 09 criterion 6 applied to however it is carried.
+
+**Slice 2: the surface.** The first slice built.
+
+5. With `mcp.enabled` false, no MCP endpoint and no metadata document is registered at all, asserted
    over the registered routes rather than by requesting one.
-6. With MCP enabled and `server.host` not loopback, startup fails with a message naming both
-   settings.
-7. **Slice 2 only, replaced by criterion 32.** With MCP enabled and no MCP credential
-   available, startup fails whatever the bind address: loopback is not a substitute for the
-   credential on this surface. It is asserted while the credential is a configured one, and
-   stops being asserted when slice 3 makes the only credential a token issued at runtime.
+6. With `mcp.enabled` true and `server.host` not loopback, startup fails with a message naming both
+   `mcp.enabled` and `server.host`.
+7. **Slice 2 only, replaced by criterion 32.** With `mcp.enabled` true and no `mcp.accessToken` in
+   the environment, startup fails whatever the bind address, naming `CAROLINE_MCP_ACCESS_TOKEN`:
+   loopback is not a substitute for the credential on this surface. It is asserted while the
+   credential is a configured one, and stops being asserted when slice 3 makes the only credential
+   a token issued at runtime.
 8. A request with no credential is answered `401` with a `WWW-Authenticate: Bearer` header, and
    one bearing a credential that is not accepted is answered `401`. This holds under both
    credentials: from slice 3 the challenge also names the protected resource metadata document,
@@ -441,27 +579,40 @@ is cited yet.
     body is answered `400` with the protocol's `HeaderMismatch` code, and a request omitting the
     required `Mcp-Method` header is refused.
 11. `server/discover` and `tools/list` answer without a tool being run, and `tools/list` returns
-    exactly the tools of spec 07's registry plus `list_reviews`, each carrying the same JSON
-    Schema object `executeTool` validates against rather than a copy of it.
-12. Every tool's annotations are derived from the registry: a read tool is `readOnlyHint: true`,
-    a write tool is not, `delete_task` is the only `destructiveHint: true`, and `complete_task`
-    and `mark_reviewed` are `idempotentHint: true`. A tool added to the registry without an
-    annotation decision fails this rather than defaulting to destructive.
+    exactly the tools of spec 07's registry, `list_reviews` included because this milestone adds it
+    there, plus `get_overview` and nothing else. Asserted against the registry itself rather than a
+    written-out list of names, so that a tool added to the registry appears here without the test
+    being edited and a tool that is neither in the registry nor `get_overview` cannot appear at all.
+    Each carries the same JSON Schema object `executeTool` validates against rather than a copy of
+    it.
+12. Every tool's annotations are derived from its definition rather than written per tool:
+    `readOnlyHint` from `kind`, `destructiveHint` from `alwaysConfirm` so that `delete_task` is the
+    only `destructiveHint: true`, and `idempotentHint` from the idempotency field the definition
+    gains in this milestone, which is `true` on `complete_task` and `mark_reviewed`. That field is
+    required on a write tool, so a write tool added without an idempotency decision fails this
+    rather than being advertised on a default nobody chose.
 13. A `create_task` call creates the task with `status_set_by = 'user'`, publishes on the change
     feed so an open board reloads, and appears in the conversation list as a session naming the
     client that called it.
-14. Two calls from one client within the idle window are recorded against one conversation, and
-    two separated by more than it are recorded against two. A call declaring no client name is
-    recorded against an unnamed client rather than refused.
+14. Two calls from one client within `mcp.sessionIdleMinutes` are recorded against one conversation,
+    and two separated by more than it are recorded against two, asserted by varying that setting
+    rather than by waiting. A call declaring no client name is recorded against an unnamed client
+    rather than refused.
 15. A `delete_task` call executes nothing, creates a confirmation, and answers the client that
     nothing was deleted and a person has been asked. Confirming it on Caroline's own screen
     performs exactly the stored operation and records it against the session's turn.
-16. A session that changes more tasks than `chat.bulkConfirmThreshold` holds every further write
-    into one confirmation, and the confirmation states how many tasks the session would change
-    in total. Once that confirmation is decided, the next write over the same session opens a
-    new turn and the held count starts again from nothing.
-17. With MCP enabled, `llmContent: full` and `allowFullContentToRemoteProvider: false`, startup
-    fails naming all three settings, whatever `llm.provider` is set to, `ollama` included.
+16. A turn of a session that changes more tasks than `chat.bulkConfirmThreshold` holds every further
+    write into one confirmation, and the confirmation states how many tasks **that turn** would
+    change: the count since the last confirmation was decided, which is the number
+    `chat_confirmations.affected_count` holds and the same number the threshold was compared
+    against. It is not a running total for the session, which after the first confirmation is a
+    different and larger number, and naming which of the two it is is the point of this sentence.
+    Once that confirmation is decided, the next write over the same session opens a new turn and the
+    count starts again from nothing, per spec 07 criterion 14.
+17. With `mcp.enabled` true, `llmContent: full` and `allowFullContentToRemoteProvider: false`,
+    startup fails naming all three of `mcp.enabled`, `privacy.llmContent` and
+    `privacy.allowFullContentToRemoteProvider`, whatever `llm.provider` is set to, `ollama`
+    included.
 18. Undo of a session's last turn restores the prior values of every task it changed, through
     the same code path chat's undo uses.
 19. With `llmContent: metadata`, no `notes` value appears in any MCP response for any tool,
@@ -476,9 +627,11 @@ is cited yet.
 23. `mark_reviewed` over MCP has exactly the effect the board's action has: the task moves to
     `waiting`, `status_set_by` is `sync`, the source's `acted_at` and marker are stamped, and
     undo puts both the task and the source lifecycle back.
-24. Each session, and each tool call within it, is recorded with the tool name, whether it was
-    held, the content level and policy version in force, and the number of items answered. No
-    answered item text is in that record.
+24. Each session, and each tool call within it, is recorded with the tool name, a digest of the
+    arguments, whether the call was held, the content level and policy version in force, and the
+    number of items answered. No answered item text is in that record. The digest is asserted
+    because both this spec's Audit section and spec 09's amended non-goal name it, and a row without
+    it does not answer what the agent asked for.
 25. No module reachable from the MCP server imports anything under `src/connectors/`, asserted
     by inspecting imports as spec 07 criterion 2 already is.
 
@@ -502,23 +655,33 @@ is cited yet.
     ephemeral callback port works, and a redirect URI that is neither loopback nor `https` is
     refused.
 31. No client is issued a token until the user has approved it once on Caroline's own screen, and
-    the approval names the client. There is no endpoint by which a client registers itself, and a
-    request to the path RFC 7591 would use is answered as not found rather than as an error.
-32. The bearer credential is gone, and this is what stands in criterion 7's place. No credential
-    is accepted on the MCP endpoint but a token Caroline issued, the value slice 2 accepted is
-    refused, and a configuration file still carrying slice 2's setting fails at startup naming
-    that key rather than being ignored.
-33. `server.accessToken` still governs every other route exactly as slice 1 left it, and removing
-    the MCP bearer credential changes nothing about it. Asserted, because the two credentials are
-    easily conflated and this is the assertion that says they were not.
+    the approval names the client. There is no endpoint by which a client registers itself, asserted
+    the way a client would find out: the authorisation server metadata document advertises no
+    `registration_endpoint`. That is the testable form of it, because RFC 7591 defines no fixed
+    path, only a registration endpoint discovered through that field, so there is no path to request
+    and a guess at one would in any case be answered by the SPA shell wherever the built site is
+    present.
+32. The bearer credential is gone, and this is what stands in criterion 7's place. No credential is
+    accepted on the MCP endpoint but a token Caroline issued, the value slice 2 accepted is refused,
+    and slice 2's setting fails at startup rather than being ignored in either of the two places it
+    could still be named: `CAROLINE_MCP_ACCESS_TOKEN` in the environment is reported as a removed
+    setting naming the variable, and `mcp.accessToken` in the configuration file is refused by the
+    strict schema naming the key.
+33. `server.accessToken` behaves exactly as it did before this milestone, and removing the MCP
+    bearer credential changes nothing about it. Asserted, because the two credentials are easily
+    conflated and this is the assertion that says they were not. It says "as before" rather than "as
+    slice 1 left it" because slice 1 is superseded by M15: whatever M15 makes of that credential, it
+    is not this milestone's doing, and this criterion is what proves this milestone did not touch it.
 34. A client metadata document is fetched only over `https`. An `http` URL is refused, in any
     spelling.
 35. The address a client metadata URL resolves to is checked before anything connects to it, and
     the connection is made to that checked address, so a name resolving to a loopback,
     link-local, RFC 1918 or unique-local address is refused and a second resolution cannot
     substitute one. Asserted for each of those ranges and for their IPv4-mapped forms.
-36. A client metadata response larger than the cap is refused while it is being read rather than
-    after, and one that has not completed within the time cap is abandoned.
+36. A client metadata response larger than `mcp.clientMetadata.maxResponseBytes` is refused while it
+    is being read rather than after, and one that has not completed within
+    `mcp.clientMetadata.timeoutMs` is abandoned. Both are asserted by lowering the setting rather
+    than by producing a large or slow response at the default.
 37. A redirect to a different host is not followed, and the fetch is refused rather than retried.
 38. No client metadata fetch happens outside an authorisation request a person is present for:
     none at startup, none on a schedule, and none during a token request. Asserted by driving the
@@ -529,3 +692,25 @@ is cited yet.
 40. The protocol revision this surface implements is named in this spec and asserted against what
     the server advertises, so that moving to a later revision is a change somebody makes rather
     than a drift somebody finds.
+
+The review of this spec added the following, appended rather than renumbered for the reason spec
+README's conventions give. Criteria 41 and 43 belong to slice 2 and criterion 42 to slice 3, and each
+is asserted from that slice onwards like the rest.
+
+41. `get_overview` is a tool `tools/list` carries, it answers with the day's context object chat's
+    prompt assembles today and through the same code that assembles it, it is `readOnlyHint: true`
+    by criterion 12's derivation like any other read tool, and its answer is subject to the content
+    policy and recorded by an audit row like any other call. It is absent from what chat is offered,
+    because chat is already sent what it answers.
+42. The `issuer` in the authorisation server metadata document is byte-identical to the identifier a
+    client builds the well-known URL from, and the `resource` in the protected resource metadata
+    document is the MCP endpoint's own origin and path, both derived from `server.host` and
+    `server.port` rather than configured. Both are `http` on loopback, which is a knowing deviation
+    from RFC 8414 and RFC 9728 that this spec states with its justification, and the assertion is
+    the internal consistency a client is required to check rather than a scheme this design cannot
+    satisfy.
+43. A malformed JSON-RPC body on `POST /api/mcp` is answered as a JSON-RPC error object and never in
+    the API's `{ error: { code, message, details? } }` shape, asserted by sending a body that
+    violates the route's schema and parsing the answer as JSON-RPC. This is the resolution of the
+    collision between that shape and spec 08 criterion 1, which spec 08 criterion 34 states from its
+    own side.

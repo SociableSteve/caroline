@@ -36,7 +36,7 @@ both validation and typing. Errors follow one shape: `{ error: { code, message, 
 | `POST /api/auth/login` | Starts the login flow and answers with the provider's authorization URL. Public |
 | `GET /api/auth/callback` | The provider's redirect: exchanges the code, checks the identity, sets the cookie. Public |
 | `POST /api/auth/logout` | Revokes the session and clears the cookie |
-| `POST /api/mcp` | The MCP endpoint, where one is enabled. Its body is JSON-RPC and its semantics are spec 12's; the envelope carries a schema like every other route, so criterion 1 holds |
+| `POST /api/mcp` | The MCP endpoint, where one is enabled. Its body is JSON-RPC and its semantics are spec 12's. It declares a schema like every other route, and it is criterion 1's one exception in what it answers with: a violation comes back as a JSON-RPC error rather than in the standard error shape, because that shape is the one thing an MCP client cannot parse. Criterion 37 |
 | `/api/mcp/authorize` and `POST /api/mcp/token` | The authorisation code flow for an MCP client: the consent screen and the token endpoint (spec 12) |
 | `GET /.well-known/oauth-protected-resource`, with and without the endpoint's path appended, and `GET /.well-known/oauth-authorization-server` | The metadata documents a client discovers Caroline through |
 
@@ -225,8 +225,12 @@ That is the surface's second write path after the user's name, and it is here ra
 client's own interface because an approval decided anywhere else is an approval Caroline cannot
 show you afterwards.
 
-Where an access token is configured, the SPA carries it on every request it makes and on the
-change feed, which is the browser's half of spec 09's request-level check.
+How the SPA authenticates itself where an access token is configured is **M15's to specify, and is
+deliberately not specified here.** An earlier draft of this paragraph said the SPA carries the token
+on every request and on the change feed, which assumes a page with no login has been given the token
+somehow, and nothing says how. That mechanism, and whether a browser session is a login at all, is
+the subject of M15: see spec 09's Network posture section. Until then no request is checked against
+the token, which spec 09 states as the defect it is.
 
 ### Interaction rules
 
@@ -271,7 +275,9 @@ here is the behaviour each surface owes the reader; what is there is what they a
 ## Acceptance criteria
 
 1. Every route declares a schema, and a request violating it returns 400 in the standard
-   error shape.
+   error shape. Extended in place, rather than joined by a criterion that would leave two places
+   saying what the shape is: `POST /api/mcp` still declares a schema and still refuses a violation,
+   but answers it as JSON-RPC, and it is the only exception. Criterion 34 states it.
 2. `GET /api/config` never returns an API key, token or refresh token, in any field.
 3. Moving a task between board columns results in `status_set_by = 'user'`.
 4. The dashboard renders correctly with no plan, no calendar and no integrations
@@ -360,3 +366,8 @@ The MCP endpoint adds the following, appended for the same reason.
     which are served from the root because that is where a client's discovery order looks for them.
     The MCP endpoint itself is under `/api`, and the exception is a named list rather than a relaxed
     assertion.
+34. `POST /api/mcp` is criterion 1's one exception, as a named list rather than a relaxed assertion:
+    it declares a schema like every other route, and a request violating it is answered as a JSON-RPC
+    error object rather than in the standard error shape, because a JSON-RPC caller cannot parse that
+    shape. Criterion 1 holds unchanged for every other route, which is asserted by keeping the
+    exception a list of one. Spec 12 states the same resolution from its side as its criterion 43.

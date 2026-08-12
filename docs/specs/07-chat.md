@@ -88,6 +88,14 @@ Write:
 - `update_project(id, changes)`
 - `regenerate_daily_plan(date?)`
 
+Every write tool declares whether it is idempotent, which is a required field on the definition
+rather than an optional one. Chat itself does not read it: it exists because MCP advertises an
+`idempotentHint` per tool (spec 12), that annotation is derived from the definition rather than
+written out per tool, and there was nothing on the definition to derive it from, so a tool would
+have been advertised on a default nobody chose. Required rather than optional so that a write tool
+added later cannot skip the decision. `complete_task` and `mark_reviewed` are the two that declare
+it true.
+
 There is no tool that reaches an external system. Chat cannot send email, comment on a PR
 or create a calendar event, and the tool list is the enforcement. Two callers now rely on that
 guarantee rather than one (spec 12), which is why it is asserted over what the tool modules

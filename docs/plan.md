@@ -16,7 +16,7 @@ in what order it gets built, with what tooling, and how each piece is proved.
 | Tests | Vitest for server and client, Testing Library for components | One runner, watch mode for red-green |
 | Lint | ESLint flat config + Prettier | Standard |
 | CI | GitHub Actions: lint, typecheck, test, build | Blocking on the branch |
-| MCP | The MCP TypeScript SDK's resource-server package with its Fastify middleware, for the surface only | Protocol conformance is what a hand roll gets wrong, and revision `2026-07-28`'s required headers, error codes and `server/discover` are all new. The authorisation server is Caroline's own code instead: the SDK's lives in a package named for legacy support, and the consent screen belongs on the Settings surface (spec 12) |
+| MCP | `@modelcontextprotocol/server` for the protocol, `@modelcontextprotocol/node` for the streamable HTTP transport, `@modelcontextprotocol/fastify` for the `Host` and `Origin` hooks | Protocol conformance is what a hand roll gets wrong, and revision `2026-07-28`'s required headers, error codes and `server/discover` are all new. The bearer check and the protected resource metadata document are Caroline's own code, because the SDK ships those for Express only: `requireBearerAuth` and `mcpAuthMetadataRouter` are `@modelcontextprotocol/express` exports and the Fastify package's are the app and validation helpers alone. So is the authorisation server: the SDK's lives in a package named for legacy support, and the consent screen belongs on the Settings surface (spec 12) |
 
 Layout:
 
@@ -514,33 +514,33 @@ protocol now offers a way to ask through the client, because spec 09's reason fo
 confirmation from the policy is that it is rendered from the user's own database in front of them.
 Nothing about the person goes at all, because Caroline is not the one writing this prompt.
 
-Three slices, in this order, because the first is behaviour-neutral for every install the
-documentation describes and the other two are incoherent without it. Two different credentials appear
-across them and they are not the same one: the first is the API's and it stays, the second is the MCP
-endpoint's and the third slice deletes it.
+Two slices, numbered 2 and 3, because a first one was written and then given to M15. The numbering is
+kept rather than closed up: spec 12's criteria are grouped by slice number and its criterion 7 names
+slice 2 in its own text, so renaming the slices would repoint those the way renumbering criteria
+would. Slice 2 is the first slice built. Two different credentials appear across the milestone and
+they are not the same one: the API's, which this milestone does not touch at all, and the MCP
+endpoint's, which slice 2 introduces and slice 3 deletes.
 
-1. **The credential check that should already have been there.** `server.accessToken` has been a
-   startup precondition since M0 and has never been checked against a request. A non-loopback bind
-   demands a token, and then serves the whole API to anyone who can reach the port, the effective
-   configuration and every write route included. Spec 09's criterion asked only for the startup check
-   and passes; the sentence above it says the token is required because the UI has no login, which
-   reads as a claim that it protects something. It is a defect predating this milestone, and it is
-   fixed here rather than separately because a milestone cannot write a credential check for one
-   endpoint and leave the rest of the API open: a boundary that holds for the new surface and not the
-   old one is not a boundary. One request hook, registered where every route is registered rather than
-   remembered per route, and the token reaches the change feed as a cookie set from it, because a
-   browser cannot put a header on an `EventSource` and a query parameter puts a credential in a URL.
-   An install with no token configured behaves exactly as it did, which is every install the setup
-   guide describes, and an install that had set one and relied on it not being enforced is broken by
-   this on purpose.
+1. **Withdrawn, and given to M15.** This was the API's credential check, on the argument that a
+   milestone cannot write a credential check for one endpoint and leave the rest of the API open. The
+   argument still holds; the slice did not. It cannot be built as written: the check has to cover
+   every registered route, `@fastify/static` registers the SPA shell at the root, and requiring the
+   token there means the browser cannot fetch `index.html`; and scoping it to `/api` does not help,
+   because nothing says how a page with no login obtains the token it would then carry. A cookie set
+   from the page presupposes the page already has it. So the defect is stated in spec 09 and in the
+   setup guide, where it belongs, and the fix is M15's, where the question "what does a browser
+   authenticate with" is the subject rather than a step. Spec 12's criteria 1 to 4 are marked
+   superseded and stay in place unimplemented, as does spec 09's criterion 16.
 
 2. **The surface, and a credential that is scaffolding.** Streamable HTTP on the port Caroline already
    listens on, in the same process, because one database handle and one change feed mean a task an
    assistant creates appears on the open board. Off unless turned on, and loopback only, enforced at
    startup exactly as the full-content guard is: a tool whose documented posture is that the bind
-   address is the boundary does not get to become a service by way of a config key. `Origin` and
+   address is the boundary does not get to become a service by way of a config key: `mcp.enabled` off
+   by default, and enabling it with a non-loopback `server.host` fails naming both. `Origin` and
    `Host` are validated because a page in the user's own browser can post to `127.0.0.1`. The
-   credential is a bearer token of the endpoint's own, and it is temporary by design: it is here so
+   credential is a bearer token of the endpoint's own, `mcp.accessToken` from
+   `CAROLINE_MCP_ACCESS_TOKEN` and from nowhere else, and it is temporary by design: it is here so
    the tool surface can be built and proved before the authorisation server exists, which is what
    keeps a fault in one from being mistaken for a fault in the other. Its criteria say so, rather than
    being written as promises the next slice will break. The tool surface itself is the derived
@@ -557,9 +557,17 @@ endpoint's and the third slice deletes it.
    server that validates the audience of every token and refuses one issued for anything else, and an
    authorisation server with an authorisation code flow, PKCE, single-use codes, refresh, a consent
    screen on the Settings surface, and its metadata where the discovery order looks for it. Slice 2's
-   bearer token is removed with it, setting and all rather than left as a dead key, and the
-   consequence is stated rather than softened: a client that cannot do OAuth 2.1 cannot connect. The
-   API's own token is untouched by any of that.
+   bearer token is removed with it, environment variable and schema key both rather than left as dead
+   settings, and the consequence is stated rather than softened: a client that cannot do OAuth 2.1
+   cannot connect. The API's own token is untouched by any of that.
+
+   One part of this is knowingly non-conformant and spec 12 says so rather than leaving it to be
+   found: RFC 8414 requires an issuer identifier to be `https` and RFC 9728 requires the same of a
+   resource identifier, Caroline is loopback `http` on purpose, so both of Caroline's are `http` and
+   a client that validates the scheme will refuse to connect. RFC 8252 sanctions loopback `http` for
+   a client's redirect URI, which is what the port-agnostic redirect matching relies on, and it
+   sanctions nothing about these two. The answer for anybody who needs an `https` origin is the same
+   tunnel argument as everywhere else, not a certificate on loopback.
 
    Dynamic client registration is not built, and for once that is the specification's own advice
    rather than an argument with it: the revision this implements deprecates it in favour of client
@@ -575,9 +583,11 @@ endpoint's and the third slice deletes it.
    approving a client.
 
 Spec 12 is new and states the transport, the authorisation, the tools and the session. Spec 07 gains
-the session as the unit the gate counts in and the one read tool it was missing, spec 09 gains the MCP
-boundary, the request check and the amended outbound rule, spec 08 gains the endpoint and the metadata
-documents that cannot live under `/api`, spec 00 gains the third arrow into the process, and spec 02 is
+the session as the unit the gate counts in, the one read tool it was missing and an idempotency field
+on a tool definition so an annotation is derived rather than guessed, spec 09 gains the MCP boundary,
+the plain statement of the unenforced-token defect and the amended outbound rule, spec 08 gains the
+endpoint, the metadata documents that cannot live under `/api` and the one named exception to its error
+shape, spec 00 gains the third arrow into the process, and spec 02 is
 unchanged: the review lifecycle already had everything this needed. The payloads published in
 `docs/content-policy.md` gain the MCP boundary at all four levels, generated by the same functions and
 failing the same test on drift, because a promise about what leaves the machine is worth exactly what
@@ -591,10 +601,11 @@ a person; the eleventh task it changes waits with it; the whole run is a convers
 back and undone; and with `llmContent: none` it can do all of that while being told nothing but ids.
 The assistant got in by running an authorisation code flow with PKCE against Caroline's own consent
 screen, nothing but a token Caroline issued is accepted on that endpoint, no bearer setting survives
-to suggest otherwise, the endpoint is reachable from no other machine, and a request to any route
-without the token an install has configured is refused wherever it arrives. Spec 12 in full, spec 07
-criterion 14, spec 08 criterion 33, spec 09 criteria 16 to 18, and spec 09 criterion 15 extended to
-the new boundary.
+to suggest otherwise, and the endpoint is reachable from no other machine. The API's own credential is
+exactly as M14 left it, which criterion 33 asserts, and making it a request requirement is M15's exit
+rather than this one's. Spec 12's criteria 5 to 43, spec 07 criterion 14, spec 08 criteria 33 and 34,
+spec 09 criteria 17 and 18, and spec 09 criterion 15 extended to the new boundary. Spec 12's criteria
+1 to 4 and spec 09's criterion 16 are M15's and are not part of this exit.
 
 ## Test strategy
 
