@@ -399,6 +399,77 @@ Exit: somebody who has never seen Caroline can read the documentation and know w
 claims that could rot are tests: the payloads against the code, and the images against the shot list
 and the seed.
 
+### M15. Outward-facing authentication
+
+Spec 09 has always said that Caroline binds to loopback and that binding anywhere else requires an
+access token, "because the UI has no login". That sentence was doing two jobs it cannot do. Nothing
+under `src/server` ever read the token, so the only thing it governed was whether the process would
+start, and a shared secret in an environment variable identifies nobody in any case: it cannot be
+revoked without a restart and it never expires.
+
+The honest version of the same intent is a login. On loopback nothing changes, because there the
+socket really is the boundary. Where Caroline is reachable from a network, a person proves who they
+are to an identity provider they already trust before anything answers. Google is the worked example
+and the provider is a configuration value, reached through OIDC discovery.
+
+Caroline is single user, so this is not tenancy: the login proves you are the one person who owns
+this instance. Google authenticates the human, and Caroline goes on being its own authorization
+server for the machines that talk to it. Full federation is not available, because the MCP revision
+requires audience-bound tokens and forbids accepting tokens Caroline did not issue.
+
+Spec 13 is new and states the boundary, the allowlist, the session, the streams under revocation,
+the login flow, what a provider must support and what cannot be made generic. Spec 09 gains the
+rewritten network posture, the login provider's client secret and the session value under
+credentials, the identity provider on the user-chosen side of the outbound list, criterion 7 amended
+in place, and criteria 16 and 17. Spec 08 gains the four `/api/auth/*` routes and criteria 33 to 35.
+Spec 00's multi-user non-goal gains the sentence that separates a network-exposed single-user
+instance from tenancy.
+
+Three slices, in this order, because the first is behaviour-neutral for every install that exists
+and the third is what stops the second from quietly becoming Google-only:
+
+1. **The boundary.** One `onRequest` check registered where every route is registered, and
+   `authRequired` derived once from the bind address, `server.publicUrl` and `auth.mode`. Every
+   startup guard: no provider or an empty allowlist where authentication is required refuses to
+   start, a missing public URL refuses where the bind is not loopback, and an `http` public URL is
+   refused unless both the bind and the URL's own host are loopback, with no override. A plaintext
+   public URL is keyed to the bind as well as to its own host because the URL's host says nothing
+   about who can reach the socket. A loopback install that asks for a login needs no public
+   URL, because its redirect URI is the loopback address it is already listening on. The
+   forwarded-header refusal, which turns a proxy in front of a loopback bind from a silent
+   misconfiguration into a message naming the setting. `server.accessToken` removed outright, with
+   `CAROLINE_ACCESS_TOKEN` failing loudly rather than being ignored, as a runtime check so that
+   `npm run delete-data` still runs. Spec 13 criteria 1 to 8, 31 and 32, spec 09 criterion 7 as
+   amended. A loopback install behaves exactly as it does today, which is every install that
+   exists.
+2. **The provider and the session.** OIDC discovery fetched lazily and cached, the authorization
+   code flow with PKCE, identity token claim validation, the mandatory allowlist and subject
+   pinning as a `settings` row, which is why `0011-sessions.ts` is the only migration this milestone
+   adds, the cookie, logout, the Origin check that applies where authentication is required and
+   accepts any loopback origin where the install is on loopback, the login screen, and what
+   revocation does to the change feed and to a chat turn already
+   streaming. Spec 13 criteria 9 to 26, 33 and 34, spec 09 criteria 16 and 17, spec 08 criteria 33 to
+   35.
+3. **The second provider, proven.** A fixture-driven run of the whole flow against a second
+   provider's recorded discovery document and token response, with no code change, and a
+   source-inspection test that refuses a Google host, endpoint or non-standard claim under
+   `src/auth`. The setup guide's provider section written generically with Google as the worked
+   example, including the second Cloud project client a Web application redirect needs. Spec 13
+   criteria 27 to 30. The provider is a configuration value proven by a test rather than asserted in
+   prose.
+
+The tooling table gains no row: this milestone adds no dependency. There is no cookie plugin and no
+JWT library, because the session is one opaque value compared against a stored hash and the identity
+token arrives over direct TLS from the token endpoint, which is where the decision not to verify its
+signature locally comes from.
+
+Exit: an exposed Caroline can be logged into with Google, cannot be logged into by anybody else
+including somebody who authenticates successfully at Google, and refuses to start at all where it
+would be exposed without a login. A loopback install's behaviour is unchanged, and the tests that
+assert the behaviour of the removed access token change with it: slice 1 takes out the startup guard
+`test/config/load.test.ts` asserts, and `CAROLINE_ACCESS_TOKEN` is the fixture secret in
+`test/config/redact.test.ts`, `test/server/logging.test.ts` and `test/server/config-route.test.ts`.
+
 ## Test strategy
 
 - **Domain**: pure unit tests, no database.
