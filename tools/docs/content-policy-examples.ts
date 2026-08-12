@@ -12,6 +12,7 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { fileConfigSchema } from '../../src/config/schema.js'
 import { contentLevels, type ContentLevel } from '../../src/domain/content.js'
 import {
   buildClassificationPayload,
@@ -60,8 +61,13 @@ const item: ClassificationItem = {
 /** The moment the call is made, so `ageDays` is arithmetic on two fixed instants. */
 const CALLED_AT = Date.parse('2026-08-12T09:00:00Z')
 
-/** The default, which is the number in the document's prose and the one a reader has not changed. */
-const SNIPPET_CHARS = 300
+/**
+ * The snippet cap a reader has not changed, read out of the schema rather than written again here. It
+ * appears in the document's prose, in each block's note and in the length of the `snippet` payload, so a
+ * second copy of it is a number that can go quietly false: both sides of the drift comparison would read
+ * the copy, and the test would stay green while three statements in the document became untrue.
+ */
+const SNIPPET_CHARS = fileConfigSchema.parse({}).privacy.snippetChars
 
 /**
  * The user turn of a classification call at each level, as the provider receives it: the payload

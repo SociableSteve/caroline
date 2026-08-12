@@ -70,7 +70,13 @@ async function seeded(path, collection, what) {
 const documentationShots = forDocumentation
   ? [
       { name: 'dashboard', hash: '#/?chat=closed', width: 1440, height: 1100, scale: 1 },
-      { name: 'board', hash: '#/board?chat=closed', width: 1440, height: 1100, scale: 1 },
+      /**
+       * Wider than the rest, because the document's subject here is that there are six columns and its
+       * alt text says so. Six at their 15rem minimum plus the gaps and the surface padding need a little
+       * over 1500px, and `captureBeyondViewport` extends the shot downwards only, so at 1440 the sixth
+       * column was cut through its cards.
+       */
+      { name: 'board', hash: '#/board?chat=closed', width: 1600, height: 1100, scale: 1 },
       {
         name: 'rail',
         // The item open above the conversation it is about, which is the whole of what the rail is:

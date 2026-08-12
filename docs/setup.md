@@ -51,11 +51,15 @@ reading, because it is Caroline saying what it thinks it has been configured wit
 {"level":30,"time":1786505798937,"pid":17114,"hostname":"laptop","version":"1.0.0","database":"/home/you/caroline/data/caroline.db","github":"not configured","google":"not configured","llm":"not configured","llmContent":"snippet","storeContent":"metadata","timezone":"Europe/London","schedules":{"sync":"*/15 * * * *","classify":"5 * * * *","plan":"30 7 * * *","purge":"20 3 * * *"},"msg":"Caroline is running"}
 ```
 
-The time, the pid, the hostname, the port and the database path are your machine's, and are the only
-things standing in for a real value here. Everything else on a fresh install reads as that does: three
-integrations not configured, the two content levels at their defaults, and the four schedules. Anything on the terminal beginning `Caroline cannot start:` is a
-configuration error rather than a crash, and it names the setting and what to do about it: there are
-examples in [troubleshooting](#troubleshooting).
+Six of those values are this machine's rather than yours: the time, the pid, the hostname, the port, the
+database path and the timezone, which defaults to whatever the machine thinks it is in and is the one
+thing [step 3](#3-where-things-live) asks you to set deliberately. Everything else on a fresh install
+reads as that does: three integrations not configured, the two content levels at their defaults, and the
+four schedules.
+
+Anything on the terminal beginning `Caroline cannot start:` is a configuration error rather than a crash,
+and it names the setting and what to do about it: there are examples in
+[troubleshooting](#troubleshooting).
 
 Open <http://127.0.0.1:5123>. You should see the dashboard, with every integration listed as not
 configured and nothing captured. That is the expected state of a fresh install and not an error.

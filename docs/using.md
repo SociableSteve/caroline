@@ -94,8 +94,12 @@ A worked pass at an inbox of three, from the board:
 2. Read the card. `2` files it as a next action, `4` as something you are waiting on, `5` as someday,
    `6` as reference. `d` completes it, which is the right answer more often than it looks.
 3. Got one wrong? `u` puts that task's last status change back, including the column it came from.
-4. Repeat until the column is empty. Moving a card is a decision by you, and Caroline records it as
-   yours: the classifier will not overrule a status you set.
+4. Click the next card and go again, until the column is empty. Only the movement keys hand the focus
+   on: `d`, a digit, `r` and `u` all take the card out of the column it was in, and the focus goes with
+   it rather than moving to what is left, so each triage decision starts with a click or a `Tab`.
+
+Moving a card is a decision by you, and Caroline records it as yours: the classifier will not overrule
+a status you set.
 
 Two things that follow from that last rule. Filing a synced item outside the statuses its connector
 tracks turns sync tracking off for it permanently, so a pull request you have filed under Reference
@@ -132,8 +136,9 @@ The dashboard is the morning screen. Reading it top to bottom:
   as they stand now. It is a proposal and not a commitment: complete things from it, or ignore it.
 - **Today's calendar** is the capacity arithmetic, spelled out: the working window, less the meetings
   you accepted, less the reserve held back for interruptions, and what is left. Declined meetings do
-  not count against you. If it says the capacity is unverified, no calendar could be read and the
-  whole working day was assumed free.
+  not count against you. **Unverified** means no calendar is connected, which is not the same as no
+  meetings being known: as the picture above shows, the arithmetic still uses whatever events are in
+  the database, and what is missing is anything confirming they are current.
 - **Gone quiet** is what has been waiting on somebody else longer than the staleness threshold, with
   who it is on and for how long. **Worth a chase** is the planner's own pick of those, and for a pull
   request it says whether the author has pushed anything since you reviewed it, which is the case

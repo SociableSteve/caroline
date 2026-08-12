@@ -65,9 +65,12 @@ rail, and every one of those images is `tools/demo/shoot.mjs` driving the built 
 seeded demonstration day. A hand-captured screenshot would be two things this site cannot have: stale
 the first time a surface changed, and a picture of somebody's own board. The seeded items are invented,
 and on a published page they should read that way: a plausible repository name under a real
-organisation's would leave a stranger unsure whose pull requests they are looking at, so the reserved
-example owner is used instead. Each image is taken in both palettes and the document carries both, so a
-reader sees the application in the theme they are reading the page in.
+organisation's would leave a stranger unsure whose pull requests they are looking at, so one invented
+owner is used throughout instead. No namespace is safe by being unregistered, so what the pictures are
+held to is the link rather than the name: every URL the seed writes is on a `.invalid` host, which can
+never resolve, so nothing published or clicked lands in somebody's real repository. Each image is taken
+in both palettes and the document carries both, so a reader sees the application in the theme they are
+reading the page in.
 
 **Static, and nothing fetched.** No client-side JavaScript, no web fonts, no analytics and no
 external requests of any kind. The pages read offline, and nothing about who read what leaves the
@@ -128,5 +131,6 @@ lives in repository settings rather than in the repository.
     `tools/demo/shoot.mjs`, exists in both palettes, and is shown by a document, the specs included.
     The build refuses an image from anywhere else, a document embedding one that is not there, and a
     fragment on an image reference that is not a palette; the suite refuses an image no document shows,
-    which the build cannot see. The seeded day those images are taken from names no address and no
-    repository outside the reserved example owner. Every published image carries alternative text.
+    which the build cannot see. The seeded day those images are taken from carries no address, names one
+    invented repository owner throughout, and writes every URL on a host that can never resolve, so no
+    picture of it points into a real namespace. Every published image carries alternative text.

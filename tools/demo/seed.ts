@@ -180,6 +180,12 @@ createTask(
  * The repository is a field rather than being spelled into the title twice. Two of these are the
  * same repository and one is not, which is the point of having a third: the board should show a
  * review from somewhere else, with provenance that points at somewhere else.
+ *
+ * `example-org` is an invented owner used consistently, and not a reserved one: GitHub reserves no
+ * example namespace, and that account exists. So the names are a convention and the links are the
+ * safeguard: every URL here is on `github.invalid`, which RFC 2606 keeps permanently unresolvable, so
+ * neither a published screenshot nor a card in the demo can send anybody into a real namespace. A slug
+ * that happens to 404 today would not do, because somebody can register one tomorrow.
  */
 const pullRequests = [
   {
@@ -223,7 +229,7 @@ for (const pr of pullRequests) {
     {
       provider: 'github',
       externalId,
-      url: `https://github.com/${pr.repository}/pull/${pr.number}`,
+      url: `https://github.invalid/${pr.repository}/pull/${pr.number}`,
       title,
       taskId: task.id,
       lifecycleState: 'awaiting_review',
@@ -257,7 +263,7 @@ upsertSource(
   {
     provider: 'github',
     externalId: 'example-org/caroline#37',
-    url: 'https://github.com/example-org/caroline/pull/37',
+    url: 'https://github.invalid/example-org/caroline/pull/37',
     title: 'Split the connector interface',
     taskId: reviewed.id,
     lifecycleState: 'reviewed',

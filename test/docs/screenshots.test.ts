@@ -75,11 +75,14 @@ describe('the screenshots are generated from the seeded day', () => {
 
   /**
    * The seeded day is what the pictures show, and the site publishes them, so it should read as the
-   * invention it is. The items always were invented; what an owner does is decide whether a stranger
-   * can tell. A plausible repository under a real organisation's name reads as that organisation's
-   * work, so the reserved example owner is asserted here rather than trusted to stay.
+   * invention it is. The items always were invented; what a name does is decide whether a stranger can
+   * tell, and a plausible repository under a real organisation's reads as that organisation's work.
+   *
+   * `example-org` is asserted as a convention rather than as a safe namespace, because there is no such
+   * thing: GitHub reserves no example owner, that account exists, and a slug that 404s today can be
+   * registered tomorrow. What makes the pictures safe is the host, checked below.
    */
-  it('seeds no repository outside the example owner, and no address', () => {
+  it('names one invented owner, no address, and no host that could ever resolve', () => {
     const seed = source('tools/demo/seed.ts')
 
     // The three ways the seed names a repository: the field, the external id it builds from it, and
@@ -88,11 +91,21 @@ describe('the screenshots are generated from the seeded day', () => {
     const owners = [
       ...seed.matchAll(/repository: '([\w-]+)\//g),
       ...seed.matchAll(/'([\w-]+)\/[\w.-]+#\d+/g),
-      ...seed.matchAll(/github\.com\/([\w-]+)\//g),
+      ...seed.matchAll(/https:\/\/[\w.]+\/([\w-]+)\//g),
     ].map(([, owner]) => owner)
 
     expect(owners.length).toBeGreaterThan(0)
     for (const owner of owners) expect(owner).toBe('example-org')
+
+    /**
+     * Every host the seed writes, and the whole point of the check: `.invalid` is reserved by RFC 2606
+     * and can never be registered, so a card in the demo and a link inside a published screenshot both
+     * lead nowhere rather than into whoever owns that name on the real site.
+     */
+    const hosts = [...seed.matchAll(/https?:\/\/([^/'`\s]+)/g)].map(([, host]) => host)
+    expect(hosts.length).toBeGreaterThan(0)
+    for (const host of hosts) expect(host, `${host} can resolve`).toMatch(/\.invalid$/)
+
     expect(seed).not.toMatch(/[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[A-Za-z]{2,}/)
     // The real owner of this repository, which is a real GitHub account and not a fixture.
     const repository = String(JSON.parse(source('package.json')).repository.url)
