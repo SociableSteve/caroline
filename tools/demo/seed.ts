@@ -11,10 +11,11 @@
  *
  * Never point this at the real database. It writes into a path of its own and says which.
  */
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
-import { loadConfig } from '../../src/config/load.js'
+import { workingWindowForDate } from '../../src/actions/capacity.js'
+import { loadConfig, readConfigFile } from '../../src/config/load.js'
 import { openCarolineDatabase } from '../../src/db/index.js'
 import { createProject } from '../../src/db/repositories/projects.js'
 import { createTask, setTaskTags } from '../../src/db/repositories/tasks.js'
@@ -27,6 +28,16 @@ import { createConversation, appendMessage, finishMessage } from '../../src/db/r
 import type { StatusActor, TaskStatus } from '../../src/domain/task.js'
 import type { CalendarResponseStatus } from '../../src/domain/calendar.js'
 import type { JobRunStatus } from '../../src/domain/job.js'
+import { runPlanning } from '../../src/jobs/plan.js'
+import { createFakeProvider } from '../../src/llm/fake.js'
+import type { LlmProvider, LlmRuntime } from '../../src/llm/index.js'
+import { withSchemaValidation } from '../../src/llm/structured.js'
+import { CLASSIFICATION_PROMPT_VERSION } from '../../src/llm/prompts/classification.js'
+import { PLAN_PROMPT_VERSION } from '../../src/llm/prompts/plan.js'
+import { formatLocalDate, localDateAt } from '../../src/domain/time.js'
+// The client's own formatter, so a sentence in the seeded conversation and the capacity bar
+// photographed beside it cannot say the same quantity two ways.
+import { formatEstimate } from '../../web/format.js'
 
 /**
  * Under the system temporary directory, and refused anywhere else.
@@ -49,8 +60,41 @@ if (step === '' || step.startsWith('..') || isAbsolute(step)) {
 // SQLite will not create the directory for us, and on a clean machine there is not one.
 mkdirSync(dirname(databasePath), { recursive: true })
 
+/**
+ * Every run starts from an empty file, and the refusals below are why it has to.
+ *
+ * Nothing here is an upsert on a stable key: `createProject` and `createTask` insert a new row with
+ * a new id each time, so a second run against the same file dealt six projects and two of every
+ * card, and a run that refused halfway left a part of a day for the next one to add itself to.
+ * Deleting first makes the seed idempotent and makes a refusal cost nothing, which is what lets the
+ * checks below sit after the plan has been drawn, where the plan is the thing being checked. The
+ * path is the scratch one validated above, and WAL keeps two files beside it.
+ */
+for (const suffix of ['', '-wal', '-shm']) rmSync(`${databasePath}${suffix}`, { force: true })
+
+/**
+ * The configuration this script and the server share.
+ *
+ * `CAROLINE_CONFIG` is the same variable `npm start` reads, and the README points both at one file,
+ * because the plan written here is fitted against a capacity the server computes: the window, the
+ * meetings and the reserve decide what fits, and two configurations that agree today are how a
+ * seeded plan came to claim there was no capacity left in two free hours. The database path is this
+ * script's own whatever the file says, since it migrates and writes whatever it opens.
+ */
+const settings = (
+  process.env.CAROLINE_CONFIG === undefined
+    ? {}
+    : (readConfigFile(resolve(process.env.CAROLINE_CONFIG)) ?? {})
+) as Record<string, unknown>
+const fileDatabase = (settings.database ?? {}) as Record<string, unknown>
+const fileJobs = (settings.jobs ?? {}) as Record<string, unknown>
+
 const config = loadConfig({
-  file: { database: { path: databasePath }, jobs: { timezone: 'Europe/London' } },
+  file: {
+    ...settings,
+    database: { ...fileDatabase, path: databasePath },
+    jobs: { ...fileJobs, timezone: fileJobs.timezone ?? 'Europe/London' },
+  },
   env: {} as NodeJS.ProcessEnv,
 })
 const database = openCarolineDatabase(config)
@@ -60,6 +104,36 @@ const MINUTE = 60_000
 const HOUR = 60 * MINUTE
 const DAY = 24 * HOUR
 
+/** Today, as the server will read it: from the clock, in the configured timezone. */
+const localToday = localDateAt(NOW, config.jobs.timezone)
+const planDate = formatLocalDate(localToday)
+
+/**
+ * A day the configuration calls a working day, or nothing.
+ *
+ * The server takes "today" from its own clock, so a seeded day cannot be moved off the weekend:
+ * pinning the plan to Friday would leave a Sunday dashboard with no plan and an empty calendar, which
+ * is a different wrong picture rather than a fix. At a weekend `workingWindowForDate` returns null and
+ * the capacity bar draws "Today is not a working day, so there is no capacity to plan." where
+ * `docs/using.md` promises the capacity arithmetic spelled out, above a plan with entries and a
+ * warning about capacity. No test can read a PNG, so the suite would stay green over a false picture.
+ * Hence a refusal here, where the reason can be said, rather than a picture nobody would question.
+ */
+if (workingWindowForDate(config, localToday) === null) {
+  const weekday = new Date(NOW).toLocaleDateString('en-GB', {
+    weekday: 'long',
+    timeZone: config.jobs.timezone,
+  })
+
+  throw new Error(
+    `${planDate} is a ${weekday}, which planning.workingDays does not include, so there is no ` +
+      'capacity to plan into and the dashboard would show none. The pictures in docs/images are of ' +
+      'a working day and docs/using.md reads the arithmetic out of them, so seed and shoot on a ' +
+      'working day, or add this weekday to planning.workingDays in the config file both this script ' +
+      'and the server read (CAROLINE_CONFIG).',
+  )
+}
+
 /** Today at a wall-clock hour, so the calendar column reads like a working day. */
 function today(hour: number, minute = 0): number {
   const date = new Date(NOW)
@@ -67,11 +141,9 @@ function today(hour: number, minute = 0): number {
   return date.getTime()
 }
 
-const planDate = new Date(NOW).toISOString().slice(0, 10)
-
 // ---- Projects ----
 
-const hub = createProject(database, { title: 'Technology Hub H2 review' }, NOW - 40 * DAY)
+const hub = createProject(database, { title: 'Platform team H2 review' }, NOW - 40 * DAY)
 const release = createProject(database, { title: 'Caroline 1.0 release' }, NOW - 20 * DAY)
 const onboarding = createProject(database, { title: 'Onboarding refresh' }, NOW - 60 * DAY)
 
@@ -96,12 +168,19 @@ const seeds: Seed[] = [
   { title: 'Invitation: architecture guild, Thursday', status: 'inbox', by: 'sync' },
   { title: 'Expenses for the Lisbon trip need submitting', status: 'inbox', by: 'user' },
 
-  // Next actions, including the two due states the cards now name.
+  /**
+   * Next actions, including the two due states the cards now name.
+   *
+   * The estimates are what makes the plan below have an overflow: three of them come to more than the
+   * day's capacity less the fourth, so the fourth does not fit and the plan says so. The seed checks
+   * that rather than trusting it, because both the warning and the "If there is time" panel are
+   * published pictures and `docs/using.md` reads them out.
+   */
   {
     title: 'Write the H2 throughput section',
     status: 'next_action',
     project: hub.id,
-    estimate: 90,
+    estimate: 150,
     due: today(17),
     tags: ['writing'],
   },
@@ -116,9 +195,9 @@ const seeds: Seed[] = [
     title: 'Draft the setup guide for the Google Cloud project',
     status: 'next_action',
     project: release.id,
-    estimate: 45,
+    estimate: 90,
   },
-  { title: 'Book the venue for the hub offsite', status: 'next_action', estimate: 15 },
+  { title: 'Book the venue for the team offsite', status: 'next_action', estimate: 45 },
 
   // Waiting, one of them well past the staleness threshold.
   {
@@ -134,21 +213,30 @@ const seeds: Seed[] = [
     setAt: NOW - 9 * DAY,
   },
   {
-    title: 'Answers on the NetSuite export format',
+    title: 'Answers on the payroll export format',
     status: 'waiting',
     waitingOn: 'People Ops',
     setAt: NOW - 2 * DAY,
   },
 
   { title: 'Look at whether the planner could learn from corrections', status: 'someday' },
-  { title: 'A hub dashboard that reads itself out on a Monday', status: 'someday' },
+  { title: 'A team dashboard that reads itself out on a Monday', status: 'someday' },
 
-  { title: 'Nearform brand guidelines', status: 'reference' },
+  { title: 'Brand guidelines', status: 'reference' },
   { title: 'GitHub token scopes Caroline needs', status: 'reference', project: release.id },
 ]
 
-const created = seeds.map((seed) => {
-  const at = seed.setAt ?? NOW - 3 * DAY
+/**
+ * A distinct creation time each, in the order this file lists them.
+ *
+ * A column is read back `order by sort_order, created_at, id`, and `createTask` gives every task the
+ * same `sortOrder`. One shared `createdAt` for the whole list therefore left the tiebreak to a random
+ * UUID: every reseed dealt each column in a different order, and a picture of it was one shuffle out
+ * of many, which is not something a document can say anything positional about. A minute apart is
+ * enough to decide the order and small enough that the cards still read as three days old.
+ */
+const created = seeds.map((seed, index) => {
+  const at = seed.setAt ?? NOW - 3 * DAY + index * MINUTE
   const task = createTask(
     database,
     {
@@ -180,28 +268,34 @@ createTask(
  * The repository is a field rather than being spelled into the title twice. Two of these are the
  * same repository and one is not, which is the point of having a third: the board should show a
  * review from somewhere else, with provenance that points at somewhere else.
+ *
+ * `example-org` is an invented owner used consistently, and not a reserved one: GitHub reserves no
+ * example namespace, and that account exists. So the names are a convention and the links are the
+ * safeguard: every URL here is on `github.invalid`, which RFC 2606 keeps permanently unresolvable, so
+ * neither a published screenshot nor a card in the demo can send anybody into a real namespace. A slug
+ * that happens to 404 today would not do, because somebody can register one tomorrow.
  */
 const pullRequests = [
   {
-    repository: 'nearform/caroline',
+    repository: 'example-org/caroline',
     summary: 'Add the retry to the Gmail fetch helper',
-    author: 'ana-dev',
+    author: 'avery-dev',
     number: 41,
     ageDays: 1,
     pushed: false,
   },
   {
-    repository: 'nearform/caroline',
+    repository: 'example-org/caroline',
     summary: 'Rework the scheduler’s catch-up pass',
-    author: 'sam-eng',
+    author: 'jordan-eng',
     number: 39,
     ageDays: 4,
     pushed: true,
   },
   {
-    repository: 'nearform/hub-tools',
-    summary: 'Bump the NetSuite client',
-    author: 'ana-dev',
+    repository: 'example-org/hub-tools',
+    summary: 'Bump the payroll client',
+    author: 'avery-dev',
     number: 12,
     ageDays: 2,
     pushed: false,
@@ -223,7 +317,7 @@ for (const pr of pullRequests) {
     {
       provider: 'github',
       externalId,
-      url: `https://github.com/${pr.repository}/pull/${pr.number}`,
+      url: `https://github.invalid/${pr.repository}/pull/${pr.number}`,
       title,
       taskId: task.id,
       lifecycleState: 'awaiting_review',
@@ -241,31 +335,42 @@ for (const pr of pullRequests) {
   )
 }
 
-/** A pull request already reviewed, now waiting on its author, with a push since. */
+/**
+ * A pull request already reviewed, now waiting on its author, with a push since.
+ *
+ * Past the staleness threshold on purpose, and by the age rather than by being listed: this is the
+ * item the chase list exists for, since a review the author has pushed to is quietly yours again,
+ * and `chaseNudges` selects it only if `isStaleWait` says so. At six days it was inside the default
+ * seven and the seeded plan named it anyway, which is a picture of a rule the code does not have.
+ * The wait runs from `actedAt` for a pull request and from the status change for anything else, so
+ * both are the same moment here and the two dashboard panels agree about its age.
+ */
+const REVIEWED_WAIT_DAYS = 8
+
 const reviewed = createTask(
   database,
   {
-    title: 'nearform/caroline#37 Split the connector interface',
+    title: 'example-org/caroline#37 Split the connector interface',
     status: 'waiting',
     statusSetBy: 'sync',
-    waitingOn: 'sam-eng',
+    waitingOn: 'jordan-eng',
   },
-  NOW - 6 * DAY,
+  NOW - REVIEWED_WAIT_DAYS * DAY,
 )
 upsertSource(
   database,
   {
     provider: 'github',
-    externalId: 'nearform/caroline#37',
-    url: 'https://github.com/nearform/caroline/pull/37',
+    externalId: 'example-org/caroline#37',
+    url: 'https://github.invalid/example-org/caroline/pull/37',
     title: 'Split the connector interface',
     taskId: reviewed.id,
     lifecycleState: 'reviewed',
-    actedAt: NOW - 6 * DAY,
+    actedAt: NOW - REVIEWED_WAIT_DAYS * DAY,
     actedAtMarker: 'sha-old',
-    metadata: { author: 'sam-eng', headSha: 'sha-new', headCommittedAt: NOW - 2 * HOUR },
+    metadata: { author: 'jordan-eng', headSha: 'sha-new', headCommittedAt: NOW - 2 * HOUR },
   },
-  NOW - 6 * DAY,
+  NOW - REVIEWED_WAIT_DAYS * DAY,
 )
 
 // ---- A classifier proposal below the threshold, on the first inbox item ----
@@ -285,7 +390,8 @@ if (inboxItem !== undefined) {
       projectSuggestion: null,
       applied: false,
       model: 'claude-sonnet-5',
-      promptVersion: 'classify-v1',
+      // The version the classify job would have stamped on it, not a name invented here.
+      promptVersion: CLASSIFICATION_PROMPT_VERSION,
       error: null,
     },
     NOW - 2 * HOUR,
@@ -300,7 +406,7 @@ const events: ReadonlyArray<{
   end: number
   response: CalendarResponseStatus
 }> = [
-  { summary: 'Hub standup', start: today(9, 30), end: today(9, 45), response: 'accepted' },
+  { summary: 'Team standup', start: today(9, 30), end: today(9, 45), response: 'accepted' },
   { summary: 'Client architecture review', start: today(11), end: today(12), response: 'accepted' },
   {
     summary: 'Lunch and learn: observability',
@@ -308,7 +414,7 @@ const events: ReadonlyArray<{
     end: today(14),
     response: 'declined',
   },
-  { summary: 'One to one with Ana', start: today(15, 30), end: today(16), response: 'accepted' },
+  { summary: 'One to one with Jordan', start: today(15, 30), end: today(16), response: 'accepted' },
 ]
 
 for (const [index, event] of events.entries()) {
@@ -333,80 +439,159 @@ for (const [index, event] of events.entries()) {
 
 // ---- Today's plan ----
 
-const planned = created.filter((task) => task.status === 'next_action')
+/**
+ * Why the planner put an entry where it did, read off the task rather than off its rank.
+ *
+ * By rank it said "Overdue since Monday" about whatever happened to be second or third, and the
+ * third entry here has no due date at all. Both the plan and the same task's card are published, in
+ * one document, so a reason that contradicts the card reads as the planner inventing reasons. The
+ * weekday comes from the date as well, so it cannot drift from it either, and the project decides
+ * which undated sentence applies, so the offsite is not told the release is waiting on it.
+ */
+function rationaleFor(task: { readonly dueAt: number | null; readonly projectId: string | null }) {
+  if (task.dueAt === null) {
+    return task.projectId === release.id
+      ? 'Nothing forcing the date, but the release is waiting on it'
+      : 'Nothing forcing the date, and nobody else is blocked on it'
+  }
+  if (task.dueAt < today(0)) {
+    const weekday = new Date(task.dueAt).toLocaleDateString('en-GB', { weekday: 'long' })
 
-recordDailyPlan(database, {
-  planDate,
-  generatedAt: today(7, 5),
-  timeZone: 'Europe/London',
-  windowMinutes: 510,
-  busyMinutes: 105,
-  reserveMinutes: 60,
-  capacityMinutes: 345,
-  capacityVerified: true,
-  provider: 'anthropic',
-  model: 'claude-sonnet-5',
-  promptVersion: 'plan-v1',
+    return `Overdue since ${weekday}`
+  }
+  if (task.dueAt < today(0) + DAY) return 'Due today, and the longest single block you have'
+
+  return 'Due later this week, so it is worth starting before the deadline week'
+}
+
+/**
+ * The model's part of a plan, and only the model's part: an order, and one sentence each.
+ *
+ * Everything else about the plan below is the planner's, because the planner is what draws it. This
+ * is a scripted answer standing in for a provider, so no shoot touches a network, and it names the
+ * next actions in the order this file lists them; the ordering rule, the review entry, the fit, the
+ * overflow, the nudges and the warnings are then whatever the code makes of that.
+ */
+const nextActions = created.filter((task) => task.status === 'next_action')
+
+const plannerAnswer = {
   summary: 'Two meetings in the middle of the day, so the writing goes first thing.',
-  warnings: ['One next action was left out: there is no capacity left after the reserve.'],
-  entries: planned.slice(0, 3).map((task, index) => ({
+  entries: nextActions.map((task) => ({
     taskId: task.id,
-    title: task.title,
-    rank: index + 1,
-    rationale:
-      index === 0 ? 'Due today, and the longest single block you have' : 'Overdue since Monday',
+    rationale: rationaleFor(task),
     estimateMinutes: task.estimateMinutes,
   })),
-  overflow: planned.slice(3).map((task, index) => ({
-    taskId: task.id,
-    title: task.title,
-    rank: index + 1,
-    rationale: 'Would not fit inside the capacity left',
-    estimateMinutes: task.estimateMinutes,
-  })),
-  nudges: [
-    {
-      taskId: null,
-      title: 'Signed statement of work from Legal',
-      rank: 1,
-      waitingOn: 'Legal',
-      waitingSince: NOW - 31 * DAY,
-      pushedSinceReview: false,
-    },
-    {
-      taskId: reviewed.id,
-      title: 'nearform/caroline#37 Split the connector interface',
-      rank: 2,
-      waitingOn: 'sam-eng',
-      waitingSince: NOW - 6 * DAY,
-      pushedSinceReview: true,
-    },
-  ],
+}
+
+const planner = withSchemaValidation(
+  createFakeProvider({
+    answers: [{ structured: plannerAnswer, text: JSON.stringify(plannerAnswer) }],
+    // The provider the demo configuration names, so the plan row records what somebody following
+    // tools/demo/README.md would get. Nothing is sent: the answer above is the whole of the call.
+    name: 'ollama',
+    model: 'llama3.1',
+  }),
+)
+
+const llm: LlmRuntime = { isConfigured: () => true, for: (): LlmProvider => planner }
+
+/**
+ * The plan, drawn by the code that draws plans.
+ *
+ * `runPlanning` is what the scheduler runs and what **Regenerate** runs, so the entries, their
+ * order, the review criterion 7 guarantees, the chase nudges, the overflow and every warning are
+ * the application's own output rather than a picture of one. Written out by hand they drifted: the
+ * published dashboard showed a plan with no review in it, a warning about the reserve that no line
+ * of Caroline can emit, none of the unverified-capacity warning that a real run does emit, and a
+ * chase list holding an item the chase rule would not have selected.
+ *
+ * `false` for connected, because nothing here connects a calendar: the diary is seeded directly,
+ * which is exactly the Unverified case `docs/using.md` describes. Seven in the morning for the
+ * clock, because that is when the plan job runs, and the capacity is read from the events just
+ * written rather than from four numbers repeated here.
+ */
+const planning = await runPlanning({
+  database,
+  config,
+  llm,
+  calendarConnected: () => false,
+  now: () => today(7, 5),
+  date: localToday,
 })
 
-// A fortnight of history behind it, so the strip has something to show.
+const plan = planning.plan
+
+if (plan === null) {
+  throw new Error(
+    `The planner drew no plan for ${planDate}: ${planning.error ?? 'it reported no reason'}.`,
+  )
+}
+
+const plannedMinutes = plan.entries.reduce(
+  (total, entry) => total + (entry.estimateMinutes ?? 0),
+  0,
+)
+const unplanned = plan.capacityMinutes - plannedMinutes
+
+/**
+ * The states these pictures exist to show, checked rather than hoped for.
+ *
+ * The README lists them among what the seed puts on one screen, and `docs/using.md` reads each of
+ * them out of a published PNG. No test can read a PNG, so a day that quietly lost one would leave
+ * the suite green over a document describing something the picture does not show. Hence a refusal
+ * here, where the reason can be said. Nothing before this point is left behind by it: the database
+ * file is deleted at the top of this script, so a refused run leaves no half-seeded day.
+ */
+const absent = [
+  ['an overflow, which is the "If there is time" panel', plan.overflow.length > 0],
+  ['a warning, which is the sentence under the plan', plan.warnings.length > 0],
+  [
+    'a review entry, which spec 05 criterion 7 promises',
+    plan.entries.some((entry) => entry.taskStatus === 'review'),
+  ],
+  ['a chase nudge, which is the "Worth a chase" panel', plan.nudges.length > 0],
+] as const
+
+const missing = absent.filter(([, present]) => !present).map(([what]) => what)
+
+if (missing.length > 0) {
+  throw new Error(
+    `The plan drawn for ${planDate} has no ${missing.join(', and no ')}. Raise the estimates in ` +
+      'this file, lower the capacity, or age a wait past tasks.waitingStaleDays until each is back, ' +
+      'because docs/using.md reads all of them out of the pictures in docs/images.',
+  )
+}
+
+// A fortnight of history behind it, so the strip has something to show. A quieter diary than today's,
+// in the same window and against the same reserve, so no row of it contradicts any other.
+const historicBusyMinutes = 90
+
 for (let back = 1; back <= 5; back += 1) {
-  const date = new Date(NOW - back * DAY).toISOString().slice(0, 10)
+  const date = formatLocalDate(localDateAt(NOW - back * DAY, config.jobs.timezone))
   recordDailyPlan(database, {
     planDate: date,
     generatedAt: NOW - back * DAY,
-    timeZone: 'Europe/London',
-    windowMinutes: 510,
-    busyMinutes: 90,
-    reserveMinutes: 60,
-    capacityMinutes: 360,
-    capacityVerified: true,
-    provider: 'anthropic',
-    model: 'claude-sonnet-5',
-    promptVersion: 'plan-v1',
+    timeZone: config.jobs.timezone,
+    windowMinutes: plan.windowMinutes,
+    busyMinutes: historicBusyMinutes,
+    reserveMinutes: plan.reserveMinutes,
+    capacityMinutes: plan.windowMinutes - historicBusyMinutes - plan.reserveMinutes,
+    capacityVerified: plan.capacityVerified,
+    provider: plan.provider,
+    model: plan.model,
+    // What today's run stamped on its own plan, so a history row cannot claim an era of the
+    // prompt that never existed.
+    promptVersion: PLAN_PROMPT_VERSION,
     summary: null,
     warnings: [],
-    entries: planned.slice(0, 3).map((task, index) => ({
+    // The titles of today's plan, with no task behind them: these are a record of what was
+    // proposed on a day that has gone, which is what the strip draws.
+    entries: plan.entries.map((entry) => ({
       taskId: null,
-      title: task.title,
-      rank: index + 1,
+      title: entry.title,
+      rank: entry.rank,
       rationale: null,
-      estimateMinutes: task.estimateMinutes,
+      estimateMinutes: entry.estimateMinutes,
     })),
     overflow: [],
     nudges: [],
@@ -495,8 +680,16 @@ finishMessage(
   database,
   answer.id,
   {
+    /**
+     * The answer the rail publishes, against the same figures the capacity bar beside it draws, and
+     * through the same formatter, because the two are photographed together: this sentence used to
+     * say five and a half hours free where the bar said five hours three minutes.
+     */
     content:
-      'Three things planned against five and a half hours free, with the architecture review taking the middle of your day.\n\nThe procurement questionnaire is two days overdue and only needs half an hour, so it is worth taking first if the writing can wait until tomorrow.',
+      `Today's plan takes ${formatEstimate(plannedMinutes)} of the ` +
+      `${formatEstimate(plan.capacityMinutes)} free, with the architecture review taking the ` +
+      'middle of your day.\n\nThe procurement questionnaire is two days overdue and only needs half ' +
+      'an hour, so it is worth taking first if the writing can wait until tomorrow.',
     toolCalls: 3,
     toolCallLimitReached: false,
     readOnly: false,
@@ -510,3 +703,19 @@ finishMessage(
 
 console.log(`Seeded ${databasePath}`)
 console.log(`  ${created.length + pullRequests.length + 2} tasks, 3 projects, a plan and 8 runs`)
+console.log(
+  `  ${planDate}: ${plan.capacityMinutes} free minutes, ${plannedMinutes} planned, ` +
+    `${plan.overflow.length} left over with ${unplanned} to spare`,
+)
+
+/**
+ * The plan read back out of the database, because it is the part of this day nobody can check by
+ * reading this file: the entries, the review, the chase list, the overflow and the warnings are the
+ * planner's, and this is what the pictures and `docs/using.md` have to agree with.
+ */
+for (const entry of plan.entries) {
+  console.log(`  ${entry.rank}. ${entry.title} (${entry.estimateMinutes ?? '?'} min)`)
+}
+for (const entry of plan.overflow) console.log(`  if there is time: ${entry.title}`)
+for (const nudge of plan.nudges) console.log(`  worth a chase: ${nudge.title}`)
+for (const warning of plan.warnings) console.log(`  warning: ${warning}`)

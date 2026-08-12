@@ -29,3 +29,8 @@ spec disagree, one of them is a defect: decide which, fix that one.
 Every spec states its non-goals explicitly. Acceptance criteria are written so a test can
 assert them, and each one is the contract a test must cover. Tests come before
 implementation.
+
+Acceptance criteria are appended, never renumbered. Code comments and test names cite them by
+number, so inserting one in the middle would silently repoint every citation after it at the wrong
+rule. A new criterion goes at the end with the next number even where it would read better
+somewhere else, under a line saying what added it.

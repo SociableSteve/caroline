@@ -354,6 +354,51 @@ one step that lives in repository settings rather than in the repository.
 Exit: a stranger can find out what Caroline is, decide whether they want it, and set it up,
 without being sent to a README in a source tree.
 
+### M14. Worked examples
+
+Twelve milestones of documentation say what every setting means and what every part is for. None of it
+shows anybody a single thing happening. A stranger can read the setup guide and still not know what a
+successful start looks like, what `snippet` does to their mail, or what to type once the board is on
+screen.
+
+Four kinds of example, each where it belongs rather than in a document of its own:
+
+1. **The setup guide gains its own output.** A filled-in `caroline.config.json`, the two lines a
+   successful start prints, the health check's answer on a fresh install, the deletion command's dry
+   run, and the two refusals to start, all of them real output rather than invented.
+2. **The content policy gains one item at all four levels of `llmContent`.** Generated, not written:
+   `tools/docs/content-policy-examples.ts` builds them with the functions the classify job calls,
+   `npm run docs:examples` writes them into the document, and a test fails when the two disagree. A
+   documented payload that has drifted is worse than no example, because it is a promise about where
+   somebody's mail goes. Spec 09 gains criterion 15.
+3. **`docs/using.md` is new**, and is the gap: what to press, what to say, and what each of those does.
+   Its claims are checked against the code, by driving the turn loop and reading the surfaces rather
+   than by describing what would be nice. Three of them were wrong until review caught them, which is
+   the argument for checking rather than for describing.
+4. **Screenshots, generated from the seeded day.** `tools/demo/shoot.mjs --docs` writes the board, the
+   dashboard and the rail into `docs/images`, in both palettes, and the site publishes them. That is
+   spec 11's screenshots non-goal reversed, on the grounds that made it a non-goal in the first place:
+   the objection was to a picture that would be stale and a picture of somebody's own board, and a
+   generated shot of a seeded day is neither. The seed's identifiers become unambiguously fictional
+   along the way. Its items were always invented, but a plausible repository under a real
+   organisation's name is one a stranger could read as that organisation's work, and a published page
+   is where that matters. Spec 11 gains criterion 12.
+
+Publishing that day is what forced this milestone's one change to the application. The seeded plan was
+written out by hand, so the dashboard picture showed a plan the planner cannot draw: no review entry
+where criterion 7 guarantees one, a warning about the reserve that no line of Caroline emits, none of
+the unverified-capacity warning a real run does emit, and a chase list holding an item the staleness
+rule would not have selected. The seed now draws the day with `runPlanning` and a scripted provider, so
+the entries, their order, the review, the nudges, the overflow and the warnings are the code's output
+and a picture of them cannot say anything the code will not. Doing that left one real gap rather than a
+seeding mistake: `docs/using.md` promises a warning about what the plan could not fit, the overflow list
+was the only thing saying so, and a plan that silently drops a next action should say it did. Spec 05
+gains criterion 16.
+
+Exit: somebody who has never seen Caroline can read the documentation and know what to type. The two
+claims that could rot are tests: the payloads against the code, and the images against the shot list
+and the seed.
+
 ## Test strategy
 
 - **Domain**: pure unit tests, no database.

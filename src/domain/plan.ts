@@ -133,7 +133,8 @@ function rank(entries: readonly Considered[], from = 1): PlannedEntry[] {
  *    each group: the ordering rule is the constraint, and the ranking within it is the
  *    judgement the model was asked for.
  * 4. A review is planned whenever the queue is not empty and there is room for one.
- * 5. Entries are fitted until the capacity runs out; the rest become overflow.
+ * 5. Entries are fitted until the capacity runs out; the rest become overflow, and a plan that
+ *    had to leave something out says so.
  */
 export function applyPlanRules({
   ranked,
@@ -184,6 +185,16 @@ export function applyPlanRules({
   }
 
   const { fitted, overflow } = fit(withReview, capacityMinutes)
+
+  // Criterion 16. The overflow list is on the screen either way, but a reader is looking at the
+  // plan, and "this is all of it" and "this is as much of it as fitted" are different claims. No
+  // count and no minutes in it: the list beside it is the count, and a figure written into a
+  // sentence is a figure that can come to disagree with the one drawn next to it.
+  if (overflow.length > 0) {
+    warnings.push(
+      "Some of today's work did not fit into the free time left, so it is below rather than in the plan.",
+    )
+  }
 
   return { entries: rank(fitted), overflow: rank(overflow), warnings }
 }

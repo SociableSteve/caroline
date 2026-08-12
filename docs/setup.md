@@ -43,6 +43,24 @@ npm run build
 npm start
 ```
 
+Two lines of JSON on the terminal are what a successful start looks like. The second is the one worth
+reading, because it is Caroline saying what it thinks it has been configured with:
+
+```
+{"level":30,"time":1786505798936,"pid":17114,"hostname":"laptop","msg":"Server listening at http://127.0.0.1:5123"}
+{"level":30,"time":1786505798937,"pid":17114,"hostname":"laptop","version":"1.0.0","database":"/home/you/caroline/data/caroline.db","github":"not configured","google":"not configured","llm":"not configured","llmContent":"snippet","storeContent":"metadata","timezone":"Europe/London","schedules":{"sync":"*/15 * * * *","classify":"5 * * * *","plan":"30 7 * * *","purge":"20 3 * * *"},"msg":"Caroline is running"}
+```
+
+Six of those values are this machine's rather than yours: the time, the pid, the hostname, the port, the
+database path and the timezone, which defaults to whatever the machine thinks it is in and is the one
+thing [step 3](#3-where-things-live) asks you to set deliberately. Everything else on a fresh install
+reads as that does: three integrations not configured, the two content levels at their defaults, and the
+four schedules.
+
+Anything on the terminal beginning `Caroline cannot start:` is a configuration error rather than a crash,
+and it names the setting and what to do about it: there are examples in
+[troubleshooting](#troubleshooting).
+
 Open <http://127.0.0.1:5123>. You should see the dashboard, with every integration listed as not
 configured and nothing captured. That is the expected state of a fresh install and not an error.
 
@@ -55,6 +73,9 @@ Try it before configuring anything, because everything after this point is an ad
   under the columns.
 
 `Ctrl-C` stops it. Nothing is lost: everything is in SQLite as it happens.
+
+[using.md](using.md) is the tour of what to press once it is running. The rest of this guide is about
+giving it something to read.
 
 ## 3. Where things live
 
@@ -83,6 +104,40 @@ and `llm.supportsTools` is left out entirely, because its default follows from t
 ```sh
 cp caroline.config.example.json caroline.config.json
 ```
+
+Every value has a default, so a file naming only what you changed is a complete file. This is one that
+has been through the whole of this guide, and it is about as long as a real one gets:
+
+```json
+{
+  "jobs": { "timezone": "Europe/Lisbon" },
+  "tasks": { "waitingStaleDays": 10 },
+  "classification": { "confidenceThreshold": 0.8 },
+  "planning": {
+    "workingWindow": { "start": "09:30", "end": "17:00" },
+    "reservePercent": 25
+  },
+  "llm": {
+    "provider": "anthropic",
+    "model": "claude-sonnet-5",
+    "overrides": { "classification": { "model": "claude-haiku-5" } }
+  },
+  "integrations": {
+    "google": {
+      "clientId": "1234567890-abc123def456.apps.googleusercontent.com",
+      "gmailQuery": "in:inbox -category:promotions -category:social -label:newsletters",
+      "calendarLookaheadDays": 21
+    }
+  }
+}
+```
+
+Read that as: schedules in Lisbon time, a wait is stale after ten days rather than seven, the
+classifier only files something it is 80% sure of, a working day of 09:30 to 17:00 with a quarter of
+it held back for interruptions, a strong model for chat and a cheap one for the hourly inbox sort, a
+Google client id that is not a secret, a Gmail query narrowed by one more label, and three weeks of
+calendar ahead instead of two. The two model ids are examples: take yours from the provider's own
+list, because they move faster than this guide can.
 
 Two rules about it, both enforced at startup:
 
@@ -269,7 +324,26 @@ about you.
 ## 8. Checking the whole thing
 
 - `curl -s http://127.0.0.1:5123/api/health` reports the version, the database and each
-  integration.
+  integration. On a fresh install, with nothing configured, this is the answer, wrapped over lines
+  rather than the one line it arrives on:
+
+  ```json
+  {
+    "status": "ok",
+    "version": "1.0.0",
+    "uptimeSeconds": 4,
+    "integrations": {
+      "github": { "configured": false, "status": "not configured" },
+      "google": { "configured": false, "status": "not configured" },
+      "llm": { "configured": false, "status": "not configured" }
+    },
+    "database": { "status": "ready" }
+  }
+  ```
+
+  Working through the steps above turns those `false`s into `true`s one at a time, which is what makes
+  this the quickest check that a restart picked up what you just set. `"database": { "status": "ready" }`
+  means the migrations ran.
 - **Jobs** lists every background job, what it is for, when it last ran and what it did, when it
   goes next, and whether a run of failures is holding it back. **Run now** on each takes the same
   path a scheduled run takes.
@@ -320,6 +394,25 @@ npm run delete-data            # says what it would remove, removes nothing
 npm run delete-data -- --yes   # removes it
 ```
 
+The dry run names the directory first, then every file, and says plainly that it did nothing:
+
+```
+Data directory: /home/you/caroline/data
+
+Would remove:
+  /home/you/caroline/data/caroline.db
+  /home/you/caroline/data/caroline.db-wal
+  /home/you/caroline/data/caroline.db-shm
+
+Would remove the empty /home/you/caroline/data
+
+Nothing was deleted. Re-run with `npm run delete-data -- --yes`.
+```
+
+Read the directory on the first line before you pass `--yes`. That is the whole point of the dry run:
+if you moved the database with `database.path` or `CAROLINE_DB_PATH`, this is the answer to which
+directory is in force.
+
 That is the database, the SQLite sidecars a crash leaves behind, the Google token file and the
 temporary sibling an interrupted token write leaves, which holds the same refresh token. Anything
 else in the data directory is left alone and named, and the directory itself goes only if Caroline
@@ -330,6 +423,20 @@ end too, remove the app at <https://myaccount.google.com/permissions>, delete th
 delete the Google Cloud project if it exists only for this.
 
 ## Troubleshooting
+
+A refusal to start is one line on the terminal, and it names the setting, the value it objected to and
+what to do instead. Both of these are real:
+
+```
+Caroline cannot start: llm.apiKey must not appear in caroline.config.json. Secrets are read from the environment only: set ANTHROPIC_API_KEY or OPENAI_API_KEY instead.
+```
+
+```
+Caroline cannot start: privacy.llmContent is "full" with the remote provider "anthropic" at llm.provider, which sends complete message bodies to a third party. Set privacy.allowFullContentToRemoteProvider to true to accept that, or lower privacy.llmContent.
+```
+
+Nothing has started and nothing has been written when you see one of those. Fix the setting and run
+`npm start` again.
 
 | What you see | What it is |
 | --- | --- |
