@@ -17,11 +17,22 @@ const root = process.cwd()
 const source = (path: string): string => readFileSync(join(root, path), 'utf8')
 
 const images = readdirSync(join(root, 'docs/images')).sort()
-/** The documents that may carry a picture: every Markdown file under `docs`, the specs included. */
-const documents = readdirSync(join(root, 'docs'))
-  .filter((name) => name.endsWith('.md'))
-  .map((name) => source(`docs/${name}`))
-  .join('\n')
+
+/**
+ * The documents that may carry a picture: every Markdown file under `docs`, at any depth, so the specs
+ * are read too. Reading only the top level would have said an image was shown by nothing when a spec
+ * was the only thing showing it, which is a failure about the wrong thing.
+ */
+const markdownUnder = (directory: string): string[] =>
+  readdirSync(join(root, directory), { withFileTypes: true }).flatMap((entry) =>
+    entry.isDirectory()
+      ? markdownUnder(`${directory}/${entry.name}`)
+      : entry.name.endsWith('.md')
+        ? [source(`${directory}/${entry.name}`)]
+        : [],
+  )
+
+const documents = markdownUnder('docs').join('\n')
 
 const shoot = source('tools/demo/shoot.mjs')
 

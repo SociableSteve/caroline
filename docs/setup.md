@@ -47,13 +47,13 @@ Two lines of JSON on the terminal are what a successful start looks like. The se
 reading, because it is Caroline saying what it thinks it has been configured with:
 
 ```
-{"level":30,"time":1786505798936,"pid":17114,"hostname":"laptop","msg":"Server listening at http://127.0.0.1:5124"}
+{"level":30,"time":1786505798936,"pid":17114,"hostname":"laptop","msg":"Server listening at http://127.0.0.1:5123"}
 {"level":30,"time":1786505798937,"pid":17114,"hostname":"laptop","version":"1.0.0","database":"/home/you/caroline/data/caroline.db","github":"not configured","google":"not configured","llm":"not configured","llmContent":"snippet","storeContent":"metadata","timezone":"Europe/London","schedules":{"sync":"*/15 * * * *","classify":"5 * * * *","plan":"30 7 * * *","purge":"20 3 * * *"},"msg":"Caroline is running"}
 ```
 
-The time, the pid, the hostname, the port and the database path are your machine's. Everything else on
-a fresh install reads as that does: three integrations not configured, the two content levels at their
-defaults, and the four schedules. Anything on the terminal beginning `Caroline cannot start:` is a
+The time, the pid, the hostname, the port and the database path are your machine's, and are the only
+things standing in for a real value here. Everything else on a fresh install reads as that does: three
+integrations not configured, the two content levels at their defaults, and the four schedules. Anything on the terminal beginning `Caroline cannot start:` is a
 configuration error rather than a crash, and it names the setting and what to do about it: there are
 examples in [troubleshooting](#troubleshooting).
 
