@@ -396,8 +396,15 @@ holds the version in force, which is the thing that has to be readable later.
 
 ## Acceptance criteria
 
-Numbered by slice. Criteria 5 to 8 concern slice 2's scaffolding credential and are superseded
-by criterion 32: they assert that it behaved while it existed, not that it will exist.
+Numbered by slice, and each is asserted from the slice that introduces it onwards unless it says
+otherwise. Exactly one says otherwise: criterion 7 is asserted against slice 2 only, because it is
+a startup precondition on a credential that is configured, and slice 3's only credential is a
+token issued at runtime, so there is nothing left for startup to require. Criterion 32 is what
+holds in its place from slice 3 on.
+
+Nothing here is kept as a record of an earlier state. Criteria stay in place once code and tests
+cite them by number, which is why the specs append rather than renumber, and none of this document
+is cited yet.
 
 **Slice 1: the API's credential check.** Spec 09 owns the posture; these are its tests.
 
@@ -419,10 +426,14 @@ by criterion 32: they assert that it behaved while it existed, not that it will 
    over the registered routes rather than by requesting one.
 6. With MCP enabled and `server.host` not loopback, startup fails with a message naming both
    settings.
-7. With MCP enabled and no MCP credential available, startup fails whatever the bind address:
-   loopback is not a substitute for the credential on this surface.
+7. **Slice 2 only, replaced by criterion 32.** With MCP enabled and no MCP credential
+   available, startup fails whatever the bind address: loopback is not a substitute for the
+   credential on this surface. It is asserted while the credential is a configured one, and
+   stops being asserted when slice 3 makes the only credential a token issued at runtime.
 8. A request with no credential is answered `401` with a `WWW-Authenticate: Bearer` header, and
-   one bearing a credential that is not accepted is answered `401`.
+   one bearing a credential that is not accepted is answered `401`. This holds under both
+   credentials: from slice 3 the challenge also names the protected resource metadata document,
+   which is criterion 26.
 9. A request whose `Origin` header is present and names a host Caroline did not expect is
    answered `403` before any tool runs, and one whose `Host` header does not name a loopback
    name is refused.
@@ -493,9 +504,10 @@ by criterion 32: they assert that it behaved while it existed, not that it will 
 31. No client is issued a token until the user has approved it once on Caroline's own screen, and
     the approval names the client. There is no endpoint by which a client registers itself, and a
     request to the path RFC 7591 would use is answered as not found rather than as an error.
-32. The bearer credential is gone. No credential is accepted on the MCP endpoint but a token
-    Caroline issued, the value slice 2 accepted is refused, and a configuration file still
-    carrying slice 2's setting fails at startup naming that key rather than being ignored.
+32. The bearer credential is gone, and this is what stands in criterion 7's place. No credential
+    is accepted on the MCP endpoint but a token Caroline issued, the value slice 2 accepted is
+    refused, and a configuration file still carrying slice 2's setting fails at startup naming
+    that key rather than being ignored.
 33. `server.accessToken` still governs every other route exactly as slice 1 left it, and removing
     the MCP bearer credential changes nothing about it. Asserted, because the two credentials are
     easily conflated and this is the assertion that says they were not.
