@@ -46,12 +46,21 @@ the registered route list, with the three public auth routes above as its only e
 configured. Nothing outside `/api` is gated, because the SPA shell holds no user content and serving
 it is what lets the login screen be a state of the client.
 
-**Everything is under `/api`, with one named exception: those metadata documents.** The discovery
-order a conformant client follows is the path-suffixed well-known document and then the
-unsuffixed one, both at the root, so a document served under `/api` is a document no client
-looks for. The exception is named here and the test that asserts the prefix carries it with this
-reason, rather than being loosened to whatever passes. The endpoint itself stays under `/api`,
-which keeps the rest of that assertion true.
+**Every route this API declares is under `/api`, and the metadata documents are the named
+exception.** The discovery order a conformant client follows is the path-suffixed well-known
+document and then the unsuffixed one, both at the root, so a document served under `/api` is a
+document no client looks for. The exception is named here and the test that asserts the prefix
+carries it with this reason, rather than being loosened to whatever passes. The MCP endpoint itself
+stays under `/api`, which keeps the rest of that assertion true.
+
+The static SPA shell and its assets are not an exception to that, because they are not a declared
+route: `@fastify/static` is registered at the root, ahead of everything above, and serves whatever
+the built bundle contains. Spec 13 draws the same line for the session check, exempting everything
+outside `/api` and naming the shell and its assets as what that means, and this assertion is scoped
+the same way for the same reason. Scoping it to the declared routes rather than to the whole
+registered route list is deliberate: the wildcard is registered only where a built bundle exists, so
+an assertion over everything registered would pass in a CI job with no bundle and be false on a
+machine that has one.
 
 Server-sent events are used for chat streaming and for a lightweight change feed the UI
 subscribes to, so a background job's results appear without a refresh.
@@ -225,12 +234,13 @@ That is the surface's second write path after the user's name, and it is here ra
 client's own interface because an approval decided anywhere else is an approval Caroline cannot
 show you afterwards.
 
-How the SPA authenticates itself where an access token is configured is **M15's to specify, and is
-deliberately not specified here.** An earlier draft of this paragraph said the SPA carries the token
-on every request and on the change feed, which assumes a page with no login has been given the token
-somehow, and nothing says how. That mechanism, and whether a browser session is a login at all, is
-the subject of M15: see spec 09's Network posture section. Until then no request is checked against
-the token, which spec 09 states as the defect it is.
+How the SPA authenticates itself is **spec 13's, and is settled there rather than here.** An earlier
+draft of this paragraph had the SPA carrying a configured access token on every request and on the
+change feed, which assumed a page with no login had been given the token somehow and said nothing
+about how. Spec 13 answered it by removing the token instead (its criterion 7) and giving the browser
+a session cookie behind a login, with the shell and its assets served without one (its criterion 8).
+Nothing about the MCP endpoint's own credential changes with that: the two are separate, and spec 12
+says which is which.
 
 ### Interaction rules
 
@@ -277,7 +287,7 @@ here is the behaviour each surface owes the reader; what is there is what they a
 1. Every route declares a schema, and a request violating it returns 400 in the standard
    error shape. Extended in place, rather than joined by a criterion that would leave two places
    saying what the shape is: `POST /api/mcp` still declares a schema and still refuses a violation,
-   but answers it as JSON-RPC, and it is the only exception. Criterion 34 states it.
+   but answers it as JSON-RPC, and it is the only exception. Criterion 37 states it.
 2. `GET /api/config` never returns an API key, token or refresh token, in any field.
 3. Moving a task between board columns results in `status_set_by = 'user'`.
 4. The dashboard renders correctly with no plan, no calendar and no integrations
@@ -362,11 +372,16 @@ Authentication (spec 13) adds the following, appended for the same reason.
 
 The MCP endpoint adds the following, appended for the same reason.
 
-36. Every registered route begins with `/api`, except the well-known metadata documents named above,
-    which are served from the root because that is where a client's discovery order looks for them.
-    The MCP endpoint itself is under `/api`, and the exception is a named list rather than a relaxed
-    assertion.
-34. `POST /api/mcp` is criterion 1's one exception, as a named list rather than a relaxed assertion:
+36. Every route this API declares begins with `/api`, except the well-known metadata documents named
+    above, which are served from the root because that is where a client's discovery order looks for
+    them. The MCP endpoint itself is under `/api`, and the exception is a named list rather than a
+    relaxed assertion. The assertion is over the declared routes and says so, because the static
+    shell is registered at the root by `@fastify/static` and only where a built bundle exists: an
+    assertion over the whole registered route list would be false on a machine with a bundle and pass
+    in a job without one, which is the worst of both. Spec 13 criterion 8 is the counterpart that
+    says what is true of the shell, namely that it is served without a session while everything under
+    `/api` but the three public auth routes is not.
+37. `POST /api/mcp` is criterion 1's one exception, as a named list rather than a relaxed assertion:
     it declares a schema like every other route, and a request violating it is answered as a JSON-RPC
     error object rather than in the standard error shape, because a JSON-RPC caller cannot parse that
     shape. Criterion 1 holds unchanged for every other route, which is asserted by keeping the

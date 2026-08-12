@@ -250,7 +250,7 @@ concern.
 - Binding to any other interface, declaring a `server.publicUrl`, or asking for a login
   explicitly requires authentication: a person proves who they are to an identity provider
   before anything answers (spec 13). It is enforced by one request-level check covering every
-  route under `/api`, and a configuration that would expose Caroline without a login refuses to
+  registered route, and a configuration that would expose Caroline without a login refuses to
   start. There is no shared-secret alternative, and `server.accessToken` is gone: a secret in an
   environment variable identifies nobody and cannot be revoked without a restart.
 - **The MCP endpoint is off by default (`mcp.enabled`, false), loopback only and enforced at
@@ -395,16 +395,18 @@ numbers are cited by the code and the suite.
     on any path: neither the session value, nor the authorization code, nor the identity token, nor
     the provider's client secret.
 
-The MCP surface adds the following, appended for the same reason.
+The MCP surface adds the following, appended for the same reason. It had a third, a request-level
+check on `server.accessToken`, written while authentication was still an unwritten milestone: both
+were drafted against the same next free number, and authentication landed first, so 16 and 17 above
+are its and these take the numbers after them. That third criterion is not among them. Spec 13
+criteria 7 and 8 answer the same question differently and better, by removing the token outright and
+putting a session check under `/api` in its place, so there is nothing left for it to assert. It is
+dropped rather than marked superseded, which the convention above permits only because it was never
+merged: no code and no test cites it, and citation is the whole reason the convention exists.
 
-18. With `server.accessToken` configured, a request to any registered route that does not present it is
-    refused, and one that presents it is answered; with none configured, no request is refused for want
-    of one. Asserted over the registered route list rather than route by route, because a boundary
-    remembered per route is a boundary somebody forgets. Criterion 7 stands unchanged: the startup guard
-    on a non-loopback bind is still wanted.
-19. With the MCP server enabled, `llmContent: "full"` and `allowFullContentToRemoteProvider: false`,
+18. With the MCP server enabled, `llmContent: "full"` and `allowFullContentToRemoteProvider: false`,
     startup fails naming all three settings, whatever `llm.provider` is set to, `ollama` included.
-20. The only outbound destinations the process attempts are the configured providers and, during an
+19. The only outbound destinations the process attempts are the configured providers and, during an
     authorisation request for an MCP client, that client's metadata document over `https`, to an address
     resolved and checked to be public before anything connects to it and connected to as resolved, under
     a size cap enforced while reading and a time cap on the whole fetch, following no redirect to another

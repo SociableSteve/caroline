@@ -181,17 +181,17 @@ The two are easily conflated, so they are named apart here and everywhere below.
 
 | | What it protects | Where it is stated |
 | --- | --- | --- |
-| `server.accessToken` | A startup precondition on a non-loopback bind, and nothing more until M15 | Spec 09 |
+| `server.accessToken` | A startup precondition on a non-loopback bind, and nothing more. Spec 13 removes it | Spec 09, spec 13 |
 | `mcp.accessToken`, slice 2 only | The MCP endpoint, until slice 3 deletes it | This spec |
 | Tokens Caroline issues through the flow above | The MCP endpoint only, from slice 3 | This spec |
 
 None of them substitutes for another. `server.accessToken` has been a startup precondition since M0
-and was never checked against a request, which is a defect spec 09 now states plainly and **M15**
-fixes: the fix belongs to the outward-facing authentication milestone, not to this one, because a
-browser with no login cannot be given a static credential to carry and inventing the way it is given
-one is M15's subject rather than a slice of this milestone. See the note above criteria 1 to 4. What
-this milestone does to that credential is nothing at all, which criterion 33 asserts. Removing the
-MCP bearer credential in slice 3 does nothing to it either.
+and was never checked against a request, which was a defect, and **spec 13 closes it by removing the
+credential** rather than by enforcing it: a browser with no login cannot be given a static credential
+to carry, so a login replaces it and a session cookie is what the page carries (spec 13 criteria 7
+and 8). See the note above criteria 1 to 4. What this milestone does to that credential is nothing at
+all, which criterion 33 asserts, and that stays true whether it is present or removed by the time
+this surface is built. Removing the MCP bearer credential in slice 3 does nothing to it either.
 
 ## Configuration
 
@@ -514,7 +514,7 @@ Criterion 7 is asserted against slice 2 only, because it is a startup preconditi
 that is configured, and slice 3's only credential is a token issued at runtime, so there is nothing
 left for startup to require. Criterion 32 is what holds in its place from slice 3 on.
 
-**Criteria 1 to 4 are superseded by M15 and are not to be implemented from as written.** They are
+**Criteria 1 to 4 are superseded by spec 13 and are not to be implemented as written.** They are
 left in place, because these specs append rather than renumber and a superseded criterion is said
 to be superseded rather than removed, and the paragraph under the slice 1 heading says what went
 wrong with them. Numbering is unaffected: slice 2 is the first slice of this milestone that gets
@@ -524,38 +524,41 @@ Nothing else here is kept as a record of an earlier state. Criteria stay in plac
 tests cite them by number, which is why the specs append rather than renumber, and none of this
 document is cited yet.
 
-**Slice 1: the API's credential check. Superseded by M15, and deferred to it.** Spec 09 owns the
+**Slice 1: the API's credential check. Superseded by spec 13, and withdrawn.** Spec 09 owns the
 posture, and these were meant to be its tests.
 
-They cannot be built as written, which is a stronger statement than the one this milestone
-originally made about them. Criterion 1 asks for the token on any route in the process, and spec 09
-criterion 16 on any registered route. `buildApp` registers `@fastify/static` at the root before
-`registerRoutes`, so the SPA shell is a registered route, and requiring the token on it means the
-browser cannot fetch `index.html` at all. Scoping the check to `/api` does not rescue it either:
-spec 09 says the UI has no login, and nothing in specs 08, 09 or 12 says how a page with no login
-obtains the token it is then asked to carry. Spec 09's sentence about the token reaching the change
-feed as a cookie set once from the page presupposes the page already has it, which is the same
-circle drawn smaller. A browser SPA cannot be protected by a static credential the browser has no
-way to be given, and inventing a way is the whole subject of M15.
+They could not be built as written, which is a stronger statement than the one this milestone
+originally made about them. Criterion 1 asks for the token on any route in the process.
+`buildApp` registers `@fastify/static` at the root before `registerRoutes`, so the SPA shell is a
+registered route, and requiring the token on it means the browser cannot fetch `index.html` at all.
+Scoping the check to `/api` did not rescue it either: spec 09 said at the time that the UI has no
+login, and nothing in specs 08, 09 or 12 said how a page with no login obtains the token it is then
+asked to carry. The sentence about the token reaching the change feed as a cookie set once from the
+page presupposes the page already has it, which is the same circle drawn smaller. A browser SPA
+cannot be protected by a static credential the browser has no way to be given.
 
-So the fix moves to M15, which is the outward-facing authentication milestone and the right owner
-of it, rather than being half-specified here. What stays here and in spec 09 is the defect
-statement: the token has never been checked against a request, that is a defect and not an
-out-of-date spec, and the documentation says so plainly today. What goes is the claim that this
-milestone's first slice fixes it.
+Spec 13 has since answered it, and not by making the token a request requirement. It removes
+`server.accessToken` outright, with `CAROLINE_ACCESS_TOKEN` in the environment failing at startup
+rather than being ignored, which is its criterion 7; and it puts a session behind a login in its
+place, checked on every route under `/api` other than the three public auth routes, with the SPA
+shell and its assets served without one, which is its criterion 8. So the defect these criteria were
+written against is closed by removal rather than by enforcement, and there is nothing left here for
+them to assert. Spec 09's own third appended criterion, which asked for the same request-level check,
+is dropped for the same reason: it was never merged, so nothing cites it.
 
-1. **Superseded by M15. Not to be implemented as written.** With `server.accessToken` configured, a
-   request to any route in the process that does not present it is refused, and every route behaves
-   identically in that respect, asserted over the registered route list rather than route by route.
-2. **Superseded by M15. Not to be implemented as written.** With `server.accessToken` configured, a
-   request presenting it is answered normally, and the comparison of the presented value against
-   the configured one takes time independent of how much of it matches.
-3. **Superseded by M15. Not to be implemented as written.** With no `server.accessToken`
-   configured, no request is refused for want of one, so a loopback install with no token behaves
-   exactly as it did before this milestone.
-4. **Superseded by M15. Not to be implemented as written.** The browser reaches the change feed and
-   the streamed chat turn under a configured token, and the token appears in no log line and in no
-   response body, which is spec 09 criterion 6 applied to however it is carried.
+1. **Superseded by spec 13 criteria 7 and 8. Not to be implemented as written.** With
+   `server.accessToken` configured, a request to any route in the process that does not present it is
+   refused, and every route behaves identically in that respect, asserted over the registered route
+   list rather than route by route.
+2. **Superseded by spec 13 criteria 7 and 8. Not to be implemented as written.** With
+   `server.accessToken` configured, a request presenting it is answered normally, and the comparison
+   of the presented value against the configured one takes time independent of how much of it matches.
+3. **Superseded by spec 13 criteria 7 and 8. Not to be implemented as written.** With no
+   `server.accessToken` configured, no request is refused for want of one, so a loopback install with
+   no token behaves exactly as it did before this milestone.
+4. **Superseded by spec 13 criteria 7 and 8. Not to be implemented as written.** The browser reaches
+   the change feed and the streamed chat turn under a configured token, and the token appears in no
+   log line and in no response body, which is spec 09 criterion 6 applied to however it is carried.
 
 **Slice 2: the surface.** The first slice built.
 
@@ -602,13 +605,20 @@ milestone's first slice fixes it.
     nothing was deleted and a person has been asked. Confirming it on Caroline's own screen
     performs exactly the stored operation and records it against the session's turn.
 16. A turn of a session that changes more tasks than `chat.bulkConfirmThreshold` holds every further
-    write into one confirmation, and the confirmation states how many tasks **that turn** would
-    change: the count since the last confirmation was decided, which is the number
-    `chat_confirmations.affected_count` holds and the same number the threshold was compared
-    against. It is not a running total for the session, which after the first confirmation is a
-    different and larger number, and naming which of the two it is is the point of this sentence.
-    Once that confirmation is decided, the next write over the same session opens a new turn and the
-    count starts again from nothing, per spec 07 criterion 14.
+    write into one confirmation, and **the number the confirmation states as what confirming applies
+    is the held batch: the writes waiting, and not the ones already done.** That is the number
+    `chat_confirmations.affected_count` holds, which `src/chat/turn.ts` sets from the held operations
+    for a reason worth not undoing: a card reading eleven waiting when ten of them have already
+    happened is a card that misreports the decision being asked for. Three counts are in play across
+    the turn and this criterion asserts each in its place rather than asserting they are one number.
+    The threshold is compared against the tasks the turn has already changed. `affected_count` is the
+    held batch. The summary sentence names the turn's total, which is those two added together, and
+    then says how many are already done and how many confirming applies, which is what makes the
+    total legible rather than alarming. The MCP surface needs no different number from the browser's:
+    it is the same confirmation record, written by the same code, decided on Caroline's own screen,
+    and the point of naming the three here is that a test can pin each one. Once the confirmation is
+    decided, the next write over the same session opens a new turn and the count starts again from
+    nothing, per spec 07 criterion 14.
 17. With `mcp.enabled` true, `llmContent: full` and `allowFullContentToRemoteProvider: false`,
     startup fails naming all three of `mcp.enabled`, `privacy.llmContent` and
     `privacy.allowFullContentToRemoteProvider`, whatever `llm.provider` is set to, `ollama`
@@ -667,11 +677,13 @@ milestone's first slice fixes it.
     could still be named: `CAROLINE_MCP_ACCESS_TOKEN` in the environment is reported as a removed
     setting naming the variable, and `mcp.accessToken` in the configuration file is refused by the
     strict schema naming the key.
-33. `server.accessToken` behaves exactly as it did before this milestone, and removing the MCP
-    bearer credential changes nothing about it. Asserted, because the two credentials are easily
-    conflated and this is the assertion that says they were not. It says "as before" rather than "as
-    slice 1 left it" because slice 1 is superseded by M15: whatever M15 makes of that credential, it
-    is not this milestone's doing, and this criterion is what proves this milestone did not touch it.
+33. The API's own credential is exactly as this milestone found it, and removing the MCP bearer
+    credential changes nothing about it. Asserted, because the two credentials are easily conflated
+    and this is the assertion that says they were not. It is phrased about whatever the API's
+    credential is at the time rather than about `server.accessToken` by name, because spec 13
+    criterion 7 removes that key and this criterion is about this milestone touching nothing on the
+    API's side, which holds either way: with the key present, nothing here reads or changes it; with
+    the key gone and a session in its place, nothing here reads or changes that either.
 34. A client metadata document is fetched only over `https`. An `http` URL is refused, in any
     spelling.
 35. The address a client metadata URL resolves to is checked before anything connects to it, and
@@ -712,5 +724,5 @@ is asserted from that slice onwards like the rest.
 43. A malformed JSON-RPC body on `POST /api/mcp` is answered as a JSON-RPC error object and never in
     the API's `{ error: { code, message, details? } }` shape, asserted by sending a body that
     violates the route's schema and parsing the answer as JSON-RPC. This is the resolution of the
-    collision between that shape and spec 08 criterion 1, which spec 08 criterion 34 states from its
+    collision between that shape and spec 08 criterion 1, which spec 08 criterion 37 states from its
     own side.

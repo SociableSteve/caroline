@@ -514,23 +514,27 @@ protocol now offers a way to ask through the client, because spec 09's reason fo
 confirmation from the policy is that it is rendered from the user's own database in front of them.
 Nothing about the person goes at all, because Caroline is not the one writing this prompt.
 
-Two slices, numbered 2 and 3, because a first one was written and then given to M15. The numbering is
+Two slices, numbered 2 and 3, because a first one was written and then withdrawn to M15. The numbering is
 kept rather than closed up: spec 12's criteria are grouped by slice number and its criterion 7 names
 slice 2 in its own text, so renaming the slices would repoint those the way renumbering criteria
 would. Slice 2 is the first slice built. Two different credentials appear across the milestone and
 they are not the same one: the API's, which this milestone does not touch at all, and the MCP
 endpoint's, which slice 2 introduces and slice 3 deletes.
 
-1. **Withdrawn, and given to M15.** This was the API's credential check, on the argument that a
-   milestone cannot write a credential check for one endpoint and leave the rest of the API open. The
-   argument still holds; the slice did not. It cannot be built as written: the check has to cover
-   every registered route, `@fastify/static` registers the SPA shell at the root, and requiring the
-   token there means the browser cannot fetch `index.html`; and scoping it to `/api` does not help,
-   because nothing says how a page with no login obtains the token it would then carry. A cookie set
-   from the page presupposes the page already has it. So the defect is stated in spec 09 and in the
-   setup guide, where it belongs, and the fix is M15's, where the question "what does a browser
-   authenticate with" is the subject rather than a step. Spec 12's criteria 1 to 4 are marked
-   superseded and stay in place unimplemented, as does spec 09's criterion 16.
+1. **Withdrawn, and answered by M15 instead.** This was the API's credential check, on the argument
+   that a milestone cannot write a credential check for one endpoint and leave the rest of the API
+   open. The argument still holds; the slice did not. It could not be built as written: the check has
+   to cover every registered route, `@fastify/static` registers the SPA shell at the root, and
+   requiring the token there means the browser cannot fetch `index.html`; and scoping it to `/api`
+   did not help, because nothing said how a page with no login obtains the token it would then carry.
+   A cookie set from the page presupposes the page already has it. M15 has since answered the
+   question this slice could not, and not in the shape this slice assumed: it removes
+   `server.accessToken` outright rather than making it a request requirement (spec 13 criterion 7),
+   and puts a login and a session in its place, checked on every route under `/api` other than the
+   three public auth routes and not on the SPA shell (spec 13 criterion 8). So spec 12's criteria 1
+   to 4 stay in place marked superseded by spec 13 criteria 7 and 8, and the third criterion spec 09
+   had appended here, which asked for the same request-level token check, is dropped: it was never
+   merged, so nothing cites it, and there is nothing left for it to assert.
 
 2. **The surface, and a credential that is scaffolding.** Streamable HTTP on the port Caroline already
    listens on, in the same process, because one database handle and one change feed mean a task an
@@ -577,15 +581,15 @@ endpoint's, which slice 2 introduces and slice 3 deletes.
    outbound destination Caroline has was chosen by the user: GitHub because they made a token, Google
    because they walked a consent screen, the model because they named it in a file. This one is chosen
    by whatever is trying to connect, which is a different kind of thing to allow, so spec 09 says so
-   in those words rather than adding a fourth line to a list. It goes over `https`, to an address that
+   in those words rather than adding one more line to a list. It goes over `https`, to an address that
    is resolved and then checked to be a public one before anything connects to it, under a size cap
    and a time cap, following no redirect to another host, and only while somebody is at the keyboard
    approving a client.
 
 Spec 12 is new and states the transport, the authorisation, the tools and the session. Spec 07 gains
 the session as the unit the gate counts in, the one read tool it was missing and an idempotency field
-on a tool definition so an annotation is derived rather than guessed, spec 09 gains the MCP boundary,
-the plain statement of the unenforced-token defect and the amended outbound rule, spec 08 gains the
+on a tool definition so an annotation is derived rather than guessed, spec 09 gains the MCP boundary
+and the amended outbound rule, spec 08 gains the
 endpoint, the metadata documents that cannot live under `/api` and the one named exception to its error
 shape, spec 00 gains the third arrow into the process, and spec 02 is
 unchanged: the review lifecycle already had everything this needed. The payloads published in
@@ -602,10 +606,11 @@ back and undone; and with `llmContent: none` it can do all of that while being t
 The assistant got in by running an authorisation code flow with PKCE against Caroline's own consent
 screen, nothing but a token Caroline issued is accepted on that endpoint, no bearer setting survives
 to suggest otherwise, and the endpoint is reachable from no other machine. The API's own credential is
-exactly as M14 left it, which criterion 33 asserts, and making it a request requirement is M15's exit
-rather than this one's. Spec 12's criteria 5 to 43, spec 07 criterion 14, spec 08 criteria 33 and 34,
-spec 09 criteria 17 and 18, and spec 09 criterion 15 extended to the new boundary. Spec 12's criteria
-1 to 4 and spec 09's criterion 16 are M15's and are not part of this exit.
+untouched by any of it, which criterion 33 asserts, and what becomes of that credential is M15's exit
+rather than this one's: M15 removes it and puts a login in its place. Spec 12's criteria 5 to 43, spec
+07 criterion 14, spec 08 criteria 36 and 37, spec 09 criteria 18 and 19, and spec 09 criterion 15
+extended to the new boundary. Spec 12's criteria 1 to 4 are superseded by spec 13 and are not part of
+this exit.
 
 ## Test strategy
 
