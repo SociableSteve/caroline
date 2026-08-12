@@ -7,7 +7,7 @@
  * `test/docs/content-policy-examples.test.ts` fails when the file and this module disagree. The
  * generated region is fenced off with markers, so everything around it is still written by hand.
  *
- * Spec 09, criterion 14.
+ * Spec 09, criterion 15.
  */
 import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'

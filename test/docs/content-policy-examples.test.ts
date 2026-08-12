@@ -1,6 +1,6 @@
 /**
  * The payloads `docs/content-policy.md` publishes, against the code that builds the real ones.
- * Spec 09, criterion 14.
+ * Spec 09, criterion 15.
  *
  * The document makes a promise about where somebody's mail goes, so the promise is checked rather
  * than reviewed: the generator is the same two functions the classify job calls, and this asserts
