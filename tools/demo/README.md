@@ -17,8 +17,16 @@ npm run build                 # the scripts drive the built client, not the dev 
 npm run demo:seed             # writes a seeded day into /tmp/caroline-demo/demo.db
 CAROLINE_CONFIG=... npm start # pointed at that database, on a port of its own
 npm run demo:shoot            # writes PNGs of the five surfaces and the rail to /tmp/caroline-demo/shots
+npm run demo:shoot -- --docs  # rewrites the pictures the documentation carries, in docs/images
 npm run demo:measure          # reports whether the board's columns really bound and scroll
 ```
+
+`--docs` is the one of them whose output is committed: three shots, in both palettes, into
+`docs/images`, which is where `docs/using.md` and the site take them from. That is why they are
+generated rather than captured, and why the seeded day has no real name, address or repository in
+it: those images are published. `test/docs/screenshots.test.ts` holds both halves of that. Regenerate
+them whenever a surface in one of them changes, from the same seeded database, and the diff is the
+change.
 
 `seed.ts` never touches the configured database. It writes to `SEED_DB`, defaulting to a path
 under `/tmp`, and prints where it went. Point a config file's `database.path` at that and run the

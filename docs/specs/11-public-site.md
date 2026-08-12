@@ -21,6 +21,7 @@ first.
 | --- | --- | --- |
 | `index.html` | `site/pages/index.md` | What Caroline is, what it will not do, what it needs, and where to start |
 | `setup.html` | `docs/setup.md` | Setting it up from nothing |
+| `using.html` | `docs/using.md` | Using it once it runs: what to press and what to say |
 | `content-policy.html` | `docs/content-policy.md` | What leaves the machine |
 | `docs.html` | `docs/README.md` | The documentation index |
 | `reference.html` | `README.md` | The whole of it in short, and the configuration reference |
@@ -59,6 +60,14 @@ the build refuses it rather than quietly rewriting what somebody wrote. `mailto:
 different reason: no page may carry an address, and a link that is one is a leak with a scheme in
 front of it.
 
+**Pictures are generated, not captured.** The documentation shows the board, the dashboard and the
+rail, and every one of those images is `tools/demo/shoot.mjs` driving the built client against the
+seeded demonstration day. A hand-captured screenshot would be two things this site cannot have: stale
+the first time a surface changed, and a picture of somebody's real work. The seeded day is therefore
+held to what the fixtures are held to, no real name, address or repository identifier, because these
+images are published. Each is taken in both palettes and the document carries both, so a reader sees
+the application in the theme they are reading the page in.
+
 **Static, and nothing fetched.** No client-side JavaScript, no web fonts, no analytics and no
 external requests of any kind. The pages read offline, and nothing about who read what leaves the
 reader's machine.
@@ -75,9 +84,9 @@ lives in repository settings rather than in the repository.
 - Search, versioned documentation, a blog, comments, or anything a reader has to run JavaScript to
   read.
 - A custom domain, redirects from one, or anything that assumes a host other than GitHub Pages.
-- Screenshots or a live demo. Both would need seeded data in the repository and would be a second
-  thing to keep true. No asset is copied into the output either, so the build refuses a Markdown image
-  rather than publishing a request for a file that is not there.
+- A live demo, or anything that needs a running Caroline behind the site.
+- An asset of any other kind. `docs/images` is copied and nothing else is, so the build refuses an
+  image from anywhere else rather than publishing a request for a file that is not there.
 - A documentation framework. The generator is one file, and its job is a shell around Markdown that
   is already written.
 - Publishing anything that is not documentation: no fixtures, no database, no configuration of
@@ -114,3 +123,8 @@ lives in repository settings rather than in the repository.
     reachable from the home page in at most two links.
 11. One workflow builds and deploys the site, on a push to `main` and on demand, with the `pages` and
     `id-token` permissions it needs for that and no write permission on the repository's contents.
+12. Every image the site publishes comes from `docs/images`, is named in the shot list of
+    `tools/demo/shoot.mjs`, exists in both palettes, and is shown by a document: an image nothing shows
+    fails, as does an image from anywhere else, and so does a document embedding one that is not there.
+    The seeded day those images are taken from names no address and no repository outside the reserved
+    example owner. Every published image carries alternative text.

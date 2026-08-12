@@ -634,28 +634,38 @@ describe('the site asks nothing of the reader', () => {
   })
 
   /**
-   * No asset is copied into the output, so an image would render as a request for a file that is not
-   * there. The build says so rather than publishing it, because a reader's first visit is a poor time
-   * to discover it and `verify` reads links rather than images.
+   * `docs/images` is copied and nothing else is, so an image from anywhere else would render as a
+   * request for a file that is not there. The build says where the file belongs rather than leaving a
+   * reader's first visit to discover it.
    */
-  it('fails the build on an image, which the site has nothing to serve for', () => {
+  it('fails the build on an image it publishes no file for', () => {
     const broken = override(
       'docs/setup.md',
-      '# Setting Caroline up\n\n![a shot](images/shot.png)\n',
+      '# Setting Caroline up\n\n![a shot](../web/styles.css)\n',
     )
 
-    expect(() => buildSite(broken)).toThrow(/copies no assets/)
+    expect(() => buildSite(broken)).toThrow(/no published image/)
   })
 
-  /** Raw HTML reaches the page untouched, so the renderer refusing a Markdown image is half of it. */
-  it('fails the build on a raw image too, wherever it would be fetched from', () => {
-    for (const image of [
-      `<img src='shot.png' alt="x">`,
-      `<img src="https://elsewhere.test/x.png">`,
-    ]) {
+  /** A fragment on an image is a palette or a mistake, and a browser can do nothing with the mistake. */
+  it('fails the build on an image asking for part of a PNG', () => {
+    const broken = override(
+      'docs/using.md',
+      '# Using Caroline\n\n![a shot](images/board.png#the-middle-bit)\n',
+    )
+
+    expect(() => buildSite(broken)).toThrow(/is not a palette/)
+  })
+
+  /** Raw HTML reaches the page untouched, so the renderer reading a Markdown image is half of it. */
+  it('fails the build on a raw image, wherever it would be fetched from', () => {
+    for (const [image, complaint] of [
+      [`<img src='shot.png' alt="x">`, /which the build did not produce/],
+      [`<img src="https://elsewhere.test/x.png">`, /fetches nothing from another host/],
+    ] as const) {
       const broken = override('docs/plan.md', `# Caroline implementation plan\n\n${image}\n`)
 
-      expect(() => buildSite(broken)).toThrow(/which a page of this site does not/)
+      expect(() => buildSite(broken)).toThrow(complaint)
     }
   })
 

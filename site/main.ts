@@ -8,12 +8,16 @@
  * configurable, because the one thing this file does is a recursive delete and an argument would let
  * `npm run build:site -- dist` take the compiled server and client with it.
  */
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { buildSite } from './build.js'
+import { buildSite, siteAssets } from './build.js'
 
 const directory = 'dist/site'
 const files = buildSite()
+// The screenshots, which are copied rather than written: `buildSite` returns text, and a PNG carried
+// through a string is a PNG with its bytes rewritten. It has already refused to publish a page
+// referencing one that is not here.
+const assets = siteAssets()
 
 rmSync(directory, { recursive: true, force: true })
 for (const [path, contents] of files) {
@@ -22,4 +26,10 @@ for (const [path, contents] of files) {
   writeFileSync(destination, contents, 'utf8')
 }
 
-process.stdout.write(`Wrote ${files.size} files to ${directory}\n`)
+for (const asset of assets) {
+  const destination = join(directory, asset.output)
+  mkdirSync(dirname(destination), { recursive: true })
+  copyFileSync(asset.source, destination)
+}
+
+process.stdout.write(`Wrote ${files.size + assets.length} files to ${directory}\n`)

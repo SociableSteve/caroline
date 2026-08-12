@@ -13,7 +13,8 @@ you are on. Nothing is written back to GitHub, Gmail or Calendar, ever.
 | Documentation                                    |                                                                                                                                                            |
 | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [docs/setup.md](docs/setup.md)                   | Setting it up from nothing: Node, the config file, a model, the GitHub token, the Google Cloud project and OAuth consent, and how to check each part works |
-| [docs/content-policy.md](docs/content-policy.md) | What leaves the machine, what stays on it, and how to read the payload preview                                                                             |
+| [docs/using.md](docs/using.md)                   | Using it: capturing, triaging by keyboard, reading the day, and what to say to the chat rail                                                               |
+| [docs/content-policy.md](docs/content-policy.md) | What leaves the machine, what stays on it, one item at all four content levels, and how to read the payload preview                                        |
 | [docs/specs](docs/specs/README.md)               | What each part is meant to do. The source of truth                                                                                                         |
 | [docs/plan.md](docs/plan.md)                     | The order it was built in                                                                                                                                  |
 

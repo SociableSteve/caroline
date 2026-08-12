@@ -1,0 +1,64 @@
+/**
+ * The payloads `docs/content-policy.md` publishes, against the code that builds the real ones.
+ * Spec 09, criterion 14.
+ *
+ * The document makes a promise about where somebody's mail goes, so the promise is checked rather
+ * than reviewed: the generator is the same two functions the classify job calls, and this asserts
+ * that what is committed is what they produce today. A change to the payload's shape fails here, with
+ * the command that fixes it, instead of leaving a documented payload that is no longer true.
+ */
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { describe, expect, it } from 'vitest'
+import {
+  examplesMarkdown,
+  payloadExamples,
+  regionOf,
+} from '../../tools/docs/content-policy-examples.js'
+import { contentLevels } from '../../src/domain/content.js'
+
+const document = readFileSync(join(process.cwd(), 'docs/content-policy.md'), 'utf8')
+
+describe('the documented payloads are what the content policy produces', () => {
+  it('carries exactly what the generator generates, so nothing has drifted', () => {
+    expect(
+      regionOf(document),
+      'docs/content-policy.md no longer matches the code that builds the payloads: run npm run docs:examples',
+    ).toBe(examplesMarkdown())
+  })
+
+  it('shows every level, in the order the document tabulates them', () => {
+    expect(payloadExamples().map((example) => example.level)).toEqual([...contentLevels])
+  })
+
+  /**
+   * The point of the whole section, asserted rather than left to a reader's eye: the level decides
+   * whether a body leaves the machine. `none` sends neither the subject nor the sender either,
+   * because a title is content.
+   */
+  it('sends no body below snippet, part of one at snippet, and the whole of it at full', () => {
+    const sent = new Map(payloadExamples().map((example) => [example.level, example.sent]))
+    const body = 'Thanks for Tuesday.'
+    const end = 'follow up on the rest afterwards.'
+
+    expect(sent.get('none')).not.toContain(body)
+    expect(sent.get('none')).not.toContain('Q3 capacity numbers')
+    expect(sent.get('metadata')).toContain('Q3 capacity numbers for the board pack')
+    expect(sent.get('metadata')).not.toContain(body)
+    expect(sent.get('snippet')).toContain(body)
+    expect(sent.get('snippet')).not.toContain(end)
+    expect(sent.get('full')).toContain(end)
+  })
+
+  /**
+   * The example is published, and the site refuses to publish anything shaped like an address or a
+   * key. Checked at the generator rather than only at the built page, so a field added to the payload
+   * fails here, where the fix is obvious, as well as in the site's own criterion 8.
+   */
+  it('carries no address and nothing shaped like a key in any of them', () => {
+    for (const { level, sent } of payloadExamples()) {
+      expect(sent, level).not.toMatch(/[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[A-Za-z]{2,}/)
+      expect(sent, level).not.toMatch(/\b(gh[pousr]_|github_pat_|sk-[A-Za-z]|AIza)[A-Za-z0-9_-]+/)
+    }
+  })
+})

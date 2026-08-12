@@ -13,6 +13,7 @@
     "build:server": "tsc -p tsconfig.build.json",
     "build:web": "vite build",
     "build:site": "tsx site/main.ts",
+    "docs:examples": "tsx tools/docs/content-policy-examples.ts",
     "start": "node dist/server/main.js",
     "delete-data": "tsx src/cli/delete.ts",
     "test": "vitest run",

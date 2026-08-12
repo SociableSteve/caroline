@@ -71,7 +71,7 @@ const planDate = new Date(NOW).toISOString().slice(0, 10)
 
 // ---- Projects ----
 
-const hub = createProject(database, { title: 'Technology Hub H2 review' }, NOW - 40 * DAY)
+const hub = createProject(database, { title: 'Platform team H2 review' }, NOW - 40 * DAY)
 const release = createProject(database, { title: 'Caroline 1.0 release' }, NOW - 20 * DAY)
 const onboarding = createProject(database, { title: 'Onboarding refresh' }, NOW - 60 * DAY)
 
@@ -118,7 +118,7 @@ const seeds: Seed[] = [
     project: release.id,
     estimate: 45,
   },
-  { title: 'Book the venue for the hub offsite', status: 'next_action', estimate: 15 },
+  { title: 'Book the venue for the team offsite', status: 'next_action', estimate: 15 },
 
   // Waiting, one of them well past the staleness threshold.
   {
@@ -134,16 +134,16 @@ const seeds: Seed[] = [
     setAt: NOW - 9 * DAY,
   },
   {
-    title: 'Answers on the NetSuite export format',
+    title: 'Answers on the payroll export format',
     status: 'waiting',
     waitingOn: 'People Ops',
     setAt: NOW - 2 * DAY,
   },
 
   { title: 'Look at whether the planner could learn from corrections', status: 'someday' },
-  { title: 'A hub dashboard that reads itself out on a Monday', status: 'someday' },
+  { title: 'A team dashboard that reads itself out on a Monday', status: 'someday' },
 
-  { title: 'Nearform brand guidelines', status: 'reference' },
+  { title: 'Brand guidelines', status: 'reference' },
   { title: 'GitHub token scopes Caroline needs', status: 'reference', project: release.id },
 ]
 
@@ -183,25 +183,25 @@ createTask(
  */
 const pullRequests = [
   {
-    repository: 'nearform/caroline',
+    repository: 'example-org/caroline',
     summary: 'Add the retry to the Gmail fetch helper',
-    author: 'ana-dev',
+    author: 'avery-dev',
     number: 41,
     ageDays: 1,
     pushed: false,
   },
   {
-    repository: 'nearform/caroline',
+    repository: 'example-org/caroline',
     summary: 'Rework the scheduler’s catch-up pass',
-    author: 'sam-eng',
+    author: 'jordan-eng',
     number: 39,
     ageDays: 4,
     pushed: true,
   },
   {
-    repository: 'nearform/hub-tools',
-    summary: 'Bump the NetSuite client',
-    author: 'ana-dev',
+    repository: 'example-org/hub-tools',
+    summary: 'Bump the payroll client',
+    author: 'avery-dev',
     number: 12,
     ageDays: 2,
     pushed: false,
@@ -245,10 +245,10 @@ for (const pr of pullRequests) {
 const reviewed = createTask(
   database,
   {
-    title: 'nearform/caroline#37 Split the connector interface',
+    title: 'example-org/caroline#37 Split the connector interface',
     status: 'waiting',
     statusSetBy: 'sync',
-    waitingOn: 'sam-eng',
+    waitingOn: 'jordan-eng',
   },
   NOW - 6 * DAY,
 )
@@ -256,14 +256,14 @@ upsertSource(
   database,
   {
     provider: 'github',
-    externalId: 'nearform/caroline#37',
-    url: 'https://github.com/nearform/caroline/pull/37',
+    externalId: 'example-org/caroline#37',
+    url: 'https://github.com/example-org/caroline/pull/37',
     title: 'Split the connector interface',
     taskId: reviewed.id,
     lifecycleState: 'reviewed',
     actedAt: NOW - 6 * DAY,
     actedAtMarker: 'sha-old',
-    metadata: { author: 'sam-eng', headSha: 'sha-new', headCommittedAt: NOW - 2 * HOUR },
+    metadata: { author: 'jordan-eng', headSha: 'sha-new', headCommittedAt: NOW - 2 * HOUR },
   },
   NOW - 6 * DAY,
 )
@@ -300,7 +300,7 @@ const events: ReadonlyArray<{
   end: number
   response: CalendarResponseStatus
 }> = [
-  { summary: 'Hub standup', start: today(9, 30), end: today(9, 45), response: 'accepted' },
+  { summary: 'Team standup', start: today(9, 30), end: today(9, 45), response: 'accepted' },
   { summary: 'Client architecture review', start: today(11), end: today(12), response: 'accepted' },
   {
     summary: 'Lunch and learn: observability',
@@ -308,7 +308,7 @@ const events: ReadonlyArray<{
     end: today(14),
     response: 'declined',
   },
-  { summary: 'One to one with Ana', start: today(15, 30), end: today(16), response: 'accepted' },
+  { summary: 'One to one with Jordan', start: today(15, 30), end: today(16), response: 'accepted' },
 ]
 
 for (const [index, event] of events.entries()) {
@@ -375,9 +375,9 @@ recordDailyPlan(database, {
     },
     {
       taskId: reviewed.id,
-      title: 'nearform/caroline#37 Split the connector interface',
+      title: 'example-org/caroline#37 Split the connector interface',
       rank: 2,
-      waitingOn: 'sam-eng',
+      waitingOn: 'jordan-eng',
       waitingSince: NOW - 6 * DAY,
       pushedSinceReview: true,
     },

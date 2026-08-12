@@ -354,6 +354,37 @@ one step that lives in repository settings rather than in the repository.
 Exit: a stranger can find out what Caroline is, decide whether they want it, and set it up,
 without being sent to a README in a source tree.
 
+### M14. Worked examples
+
+Twelve milestones of documentation say what every setting means and what every part is for. None of it
+shows anybody a single thing happening. A stranger can read the setup guide and still not know what a
+successful start looks like, what `snippet` does to their mail, or what to type once the board is on
+screen.
+
+Four kinds of example, each where it belongs rather than in a document of its own:
+
+1. **The setup guide gains its own output.** A filled-in `caroline.config.json`, the two lines a
+   successful start prints, the health check's answer on a fresh install, the deletion command's dry
+   run, and the two refusals to start, all of them real output rather than invented.
+2. **The content policy gains one item at all four levels of `llmContent`.** Generated, not written:
+   `tools/docs/content-policy-examples.ts` builds them with the functions the classify job calls,
+   `npm run docs:examples` writes them into the document, and a test fails when the two disagree. A
+   documented payload that has drifted is worse than no example, because it is a promise about where
+   somebody's mail goes. Spec 09 gains criterion 15.
+3. **`docs/using.md` is new**, and is the gap: what to press, what to say, and what each of those does.
+   Every claim in it is the code's, checked by driving the turn loop and the surfaces rather than by
+   describing what would be nice.
+4. **Screenshots, generated from the seeded day.** `tools/demo/shoot.mjs --docs` writes the board, the
+   dashboard and the rail into `docs/images`, in both palettes, and the site publishes them. That is
+   spec 11's screenshots non-goal reversed, on the grounds that made it a non-goal in the first place:
+   the objection was to a picture that would be stale and a picture of real work, and a generated shot
+   of a seeded day is neither. The seed is scrubbed to the standard the fixtures are held to, because
+   these images are now published. Spec 11 gains criterion 12.
+
+Exit: somebody who has never seen Caroline can read the documentation and know what to type. The two
+claims that could rot are tests: the payloads against the code, and the images against the shot list
+and the seed.
+
 ## Test strategy
 
 - **Domain**: pure unit tests, no database.
