@@ -470,6 +470,7 @@ would be exposed without a login. A loopback install's behaviour is unchanged, a
 assert the behaviour of the removed access token change with it: slice 1 takes out the startup guard
 `test/config/load.test.ts` asserts, and `CAROLINE_ACCESS_TOKEN` is the fixture secret in
 `test/config/redact.test.ts`, `test/server/logging.test.ts` and `test/server/config-route.test.ts`.
+
 ### M16. The MCP server
 
 Caroline's tool registry has one caller. Spec 07 built fourteen tools over the domain with the content
@@ -579,12 +580,12 @@ endpoint's, which slice 2 introduces and slice 3 deletes.
    mints credentials for anything that can reach the port. That fetch is the one place this milestone
    makes the posture worse rather than better, and it is written down as what it is. Every other
    outbound destination Caroline has was chosen by the user: GitHub because they made a token, Google
-   because they walked a consent screen, the model because they named it in a file. This one is chosen
-   by whatever is trying to connect, which is a different kind of thing to allow, so spec 09 says so
-   in those words rather than adding one more line to a list. It goes over `https`, to an address that
-   is resolved and then checked to be a public one before anything connects to it, under a size cap
-   and a time cap, following no redirect to another host, and only while somebody is at the keyboard
-   approving a client.
+   because they walked a consent screen, the model and the identity provider because they named each
+   of them in a file. This one is chosen by whatever is trying to connect, which is a different kind
+   of thing to allow, so spec 09 says so in those words rather than adding one more line to a list.
+   It goes over `https`, to an address that is resolved and then checked to be a public one before
+   anything connects to it, under a size cap and a time cap, following no redirect to another host,
+   and only while somebody is at the keyboard approving a client.
 
 Spec 12 is new and states the transport, the authorisation, the tools and the session. Spec 07 gains
 the session as the unit the gate counts in, the one read tool it was missing and an idempotency field

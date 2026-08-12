@@ -235,13 +235,15 @@ request forgery surface. It is the one place this surface makes Caroline's postu
 than better, and it does so because of the choice to be conformant, so it gets a section rather
 than a clause.
 
-Spec 09's outbound rule today limits destinations to the configured providers: GitHub, Google
-and the configured LLM endpoint. All three are destinations **the user** chose, by making a
-token, walking a consent screen, or naming an endpoint in a file. A client metadata document is
-**the first outbound destination a caller chooses**, which is a different kind of entry in the
-same list. Spec 09's amended rule says so in those words rather than adding a fourth line to a
-list, because a future reader must not be able to treat the next caller-chosen destination as
-precedented by this one. Anything of the same kind has to make the argument again from scratch.
+Spec 09's outbound rule today limits destinations to the ones the user named in the
+configuration: GitHub, Google, the configured LLM endpoint, and the identity provider's
+discovery document and token endpoint. All four are destinations **the user** chose, by making a
+token, walking a consent screen, naming an endpoint in a file, or naming an issuer in a file. A
+client metadata document is **the first outbound destination a caller chooses**, which is a
+different kind of entry in the same list. Spec 09's amended rule says so in those words rather
+than adding a fifth line to a list, because a future reader must not be able to treat the next
+caller-chosen destination as precedented by this one. Anything of the same kind has to make the
+argument again from scratch.
 
 The guards, each of which is a criterion below rather than prose:
 
