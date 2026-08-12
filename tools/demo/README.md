@@ -22,11 +22,12 @@ npm run demo:measure          # reports whether the board's columns really bound
 ```
 
 `--docs` is the one of them whose output is committed: three shots, in both palettes, into
-`docs/images`, which is where `docs/using.md` and the site take them from. That is why they are
-generated rather than captured, and why the seeded day has no real name, address or repository in
-it: those images are published. `test/docs/screenshots.test.ts` holds both halves of that. Regenerate
-them whenever a surface in one of them changes, from the same seeded database, and the diff is the
-change.
+`docs/images`, which is where `docs/using.md` and the site take them from. Those images are published,
+which is why they are generated rather than captured, and why the seeded day names the reserved
+`example-org` rather than a real organisation: the items are invented, and a picture of them on a public
+page should read that way rather than leaving a stranger to wonder whose pull requests they are.
+`test/docs/screenshots.test.ts` holds both halves of that. Regenerate them whenever a surface in one of
+them changes, from the same seeded database, and the diff is the change.
 
 `seed.ts` never touches the configured database. It writes to `SEED_DB`, defaulting to a path
 under `/tmp`, and prints where it went. Point a config file's `database.path` at that and run the

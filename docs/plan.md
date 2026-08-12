@@ -372,14 +372,17 @@ Four kinds of example, each where it belongs rather than in a document of its ow
    documented payload that has drifted is worse than no example, because it is a promise about where
    somebody's mail goes. Spec 09 gains criterion 15.
 3. **`docs/using.md` is new**, and is the gap: what to press, what to say, and what each of those does.
-   Every claim in it is the code's, checked by driving the turn loop and the surfaces rather than by
-   describing what would be nice.
+   Its claims are checked against the code, by driving the turn loop and reading the surfaces rather
+   than by describing what would be nice. Three of them were wrong until review caught them, which is
+   the argument for checking rather than for describing.
 4. **Screenshots, generated from the seeded day.** `tools/demo/shoot.mjs --docs` writes the board, the
    dashboard and the rail into `docs/images`, in both palettes, and the site publishes them. That is
    spec 11's screenshots non-goal reversed, on the grounds that made it a non-goal in the first place:
-   the objection was to a picture that would be stale and a picture of real work, and a generated shot
-   of a seeded day is neither. The seed is scrubbed to the standard the fixtures are held to, because
-   these images are now published. Spec 11 gains criterion 12.
+   the objection was to a picture that would be stale and a picture of somebody's own board, and a
+   generated shot of a seeded day is neither. The seed's identifiers become unambiguously fictional
+   along the way. Its items were always invented, but a plausible repository under a real
+   organisation's name is one a stranger could read as that organisation's work, and a published page
+   is where that matters. Spec 11 gains criterion 12.
 
 Exit: somebody who has never seen Caroline can read the documentation and know what to type. The two
 claims that could rot are tests: the payloads against the code, and the images against the shot list
