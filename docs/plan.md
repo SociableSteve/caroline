@@ -465,8 +465,10 @@ signature locally comes from.
 
 Exit: an exposed Caroline can be logged into with Google, cannot be logged into by anybody else
 including somebody who authenticates successfully at Google, and refuses to start at all where it
-would be exposed without a login. A loopback install is unchanged and its whole suite passes
-untouched.
+would be exposed without a login. A loopback install's behaviour is unchanged, and the tests that
+assert the behaviour of the removed access token change with it: slice 1 takes out the startup guard
+`test/config/load.test.ts` asserts, and `CAROLINE_ACCESS_TOKEN` is the fixture secret in
+`test/config/redact.test.ts`, `test/server/logging.test.ts` and `test/server/config-route.test.ts`.
 
 ## Test strategy
 

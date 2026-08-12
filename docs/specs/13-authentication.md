@@ -107,8 +107,12 @@ Four of the five shapes run, three of them with a login, and each of those three
 **The public origin**, where this spec uses the term, is the origin of `server.publicUrl` where it is
 set, and the origin the process is bound to where it is not: `http://<host>:<port>`, with the host in
 brackets where it is an IPv6 literal, because that is what an IPv6 address in a URL requires. A bind
-on `::1` therefore gives `http://[::1]:5123` and one on `::ffff:127.0.0.1` gives
-`http://[::ffff:127.0.0.1]:5123`, while `127.0.0.1` and `localhost` give the unbracketed form. Where
+on `::1` therefore gives `http://[::1]:5123`, one on `::ffff:127.0.0.1` gives that address in the
+same brackets, and `127.0.0.1` and `localhost` give the unbracketed form. An IPv4-mapped address is
+the one case where the string a bind reports and the string a URL parser produces differ: parsing
+`http://[::ffff:127.0.0.1]:5123` yields an origin of `http://[::ffff:7f00:1]:5123`, the same origin
+written the way WHATWG parsing normalises it. Origins are therefore compared by parsing both sides
+rather than by matching strings, which criterion 34 spells out. Where
 `authRequired` is false there is no public origin, because nothing derives a redirect URI or checks
 an `Origin` header.
 
@@ -464,12 +468,17 @@ each of them takes a restart, as spec 09 says of the file generally.
 | `auth.sessionMaxDays` | `30` | Absolute lifetime, in days, whatever the idle window says. At least `auth.sessionIdleDays`, at most 30 |
 | `auth.provider.label` | `"Google"` | What the login button calls the provider |
 | `auth.provider.issuer` | `"https://accounts.google.com"` | The OIDC issuer, an `https` URL. Discovery is `{issuer}/.well-known/openid-configuration`. It has a default, so it is never unset: a file that omits it gets Google |
-| `auth.provider.clientId` | `null` | The client id registered with the provider. Nullable with no default, so this is the one key whose absence means "no provider configured" |
+| `auth.provider.clientId` | `null` | The client id registered with the provider. Nullable with a null default, so this is the one key whose absence means "no provider configured" |
 | `auth.provider.scopes` | `["openid", "email"]` | Scopes requested at login. Nothing beyond these is needed |
 
-A key with a default is populated when the file omits it, and a key that can be absent is
-declared nullable with no default, which is the distinction `integrations.google.clientId`
-already draws. So "the issuer is unset" is not a state the configuration can be in, and nothing
+Every key here is populated when the file omits it. What distinguishes a key that can be absent
+is not the lack of a default but that its default is `null`: it is declared nullable with a null
+default, the shape `integrations.google.clientId` already uses
+(`z.string().min(1).nullable().default(null)` in `src/config/schema.ts`). Nullable *without* a
+default would make the key required, and since no configuration file in existence has an `auth`
+block at all, every current install would then fail to load, against criterion 2. It would also
+leave the `auth.provider` object with no default of its own to build. So "the issuer is unset" is
+not a state the configuration can be in, and nothing
 in this spec asserts that it is. `auth.provider.clientId` is the key that says whether a provider
 is configured, and it is the one the refusal names.
 
@@ -744,7 +753,12 @@ them by number.
     asserting that a login works.
 34. Every origin this spec derives from a bind is a well-formed URL for every host in the loopback
     set, and so is the redirect URI derived from it: `::1` gives `http://[::1]:<port>` and
-    `::ffff:127.0.0.1` gives `http://[::ffff:127.0.0.1]:<port>`, with the brackets an IPv6 literal in
-    a URL requires, while `127.0.0.1` and `localhost` give the unbracketed form. Asserted by parsing
-    what was derived and comparing the parsed origin, so a string that only looks right does not
-    pass.
+    `::ffff:127.0.0.1` gives that address in the same brackets, while `127.0.0.1` and `localhost`
+    give the unbracketed form. Asserted by parsing **both** the derived value and the expected value
+    and comparing the two parsed origins, so a string that only looks right does not pass. Both sides
+    are parsed because WHATWG URL parsing normalises an IPv4-mapped IPv6 address: the origin of
+    `http://[::ffff:127.0.0.1]:<port>` parses as `http://[::ffff:7f00:1]:<port>`, so comparing the
+    derived string against the literal `http://[::ffff:127.0.0.1]:<port>` would fail on a value that
+    is in fact right. Parsing both sides still catches what this criterion exists for, because the
+    unbracketed forms it would be a bug to derive, `http://::1:<port>` and
+    `http://::ffff:127.0.0.1:<port>`, do not parse at all.
