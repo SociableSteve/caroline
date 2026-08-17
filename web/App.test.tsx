@@ -578,7 +578,7 @@ describe('more tasks than the client will fetch', () => {
 
     render(<App />)
 
-    expect(await within(screen.getByRole('main')).findByRole('status')).toHaveTextContent(
+    expect(await within(await screen.findByRole('main')).findByRole('status')).toHaveTextContent(
       'Showing 5000 of 6000 tasks',
     )
   })
@@ -1087,6 +1087,48 @@ describe('the login screen', () => {
     expect(calls.some((call) => call.method === 'POST' && call.url === '/api/auth/logout')).toBe(
       true,
     )
+  })
+
+  /**
+   * `authenticated` is optimistic until the first status read answers (see the doc comment on
+   * `ready` in auth.ts), so nothing below that must not be shown to an unauthenticated visitor,
+   * and nothing that fetches data ahead of knowing whether it is allowed to, may render or fire
+   * before that first answer lands.
+   */
+  it('renders only a loading state, and fetches no data, before the status check resolves', async () => {
+    let resolveStatus: () => void = () => {}
+    const calls: Call[] = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ method, url, body: undefined })
+        const answer = (body: unknown, status = 200) =>
+          ({ ok: status < 400, status, json: async () => body }) as unknown as Response
+
+        if (url === '/api/auth/status') {
+          return new Promise<Response>((resolve) => {
+            resolveStatus = () =>
+              resolve(answer({ authRequired: true, hasSession: false, providerLabel: 'Google' }))
+          })
+        }
+
+        // Nothing else should be asked for while the first status check is still in flight.
+        throw new Error(`unexpected request while waiting on the status check: ${method} ${url}`)
+      }),
+    )
+
+    render(<App />)
+
+    expect(await screen.findByText('Loading.')).toBeInTheDocument()
+    expect(screen.queryByRole('navigation')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /sign in with/i })).not.toBeInTheDocument()
+    expect(calls.some((call) => call.url !== '/api/auth/status')).toBe(false)
+
+    resolveStatus()
+
+    expect(await screen.findByRole('button', { name: 'Sign in with Google' })).toBeInTheDocument()
   })
 
   /** Spec 08, criterion 35: a 401 from any call, not only the initial status check. */

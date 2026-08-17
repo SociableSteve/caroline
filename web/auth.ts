@@ -71,6 +71,12 @@ export function useAuthGate(): AuthGate {
   const logout = useCallback(async () => {
     try {
       await api.logout()
+    } catch {
+      // Deliberately swallowed, like login()'s catch: the point of signing out is to leave the
+      // authenticated state, which the finally below does regardless of whether the server's
+      // side of it (clearing the session cookie) actually landed. Surfacing this as a `failure`
+      // would tell someone who is leaving that something went wrong when nothing they still
+      // care about did.
     } finally {
       setUnauthorized(true)
     }

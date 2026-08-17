@@ -89,6 +89,11 @@ function isTyping(target: EventTarget | null): boolean {
 
 export function App() {
   const auth = useAuthGate()
+  // Not just `auth.authenticated`: that is optimistically `true` until the first status read
+  // answers (see the doc comment on `ready` in auth.ts), so gating everything below on `ready`
+  // too is what keeps an auth-required deployment from flashing the authenticated shell, and
+  // firing the data fetches that go with it, before the first check has actually resolved.
+  const authenticated = auth.ready && auth.authenticated
   const {
     tasks,
     projects,
@@ -108,7 +113,7 @@ export function App() {
     unfetchedTaskTotal,
     reload,
     reloadSettings,
-  } = useCarolineData(auth.authenticated)
+  } = useCarolineData(authenticated)
   const { route, chatOpen: chatInUrl, conversationId, selected, hash } = useLocation()
   const [capturing, setCapturing] = useState(false)
   const [writeFailure, setWriteFailure] = useState<string | null>(null)
@@ -246,9 +251,9 @@ export function App() {
     conversationId,
     // Read at the moment a message is sent, from whatever is selected then. Spec 07, rule 1.
     selected,
-    // Nothing chat-shaped is fetched while the login screen is showing: the rail is not on
-    // screen then either, below.
-    active: chatOpen && auth.authenticated,
+    // Nothing chat-shaped is fetched while the login screen (or the loading state before the
+    // first status check answers) is showing: the rail is not on screen then either, below.
+    active: chatOpen && authenticated,
     onDataChanged: () => void reload(),
     onConversationStarted: (id) => {
       // The surface is kept: a conversation started while reading the board is still about the
@@ -263,8 +268,8 @@ export function App() {
    * for. Re-read after connecting, disconnecting or renaming, which is what changes them.
    */
   useEffect(() => {
-    if (route.name === 'settings' && auth.authenticated) void reloadSettings()
-  }, [route.name, auth.authenticated, reloadSettings])
+    if (route.name === 'settings' && authenticated) void reloadSettings()
+  }, [route.name, authenticated, reloadSettings])
 
   const onConnectGoogle = () =>
     void (async () => {
@@ -305,6 +310,14 @@ export function App() {
     if (next !== window.location.hash) window.location.hash = next
   }
 
+  // Neither the authenticated shell nor the login screen until the first status check has
+  // actually answered: `auth.authenticated` is optimistically `true` until then (see auth.ts),
+  // and rendering the shell on that guess is exactly the flash spec 13 rules out. Nothing here
+  // needs to know which surface is coming, so there is nothing to show but a loading state.
+  if (!auth.ready) {
+    return <p role="status">Loading.</p>
+  }
+
   return (
     <>
       <header className="app-header">
@@ -328,7 +341,7 @@ export function App() {
           </ul>
         </nav>
         <div className="header-actions">
-          {auth.authenticated && (
+          {authenticated && (
             <>
               {/* The scheduler runs sync on its own; this is the manual trigger spec 06 asks be
                   first-class, for when you know something has just landed. */}
@@ -348,7 +361,7 @@ export function App() {
           {/* Invisible, and nothing else here changes, where a login is not required: spec 13's
               loopback shape. Where one is, this is the fourth of the flow's four routes and the
               only one this shell offers a control for. */}
-          {auth.authRequired && auth.authenticated && (
+          {auth.authRequired && authenticated && (
             <button type="button" onClick={() => void auth.logout()}>
               Sign out
             </button>
@@ -356,7 +369,7 @@ export function App() {
         </div>
       </header>
 
-      {!auth.authenticated ? (
+      {!authenticated ? (
         <main>
           <LoginScreen
             providerLabel={auth.providerLabel}
