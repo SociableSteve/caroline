@@ -191,7 +191,7 @@ export function describeCall(
   // recognise it, and it never invents a title the arguments did not carry, which is also why it
   // is what a caller is told at `none`: the arguments are its own words coming back.
   const args = (call.arguments ?? {}) as { id?: unknown; title?: unknown }
-  if (typeof args.title === 'string') return `${tool.name}: "${args.title}"`
+  if (typeof args.title === 'string') return `${tool.name}: “${args.title}”`
   if (typeof args.id === 'string') return `${tool.name} on ${args.id}`
 
   return tool.name
