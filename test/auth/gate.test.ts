@@ -133,16 +133,20 @@ describe('with authentication required (criterion 1, 31)', () => {
     await app.close()
   })
 
-  it('exempts exactly the three public auth routes and the MCP endpoint (spec 12)', () => {
-    // The MCP endpoint checks its own credential rather than a session, and is unregistered at
-    // all unless mcp.enabled is true and the bind is loopback (spec 12, criteria 5 and 6), so
-    // this line grants nothing on an install that has not already turned it on.
+  it('exempts exactly the three public auth routes and the MCP endpoint and token endpoint (spec 12)', () => {
+    // The MCP endpoint and its token endpoint check their own credential rather than a session,
+    // and are unregistered at all unless mcp.enabled is true and the bind is loopback (spec 12,
+    // criteria 5 and 6), so this line grants nothing on an install that has not already turned it
+    // on. `GET /api/mcp/authorize` and the consent routes beside it are deliberately not exempt:
+    // they are hit by a browser, and the consent screen is exactly the surface a login already
+    // protects where one is configured.
     expect([...EXEMPT_AUTH_ROUTES].toSorted()).toEqual(
       [
         'GET /api/auth/callback',
         'GET /api/auth/status',
         'POST /api/auth/login',
         'POST /api/mcp',
+        'POST /api/mcp/token',
       ].toSorted(),
     )
   })

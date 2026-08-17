@@ -45,7 +45,6 @@ const secretsBannedFromFile: ReadonlyArray<{ path: string; envHint: string }> = 
   { path: 'integrations.github.token', envHint: 'GITHUB_TOKEN' },
   { path: 'integrations.google.clientSecret', envHint: 'GOOGLE_CLIENT_SECRET' },
   { path: 'auth.provider.clientSecret', envHint: 'CAROLINE_AUTH_CLIENT_SECRET' },
-  { path: 'mcp.accessToken', envHint: 'CAROLINE_MCP_ACCESS_TOKEN' },
   // `server.accessToken` is not a schema key any more (spec 13): the key, the environment
   // variable and the guard that read it for its old purpose are gone. The ban on the key
   // appearing in the file predates this spec and still applies unconditionally, which is why
@@ -210,7 +209,6 @@ const secretEnvVars = [
   'GITHUB_TOKEN',
   'GOOGLE_CLIENT_SECRET',
   'CAROLINE_AUTH_CLIENT_SECRET',
-  'CAROLINE_MCP_ACCESS_TOKEN',
 ] as const
 
 function environmentSecrets(env: NodeJS.ProcessEnv): string[] {
@@ -347,14 +345,15 @@ function assertMcpIsLoopbackOnly(config: Config): void {
 }
 
 /**
- * Spec 12, criterion 7, slice 2 only: loopback is not a substitute for the credential on this
- * surface, so the check does not read `authRequired` at all and fires on any bind whatever.
- * Replaced by criterion 32 once slice 3 makes the only credential a token issued at runtime.
+ * Spec 12, criterion 32, which stands in criterion 7's place: slice 2's bearer credential is
+ * gone, and its environment variable is reported as a removed setting naming the variable,
+ * rather than being silently ignored. `mcp.accessToken` in the file is refused by the schema's
+ * own strict-mode rejection of an unrecognised key, which needs no assertion of its own here.
  */
-function assertMcpHasAccessTokenWhenEnabled(config: Config): void {
-  if (config.mcp.enabled && config.mcp.accessToken === null) {
+function assertNoMcpAccessTokenInEnvironment(env: NodeJS.ProcessEnv): void {
+  if (nonEmpty(env.CAROLINE_MCP_ACCESS_TOKEN) !== null) {
     throw new ConfigError(
-      'mcp.enabled is true and CAROLINE_MCP_ACCESS_TOKEN is not set: the MCP endpoint would have no credential to check requests against.',
+      'CAROLINE_MCP_ACCESS_TOKEN is set in the environment. It has been replaced by an authorisation server: remove it. A client now runs an authorisation code flow with PKCE against Caroline’s own consent screen instead of carrying a bearer credential.',
     )
   }
 }
@@ -459,7 +458,7 @@ export function loadConfig({ file, env, runtimeChecks = true }: LoadOptions): Co
     mcp: {
       enabled: parsed.mcp.enabled,
       sessionIdleMinutes: parsed.mcp.sessionIdleMinutes,
-      accessToken: nonEmpty(env.CAROLINE_MCP_ACCESS_TOKEN),
+      clientMetadata: parsed.mcp.clientMetadata,
     },
     integrations: {
       github: {
@@ -495,7 +494,7 @@ export function loadConfig({ file, env, runtimeChecks = true }: LoadOptions): Co
     assertPublicUrlIsSetWhereBindIsNotLoopback(config)
     assertPublicUrlSchemeIsSafe(config)
     assertMcpIsLoopbackOnly(config)
-    assertMcpHasAccessTokenWhenEnabled(config)
+    assertNoMcpAccessTokenInEnvironment(env)
     assertMcpContentPolicyIsAllowed(config)
   }
 

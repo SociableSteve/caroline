@@ -265,16 +265,34 @@ describe('loadConfig secret placement (spec 09: keys come from the environment o
     )
   })
 
-  it('fails when the MCP access token is present in the config file (spec 12)', () => {
+  /**
+   * Slice 2's bearer credential is gone (spec 12, criterion 32). `mcp.accessToken` is not a
+   * declared key in the file schema any more, so a file naming it is refused by the schema's
+   * own strict-mode rejection of an unrecognised key, naming `accessToken` in the error.
+   */
+  it('fails when the removed MCP access token key is present in the config file (spec 12, criterion 32)', () => {
     expect(() => loadConfig({ file: { mcp: { accessToken: 'in-file' } }, env: noEnv })).toThrow(
-      /mcp\.accessToken/,
+      /accessToken/,
     )
   })
 
-  it('names CAROLINE_MCP_ACCESS_TOKEN as the way to set the MCP access token', () => {
-    expect(() => loadConfig({ file: { mcp: { accessToken: 'in-file' } }, env: noEnv })).toThrow(
-      /CAROLINE_MCP_ACCESS_TOKEN/,
-    )
+  it('fails when CAROLINE_MCP_ACCESS_TOKEN is set in the environment, naming the variable (spec 12, criterion 32)', () => {
+    expect(() =>
+      loadConfig({
+        file: null,
+        env: { CAROLINE_MCP_ACCESS_TOKEN: 'a-token' } as NodeJS.ProcessEnv,
+      }),
+    ).toThrow(/CAROLINE_MCP_ACCESS_TOKEN/)
+  })
+
+  it('still loads with CAROLINE_MCP_ACCESS_TOKEN set when runtimeChecks is false', () => {
+    const config = loadConfig({
+      file: null,
+      env: { CAROLINE_MCP_ACCESS_TOKEN: 'a-token' } as NodeJS.ProcessEnv,
+      runtimeChecks: false,
+    })
+
+    expect(config.mcp.enabled).toBe(false)
   })
 })
 
@@ -365,25 +383,30 @@ describe('loadConfig startup guards', () => {
           auth: { allow: ['user@example.com'], provider: { clientId: 'client-id' } },
           mcp: { enabled: true },
         },
-        env: { CAROLINE_MCP_ACCESS_TOKEN: 'a-token' } as NodeJS.ProcessEnv,
+        env: noEnv,
       }),
     ).toThrow(/mcp\.enabled.*server\.host|server\.host.*mcp\.enabled/s)
   })
 
-  it('fails when mcp.enabled is true with no CAROLINE_MCP_ACCESS_TOKEN, on any bind (criterion 7)', () => {
-    expect(() => loadConfig({ file: { mcp: { enabled: true } }, env: noEnv })).toThrow(
-      /CAROLINE_MCP_ACCESS_TOKEN/,
-    )
-  })
-
-  it('loads with mcp.enabled true, loopback, and the token set', () => {
-    const config = loadConfig({
-      file: { mcp: { enabled: true } },
-      env: { CAROLINE_MCP_ACCESS_TOKEN: 'a-token' } as NodeJS.ProcessEnv,
-    })
+  it('loads with mcp.enabled true and loopback, with no credential to configure (criterion 32)', () => {
+    const config = loadConfig({ file: { mcp: { enabled: true } }, env: noEnv })
 
     expect(config.mcp.enabled).toBe(true)
-    expect(config.mcp.accessToken).toBe('a-token')
+  })
+
+  it('defaults the client metadata fetch guards', () => {
+    const config = loadConfig({ file: null, env: noEnv })
+
+    expect(config.mcp.clientMetadata).toEqual({ maxResponseBytes: 65_536, timeoutMs: 5_000 })
+  })
+
+  it('reads the client metadata fetch guards from the file', () => {
+    const config = loadConfig({
+      file: { mcp: { clientMetadata: { maxResponseBytes: 2048, timeoutMs: 500 } } },
+      env: noEnv,
+    })
+
+    expect(config.mcp.clientMetadata).toEqual({ maxResponseBytes: 2048, timeoutMs: 500 })
   })
 
   it('fails when MCP is enabled with full content and no remote-provider flag, whatever the provider is (criterion 17)', () => {
@@ -394,7 +417,7 @@ describe('loadConfig startup guards', () => {
           privacy: { llmContent: 'full' },
           llm: { provider: 'ollama', model: 'llama' },
         },
-        env: { CAROLINE_MCP_ACCESS_TOKEN: 'a-token' } as NodeJS.ProcessEnv,
+        env: noEnv,
       }),
     ).toThrow(/mcp\.enabled.*privacy\.llmContent|privacy\.llmContent.*mcp\.enabled/s)
   })
@@ -406,7 +429,7 @@ describe('loadConfig startup guards', () => {
         privacy: { llmContent: 'full', allowFullContentToRemoteProvider: true },
         llm: { provider: 'ollama', model: 'llama' },
       },
-      env: { CAROLINE_MCP_ACCESS_TOKEN: 'a-token' } as NodeJS.ProcessEnv,
+      env: noEnv,
     })
 
     expect(config.privacy.llmContent).toBe('full')

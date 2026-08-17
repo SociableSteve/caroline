@@ -1,5 +1,5 @@
 /**
- * `POST /api/mcp`, off unless `mcp.enabled` is true. Spec 12, slice 2.
+ * `POST /api/mcp`, off unless `mcp.enabled` is true. Spec 12.
  *
  * JSON-RPC framing wins over the API's error envelope on this one route, which is spec 08
  * criterion 37's exception to its own criterion 1: this route is registered inside its own
@@ -7,12 +7,13 @@
  * reaches the shared handler that would answer it in the standard `{ error: ... }` shape (spec
  * 12, criterion 43).
  *
- * The credential checked here is `mcp.accessToken`, slice 2's bearer token: scaffolding, by the
- * spec's own account, kept only until slice 3's authorisation server replaces it. It is a
- * distinct setting from the API's own credential, which spec 13 already removed in favour of a
- * login, and this route touches neither that setting nor the session cookie the browser carries.
+ * The credential checked here is a token Caroline's own authorisation server issued
+ * (`src/mcp/oauth`), and nothing else. Slice 2's bearer token, `mcp.accessToken`, is gone
+ * outright: there is no setting for one, and a value that would once have been accepted here is
+ * refused (spec 12, criterion 32). This is a distinct credential from the API's own, which spec
+ * 13 already replaced with a login, and this route touches neither that setting nor the session
+ * cookie the browser carries (criterion 33).
  */
-import { timingSafeEqual } from 'node:crypto'
 import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { isLoopbackHost, stripHostnameBrackets } from '../auth/boundary.js'
 import { loopbackHostnames } from '../auth/origin.js'
@@ -25,6 +26,8 @@ import type { CarolineJobs } from '../jobs/registry.js'
 import { formatLocalDate, localDateAt } from '../domain/time.js'
 import type { ChangeFeed } from '../server/changes.js'
 import { callMcpTool } from './call.js'
+import { validateAccessToken } from './oauth/service.js'
+import { protectedResourceMetadataUrl } from './oauth/resource.js'
 import {
   jsonRpcError,
   jsonRpcErrorCodes,
@@ -51,15 +54,18 @@ function bearerToken(request: FastifyRequest): string | null {
   return scheme?.toLowerCase() === 'bearer' && value !== undefined && value !== '' ? value : null
 }
 
-/** Constant-time, as every credential comparison in this codebase is. Spec 09, criterion 6. */
-function tokenMatches(presented: string, configured: string): boolean {
-  const left = Buffer.from(presented)
-  const right = Buffer.from(configured)
-  return left.length === right.length && timingSafeEqual(left, right)
-}
-
-function unauthorized(reply: FastifyReply): FastifyReply {
-  return reply.header('www-authenticate', 'Bearer').status(401).send({ error: 'unauthorized' })
+/**
+ * The challenge names the protected resource metadata document, which is what a conformant
+ * client follows to find the authorisation server (spec 12, criterion 8 and criterion 26).
+ */
+function unauthorized(reply: FastifyReply, config: Config): FastifyReply {
+  return reply
+    .header(
+      'www-authenticate',
+      `Bearer resource_metadata="${protectedResourceMetadataUrl(config)}"`,
+    )
+    .status(401)
+    .send({ error: 'unauthorized' })
 }
 
 /** The hostname a `Host` header names, with an IPv6 literal's brackets stripped and its port cut,
@@ -144,9 +150,10 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteContext): 
       }
 
       const token = bearerToken(request)
-      const configured = deps.config.mcp.accessToken
-      if (configured === null || token === null || !tokenMatches(token, configured)) {
-        await unauthorized(reply)
+      const validated =
+        token === null ? null : validateAccessToken(deps.config, deps.database, token, deps.now())
+      if (validated === null) {
+        await unauthorized(reply, deps.config)
         return
       }
     })

@@ -14,7 +14,6 @@ const configuredEnv = {
   GITHUB_TOKEN: 'ghp_supersecret',
   GOOGLE_CLIENT_SECRET: 'google-supersecret',
   CAROLINE_AUTH_CLIENT_SECRET: 'access-supersecret',
-  CAROLINE_MCP_ACCESS_TOKEN: 'mcp-supersecret',
 } as NodeJS.ProcessEnv
 
 const secretValues = Object.values(configuredEnv) as string[]
@@ -33,7 +32,6 @@ describe('redactConfig', () => {
     expect(redacted.integrations.github.token).toBe(REDACTED)
     expect(redacted.integrations.google.clientSecret).toBe(REDACTED)
     expect(redacted.auth.provider.clientSecret).toBe(REDACTED)
-    expect(redacted.mcp.accessToken).toBe(REDACTED)
   })
 
   /** An override may name a hosted provider the base config never did. Spec 09, criterion 8. */

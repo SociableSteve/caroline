@@ -106,6 +106,23 @@ export interface GoogleStatus {
   readonly redirectUri: string
 }
 
+/** An MCP client already approved once, and shown on Settings with a way to revoke it. Spec 08. */
+export interface McpClientView {
+  readonly clientId: string
+  readonly clientName: string | null
+  readonly clientUri: string | null
+  readonly approvedAt: number | null
+}
+
+/** The consent screen's own view of a pending authorisation request. Spec 12, criterion 31. */
+export interface McpConsentView {
+  readonly requestId: string
+  readonly clientId: string
+  readonly clientName: string | null
+  readonly clientUri: string | null
+  readonly redirectUri: string
+}
+
 /** What a classification call would contain for a real item under the current policy. Spec 09. */
 export interface PrivacyPreview {
   readonly policy: {
@@ -682,6 +699,29 @@ export const api = {
 
   disconnectGoogle(): Promise<void> {
     return send<void>('DELETE', '/api/integrations/google')
+  },
+
+  /** The approved-clients list Settings shows beside the consent screen. Spec 08. */
+  listMcpClients(): Promise<{ clients: McpClientView[] }> {
+    return request('/api/mcp/oauth/clients')
+  },
+
+  revokeMcpClient(clientId: string): Promise<{ clients: McpClientView[] }> {
+    return send('POST', '/api/mcp/oauth/clients/revoke', { clientId })
+  },
+
+  /** What the consent screen reads to render itself, for the pending request the redirect from
+   * `GET /api/mcp/authorize` left in the URL. Spec 12, criterion 31. */
+  getMcpConsent(requestId: string): Promise<McpConsentView> {
+    return request(`/api/mcp/oauth/consent/${encodeURIComponent(requestId)}`)
+  },
+
+  /** The decision, and where it sends the browser next: back to the client, with a code or a
+   * denial, which is why this returns a redirect target rather than a body to render. */
+  decideMcpConsent(requestId: string, approve: boolean): Promise<{ redirectTo: string }> {
+    return send('POST', `/api/mcp/oauth/consent/${encodeURIComponent(requestId)}/decide`, {
+      approve,
+    })
   },
 
   getPrivacyPreview(): Promise<PrivacyPreview> {
