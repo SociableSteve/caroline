@@ -135,7 +135,7 @@ export const fileConfigSchema = z
          * (spec 13), and it is where the redirect URI is derived from where it is set. Nullable
          * with a null default, the shape `integrations.google.clientId` already uses.
          */
-        publicUrl: z.string().url().nullable().default(null),
+        publicUrl: credentialFreeUrl.nullable().default(null),
       })
       .strict()
       .default({}),
@@ -156,7 +156,7 @@ export const fileConfigSchema = z
         provider: z
           .object({
             label: z.string().min(1).default('Google'),
-            issuer: z.string().url().default('https://accounts.google.com'),
+            issuer: credentialFreeUrl.default('https://accounts.google.com'),
             /** Nullable with a null default: the one key whose absence means "no provider configured". */
             clientId: z.string().min(1).nullable().default(null),
             scopes: z.array(z.string().min(1)).default(['openid', 'email']),

@@ -212,6 +212,24 @@ describe('loadConfig validation', () => {
     expect(fromEnv.llm.baseUrl).toBe('https://llm.example.com/v1')
   })
 
+  it('rejects a server public URL carrying credentials', () => {
+    expect(() =>
+      loadConfig({
+        file: { server: { publicUrl: 'https://user:pass@caroline.example.com' } },
+        env: noEnv,
+      }),
+    ).toThrow(/server\.publicUrl/)
+  })
+
+  it('rejects an auth provider issuer carrying credentials', () => {
+    expect(() =>
+      loadConfig({
+        file: { auth: { provider: { issuer: 'https://user:pass@accounts.example.com' } } },
+        env: noEnv,
+      }),
+    ).toThrow(/auth\.provider\.issuer/)
+  })
+
   it('throws a ConfigError rather than a bare Error', () => {
     try {
       loadConfig({ file: { privacy: { snippetChars: -1 } }, env: noEnv })
