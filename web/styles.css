@@ -351,6 +351,20 @@ button[disabled] {
 }
 
 /*
+ * Not a surface: what the shell renders in place of one while the API says the request is
+ * unauthenticated. Spec 13. One button, centred in the space a surface would otherwise take.
+ */
+.login-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: var(--measure);
+  margin: var(--space-7) auto;
+  text-align: center;
+}
+
+/*
  * The surface, and the chat rail beside it. Spec 08: chat is a companion rather than a route, so it
  * takes a column of the shell rather than the whole of it.
  */
