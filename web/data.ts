@@ -78,7 +78,14 @@ export function subscribeToChanges(onChange: () => void): () => void {
   return () => stream.close()
 }
 
-export function useCarolineData(): CarolineData {
+/**
+ * `enabled` gates the fetches rather than the hook itself, because hooks cannot be called
+ * conditionally: while a login is required and not yet complete, nothing here is fetched, so an
+ * unauthenticated load does not spend its first render as a wall of 401s before the login screen
+ * appears. Defaults to true, which is every existing caller: a deployment with no login needed
+ * reads exactly as it always has.
+ */
+export function useCarolineData(enabled = true): CarolineData {
   const [tasks, setTasks] = useState<readonly TaskView[]>([])
   const [projects, setProjects] = useState<readonly ProjectView[]>([])
   const [health, setHealth] = useState<Health | null>(null)
@@ -209,6 +216,8 @@ export function useCarolineData(): CarolineData {
   }, [])
 
   useEffect(() => {
+    if (!enabled) return
+
     void reload()
 
     // Health and config are read once. Neither changes without a restart, and a failure to
@@ -221,9 +230,12 @@ export function useCarolineData(): CarolineData {
       .getConfig()
       .then((config) => setStaleDays(config.tasks.waitingStaleDays))
       .catch(() => setStaleDays(DEFAULT_STALE_DAYS))
-  }, [reload])
+  }, [reload, enabled])
 
-  useEffect(() => subscribeToChanges(() => void reload()), [reload])
+  useEffect(() => {
+    if (!enabled) return () => {}
+    return subscribeToChanges(() => void reload())
+  }, [reload, enabled])
 
   return {
     tasks,

@@ -374,6 +374,17 @@ export interface ClientConfig {
   readonly tasks: { readonly waitingStaleDays: number }
 }
 
+/**
+ * `GET /api/auth/status`, as spec 13 answers it: whether a session is required at all, whether
+ * this request already carries one, and what to call the provider on the login button. Nothing
+ * about the person, because the route is public.
+ */
+export interface AuthStatusView {
+  readonly authRequired: boolean
+  readonly hasSession: boolean
+  readonly providerLabel: string
+}
+
 export interface TaskFilter {
   readonly status?: TaskStatus
   readonly projectId?: string
@@ -435,11 +446,25 @@ const PAGE = 500
  */
 const MAX_TASKS = 5_000
 
+/**
+ * Set by the shell so that a 401 from any call puts it into the login state rather than
+ * retrying whatever asked. Spec 08, criterion 35. There is one shell, so one listener is
+ * enough, and centralising the call here means every fetch in this file, streamed or not,
+ * reaches it without each call site having to know to check for one.
+ */
+let unauthorizedListener: (() => void) | null = null
+
+export function onUnauthorized(listener: (() => void) | null): void {
+  unauthorizedListener = listener
+}
+
 function errorFrom(status: number, body: unknown): ApiFailure {
   const error = (body as { error?: { code?: unknown; message?: unknown } } | null)?.error
   const code = typeof error?.code === 'string' ? error.code : 'unknown'
   const message =
     typeof error?.message === 'string' ? error.message : `The server answered ${status}`
+
+  if (status === 401) unauthorizedListener?.()
 
   return new ApiFailure(status, code, message)
 }
@@ -782,5 +807,24 @@ export const api = {
 
   getConfig(): Promise<ClientConfig> {
     return request<ClientConfig>('/api/config')
+  },
+
+  /** Public, and read on every load so the shell knows whether to show a surface or the login
+   * screen before it renders either. Spec 13. */
+  getAuthStatus(): Promise<AuthStatusView> {
+    return request<AuthStatusView>('/api/auth/status')
+  },
+
+  /**
+   * Starts the flow. `hash` is the location the person was on, with no leading `#`, so a deep
+   * link followed while unauthenticated is where the callback sends them back to. Spec 08,
+   * criterion 34.
+   */
+  login(hash: string): Promise<{ url: string }> {
+    return send('POST', '/api/auth/login', { hash })
+  },
+
+  logout(): Promise<void> {
+    return send<void>('POST', '/api/auth/logout')
   },
 }

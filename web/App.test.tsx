@@ -42,6 +42,13 @@ interface StubOptions {
   chatEvents?: readonly ChatStreamEvent[]
   /** The turns the server has a record of, which is what the read after a turn answers with. */
   chatTranscript?: readonly unknown[]
+  /** `GET /api/auth/status`. Defaults to the shape a loopback, no-login install answers with. */
+  authStatus?: { authRequired: boolean; hasSession: boolean; providerLabel: string }
+  /** What `POST /api/auth/login` answers with, when the test drives it. */
+  loginUrl?: string
+  failLogin?: boolean
+  /** Every write answered 401, as a revoked session would be. */
+  unauthorizedWrites?: boolean
 }
 
 const noGoogle = {
@@ -98,6 +105,10 @@ function stubApi({
   taskTotal,
   chatEvents,
   chatTranscript = [],
+  authStatus = { authRequired: false, hasSession: false, providerLabel: 'Google' },
+  loginUrl = 'https://provider.example/authorize',
+  failLogin = false,
+  unauthorizedWrites = false,
 }: StubOptions = {}) {
   const calls: Call[] = []
 
@@ -126,7 +137,19 @@ function stubApi({
 
         return { ok: true, status: 200, body } as unknown as Response
       }
+      if (method === 'POST' && url === '/api/auth/login') {
+        return failLogin
+          ? answer(
+              { error: { code: 'provider_unreachable', message: 'The provider is unreachable' } },
+              502,
+            )
+          : answer({ url: loginUrl })
+      }
+      if (method === 'POST' && url === '/api/auth/logout') return answer(undefined, 204)
       if (method !== 'GET') {
+        if (unauthorizedWrites === true) {
+          return answer({ error: { code: 'unauthorized', message: 'Sign in to continue' } }, 401)
+        }
         return failWrites === true
           ? answer({ error: { code: 'bad_request', message: 'The server said no' } }, 400)
           : answer({}, 200)
@@ -182,6 +205,7 @@ function stubApi({
       if (url.startsWith('/api/settings')) return answer({ userName: '' })
       if (url.startsWith('/api/health')) return answer(health)
       if (url.startsWith('/api/config')) return answer({ tasks: { waitingStaleDays: 7 } })
+      if (url.startsWith('/api/auth/status')) return answer(authStatus)
 
       throw new Error(`unstubbed request: ${method} ${url}`)
     }),
@@ -214,6 +238,7 @@ function stubEventSource(): { emit: () => void; closed: () => boolean } {
 
 beforeEach(() => {
   window.location.hash = ''
+  window.history.replaceState(null, '', window.location.pathname)
 })
 
 afterEach(() => {
@@ -554,7 +579,7 @@ describe('more tasks than the client will fetch', () => {
 
     render(<App />)
 
-    expect(await within(screen.getByRole('main')).findByRole('status')).toHaveTextContent(
+    expect(await within(await screen.findByRole('main')).findByRole('status')).toHaveTextContent(
       'Showing 5000 of 6000 tasks',
     )
   })
@@ -970,5 +995,196 @@ describe('the details panel', () => {
         selected: { kind: 'task', id: 'task-1' },
       })
     })
+  })
+})
+
+describe('the login screen', () => {
+  it('is not shown where a login is not required', async () => {
+    stubApi({ authStatus: { authRequired: false, hasSession: false, providerLabel: 'Google' } })
+
+    render(<App />)
+
+    expect(await screen.findByRole('region', { name: /where everything is/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /sign in with/i })).not.toBeInTheDocument()
+    // Nothing about this is visible on that shape, per spec 13: no sign-out control either.
+    expect(screen.queryByRole('button', { name: 'Sign out' })).not.toBeInTheDocument()
+  })
+
+  it('is shown instead of a surface where a session is required and this request has none', async () => {
+    stubApi({ authStatus: { authRequired: true, hasSession: false, providerLabel: 'Google' } })
+
+    render(<App />)
+
+    expect(await screen.findByRole('button', { name: 'Sign in with Google' })).toBeInTheDocument()
+    // Not a surface: nothing that assumes data has loaded is on screen, and the nav's own list of
+    // surfaces is untouched.
+    expect(screen.queryByRole('region', { name: /where everything is/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Dashboard' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Settings' })).toBeInTheDocument()
+  })
+
+  it('renders the surface as usual where a session is required and present', async () => {
+    stubApi({ authStatus: { authRequired: true, hasSession: true, providerLabel: 'Google' } })
+
+    render(<App />)
+
+    expect(await screen.findByRole('region', { name: /where everything is/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument()
+  })
+
+  it('starts the flow with the hash the person is on, and follows the authorization url', async () => {
+    // jsdom's own `location.assign` is neither writable nor configurable, so the whole object is
+    // replaced with one that is, keeping every other property `App` reads from it, and restored
+    // once the test is done so nothing later in this file navigates against a stand-in.
+    const original = Object.getOwnPropertyDescriptor(window, 'location')
+    const assign = vi.fn()
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...window.location, assign },
+    })
+
+    try {
+      const calls = stubApi({
+        authStatus: { authRequired: true, hasSession: false, providerLabel: 'Google' },
+        loginUrl: 'https://provider.example/authorize?state=abc',
+      })
+      window.location.hash = '#/board'
+
+      render(<App />)
+      await userEvent.click(await screen.findByRole('button', { name: 'Sign in with Google' }))
+
+      await waitFor(() => {
+        expect(calls.find((call) => call.url === '/api/auth/login')?.body).toEqual({
+          hash: '/board',
+        })
+      })
+      expect(assign).toHaveBeenCalledWith('https://provider.example/authorize?state=abc')
+    } finally {
+      if (original !== undefined) Object.defineProperty(window, 'location', original)
+    }
+  })
+
+  it('reports a login that could not be started rather than leaving the button to be pressed blind', async () => {
+    stubApi({
+      authStatus: { authRequired: true, hasSession: false, providerLabel: 'Google' },
+      failLogin: true,
+    })
+
+    render(<App />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Sign in with Google' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('The provider is unreachable')
+  })
+
+  it('signs out and returns to the login screen', async () => {
+    const calls = stubApi({
+      authStatus: { authRequired: true, hasSession: true, providerLabel: 'Google' },
+    })
+
+    render(<App />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Sign out' }))
+
+    expect(await screen.findByRole('button', { name: 'Sign in with Google' })).toBeInTheDocument()
+    expect(calls.some((call) => call.method === 'POST' && call.url === '/api/auth/logout')).toBe(
+      true,
+    )
+  })
+
+  /**
+   * A refused `GET /api/auth/callback` is a top-level browser navigation, not a call this client
+   * makes and can inspect, so it reports itself by redirecting back into the SPA with the
+   * refusal named in `?login=<code>` rather than in a response body (spec 13's slice-1 auth
+   * work). Spec 13 gives the exact wording for one of them: "the login screen says that the
+   * account is not permitted to use this Caroline."
+   */
+  it('shows spec 13’s wording for a refused login named in the URL', async () => {
+    stubApi({ authStatus: { authRequired: true, hasSession: false, providerLabel: 'Google' } })
+    window.history.replaceState(null, '', `${window.location.pathname}?login=forbidden`)
+
+    render(<App />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'This account is not permitted to use this Caroline.',
+    )
+  })
+
+  /** Every other code (`bad_request`, `provider_unreachable`, `internal_error`) is nothing the
+   * person at the login screen can act on, so it is bucketed under one generic sentence. */
+  it('shows a generic message for a refusal code other than forbidden', async () => {
+    stubApi({ authStatus: { authRequired: true, hasSession: false, providerLabel: 'Google' } })
+    window.history.replaceState(null, '', `${window.location.pathname}?login=provider_unreachable`)
+
+    render(<App />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Something went wrong signing in.')
+  })
+
+  /** The failure is read once and the URL is left clean, so reloading this same tab (which does
+   * not repeat the callback redirect) does not show the same failure a second time. */
+  it('clears the login param from the URL after reading it', async () => {
+    stubApi({ authStatus: { authRequired: true, hasSession: false, providerLabel: 'Google' } })
+    window.history.replaceState(null, '', `${window.location.pathname}?login=forbidden`)
+
+    render(<App />)
+    await screen.findByRole('alert')
+
+    await waitFor(() => expect(window.location.search).toBe(''))
+  })
+
+  /**
+   * `authenticated` is optimistic until the first status read answers (see the doc comment on
+   * `ready` in auth.ts), so nothing below that must not be shown to an unauthenticated visitor,
+   * and nothing that fetches data ahead of knowing whether it is allowed to, may render or fire
+   * before that first answer lands.
+   */
+  it('renders only a loading state, and fetches no data, before the status check resolves', async () => {
+    let resolveStatus: () => void = () => {}
+    const calls: Call[] = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ method, url, body: undefined })
+        const answer = (body: unknown, status = 200) =>
+          ({ ok: status < 400, status, json: async () => body }) as unknown as Response
+
+        if (url === '/api/auth/status') {
+          return new Promise<Response>((resolve) => {
+            resolveStatus = () =>
+              resolve(answer({ authRequired: true, hasSession: false, providerLabel: 'Google' }))
+          })
+        }
+
+        // Nothing else should be asked for while the first status check is still in flight.
+        throw new Error(`unexpected request while waiting on the status check: ${method} ${url}`)
+      }),
+    )
+
+    render(<App />)
+
+    expect(await screen.findByText('Loading.')).toBeInTheDocument()
+    expect(screen.queryByRole('navigation')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /sign in with/i })).not.toBeInTheDocument()
+    expect(calls.some((call) => call.url !== '/api/auth/status')).toBe(false)
+
+    resolveStatus()
+
+    expect(await screen.findByRole('button', { name: 'Sign in with Google' })).toBeInTheDocument()
+  })
+
+  /** Spec 08, criterion 35: a 401 from any call, not only the initial status check. */
+  it('moves to the login state on a 401 from an ordinary write rather than retrying it', async () => {
+    stubApi({
+      authStatus: { authRequired: true, hasSession: true, providerLabel: 'Google' },
+      tasks: [aTask({ id: 'task-1', title: 'Captured' })],
+      unauthorizedWrites: true,
+    })
+    window.location.hash = '#/board'
+
+    render(<App />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Complete' }))
+
+    expect(await screen.findByRole('button', { name: 'Sign in with Google' })).toBeInTheDocument()
   })
 })

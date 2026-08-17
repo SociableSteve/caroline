@@ -14,6 +14,7 @@ import {
   type TaskStatus,
   type TaskView,
 } from './api.js'
+import { useAuthGate } from './auth.js'
 import { useChat } from './chat.js'
 import { useCarolineData } from './data.js'
 import {
@@ -31,6 +32,7 @@ import { ProjectDetail, Projects } from './surfaces/Projects.js'
 import { Settings } from './surfaces/Settings.js'
 import { ChatRail } from './components/ChatRail.js'
 import { DetailsPanel, type DetailsSubject } from './components/DetailsPanel.js'
+import { LoginScreen } from './components/LoginScreen.js'
 import { QuickCapture } from './components/QuickCapture.js'
 import { productName } from './title.js'
 
@@ -86,6 +88,12 @@ function isTyping(target: EventTarget | null): boolean {
 }
 
 export function App() {
+  const auth = useAuthGate()
+  // Not just `auth.authenticated`: that is optimistically `true` until the first status read
+  // answers (see the doc comment on `ready` in auth.ts), so gating everything below on `ready`
+  // too is what keeps an auth-required deployment from flashing the authenticated shell, and
+  // firing the data fetches that go with it, before the first check has actually resolved.
+  const authenticated = auth.ready && auth.authenticated
   const {
     tasks,
     projects,
@@ -105,7 +113,7 @@ export function App() {
     unfetchedTaskTotal,
     reload,
     reloadSettings,
-  } = useCarolineData()
+  } = useCarolineData(authenticated)
   const { route, chatOpen: chatInUrl, conversationId, selected, hash } = useLocation()
   const [capturing, setCapturing] = useState(false)
   const [writeFailure, setWriteFailure] = useState<string | null>(null)
@@ -243,7 +251,9 @@ export function App() {
     conversationId,
     // Read at the moment a message is sent, from whatever is selected then. Spec 07, rule 1.
     selected,
-    active: chatOpen,
+    // Nothing chat-shaped is fetched while the login screen (or the loading state before the
+    // first status check answers) is showing: the rail is not on screen then either, below.
+    active: chatOpen && authenticated,
     onDataChanged: () => void reload(),
     onConversationStarted: (id) => {
       // The surface is kept: a conversation started while reading the board is still about the
@@ -258,8 +268,8 @@ export function App() {
    * for. Re-read after connecting, disconnecting or renaming, which is what changes them.
    */
   useEffect(() => {
-    if (route.name === 'settings') void reloadSettings()
-  }, [route.name, reloadSettings])
+    if (route.name === 'settings' && authenticated) void reloadSettings()
+  }, [route.name, authenticated, reloadSettings])
 
   const onConnectGoogle = () =>
     void (async () => {
@@ -300,6 +310,14 @@ export function App() {
     if (next !== window.location.hash) window.location.hash = next
   }
 
+  // Neither the authenticated shell nor the login screen until the first status check has
+  // actually answered: `auth.authenticated` is optimistically `true` until then (see auth.ts),
+  // and rendering the shell on that guess is exactly the flash spec 13 rules out. Nothing here
+  // needs to know which surface is coming, so there is nothing to show but a loading state.
+  if (!auth.ready) {
+    return <p role="status">Loading.</p>
+  }
+
   return (
     <>
       <header className="app-header">
@@ -323,147 +341,169 @@ export function App() {
           </ul>
         </nav>
         <div className="header-actions">
-          {/* The scheduler runs sync on its own; this is the manual trigger spec 06 asks be
-              first-class, for when you know something has just landed. */}
-          <button type="button" onClick={onSync}>
-            Sync now
-          </button>
-          <button type="button" onClick={() => setCapturing(true)}>
-            Quick capture
-          </button>
-          {/* Chat is a companion to the surface rather than a place to go, so it is a control here
-              rather than a link in the navigation. Spec 08. */}
-          <button type="button" aria-expanded={chatOpen} onClick={() => setChat(!chatOpen)}>
-            Chat
-          </button>
+          {authenticated && (
+            <>
+              {/* The scheduler runs sync on its own; this is the manual trigger spec 06 asks be
+                  first-class, for when you know something has just landed. */}
+              <button type="button" onClick={onSync}>
+                Sync now
+              </button>
+              <button type="button" onClick={() => setCapturing(true)}>
+                Quick capture
+              </button>
+              {/* Chat is a companion to the surface rather than a place to go, so it is a control
+                  here rather than a link in the navigation. Spec 08. */}
+              <button type="button" aria-expanded={chatOpen} onClick={() => setChat(!chatOpen)}>
+                Chat
+              </button>
+            </>
+          )}
+          {/* Invisible, and nothing else here changes, where a login is not required: spec 13's
+              loopback shape. Where one is, this is the fourth of the flow's four routes and the
+              only one this shell offers a control for. */}
+          {auth.authRequired && authenticated && (
+            <button type="button" onClick={() => void auth.logout()}>
+              Sign out
+            </button>
+          )}
         </div>
       </header>
 
-      <div className={chatOpen ? 'app-body with-rail' : 'app-body'}>
+      {!authenticated ? (
         <main>
-          {/* The message carries its own context, because the two cases read differently: the
+          <LoginScreen
+            providerLabel={auth.providerLabel}
+            failure={auth.failure}
+            onLogin={() => void auth.login(window.location.hash)}
+          />
+        </main>
+      ) : (
+        <div className={chatOpen ? 'app-body with-rail' : 'app-body'}>
+          <main>
+            {/* The message carries its own context, because the two cases read differently: the
               whole board being unreachable, and one panel of it that could not be read while the
               rest of the screen is current. */}
-          {failure !== null && (
-            <p role="alert" className="failure">
-              {failure}{' '}
-              <button type="button" onClick={() => void reload()}>
-                Try again
-              </button>
-            </p>
-          )}
+            {failure !== null && (
+              <p role="alert" className="failure">
+                {failure}{' '}
+                <button type="button" onClick={() => void reload()}>
+                  Try again
+                </button>
+              </p>
+            )}
 
-          {writeFailure !== null && (
-            <p role="alert" className="failure">
-              {writeFailure}
-            </p>
-          )}
+            {writeFailure !== null && (
+              <p role="alert" className="failure">
+                {writeFailure}
+              </p>
+            )}
 
-          {/* Said out loud rather than left to be noticed: a screen showing a subset of the
+            {/* Said out loud rather than left to be noticed: a screen showing a subset of the
               tasks and not saying so is worse than one that admits it. */}
-          {unfetchedTaskTotal !== null && (
-            <p role="status" className="failure">
-              Showing {tasks.length} of {unfetchedTaskTotal} tasks. Complete or delete some, or
-              narrow what you are looking at.
-            </p>
-          )}
+            {unfetchedTaskTotal !== null && (
+              <p role="status" className="failure">
+                Showing {tasks.length} of {unfetchedTaskTotal} tasks. Complete or delete some, or
+                narrow what you are looking at.
+              </p>
+            )}
 
-          {loading ? (
-            <p>Loading.</p>
-          ) : route.name === 'board' ? (
-            <Board
-              tasks={tasks}
-              projects={projects}
-              staleDays={staleDays}
+            {loading ? (
+              <p>Loading.</p>
+            ) : route.name === 'board' ? (
+              <Board
+                tasks={tasks}
+                projects={projects}
+                staleDays={staleDays}
+                now={now}
+                onMarkReviewed={onMarkReviewed}
+                onAcceptProposal={onAcceptProposal}
+                onDismissProposal={onDismissProposal}
+                onUndoStatus={onUndoStatus}
+                {...cardHandlers}
+              />
+            ) : route.name === 'projects' ? (
+              <Projects
+                projects={projects}
+                selected={selected}
+                hash={hash}
+                onSelect={onSelectItem}
+                onCreate={onCreateProject}
+                onStateChange={onProjectState}
+                onDelete={onDeleteProject}
+              />
+            ) : route.name === 'project' ? (
+              <ProjectDetail
+                project={projects.find((project) => project.id === route.id)}
+                tasks={tasks.filter((task) => task.projectId === route.id)}
+                staleDays={staleDays}
+                now={now}
+                hash={hash}
+                {...cardHandlers}
+              />
+            ) : route.name === 'jobs' ? (
+              <Jobs jobs={jobStatus} runs={jobRuns} now={now} onRun={onRunJob} />
+            ) : route.name === 'settings' ? (
+              <Settings
+                google={google}
+                preview={preview}
+                userName={userName}
+                googleOutcome={route.outcome}
+                onConnectGoogle={onConnectGoogle}
+                onDisconnectGoogle={onDisconnectGoogle}
+                onRefreshPreview={() => void reloadSettings()}
+                onSaveUserName={onSaveUserName}
+              />
+            ) : (
+              <Dashboard
+                tasks={tasks}
+                projects={projects}
+                health={health}
+                jobRuns={jobRuns}
+                plan={plan}
+                history={planHistory}
+                calendar={calendar}
+                staleDays={staleDays}
+                now={now}
+                onRegeneratePlan={onRegeneratePlan}
+                regenerating={regenerating}
+                onComplete={onComplete}
+                onSelect={onSelectItem}
+                selected={selected}
+                hash={hash}
+              />
+            )}
+          </main>
+
+          {chatOpen && (
+            <ChatRail
+              details={
+                selected === null ? null : (
+                  <DetailsPanel
+                    item={selected}
+                    subject={subjectFor(selected, tasks, projects, unfetchedTaskTotal === null)}
+                    staleDays={staleDays}
+                    now={now}
+                    onClose={closeDetails}
+                  />
+                )
+              }
+              status={chat.status}
+              conversations={chat.conversations}
+              conversation={chat.conversation}
+              messages={chat.messages}
+              draft={chat.draft}
+              sending={chat.sending}
+              failure={chat.failure}
               now={now}
-              onMarkReviewed={onMarkReviewed}
-              onAcceptProposal={onAcceptProposal}
-              onDismissProposal={onDismissProposal}
-              onUndoStatus={onUndoStatus}
-              {...cardHandlers}
-            />
-          ) : route.name === 'projects' ? (
-            <Projects
-              projects={projects}
-              selected={selected}
               hash={hash}
-              onSelect={onSelectItem}
-              onCreate={onCreateProject}
-              onStateChange={onProjectState}
-              onDelete={onDeleteProject}
-            />
-          ) : route.name === 'project' ? (
-            <ProjectDetail
-              project={projects.find((project) => project.id === route.id)}
-              tasks={tasks.filter((task) => task.projectId === route.id)}
-              staleDays={staleDays}
-              now={now}
-              hash={hash}
-              {...cardHandlers}
-            />
-          ) : route.name === 'jobs' ? (
-            <Jobs jobs={jobStatus} runs={jobRuns} now={now} onRun={onRunJob} />
-          ) : route.name === 'settings' ? (
-            <Settings
-              google={google}
-              preview={preview}
-              userName={userName}
-              googleOutcome={route.outcome}
-              onConnectGoogle={onConnectGoogle}
-              onDisconnectGoogle={onDisconnectGoogle}
-              onRefreshPreview={() => void reloadSettings()}
-              onSaveUserName={onSaveUserName}
-            />
-          ) : (
-            <Dashboard
-              tasks={tasks}
-              projects={projects}
-              health={health}
-              jobRuns={jobRuns}
-              plan={plan}
-              history={planHistory}
-              calendar={calendar}
-              staleDays={staleDays}
-              now={now}
-              onRegeneratePlan={onRegeneratePlan}
-              regenerating={regenerating}
-              onComplete={onComplete}
-              onSelect={onSelectItem}
-              selected={selected}
-              hash={hash}
+              onSend={chat.send}
+              onConfirm={chat.confirm}
+              onUndo={chat.undo}
+              onClose={() => setChat(false)}
             />
           )}
-        </main>
-
-        {chatOpen && (
-          <ChatRail
-            details={
-              selected === null ? null : (
-                <DetailsPanel
-                  item={selected}
-                  subject={subjectFor(selected, tasks, projects, unfetchedTaskTotal === null)}
-                  staleDays={staleDays}
-                  now={now}
-                  onClose={closeDetails}
-                />
-              )
-            }
-            status={chat.status}
-            conversations={chat.conversations}
-            conversation={chat.conversation}
-            messages={chat.messages}
-            draft={chat.draft}
-            sending={chat.sending}
-            failure={chat.failure}
-            now={now}
-            hash={hash}
-            onSend={chat.send}
-            onConfirm={chat.confirm}
-            onUndo={chat.undo}
-            onClose={() => setChat(false)}
-          />
-        )}
-      </div>
+        </div>
+      )}
 
       <QuickCapture
         open={capturing}
