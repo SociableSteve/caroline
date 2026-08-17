@@ -182,6 +182,46 @@ the exception. When that day comes, the fix is to delete the `!== undefined` gua
 `src/mcp/route.ts` and restore the strict-by-default check, which is exactly what a compliant
 client should have been getting all along.
 
+### Handshake interoperability: `initialize` is answered, not refused
+
+Revision `2026-07-28` removed the handshake outright: no `initialize`, no
+`notifications/initialized`, no `Mcp-Session-Id`, as "The session, which the protocol no longer
+has" already states. Caroline's own derived-session logic was built against exactly that
+removal and does not read a handshake result, key anything on a session identifier, or expect
+`notifications/initialized` to arrive. None of that changes here.
+
+What changes is that Claude Code, the same client and the same confirmed version and date named
+above (2.1.233, confirmed against a running instance of this server on 2026-08-17), does not
+implement the removal: its shipped MCP client transport still requires a successful
+`initialize` exchange before it will treat a server connection as usable at all, regardless of
+what the revision it negotiates says. Before this section's fix, Caroline's method dispatch had
+no `initialize` case, so that request fell through to the same `methodNotFound` (`-32601`) any
+unrecognised method gets, and the client surfaced that to the user as a failed reconnect rather
+than as the successful, sessionless connection the revision intends. Refusing the handshake is
+correct by the letter of the revision, which does not require Caroline to answer it, and useless
+against the client that actually exists today, which will not proceed without an answer to it.
+
+So `initialize` is now one more case in method dispatch, answered exactly like `server/discover`
+answers its own capability query when the request carries an `id`: a pure, stateless echo,
+computed fresh on every call, naming the protocol version, the tools capability this server
+actually has, and the same server name and version `server/discover` already gives. It
+introduces no `Mcp-Session-Id`, stores nothing, and starts no conversation. An `initialize`
+request sent without an `id` gets no response at all, and neither does `notifications/initialized`:
+both are Notifications under JSON-RPC 2.0 section 4.1 ("a Notification is a Request object
+without an `id` member... The Server MUST NOT reply to a Notification"), a rule this server's
+dispatch applies generally, not as something specific to the handshake. So
+`notifications/initialized` is handled exactly the way any other notification is (accepted,
+answered with nothing), not left specifically unhandled. A client that never calls `initialize`
+loses nothing, because nothing here depends on it having been called; a client that calls it
+first, as a proper request carrying an `id`, gets an answer instead of an error it has no way to
+recover from.
+
+This is a temporary interoperability accommodation, not a reintroduction of the session the
+revision removed, and it should be revisited once client-ecosystem behaviour for the handshake
+catches up to what the revision actually permits. When that day comes, the fix is to delete the
+`initialize` case from `handleMethod` in `src/mcp/route.ts` and let it fall back to
+`methodNotFound` again, which is exactly what a client built against `2026-07-28` should expect.
+
 ### What is deliberately not built
 
 **Dynamic client registration (RFC 7591).** This revision deprecates it, retaining it only for
@@ -746,8 +786,8 @@ is dropped for the same reason: it was never merged, so nothing cites it.
     than a drift somebody finds.
 
 The review of this spec added the following, appended rather than renumbered for the reason spec
-README's conventions give. Criteria 41 and 43 belong to slice 2 and criterion 42 to slice 3, and each
-is asserted from that slice onwards like the rest.
+README's conventions give. Criteria 41, 43 and 44 belong to slice 2 and criterion 42 to slice 3, and
+each is asserted from that slice onwards like the rest.
 
 41. `get_overview` is a tool `tools/list` carries, it answers with the day's context object chat's
     prompt assembles today and through the same code that assembles it, it is `readOnlyHint: true`
@@ -766,3 +806,15 @@ is asserted from that slice onwards like the rest.
     violates the route's schema and parsing the answer as JSON-RPC. This is the resolution of the
     collision between that shape and spec 08 criterion 1, which spec 08 criterion 37 states from its
     own side.
+44. An `initialize` request that carries an `id`, with or without the headers named in criterion
+    10, is answered `200` with a JSON-RPC result naming `protocolVersion`, a `capabilities`
+    object whose `tools` key is the tools capability this surface actually has, and `serverInfo`
+    identical to what `server/discover` names as `server`, rather than with `methodNotFound`. An
+    `initialize` request without an `id` gets no response (`202`, empty body), per the general
+    JSON-RPC 2.0 rule against replying to a Notification that this surface's dispatch applies to
+    every method, `initialize` included; `notifications/initialized` is handled under that same
+    general rule rather than as a case this surface refuses or handles specially. The call
+    creates no session, no `Mcp-Session-Id`, no conversation and no other row, asserted by
+    counting `mcp_sessions` and the conversation list before and after, and a `tools/list` call
+    on the same connection afterwards answers exactly as it does when no `initialize` call
+    preceded it. Per "Handshake interoperability" above.

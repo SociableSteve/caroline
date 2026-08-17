@@ -231,6 +231,36 @@ describe('with mcp.enabled true', () => {
   })
 
   /**
+   * The same "MUST NOT reply to a Notification" rule the general dispatch already follows
+   * (see "sends no body for notifications/initialized" below) also has to hold in
+   * `setErrorHandler`, which sits outside `handleMethod` and answers whatever this route's own
+   * code throws once past the framing checks. Before this fix, that handler replied
+   * unconditionally, so a notification whose processing failed downstream (here, `tools/call`
+   * with no `id`, after `mcp_sessions` has been dropped so the call throws) still got a
+   * JSON-RPC error body, in violation of the very rule the previous test above and this
+   * milestone's `sendJsonRpc` were written to enforce everywhere else.
+   */
+  it('sends no body, not a JSON-RPC error, for a notification whose processing throws downstream', async () => {
+    const { app, database } = await testServer({ config: mcpConfig() })
+    database.exec('drop table mcp_sessions')
+    const token = mintAccessToken(database, mcpConfig())
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/mcp',
+      headers: { authorization: `Bearer ${token}`, host: '127.0.0.1' },
+      payload: {
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: { name: 'search_tasks', arguments: {} },
+      },
+    })
+
+    expect(response.statusCode).toBe(202)
+    expect(response.body).toBe('')
+  })
+
+  /**
    * Claude Code's MCP client (confirmed on 2.1.233, captured 2026-08-17) predates SEP-2243 and
    * sends neither header at all. Refusing that request would mean Caroline's primary real-world
    * client can never get past its first call, so an absent `Mcp-Method` is read as "this client
@@ -257,11 +287,12 @@ describe('with mcp.enabled true', () => {
   /**
    * Shaped after the actual first request Claude Code 2.1.233 sends against a running Caroline
    * instance: an `initialize` call, id `0`, no `Mcp-Method`, no `Mcp-Protocol-Version`, no
-   * `Mcp-Name`. Caroline does not implement `initialize` (protocol sessions are gone in
-   * 2026-07-28), so the answer is a JSON-RPC `methodNotFound`, not a `400` refusing the request
-   * outright for missing headers.
+   * `Mcp-Name`. Revision 2026-07-28 removed the handshake, and Caroline's derived-session logic
+   * does not need one, but the shipped client still opens every connection with this call
+   * regardless, so it is answered with a stateless success rather than `methodNotFound`: see
+   * "Handshake interoperability" in docs/specs/12-mcp-server.md.
    */
-  it("accepts Claude Code's actual header-less initialize request and reaches method dispatch", async () => {
+  it("accepts Claude Code's actual header-less initialize request and answers a handshake", async () => {
     const { app, database } = await testServer({ config: mcpConfig() })
     const token = mintAccessToken(database, mcpConfig())
 
@@ -273,7 +304,94 @@ describe('with mcp.enabled true', () => {
     })
 
     expect(response.statusCode).toBe(200)
-    expect(response.json()).toMatchObject({ id: 0, error: { code: -32601 } })
+    expect(response.json()).toMatchObject({
+      id: 0,
+      result: {
+        protocolVersion: '2026-07-28',
+        capabilities: { tools: {} },
+        serverInfo: { name: 'caroline', version: '1.0.0' },
+      },
+    })
+  })
+
+  /**
+   * `initialize` is a pure, stateless echo: it must not create a session, a conversation, or any
+   * other row, and a client that calls it must still be able to call `tools/list` normally
+   * afterwards on the same connection. Revision 2026-07-28 has no session to open in the first
+   * place (docs/specs/12-mcp-server.md, "The session, which the protocol no longer has"), and
+   * this asserts the handler introduces none of its own.
+   */
+  it('creates no session or conversation state for initialize, and tools/list still works afterwards', async () => {
+    const { app, database } = await testServer({ config: mcpConfig() })
+    const token = mintAccessToken(database, mcpConfig())
+
+    const initializeResponse = await app.inject({
+      method: 'POST',
+      url: '/api/mcp',
+      headers: { authorization: `Bearer ${token}`, host: '127.0.0.1' },
+      payload: { jsonrpc: '2.0', id: 0, method: 'initialize', params: {} },
+    })
+    expect(initializeResponse.statusCode).toBe(200)
+
+    // No conversation, and no row in the session table `initialize` might otherwise have been
+    // tempted to key something on.
+    expect(listConversations(database)).toEqual([])
+    const sessionCount = database.prepare('select count(*) as count from mcp_sessions').get() as {
+      count: number
+    }
+    expect(sessionCount.count).toBe(0)
+
+    const listResponse = await post(app, database, mcpConfig(), rpc('tools/list', undefined, 1))
+    expect(listResponse.statusCode).toBe(200)
+    const tools = listResponse.json().result.tools as Array<{ name: string }>
+    expect(tools.map((tool) => tool.name)).toContain('search_tasks')
+  })
+
+  /**
+   * JSON-RPC 2.0 section 4.1: "A Notification is a Request object without an 'id' member... The
+   * Server MUST NOT reply to a Notification." `notifications/initialized` is the standard MCP
+   * handshake follow-up a client sends once `initialize` succeeds, and it carries no `id` at
+   * all, so it is the case this rule was written for: unlike every other test in this file, this
+   * payload is built by hand rather than through `rpc()`, because `rpc()` always attaches an id.
+   * Before this fix, `handleMethod`'s fallback answered every method with a JSON-RPC body
+   * regardless of whether the request had an `id`, which this milestone's own `initialize`
+   * handler now makes reachable: see "Handshake interoperability" in
+   * docs/specs/12-mcp-server.md.
+   */
+  it('sends no body for notifications/initialized, which arrives with no id at all', async () => {
+    const { app, database } = await testServer({ config: mcpConfig() })
+    const token = mintAccessToken(database, mcpConfig())
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/mcp',
+      headers: { authorization: `Bearer ${token}`, host: '127.0.0.1' },
+      payload: { jsonrpc: '2.0', method: 'notifications/initialized' },
+    })
+
+    expect(response.statusCode).toBe(202)
+    expect(response.body).toBe('')
+  })
+
+  /**
+   * The rule is general, not specific to `notifications/initialized`: any method called with no
+   * `id` is a Notification and gets no reply, including a method Caroline does not recognise at
+   * all (the `methodNotFound` fallback), and including one it does recognise and answers
+   * normally when an `id` is present (`tools/list`, asserted elsewhere in this file).
+   */
+  it('sends no body for an unrecognised method called with no id, rather than methodNotFound', async () => {
+    const { app, database } = await testServer({ config: mcpConfig() })
+    const token = mintAccessToken(database, mcpConfig())
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/mcp',
+      headers: { authorization: `Bearer ${token}`, host: '127.0.0.1' },
+      payload: { jsonrpc: '2.0', method: 'notifications/some-unrecognised-notification' },
+    })
+
+    expect(response.statusCode).toBe(202)
+    expect(response.body).toBe('')
   })
 
   it('refuses a request whose Mcp-Method disagrees with the request body', async () => {
