@@ -130,8 +130,45 @@ export const fileConfigSchema = z
       .object({
         host: z.string().min(1).default('127.0.0.1'),
         port: z.number().int().min(1).max(65535).default(5123),
+        /**
+         * The URL the browser reaches Caroline at. Setting it makes authentication required
+         * (spec 13), and it is where the redirect URI is derived from where it is set. Nullable
+         * with a null default, the shape `integrations.google.clientId` already uses.
+         */
+        publicUrl: z.string().url().nullable().default(null),
       })
       .strict()
+      .default({}),
+    /**
+     * Spec 13. Every key here has a default, so a file with no `auth` block at all, which is
+     * every configuration file in existence today, loads exactly as it did before this spec.
+     */
+    auth: z
+      .object({
+        mode: z.enum(['auto', 'required']).default('auto'),
+        /**
+         * Allowed identities: an email address, or `sub:<value>`. The same bounds
+         * `integrations.google.calendarIds` carries.
+         */
+        allow: z.array(z.string().min(1).max(320)).max(20).default([]),
+        sessionIdleDays: z.number().int().min(1).max(30).default(7),
+        sessionMaxDays: z.number().int().min(1).max(30).default(30),
+        provider: z
+          .object({
+            label: z.string().min(1).default('Google'),
+            issuer: z.string().url().default('https://accounts.google.com'),
+            /** Nullable with a null default: the one key whose absence means "no provider configured". */
+            clientId: z.string().min(1).nullable().default(null),
+            scopes: z.array(z.string().min(1)).default(['openid', 'email']),
+          })
+          .strict()
+          .default({}),
+      })
+      .strict()
+      .refine((auth) => auth.sessionMaxDays >= auth.sessionIdleDays, {
+        message: 'auth.sessionMaxDays must be at least auth.sessionIdleDays',
+        path: ['sessionMaxDays'],
+      })
       .default({}),
     database: z
       .object({
@@ -370,8 +407,14 @@ export interface Config {
   readonly server: {
     readonly host: string
     readonly port: number
-    readonly accessToken: string | null
+    readonly publicUrl: string | null
   }
+  /**
+   * Whether a request needs a session. Computed once at startup from `server.host`,
+   * `server.publicUrl` and `auth.mode` (`src/auth/boundary.ts`). Spec 13: the one derived fact
+   * every check reads, so the rule is decided in one place rather than inferred in several.
+   */
+  readonly authRequired: boolean
   readonly database: {
     readonly path: string
   }
@@ -411,6 +454,20 @@ export interface Config {
     readonly snippetChars: number
     readonly retainContentDays: number
     readonly allowFullContentToRemoteProvider: boolean
+  }
+  readonly auth: {
+    readonly mode: 'auto' | 'required'
+    readonly allow: readonly string[]
+    readonly sessionIdleDays: number
+    readonly sessionMaxDays: number
+    readonly provider: {
+      readonly label: string
+      readonly issuer: string
+      readonly clientId: string | null
+      /** From `CAROLINE_AUTH_CLIENT_SECRET` only. Null is a supported state (spec 13). */
+      readonly clientSecret: string | null
+      readonly scopes: readonly string[]
+    }
   }
   readonly llm: LlmSettings & {
     /** Null where no override is configured, which is the normal case for both. */
@@ -452,7 +509,6 @@ export interface Config {
  * both read this list, so adding a secret in one place covers both.
  */
 export const secretPaths = [
-  ['server', 'accessToken'],
   ['llm', 'apiKey'],
   // An override may name a different provider, and so may resolve a different key. Both are
   // listed, so an override pointing at a hosted provider cannot leak a key the base config
@@ -461,4 +517,5 @@ export const secretPaths = [
   ['llm', 'overrides', 'chat', 'apiKey'],
   ['integrations', 'github', 'token'],
   ['integrations', 'google', 'clientSecret'],
+  ['auth', 'provider', 'clientSecret'],
 ] as const satisfies readonly (readonly string[])[]

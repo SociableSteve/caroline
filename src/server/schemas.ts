@@ -941,3 +941,48 @@ export const settingsUpdateSchema = {
   additionalProperties: false,
   properties: { userName },
 } as const
+
+/**
+ * Spec 13's four `/api/auth/*` routes. `GET /api/auth/status` says nothing about the person
+ * (criterion 9): whether a session is required and whether this request has one, and the
+ * provider's label, and nothing else.
+ */
+export const authStatusResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['authRequired', 'hasSession', 'providerLabel'],
+  properties: {
+    authRequired: { type: 'boolean' },
+    hasSession: { type: 'boolean' },
+    providerLabel: { type: 'string' },
+  },
+} as const
+
+/** The hash the person was on, so the callback can send them back to it. Bounded generously:
+ * it is a client-side route, not free text bound for a provider or a prompt. */
+export const authLoginBodySchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    hash: { type: 'string', maxLength: 2000 },
+  },
+} as const
+
+export const authLoginResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['url'],
+  properties: {
+    url: { type: 'string' },
+  },
+} as const
+
+export const authCallbackQuerySchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    code: { type: 'string' },
+    state: { type: 'string' },
+    error: { type: 'string' },
+  },
+} as const

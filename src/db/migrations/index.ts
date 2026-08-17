@@ -9,6 +9,7 @@ import { backupSources } from './0007-backup-sources.js'
 import { previousStatus } from './0008-previous-status.js'
 import { settings } from './0009-settings.js'
 import { turnContext } from './0010-turn-context.js'
+import { sessions } from './0011-sessions.js'
 
 /**
  * Every migration, in order. Listed explicitly rather than discovered from the filesystem:
@@ -26,4 +27,5 @@ export const migrations: readonly Migration[] = [
   previousStatus,
   settings,
   turnContext,
+  sessions,
 ]

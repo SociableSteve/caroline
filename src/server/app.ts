@@ -5,6 +5,8 @@ import fastifyStatic from '@fastify/static'
 import { redactSecrets } from '../config/redact.js'
 import type { Config } from '../config/schema.js'
 import type { Database } from '../db/index.js'
+import { registerAuthGate } from './auth-gate.js'
+import { createAuthService, type AuthService } from '../auth/service.js'
 import { buildJobs, type CarolineJobs } from '../jobs/registry.js'
 import { createChangeFeed, type ChangeFeed } from './changes.js'
 import { registerErrorHandling } from './errors.js'
@@ -19,6 +21,7 @@ import { registerChatRoutes } from './routes/chat.js'
 import { registerIntegrationRoutes } from './routes/integrations.js'
 import { registerPrivacyRoutes } from './routes/privacy.js'
 import { registerSettingsRoutes } from './routes/settings.js'
+import { registerAuthRoutes } from './routes/auth.js'
 import {
   errorSerialiser,
   redactLogFields,
@@ -42,6 +45,15 @@ export interface BuildServerOptions {
    * separate decisions, and a test wants the first without the second.
    */
   jobs?: CarolineJobs
+  /**
+   * The auth service, built from the config if none is given. Separate from `jobs`'s own
+   * `fetch`: a test that wants to stub the identity provider's discovery and token endpoints
+   * should not have to also decide what the Google or LLM fetch does.
+   */
+  auth?: AuthService
+  /** Injected in tests so discovery and the token exchange never reach a network. Ignored if
+   * `auth` is supplied directly. */
+  authFetch?: typeof globalThis.fetch
   logger?: {
     level?: string
     /** Where log lines go. Wrapped in the secret scrubber before Fastify sees it. */
@@ -58,6 +70,7 @@ export interface RouteDependencies {
   changes: ChangeFeed
   now: () => number
   jobs: CarolineJobs
+  auth: AuthService
 }
 
 /**
@@ -67,11 +80,12 @@ export interface RouteDependencies {
  */
 export function registerRoutes(
   app: FastifyInstance,
-  { config, database, changes, now, jobs }: RouteDependencies,
+  { config, database, changes, now, jobs, auth }: RouteDependencies,
 ): void {
   registerHealthRoute(app, config, database)
   registerConfigRoute(app, config)
-  registerChangesRoute(app, changes)
+  registerAuthRoutes(app, { config, auth })
+  registerChangesRoute(app, changes, { auth })
   registerTaskRoutes(app, { database, changes, now })
   registerProjectRoutes(app, { database, changes, now })
   registerJobRoutes(app, { database, jobs })
@@ -92,9 +106,14 @@ export async function buildServer({
   changes = createChangeFeed(),
   now = () => Date.now(),
   jobs = buildJobs({ database, config, changes, now }),
+  authFetch,
+  auth: authOverride,
   logger,
 }: BuildServerOptions): Promise<FastifyInstance> {
   const app = Fastify({
+    // Written out explicitly rather than left to the default, so the intent is legible and a
+    // request's address can never be taken from a caller-supplied header. Spec 13.
+    trustProxy: false,
     ajv: {
       customOptions: {
         // Fastify strips unknown fields by default. For this API that turns a typo into a
@@ -129,13 +148,30 @@ export async function buildServer({
     },
   })
 
+  const auth =
+    authOverride ??
+    createAuthService({
+      config,
+      database,
+      now,
+      ...(authFetch === undefined ? {} : { fetch: authFetch }),
+      // Spec 13 criterion 16: the operator is the one person with the log, and a refused
+      // login is the thing they need to know about. The body a caller receives names no
+      // address; this line, which only the operator sees, names the subject the provider
+      // attested.
+      onLoginRefused: (subject) => {
+        app.log.warn({ subject }, 'login refused: identity is not on auth.allow')
+      },
+    })
+
   const serveWeb = existsSync(webRoot)
   if (serveWeb) {
     await app.register(fastifyStatic, { root: webRoot })
   }
 
   registerErrorHandling(app, config, { spaFallback: serveWeb })
-  registerRoutes(app, { config, database, changes, now, jobs })
+  registerAuthGate(app, config, auth)
+  registerRoutes(app, { config, database, changes, now, jobs, auth })
 
   return app
 }

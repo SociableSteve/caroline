@@ -8,7 +8,7 @@ const secrets = {
   ANTHROPIC_API_KEY: 'sk-ant-supersecret',
   GITHUB_TOKEN: 'ghp_supersecret',
   GOOGLE_CLIENT_SECRET: 'google-supersecret',
-  CAROLINE_ACCESS_TOKEN: 'access-supersecret',
+  CAROLINE_AUTH_CLIENT_SECRET: 'access-supersecret',
 } as NodeJS.ProcessEnv
 
 describe('GET /api/config', () => {
@@ -33,6 +33,33 @@ describe('GET /api/config', () => {
       expect(response.body).not.toContain(secret)
     }
     expect(response.json().llm.apiKey).toBe(REDACTED)
+    await app.close()
+  })
+
+  /** Spec 13, criterion 25: the `auth` block is present with `clientSecret` redacted and
+   * everything else about it visible. */
+  it('shows the auth block with clientSecret redacted and everything else present', async () => {
+    const config = loadConfig({
+      file: { auth: { provider: { label: 'Test IdP', clientId: 'a-client-id' } } },
+      env: { ...secrets },
+    })
+    const app = await buildServer({ config, database: migratedDatabase() })
+
+    const body = (await app.inject({ method: 'GET', url: '/api/config' })).json()
+
+    expect(body.auth).toMatchObject({
+      mode: 'auto',
+      allow: [],
+      sessionIdleDays: 7,
+      sessionMaxDays: 30,
+      provider: {
+        label: 'Test IdP',
+        issuer: 'https://accounts.google.com',
+        clientId: 'a-client-id',
+        clientSecret: REDACTED,
+        scopes: ['openid', 'email'],
+      },
+    })
     await app.close()
   })
 })

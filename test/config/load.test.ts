@@ -9,7 +9,8 @@ describe('loadConfig defaults', () => {
 
     expect(config.server.host).toBe('127.0.0.1')
     expect(config.server.port).toBe(5123)
-    expect(config.server.accessToken).toBeNull()
+    expect(config.server.publicUrl).toBeNull()
+    expect(config.authRequired).toBe(false)
     expect(config.privacy.llmContent).toBe('snippet')
     expect(config.privacy.storeContent).toBe('metadata')
     expect(config.privacy.allowFullContentToRemoteProvider).toBe(false)
@@ -301,24 +302,195 @@ describe('loadConfig startup guards', () => {
     ).toThrow(/llm\.overrides\.chat\.provider/)
   })
 
-  it('fails when binding to a non-loopback address without an access token', () => {
-    expect(() => loadConfig({ file: { server: { host: '0.0.0.0' } }, env: noEnv })).toThrow(
-      /access token/i,
-    )
+  // The old "an access token protects a non-loopback bind" guard is gone (spec 13): a
+  // non-loopback bind now requires a login, not a shared secret. See "the auth boundary"
+  // describe block below for its replacement.
+
+  it('fails at startup when CAROLINE_ACCESS_TOKEN is set in the environment', () => {
+    expect(() =>
+      loadConfig({ file: null, env: { CAROLINE_ACCESS_TOKEN: 'a-token' } as NodeJS.ProcessEnv }),
+    ).toThrow(/CAROLINE_ACCESS_TOKEN/)
   })
 
-  it('allows a non-loopback bind once an access token is set in the environment', () => {
+  it('still loads with CAROLINE_ACCESS_TOKEN set when runtimeChecks is false', () => {
     const config = loadConfig({
-      file: { server: { host: '0.0.0.0' } },
+      file: null,
       env: { CAROLINE_ACCESS_TOKEN: 'a-token' } as NodeJS.ProcessEnv,
+      runtimeChecks: false,
     })
 
-    expect(config.server.host).toBe('0.0.0.0')
+    expect(config.authRequired).toBe(false)
   })
 
   it('treats ::1 and localhost as loopback', () => {
     for (const host of ['::1', 'localhost']) {
       expect(() => loadConfig({ file: { server: { host } }, env: noEnv })).not.toThrow()
     }
+  })
+})
+
+/** Spec 13, criteria 1, 3, 4, 5, 31 and 32: the boundary decision and what startup refuses. */
+describe('the auth boundary', () => {
+  /** A configuration that satisfies every runtime refusal on its own: only the shape decides. */
+  const allowed = { allow: ['owner@example.com'], provider: { clientId: 'client-id' } }
+
+  it('leaves auth not required for a loopback bind with no publicUrl and auth.mode at auto (criterion 2)', () => {
+    expect(loadConfig({ file: null, env: noEnv }).authRequired).toBe(false)
+  })
+
+  it('requires auth once the bind is not loopback, even fully configured (criterion 1, rule 1)', () => {
+    const config = loadConfig({
+      file: {
+        server: { host: '0.0.0.0', publicUrl: 'https://caroline.example.com' },
+        auth: allowed,
+      },
+      env: noEnv,
+    })
+
+    expect(config.authRequired).toBe(true)
+  })
+
+  it('requires auth once server.publicUrl is set, whatever the bind is (criterion 1, rule 2)', () => {
+    const config = loadConfig({
+      file: { server: { publicUrl: 'http://127.0.0.1:5123' }, auth: allowed },
+      env: noEnv,
+    })
+
+    expect(config.authRequired).toBe(true)
+  })
+
+  it('requires auth on a loopback bind once auth.mode is required (criterion 1, rule 3; criterion 31)', () => {
+    const config = loadConfig({
+      file: { auth: { ...allowed, mode: 'required' } },
+      env: noEnv,
+    })
+
+    expect(config.authRequired).toBe(true)
+  })
+
+  it('leaves the same configuration not requiring auth when auth.mode stays at auto (criterion 31)', () => {
+    const config = loadConfig({ file: { auth: allowed }, env: noEnv })
+
+    expect(config.authRequired).toBe(false)
+  })
+
+  it('treats 0.0.0.0 and :: as non-loopback (criterion 5)', () => {
+    for (const host of ['0.0.0.0', '::']) {
+      const config = loadConfig({
+        file: { server: { host, publicUrl: 'https://caroline.example.com' }, auth: allowed },
+        env: noEnv,
+      })
+      expect(config.authRequired, host).toBe(true)
+    }
+  })
+
+  it('fails at startup when no provider is configured and auth is required (criterion 3)', () => {
+    expect(() =>
+      loadConfig({ file: { auth: { mode: 'required', allow: allowed.allow } }, env: noEnv }),
+    ).toThrow(/auth\.provider\.clientId/)
+  })
+
+  it('fails at startup when the allowlist is empty and auth is required (criterion 3)', () => {
+    expect(() =>
+      loadConfig({
+        file: { auth: { mode: 'required', provider: allowed.provider } },
+        env: noEnv,
+      }),
+    ).toThrow(/auth\.allow/)
+  })
+
+  it('fails at startup when server.publicUrl is unset and the bind is not loopback (criterion 3)', () => {
+    expect(() =>
+      loadConfig({ file: { server: { host: '0.0.0.0' }, auth: allowed }, env: noEnv }),
+    ).toThrow(/server\.publicUrl/)
+  })
+
+  it('does not fail for want of a public URL on a loopback bind (criterion 3)', () => {
+    expect(() =>
+      loadConfig({ file: { auth: { ...allowed, mode: 'required' } }, env: noEnv }),
+    ).not.toThrow()
+  })
+
+  it('requires auth whatever the bind is once server.publicUrl is set (criterion 4)', () => {
+    const config = loadConfig({
+      file: {
+        server: { host: '127.0.0.1', publicUrl: 'https://caroline.example.com' },
+        auth: allowed,
+      },
+      env: noEnv,
+    })
+
+    expect(config.authRequired).toBe(true)
+  })
+
+  it('fails at startup when server.publicUrl is not https and the bind is not loopback (criterion 4)', () => {
+    expect(() =>
+      loadConfig({
+        file: {
+          server: { host: '0.0.0.0', publicUrl: 'http://caroline.example.com' },
+          auth: allowed,
+        },
+        env: noEnv,
+      }),
+    ).toThrow(/https/)
+  })
+
+  it('fails at startup for a plaintext public URL on a loopback host, where the bind is not loopback (criterion 4)', () => {
+    // The exact case the bind half of the https test exists for: the URL's own host says
+    // nothing about who can reach the socket.
+    expect(() =>
+      loadConfig({
+        file: {
+          server: { host: '0.0.0.0', publicUrl: 'http://127.0.0.1:5123' },
+          auth: allowed,
+        },
+        env: noEnv,
+      }),
+    ).toThrow(/https/)
+  })
+
+  it('accepts a plaintext public URL where both it and the bind are loopback (criterion 4)', () => {
+    const config = loadConfig({
+      file: {
+        server: { host: '127.0.0.1', publicUrl: 'http://localhost:5123' },
+        auth: allowed,
+      },
+      env: noEnv,
+    })
+
+    expect(config.authRequired).toBe(true)
+    expect(config.server.publicUrl).toBe('http://localhost:5123')
+  })
+
+  it('requires an https public URL where the bind is not loopback even though the URL host is (criterion 4)', () => {
+    expect(() =>
+      loadConfig({
+        file: { server: { host: '::', publicUrl: 'https://localhost:5123' }, auth: allowed },
+        env: noEnv,
+      }),
+    ).not.toThrow()
+  })
+
+  it('is skipped entirely when runtimeChecks is false, for every refusal at once (criterion 32)', () => {
+    const config = loadConfig({
+      file: { server: { host: '0.0.0.0' }, auth: { mode: 'required' } },
+      env: { CAROLINE_ACCESS_TOKEN: 'a-token' } as NodeJS.ProcessEnv,
+      runtimeChecks: false,
+    })
+
+    expect(config.authRequired).toBe(true)
+    expect(config.auth.provider.clientId).toBeNull()
+    expect(config.auth.allow).toEqual([])
+    expect(config.server.publicUrl).toBeNull()
+  })
+
+  it('still bans server.accessToken in the file when runtimeChecks is false (criterion 32)', () => {
+    expect(() =>
+      loadConfig({
+        file: { server: { accessToken: 'in-file' } },
+        env: noEnv,
+        runtimeChecks: false,
+      }),
+    ).toThrow(/server\.accessToken/)
   })
 })

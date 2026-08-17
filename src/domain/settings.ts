@@ -6,8 +6,14 @@
  * Pure. The rules here are the ones the write path enforces and the prompt relies on.
  */
 
-/** The keys the `settings` table may hold. A key not in this union is not a setting. */
-export type SettingKey = 'userName'
+/**
+ * The keys the `settings` table may hold. A key not in this union is not a setting.
+ *
+ * `authPin:<entry>` is spec 13's subject pin: one row per `auth.allow` entry that has been
+ * matched by a successful login, holding the id_token `sub` it was matched with. It is a
+ * template rather than a literal because the entry is a configuration value, not a fixed set.
+ */
+export type SettingKey = 'userName' | `authPin:${string}`
 
 /**
  * A name is free text from outside the program that ends up inside a system prompt, so it is

@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterAll, afterEach } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { loadConfig } from '../../src/config/load.js'
+import type { Config } from '../../src/config/schema.js'
 import type { Database } from '../../src/db/connection.js'
 import { buildServer } from '../../src/server/app.js'
 import { createChangeFeed, type ChangeEvent, type ChangeFeed } from '../../src/server/changes.js'
@@ -99,6 +100,14 @@ export interface TestServerOptions {
   readonly steps?: readonly JobStep[]
   /** The Google connection the integration routes should see. */
   readonly google?: GoogleAuth
+  /**
+   * The config to build the server with, for a test of spec 13 that needs `authRequired: true`.
+   * Defaults to `testConfig`, the loopback install every other test in the suite uses.
+   */
+  readonly config?: Config
+  /** The `fetch` the auth service is built with, for a test that stubs OIDC discovery and the
+   * token endpoint. Defaults to `refuseNetwork`, like every other fetch this helper builds. */
+  readonly authFetch?: typeof globalThis.fetch
 }
 
 export async function testServer({
@@ -107,6 +116,8 @@ export async function testServer({
   fetch,
   steps,
   google,
+  config = testConfig,
+  authFetch,
 }: TestServerOptions = {}): Promise<TestServer> {
   const changes = createChangeFeed()
   const published: ChangeEvent[] = []
@@ -116,7 +127,7 @@ export async function testServer({
     jobs ??
     buildJobs({
       database,
-      config: testConfig,
+      config,
       changes,
       now: () => REQUEST_TIME,
       fetch: fetch ?? refuseNetwork,
@@ -134,7 +145,7 @@ export async function testServer({
             database,
             steps,
             schedules: [],
-            timeZone: testConfig.jobs.timezone,
+            timeZone: config.jobs.timezone,
             backoffBaseMs: 60_000,
             backoffCeilingMs: 3_600_000,
             startupStaggerMs: 0,
@@ -146,11 +157,12 @@ export async function testServer({
   const finalJobs: CarolineJobs = google === undefined ? withSteps : { ...withSteps, google }
 
   const app = await buildServer({
-    config: testConfig,
+    config,
     database,
     changes,
     now: () => REQUEST_TIME,
     jobs: finalJobs,
+    authFetch: authFetch ?? refuseNetwork,
   })
   openApps.push(app)
 
