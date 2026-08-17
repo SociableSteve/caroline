@@ -358,6 +358,22 @@ Four routes, three of them public.
 - **The intended hash survives.** `POST /api/auth/login` takes the hash the person was on, and
   the callback redirects back to it, so a deep link followed while unauthenticated lands where
   it was going.
+- **A refusal redirects into the SPA rather than answering with a body.** This route is always a
+  top-level browser navigation, the provider's own redirect landing here directly rather than
+  through a call the SPA makes and can inspect, so a JSON error body would render as a bare page
+  of text rather than anything the login screen can show. On any refusal, the callback instead
+  redirects (302) to `/?login=<code>`, the same pattern `GET /api/integrations/google/callback`
+  already uses for its own refusal (`/#/settings?google=refused&reason=...`), just with no fixed
+  screen name to land on, since the login screen is not one (see below). `<code>` is the fixed
+  vocabulary already used for the JSON error shape elsewhere on this surface: `forbidden` (not on
+  `auth.allow`, or a subject-pinning mismatch), `bad_request` (a state mismatch, a missing
+  authorization code, an invalid id_token, or a provider that needs a client secret Caroline does
+  not have), `provider_unreachable`, or `internal_error`. It names no address, matching the
+  constraint the response body carried before this redirect replaced it. The full diagnostic
+  message, where the code alone is not enough for an operator to act on (the missing-client-secret
+  case names the environment variable and the methods the document advertised), is logged rather
+  than carried in the redirect, because the redirect is what the browser sees and the log is what
+  the operator reads.
 
 ### The identity token is validated and its signature is not
 
@@ -665,18 +681,21 @@ them by number.
     each asserted separately: no authorization endpoint, no token endpoint, an `issuer` differing
     from the configured one, either endpoint not `https`, and
     `code_challenge_methods_supported` not containing `S256`.
-13. A callback whose state is not the one issued is refused and creates no session, and a state
-    is redeemable once.
+13. A callback whose state is not the one issued is refused, redirecting into the SPA with an
+    error indicator (`/?login=bad_request`) rather than creating a session, and a state is
+    redeemable once.
 14. The id_token is accepted only when `iss` matches the configured issuer, `aud` equals the
     client id, `exp` is in the future and `nonce` is the one issued. Each of the four failing is
     asserted separately.
 15. The token endpoint is reached directly over `https`, asserted against the built outbound
     request rather than against a comment, so the reason the signature is not verified locally
     stays true.
-16. An identity that is not on `auth.allow` is refused: no session, a 403 whose body names no
-    address, and a log line recording that a login was refused and for which subject.
+16. An identity that is not on `auth.allow` is refused: no session, a redirect into the SPA
+    (`/?login=forbidden`) naming no address, and a log line recording that a login was refused and
+    for which subject.
 17. The first successful login pins the id_token's `sub` to the allowlist entry it matched, and a
-    later login matching that entry with a different subject is refused. The pin is a `settings` row
+    later login matching that entry with a different subject is refused the same way
+    (`/?login=forbidden`, no session). The pin is a `settings` row
     keyed by the allowlist entry, so it survives logout, the expiry of every session and a restart:
     asserted by refusing that later login after the first session has been revoked and the process
     restarted.
@@ -723,9 +742,10 @@ them by number.
     and an `email` without `email_verified: true` matches no address entry.
 30. A provider whose discovery document offers `none` in `token_endpoint_auth_methods_supported`
     authenticates with PKCE and no client secret. Separately, where the document does not offer it
-    and no secret is configured, the first login attempt fails rather than startup, with a message
-    naming `CAROLINE_AUTH_CLIENT_SECRET` and the methods the document did advertise, and startup
-    itself succeeds because nothing has been fetched yet.
+    and no secret is configured, the first login attempt fails rather than startup, redirecting
+    into the SPA (`/?login=bad_request`) and logging a message naming `CAROLINE_AUTH_CLIENT_SECRET`
+    and the methods the document did advertise, and startup itself succeeds because nothing has
+    been fetched yet.
 
 **Appended, and belonging to slice 1.**
 

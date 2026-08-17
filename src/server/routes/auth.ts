@@ -81,8 +81,18 @@ export function registerAuthRoutes(app: FastifyInstance, { config, auth }: AuthR
 
   app.get<{ Querystring: { code?: string; state?: string; error?: string } }>(
     '/api/auth/callback',
-    { schema: { querystring: authCallbackQuerySchema } },
+    // `attachValidation` rather than letting a bad querystring (e.g. a duplicated `code`) fall
+    // through to the global error handler: that answers JSON, and this route is the same
+    // top-level browser navigation as the handler's own refusal paths below, so a validation
+    // failure gets the same redirect treatment rather than the raw error body the rest of this
+    // handler exists to avoid.
+    { schema: { querystring: authCallbackQuerySchema }, attachValidation: true },
     async (request, reply) => {
+      if (request.validationError) {
+        request.log.warn({ err: request.validationError }, 'callback query failed validation')
+        return reply.redirect(`/?login=${encodeURIComponent('bad_request')}`, 302)
+      }
+
       try {
         const result = await auth.callback(request.query)
 
@@ -96,9 +106,19 @@ export function registerAuthRoutes(app: FastifyInstance, { config, auth }: AuthR
       } catch (error) {
         const { status, code, message } = statusAndMessage(error)
         if (status >= 500) request.log.error({ err: error }, 'login callback failed')
-        // The body names no address (spec 13, "Who is allowed in"): every message built above is
-        // already free of the caller-attested email or subject.
-        return reply.status(status).send(apiError(code, message))
+        // Otherwise not >= 500, but still worth keeping: the operator has log access and the
+        // browser does not, and the message (unlike the browser-facing code below) can be
+        // specific, e.g. naming CAROLINE_AUTH_CLIENT_SECRET and the methods a provider advertised.
+        else request.log.warn({ code }, message)
+
+        // This route is always a top-level browser navigation: the provider's redirect lands
+        // here directly, never through `fetch`, so a JSON body would render as a bare page of
+        // text rather than anything the login screen can show. It redirects into the SPA instead,
+        // exactly as `GET /api/integrations/google/callback` already does, naming the failure in
+        // `login` rather than in the body: the code is the same fixed vocabulary the JSON error
+        // shape already used (`forbidden`, `bad_request`, `provider_unreachable`,
+        // `internal_error`), so it names no address either, per spec 13's "Who is allowed in".
+        return reply.redirect(`/?login=${encodeURIComponent(code)}`, 302)
       }
     },
   )

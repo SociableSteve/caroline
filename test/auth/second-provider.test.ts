@@ -19,6 +19,7 @@ import { loadConfig } from '../../src/config/load.js'
 import { buildServer } from '../../src/server/app.js'
 import { migratedDatabase } from '../helpers/temp-database.js'
 import { fakeIdToken } from '../helpers/oidc.js'
+import { captureLog } from '../helpers/log-capture.js'
 
 const repositoryRoot = fileURLToPath(new URL('../..', import.meta.url))
 const fixturesDir = join(repositoryRoot, 'test', 'fixtures', 'oidc')
@@ -207,7 +208,8 @@ describe('a provider returning no email claim (criterion 29)', () => {
 
     const { callbackResponse } = await runLoginAndCallback(app)
 
-    expect(callbackResponse.statusCode).toBe(403)
+    expect(callbackResponse.statusCode).toBe(302)
+    expect(callbackResponse.headers.location).toBe('/?login=forbidden')
     expect(callbackResponse.headers['set-cookie']).toBeUndefined()
     await app.close()
   })
@@ -225,7 +227,8 @@ describe('an email claim without email_verified: true (criterion 29)', () => {
 
     const { callbackResponse } = await runLoginAndCallback(app)
 
-    expect(callbackResponse.statusCode).toBe(403)
+    expect(callbackResponse.statusCode).toBe(302)
+    expect(callbackResponse.headers.location).toBe('/?login=forbidden')
     expect(callbackResponse.headers['set-cookie']).toBeUndefined()
     await app.close()
   })
@@ -260,26 +263,33 @@ describe('a discovery document not offering none, no secret configured (criterio
     expect(() => configFor(discovery, ['owner@fictional-idp.test'])).not.toThrow()
   })
 
-  it('fails the first login attempt, not startup, naming CAROLINE_AUTH_CLIENT_SECRET and the advertised methods', async () => {
+  it('fails the first login attempt, not startup, redirecting into the SPA and logging CAROLINE_AUTH_CLIENT_SECRET and the advertised methods', async () => {
     const discovery = fixture<DiscoveryFixture>('discovery-confidential-client.json')
     const identity = fixture<IdentityFixture>('identity-with-verified-email.json')
     const { fetch } = secondProviderFetch(discovery, identity)
 
     const config = configFor(discovery, [identity.email as string])
     expect(config.auth.provider.clientSecret).toBeNull()
-    const app = await buildServer({ config, database: migratedDatabase(), authFetch: fetch })
+    const { lines, stream } = captureLog()
+    const app = await buildServer({
+      config,
+      database: migratedDatabase(),
+      authFetch: fetch,
+      logger: { level: 'info', stream },
+    })
 
     // The login step itself succeeds: it only builds the authorization URL, and does not yet
     // know whether a secret will be needed.
     const { loginResponse, callbackResponse } = await runLoginAndCallback(app)
     expect(loginResponse.statusCode).toBe(200)
+    await app.close()
 
-    expect(callbackResponse.statusCode).toBe(400)
-    const message = callbackResponse.json().error.message as string
+    expect(callbackResponse.statusCode).toBe(302)
+    expect(callbackResponse.headers.location).toBe('/?login=bad_request')
+    const message = lines.join('\n')
     expect(message).toContain('CAROLINE_AUTH_CLIENT_SECRET')
     for (const method of discovery.token_endpoint_auth_methods_supported) {
       expect(message).toContain(method)
     }
-    await app.close()
   })
 })
