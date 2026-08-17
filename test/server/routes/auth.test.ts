@@ -3,7 +3,6 @@
  * identity provider stubbed. Spec 13, slice 2: criteria 9, 10, 13, 15, 16, 17, 18, 21, 24 and 33.
  */
 import { describe, expect, it } from 'vitest'
-import { Writable } from 'node:stream'
 import { loadConfig } from '../../../src/config/load.js'
 import { buildServer } from '../../../src/server/app.js'
 import { migratedDatabase } from '../../helpers/temp-database.js'
@@ -11,19 +10,7 @@ import { openDatabase } from '../../../src/db/connection.js'
 import { runMigrations } from '../../../src/db/migrate.js'
 import { temporaryDatabasePath } from '../../helpers/temp-database.js'
 import { s256Challenge, stubProvider, TEST_ISSUER } from '../../helpers/oidc.js'
-
-/** Matches `test/server/logging.test.ts`'s helper: a writable that keeps every line rather than
- * writing to a real stream, so a test can assert on what was logged. */
-function captureLog() {
-  const lines: string[] = []
-  const stream = new Writable({
-    write(chunk, _encoding, callback) {
-      lines.push(String(chunk))
-      callback()
-    },
-  })
-  return { lines, stream }
-}
+import { captureLog } from '../../helpers/log-capture.js'
 
 const noEnv = {} as NodeJS.ProcessEnv
 
@@ -504,6 +491,25 @@ describe('GET /api/auth/callback', () => {
     expect(callbackResponse.statusCode).toBe(302)
     expect(callbackResponse.headers.location).toBe('/')
     expect(cookie).not.toBeNull()
+    await app.close()
+  })
+
+  it('redirects a malformed callback query (a duplicated code param) instead of answering raw JSON', async () => {
+    const config = strictLoopbackConfig()
+    const app = await buildServer({
+      config,
+      database: migratedDatabase(),
+      authFetch: stubProvider().fetch,
+    })
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/auth/callback?code=a&code=b&state=x',
+    })
+
+    expect(response.statusCode).toBe(302)
+    expect(response.headers.location).toBe('/?login=bad_request')
+    expect(() => response.json()).toThrow()
     await app.close()
   })
 

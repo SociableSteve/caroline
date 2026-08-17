@@ -1,26 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { Writable } from 'node:stream'
 import { loadConfig } from '../../src/config/load.js'
 import { buildServer } from '../../src/server/app.js'
 import { migratedDatabase } from '../helpers/temp-database.js'
 import { UNMATCHED_ROUTE } from '../../src/server/log-redaction.js'
+import { captureLog } from '../helpers/log-capture.js'
 
 const secrets = {
   ANTHROPIC_API_KEY: 'sk-ant-supersecret',
   GITHUB_TOKEN: 'ghp_supersecret',
   CAROLINE_AUTH_CLIENT_SECRET: 'access-supersecret',
 } as NodeJS.ProcessEnv
-
-function captureLog() {
-  const lines: string[] = []
-  const stream = new Writable({
-    write(chunk, _encoding, callback) {
-      lines.push(String(chunk))
-      callback()
-    },
-  })
-  return { lines, stream }
-}
 
 describe('request URLs never reach a log line', () => {
   it('logs the matched route, not the URL the caller sent', async () => {

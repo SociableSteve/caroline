@@ -81,8 +81,18 @@ export function registerAuthRoutes(app: FastifyInstance, { config, auth }: AuthR
 
   app.get<{ Querystring: { code?: string; state?: string; error?: string } }>(
     '/api/auth/callback',
-    { schema: { querystring: authCallbackQuerySchema } },
+    // `attachValidation` rather than letting a bad querystring (e.g. a duplicated `code`) fall
+    // through to the global error handler: that answers JSON, and this route is the same
+    // top-level browser navigation as the handler's own refusal paths below, so a validation
+    // failure gets the same redirect treatment rather than the raw error body the rest of this
+    // handler exists to avoid.
+    { schema: { querystring: authCallbackQuerySchema }, attachValidation: true },
     async (request, reply) => {
+      if (request.validationError) {
+        request.log.warn({ err: request.validationError }, 'callback query failed validation')
+        return reply.redirect(`/?login=${encodeURIComponent('bad_request')}`, 302)
+      }
+
       try {
         const result = await auth.callback(request.query)
 

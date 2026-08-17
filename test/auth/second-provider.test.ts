@@ -14,28 +14,15 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { Writable } from 'node:stream'
 import { describe, expect, it } from 'vitest'
 import { loadConfig } from '../../src/config/load.js'
 import { buildServer } from '../../src/server/app.js'
 import { migratedDatabase } from '../helpers/temp-database.js'
 import { fakeIdToken } from '../helpers/oidc.js'
+import { captureLog } from '../helpers/log-capture.js'
 
 const repositoryRoot = fileURLToPath(new URL('../..', import.meta.url))
 const fixturesDir = join(repositoryRoot, 'test', 'fixtures', 'oidc')
-
-/** Matches `test/server/routes/auth.test.ts`'s helper: a writable that keeps every line rather
- * than writing to a real stream, so a test can assert on what was logged. */
-function captureLog() {
-  const lines: string[] = []
-  const stream = new Writable({
-    write(chunk, _encoding, callback) {
-      lines.push(String(chunk))
-      callback()
-    },
-  })
-  return { lines, stream }
-}
 
 function fixture<T>(name: string): T {
   return JSON.parse(readFileSync(join(fixturesDir, name), 'utf8')) as T
