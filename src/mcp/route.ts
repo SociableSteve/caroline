@@ -194,7 +194,17 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteContext): 
             )
         }
 
-        if (methodHeader === undefined || methodHeader !== envelope.method) {
+        // Revision 2026-07-28 (SEP-2243) requires Mcp-Method on every request, and Mcp-Name on
+        // tools/call, resources/read and prompts/get. Strict rejection here would refuse Claude
+        // Code outright: its MCP client does not send either header yet (captured 2026-08-17
+        // against Claude Code 2.1.233's actual `initialize` request, which carries neither), and
+        // that gap is Anthropic's to close, not this client's fault for existing. So this only
+        // rejects a header that disagrees with the body, never one that is simply absent: an
+        // absent header is treated as "this client hasn't implemented this part of the revision
+        // yet", not as a malformed request. A client that does send the header is still held to
+        // exact agreement. See docs/specs/12-mcp-server.md, "Header interoperability" for the
+        // full reasoning; revisit once client support for these headers is widespread.
+        if (methodHeader !== undefined && methodHeader !== envelope.method) {
           return reply
             .status(400)
             .send(
@@ -214,7 +224,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteContext): 
               ? (envelope.params as { name: string }).name
               : null
 
-          if (nameHeader === undefined || toolName === null || nameHeader !== toolName) {
+          if (nameHeader !== undefined && nameHeader !== toolName) {
             return reply
               .status(400)
               .send(
