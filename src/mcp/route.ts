@@ -29,6 +29,7 @@ import { callMcpTool } from './call.js'
 import { validateAccessToken } from './oauth/service.js'
 import { protectedResourceMetadataUrl } from './oauth/resource.js'
 import {
+  isNotification as isJsonRpcNotification,
   jsonRpcError,
   jsonRpcErrorCodes,
   jsonRpcResult,
@@ -152,24 +153,32 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteContext): 
   // Its own encapsulation, so `instance.setErrorHandler` below governs this route alone and
   // never the rest of the API. Spec 08, criterion 37.
   void app.register(async (instance) => {
-    instance.setErrorHandler<FastifyError>((error, _request, reply) => {
+    instance.setErrorHandler<FastifyError>((error, request, reply) => {
       // `parseError` is for a body this route could not read as JSON-RPC at all: invalid JSON, or
       // schema validation rejecting it before a handler ever ran. Anything else reaching this
       // handler is this route's own code failing on a request it did parse, which is
       // `internalError` rather than a claim that the request itself was malformed.
       const isParseFailure =
         error.code === 'FST_ERR_CTP_INVALID_JSON_BODY' || error.code === 'FST_ERR_VALIDATION'
-      reply
-        .status(200)
-        .send(
-          isParseFailure
-            ? jsonRpcError(
-                null,
-                jsonRpcErrorCodes.parseError,
-                `Malformed request: ${error.message}`,
-              )
-            : jsonRpcError(null, jsonRpcErrorCodes.internalError, error.message),
-        )
+
+      // A parse failure means `request.body` never became a JSON-RPC envelope at all, so there is
+      // no `id` to read and this can't be recognised as a Notification: it is answered exactly as
+      // before. Anything else reaching this handler is this route's own code failing after
+      // `readEnvelope` already succeeded on the body, so re-reading it here recovers the same
+      // envelope the handler was working from, and `isJsonRpcNotification` (`./protocol.js`)
+      // applies the same JSON-RPC 2.0 "MUST NOT reply to a Notification" rule this route's happy
+      // path already follows everywhere else, via `sendJsonRpc` above.
+      const envelope = isParseFailure ? null : readEnvelope(request.body)
+      const notification = envelope !== null && isJsonRpcNotification(envelope)
+
+      sendJsonRpc(
+        reply,
+        notification,
+        200,
+        isParseFailure
+          ? jsonRpcError(null, jsonRpcErrorCodes.parseError, `Malformed request: ${error.message}`)
+          : jsonRpcError(null, jsonRpcErrorCodes.internalError, error.message),
+      )
     })
 
     instance.addHook('onRequest', async (request: FastifyRequest, reply: FastifyReply) => {
@@ -214,8 +223,10 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteContext): 
         const meta = readMeta(envelope.params)
         const id = envelope.id ?? null
         // JSON-RPC 2.0 section 4.1: a Notification is a request with no `id` member at all, and
-        // the server MUST NOT reply to one. See `sendJsonRpc` above.
-        const isNotification = envelope.id === undefined
+        // the server MUST NOT reply to one. See `sendJsonRpc` above, and `isJsonRpcNotification`
+        // for the shared check (also used by this route's `setErrorHandler`, so the rule can't
+        // drift between the happy path and the error path).
+        const isNotification = isJsonRpcNotification(envelope)
 
         if (
           protocolVersionHeader !== undefined &&

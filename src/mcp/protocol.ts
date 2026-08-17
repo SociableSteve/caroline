@@ -82,6 +82,17 @@ export function readEnvelope(body: unknown): JsonRpcRequest | null {
 }
 
 /**
+ * JSON-RPC 2.0 (https://www.jsonrpc.org/specification, section 4.1): a Notification is a request
+ * with no `id` member at all, and `readEnvelope` above only sets `id` on the returned envelope
+ * when the body had one. So this is exactly "was this a Notification", shared by every call site
+ * that needs to decide whether a response is owed, rather than each re-deriving it from
+ * `envelope.id === undefined` and risking the check drifting between them.
+ */
+export function isNotification(envelope: JsonRpcRequest): boolean {
+  return envelope.id === undefined
+}
+
+/**
  * The client's declared name and protocol framing, from `_meta` on the request. Spec 12: every
  * request carries its own framing rather than a handshake, and the client's identity SHOULD
  * travel there too.

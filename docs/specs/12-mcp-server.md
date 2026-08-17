@@ -202,13 +202,19 @@ correct by the letter of the revision, which does not require Caroline to answer
 against the client that actually exists today, which will not proceed without an answer to it.
 
 So `initialize` is now one more case in method dispatch, answered exactly like `server/discover`
-answers its own capability query: a pure, stateless echo, computed fresh on every call, naming
-the protocol version, the tools capability this server actually has, and the same server name
-and version `server/discover` already gives. It introduces no `Mcp-Session-Id`, stores nothing,
-starts no conversation, and does not require or handle `notifications/initialized` as a
-follow-up. A client that never calls it loses nothing, because nothing here depends on it having
-been called; a client that insists on calling it first gets an answer instead of an error it has
-no way to recover from.
+answers its own capability query when the request carries an `id`: a pure, stateless echo,
+computed fresh on every call, naming the protocol version, the tools capability this server
+actually has, and the same server name and version `server/discover` already gives. It
+introduces no `Mcp-Session-Id`, stores nothing, and starts no conversation. An `initialize`
+request sent without an `id` gets no response at all, and neither does `notifications/initialized`:
+both are Notifications under JSON-RPC 2.0 section 4.1 ("a Notification is a Request object
+without an `id` member... The Server MUST NOT reply to a Notification"), a rule this server's
+dispatch applies generally, not as something specific to the handshake. So
+`notifications/initialized` is handled exactly the way any other notification is (accepted,
+answered with nothing), not left specifically unhandled. A client that never calls `initialize`
+loses nothing, because nothing here depends on it having been called; a client that calls it
+first, as a proper request carrying an `id`, gets an answer instead of an error it has no way to
+recover from.
 
 This is a temporary interoperability accommodation, not a reintroduction of the session the
 revision removed, and it should be revisited once client-ecosystem behaviour for the handshake
@@ -800,11 +806,15 @@ each is asserted from that slice onwards like the rest.
     violates the route's schema and parsing the answer as JSON-RPC. This is the resolution of the
     collision between that shape and spec 08 criterion 1, which spec 08 criterion 37 states from its
     own side.
-44. An `initialize` request, with or without the headers named in criterion 10, is answered `200`
-    with a JSON-RPC result naming `protocolVersion`, a `capabilities` object whose `tools` key is
-    the tools capability this surface actually has, and `serverInfo` identical to what
-    `server/discover` names as `server`, rather than with `methodNotFound`. The call creates no
-    session, no `Mcp-Session-Id`, no conversation and no other row, asserted by counting
-    `mcp_sessions` and the conversation list before and after, and a `tools/list` call on the same
-    connection afterwards answers exactly as it does when no `initialize` call preceded it. Per
-    "Handshake interoperability" above.
+44. An `initialize` request that carries an `id`, with or without the headers named in criterion
+    10, is answered `200` with a JSON-RPC result naming `protocolVersion`, a `capabilities`
+    object whose `tools` key is the tools capability this surface actually has, and `serverInfo`
+    identical to what `server/discover` names as `server`, rather than with `methodNotFound`. An
+    `initialize` request without an `id` gets no response (`202`, empty body), per the general
+    JSON-RPC 2.0 rule against replying to a Notification that this surface's dispatch applies to
+    every method, `initialize` included; `notifications/initialized` is handled under that same
+    general rule rather than as a case this surface refuses or handles specially. The call
+    creates no session, no `Mcp-Session-Id`, no conversation and no other row, asserted by
+    counting `mcp_sessions` and the conversation list before and after, and a `tools/list` call
+    on the same connection afterwards answers exactly as it does when no `initialize` call
+    preceded it. Per "Handshake interoperability" above.

@@ -231,6 +231,36 @@ describe('with mcp.enabled true', () => {
   })
 
   /**
+   * The same "MUST NOT reply to a Notification" rule the general dispatch already follows
+   * (see "sends no body for notifications/initialized" below) also has to hold in
+   * `setErrorHandler`, which sits outside `handleMethod` and answers whatever this route's own
+   * code throws once past the framing checks. Before this fix, that handler replied
+   * unconditionally, so a notification whose processing failed downstream (here, `tools/call`
+   * with no `id`, after `mcp_sessions` has been dropped so the call throws) still got a
+   * JSON-RPC error body, in violation of the very rule the previous test above and this
+   * milestone's `sendJsonRpc` were written to enforce everywhere else.
+   */
+  it('sends no body, not a JSON-RPC error, for a notification whose processing throws downstream', async () => {
+    const { app, database } = await testServer({ config: mcpConfig() })
+    database.exec('drop table mcp_sessions')
+    const token = mintAccessToken(database, mcpConfig())
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/mcp',
+      headers: { authorization: `Bearer ${token}`, host: '127.0.0.1' },
+      payload: {
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: { name: 'search_tasks', arguments: {} },
+      },
+    })
+
+    expect(response.statusCode).toBe(202)
+    expect(response.body).toBe('')
+  })
+
+  /**
    * Claude Code's MCP client (confirmed on 2.1.233, captured 2026-08-17) predates SEP-2243 and
    * sends neither header at all. Refusing that request would mean Caroline's primary real-world
    * client can never get past its first call, so an absent `Mcp-Method` is read as "this client
