@@ -572,6 +572,7 @@ Nothing has started and nothing has been written when you see one of those. Fix 
 | Nothing in the Review column | The discovery search finds requests to you and to teams you belong to, on repositories that are not archived. A request made through a team the token cannot see arrives by [the backup source](specs/02-ingestion.md) instead, from the notification email |
 | Chat says it can read but not change anything | `llm.supportsTools`, which is false by default for Ollama because it depends on the model. Step 4 |
 | The classifier leaves everything in the inbox | Below `classification.confidenceThreshold` the answer is a proposal on the card rather than a move. Accepting one makes the status yours, and the classifier will not overrule it afterwards |
+| Testing the Google connect flow while running `npm run dev:web` does not land you back on its hot-reloading UI at 5173 | `redirect_uri` always points at `server.host`/`server.port` (5123 by default): that is the one stable address registered with Google, and it is correct that `dev:web`'s proxy does not change it. Run `npm run build:web` first so 5123 has a built SPA to serve, complete the connect flow there, then switch back to `dev:web` for UI iteration |
 
 Anything not here is worth reading a spec about: [docs/specs](specs/README.md) states what each
 part is meant to do, and the acceptance criteria are the contract the tests hold it to.

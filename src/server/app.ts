@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 import Fastify, { type FastifyInstance } from 'fastify'
 import fastifyStatic from '@fastify/static'
 import { redactSecrets } from '../config/redact.js'
@@ -62,8 +62,17 @@ export interface BuildServerOptions {
   }
 }
 
-/** The built SPA, when `npm run build` has been run. Absent in development and in tests. */
-const webRoot = fileURLToPath(new URL('../web', import.meta.url))
+/**
+ * The built SPA, when `npm run build` has been run. Absent in development and in tests.
+ *
+ * Anchored on `process.cwd()` rather than `import.meta.url`: the latter resolves to the
+ * currently *executing* module, which differs between `tsx watch src/server/main.ts` (dev,
+ * runs this file from `src/server`) and `node dist/server/main.js` (prod, runs the compiled
+ * copy from `dist/server`). `npm run dev` and `npm run start` are both run from the repo
+ * root, and `vite.config.ts` writes the built SPA to `dist/web` from that same root, so this
+ * is the one anchor that resolves the same way in both.
+ */
+const webRoot = join(process.cwd(), 'dist', 'web')
 
 export interface RouteDependencies {
   config: Config
