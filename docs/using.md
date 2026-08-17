@@ -42,6 +42,12 @@ The address bar keeps up with you: `#/board?item=task:abc&conversation=xyz` is t
 task open in the rail and that conversation under it. Anything you can see, you can link to and come
 back to.
 
+If Caroline is set up with a login ([setup.md, step 8](setup.md#8-reaching-it-from-elsewhere)), a
+login screen appears in place of all of that until you sign in: one button naming the provider, and
+nothing else. It is not a sixth screen either, and there is nothing to press until you use it: any
+call answered "unauthenticated" puts you there instead of retrying. Signed in, everything above is
+exactly as described, and a session simply lasts a while before it asks again.
+
 ## Where work lives
 
 Six columns, and every task is in exactly one of them.
