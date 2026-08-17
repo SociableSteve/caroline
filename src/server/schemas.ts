@@ -979,7 +979,11 @@ export const authLoginResponseSchema = {
 
 export const authCallbackQuerySchema = {
   type: 'object',
-  additionalProperties: false,
+  // Google, the default provider (issuer defaults to https://accounts.google.com), adds `scope`,
+  // `authuser` and `prompt` to the callback, and a request carrying them is not a bad request.
+  // Matches googleCallbackQuerySchema's handling of the same extra params. They are ignored
+  // rather than rejected.
+  additionalProperties: true,
   properties: {
     code: { type: 'string' },
     state: { type: 'string' },

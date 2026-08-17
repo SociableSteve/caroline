@@ -256,6 +256,38 @@ describe('GET /api/auth/callback', () => {
     await app.close()
   })
 
+  it('accepts the extra query params Google appends to a real callback (scope, authuser, prompt)', async () => {
+    const config = strictLoopbackConfig()
+    const app = await buildServer({
+      config,
+      database: migratedDatabase(),
+      authFetch: stubProvider().fetch,
+    })
+
+    const { url } = (
+      await app.inject({
+        method: 'POST',
+        url: '/api/auth/login',
+        headers: { origin: 'http://127.0.0.1:5123' },
+        payload: {},
+      })
+    ).json() as { url: string }
+    const state = new URL(url).searchParams.get('state') ?? ''
+    const code = new URL(url).searchParams.get('nonce') ?? ''
+
+    const response = await app.inject({
+      method: 'GET',
+      url:
+        `/api/auth/callback?code=${code}&state=${state}` +
+        '&scope=openid%20email&authuser=0&prompt=consent',
+    })
+
+    expect(response.statusCode).not.toBe(400)
+    expect(response.statusCode).toBe(302)
+
+    await app.close()
+  })
+
   it('reaches the token endpoint directly over https (criterion 15)', async () => {
     const stub = stubProvider()
     const config = strictLoopbackConfig()
