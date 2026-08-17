@@ -139,6 +139,8 @@ function missingProject(context: ChatToolContext, projectId: string | null | und
 const createTaskTool = defineTool<TaskFieldArguments & { readonly title: string }>({
   name: 'create_task',
   kind: 'write',
+  // Calling it twice creates two tasks. Spec 12.
+  idempotent: false,
   description:
     'Create a task. It lands in the inbox unless a status is given. Use complete_task to finish something rather than creating it done.',
   parameters: {
@@ -190,6 +192,12 @@ const createTaskTool = defineTool<TaskFieldArguments & { readonly title: string 
 const updateTaskTool = defineTool<{ readonly id: string } & TaskFieldArguments>({
   name: 'update_task',
   kind: 'write',
+  // A relative field, `waitingOn` appended rather than set, would not be, but every field this
+  // tool takes is set outright, so calling it twice with the same arguments leaves the same row.
+  // Declared false all the same: the change record it writes is not, since a repeat call would
+  // record "left as it was" rather than nothing, and spec 12 wants a tool's own decision here
+  // rather than an inference about which fields happen to be idempotent this milestone.
+  idempotent: false,
   description:
     'Change a task. Name only the fields that should change; the rest are left alone. A status change here is the user filing the task, which locks the classifier out of it.',
   parameters: {
@@ -296,6 +304,9 @@ function describeUpdate(before: Task, after: Task): string {
 const completeTaskTool = defineTool<{ readonly id: string }>({
   name: 'complete_task',
   kind: 'write',
+  // Calling it again on an already-done task changes nothing: it answers `alreadyDone` and
+  // records no mutation. Spec 12 names this tool as one of the two that declare it true.
+  idempotent: true,
   description:
     'Mark a task done. This is how work finishes: it leaves the board and counts as completed.',
   parameters: {
@@ -345,6 +356,9 @@ const completeTaskTool = defineTool<{ readonly id: string }>({
 const markReviewedTool = defineTool<{ readonly id: string }>({
   name: 'mark_reviewed',
   kind: 'write',
+  // Calling it again on an already-discharged review changes nothing: it answers a note and
+  // records no mutation. Spec 12 names this tool as the other of the two that declare it true.
+  idempotent: true,
   description:
     'Discharge your part of a pull request review. The task moves to Waiting for, named on the author, and the review will not come back until the author does something. Only for a task that is an open pull request awaiting your review.',
   parameters: {
@@ -414,6 +428,9 @@ const deleteTaskTool = defineTool<{ readonly id: string }>({
   kind: 'write',
   // Never executed on the model's word alone: the user confirms first. Spec 07, criterion 3.
   alwaysConfirm: true,
+  // Calling it again on the same id answers "no such task" rather than doing the same thing
+  // twice, which is a different outcome and the one `destructiveHint` warns about. Spec 12.
+  idempotent: false,
   description:
     'Delete a task outright. This is not the same as completing it: nothing is kept but the source row it came from, and its classification history goes with it. The user is asked to confirm before it happens, so propose it and say why.',
   parameters: {
@@ -464,6 +481,8 @@ const createProjectTool = defineTool<{ readonly title: string; readonly notes?: 
   name: 'create_project',
   kind: 'write',
   touchesTasks: false,
+  // Calling it twice creates two projects. Spec 12.
+  idempotent: false,
   description:
     'Create a project: an outcome that takes more than one action to reach. Tasks are filed into it.',
   parameters: {
@@ -509,6 +528,9 @@ const updateProjectTool = defineTool<UpdateProjectArguments>({
   name: 'update_project',
   kind: 'write',
   touchesTasks: false,
+  // As with update_task: declared false as a decision about the change record, not an
+  // inference about which fields happen to be idempotent. Spec 12.
+  idempotent: false,
   description:
     'Change a project. Completing one does not complete its tasks: the open ones stay, which is deliberate.',
   parameters: {
@@ -573,6 +595,8 @@ const regeneratePlanTool = defineTool<{ readonly date?: string }>({
   name: 'regenerate_daily_plan',
   kind: 'write',
   touchesTasks: false,
+  // Calling it twice redraws the plan twice, each replacing the one before it in history. Spec 12.
+  idempotent: false,
   description:
     "Redraw today's plan against the tasks and the calendar as they stand now. Today only: an earlier day's plan is a record of what was proposed on it. The previous plan for today is kept in history.",
   parameters: {

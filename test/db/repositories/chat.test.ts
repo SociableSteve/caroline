@@ -45,6 +45,54 @@ function conversation(database: Database, title = 'What is in my inbox?') {
   return createConversation(database, { title }, NOW)
 }
 
+describe('conversation source (spec 12)', () => {
+  it('defaults an unspecified conversation to browser, with no client name', () => {
+    const database = migratedDatabase()
+    const created = conversation(database)
+
+    expect(created.source).toBe('browser')
+    expect(created.clientName).toBeNull()
+    expect(getConversation(database, created.id)).toMatchObject({
+      source: 'browser',
+      clientName: null,
+    })
+  })
+
+  it('records an MCP conversation and the client that named it', () => {
+    const database = migratedDatabase()
+    const created = createConversation(
+      database,
+      { title: 'MCP session', source: 'mcp', clientName: 'review-bot' },
+      NOW,
+    )
+
+    expect(created.source).toBe('mcp')
+    expect(created.clientName).toBe('review-bot')
+    expect(getConversation(database, created.id)).toMatchObject({
+      source: 'mcp',
+      clientName: 'review-bot',
+    })
+  })
+
+  it('leaves the client name null for an MCP conversation whose client declared none', () => {
+    const database = migratedDatabase()
+    const created = createConversation(database, { title: 'MCP session', source: 'mcp' }, NOW)
+
+    expect(created.clientName).toBeNull()
+  })
+
+  it('ignores a client name given for a browser conversation', () => {
+    const database = migratedDatabase()
+    const created = createConversation(
+      database,
+      { title: 'Browser', source: 'browser', clientName: 'should be ignored' },
+      NOW,
+    )
+
+    expect(created.clientName).toBeNull()
+  })
+})
+
 describe('conversationTitle', () => {
   it('takes the first message as it stands when it is short enough', () => {
     expect(conversationTitle('Triage my inbox')).toBe('Triage my inbox')

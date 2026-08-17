@@ -14,6 +14,7 @@ import type {
   ChatChangeEntity,
   ChatConfirmationDecision,
   ChatConfirmationReason,
+  ChatConversationSource,
   ChatInverse,
   ChatRole,
 } from '../../domain/chat.js'
@@ -32,6 +33,11 @@ export interface Conversation {
   /** Spec 07: token usage per conversation is recorded and shown. */
   readonly inputTokens: number
   readonly outputTokens: number
+  /** Which kind of caller this is. Spec 12: a session is a conversation. */
+  readonly source: ChatConversationSource
+  /** The client's declared name, for an MCP conversation. Null for a browser one, and for an
+   * MCP one whose client declared none. */
+  readonly clientName: string | null
 }
 
 /** A recorded change, as the transcript shows it. The inverse is deliberately not on it. */
@@ -106,7 +112,7 @@ export interface Transcript {
   readonly messages: readonly ChatMessageRecord[]
 }
 
-const conversationColumns = 'id, title, created_at, updated_at'
+const conversationColumns = 'id, title, created_at, updated_at, source, client_name'
 
 const messageColumns = `id, conversation_id, seq, role, content, created_at, tool_calls,
   tool_call_limit_reached, read_only, input_tokens, output_tokens, stop_reason, error`
@@ -145,6 +151,10 @@ export interface CreateConversationInput {
   /** Supply one to make a test deterministic; otherwise a uuid is generated. */
   readonly id?: string
   readonly title: string
+  /** Defaults to 'browser': every conversation created before spec 12 was one. */
+  readonly source?: ChatConversationSource
+  /** Only meaningful for an 'mcp' conversation; ignored otherwise. */
+  readonly clientName?: string | null
 }
 
 export function createConversation(
@@ -153,15 +163,24 @@ export function createConversation(
   now: number,
 ): Conversation {
   const id = input.id ?? randomUUID()
+  const source = input.source ?? 'browser'
+  const clientName = source === 'mcp' ? (input.clientName ?? null) : null
 
   database
     .prepare(
       `insert into chat_conversations (${conversationColumns})
-       values (:id, :title, :created_at, :updated_at)`,
+       values (:id, :title, :created_at, :updated_at, :source, :client_name)`,
     )
-    .run({ id, title: input.title, created_at: now, updated_at: now })
+    .run({
+      id,
+      title: input.title,
+      created_at: now,
+      updated_at: now,
+      source,
+      client_name: clientName,
+    })
 
-  return { id, title: input.title, createdAt: now, updatedAt: now, ...noUsage }
+  return { id, title: input.title, createdAt: now, updatedAt: now, source, clientName, ...noUsage }
 }
 
 const noUsage = { messageCount: 0, inputTokens: 0, outputTokens: 0 }
@@ -201,6 +220,8 @@ function toConversation(row: Row): Conversation {
     messageCount: Number(row.message_count ?? 0),
     inputTokens: Number(row.input_tokens ?? 0),
     outputTokens: Number(row.output_tokens ?? 0),
+    source: String(row.source) as ChatConversationSource,
+    clientName: nullableText(row.client_name),
   }
 }
 

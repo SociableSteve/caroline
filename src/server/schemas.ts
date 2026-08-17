@@ -769,7 +769,7 @@ export const chatMessageResponseSchema = {
 export const conversationResponseSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['id', 'title', 'createdAt', 'updatedAt', 'messageCount'],
+  required: ['id', 'title', 'createdAt', 'updatedAt', 'messageCount', 'source', 'clientName'],
   properties: {
     id: { type: 'string' },
     title: { type: 'string' },
@@ -779,6 +779,11 @@ export const conversationResponseSchema = {
     /** Spec 07: token usage per conversation is recorded and shown. */
     inputTokens: { type: 'integer' },
     outputTokens: { type: 'integer' },
+    /** Spec 12: which kind of caller this conversation belongs to. */
+    source: { type: 'string', enum: ['browser', 'mcp'] },
+    /** The client's declared name, for an MCP conversation. Null for a browser one, and for an
+     * MCP one whose client declared none. */
+    clientName: { type: ['string', 'null'] },
   },
 } as const
 

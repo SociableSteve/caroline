@@ -327,6 +327,21 @@ export const fileConfigSchema = z
       })
       .strict()
       .default({}),
+    /**
+     * Spec 12, slice 2. Every key has a default, so a file naming no `mcp` block at all loads
+     * exactly as it did before this spec, and `mcp.enabled` defaults to false: a tool whose
+     * documented posture is that the bind address is the boundary does not get to become a
+     * service by way of a config key nobody set.
+     */
+    mcp: z
+      .object({
+        enabled: z.boolean().default(false),
+        /** The idle window that ends a derived session. Thirty minutes is a number rather than a
+         * principle, which is why it is a key. */
+        sessionIdleMinutes: z.number().int().min(1).max(1440).default(30),
+      })
+      .strict()
+      .default({}),
     integrations: z
       .object({
         github: z
@@ -476,6 +491,16 @@ export interface Config {
       readonly chat: LlmSettings | null
     }
   }
+  readonly mcp: {
+    readonly enabled: boolean
+    readonly sessionIdleMinutes: number
+    /**
+     * Slice 2's bearer credential, from `CAROLINE_MCP_ACCESS_TOKEN` and from nowhere else.
+     * Removed outright by slice 3, which is not built yet: this field, its criterion-6 startup
+     * guard and its criterion-7 requirement all belong to slice 2 only. Spec 12.
+     */
+    readonly accessToken: string | null
+  }
   readonly integrations: {
     readonly github: {
       readonly enabled: boolean
@@ -518,4 +543,5 @@ export const secretPaths = [
   ['integrations', 'github', 'token'],
   ['integrations', 'google', 'clientSecret'],
   ['auth', 'provider', 'clientSecret'],
+  ['mcp', 'accessToken'],
 ] as const satisfies readonly (readonly string[])[]

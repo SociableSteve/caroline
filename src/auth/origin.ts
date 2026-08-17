@@ -55,7 +55,7 @@ export function redirectUri(config: Config): string {
  * Building this set the same way `originFromHostPort` builds an origin is what keeps the two
  * derivations from disagreeing, which is the failure criterion 34 exists to catch.
  */
-const loopbackHostnames = new Set(
+export const loopbackHostnames = new Set(
   [...loopbackHosts].map((host) => new URL(`http://${bracketed(host)}`).hostname),
 )
 

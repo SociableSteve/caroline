@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { dirname, resolve as resolvePath } from 'node:path'
 import type { z } from 'zod'
-import { computeAuthRequired, isLoopbackHost } from '../auth/boundary.js'
+import { computeAuthRequired, isLoopbackHost, stripHostnameBrackets } from '../auth/boundary.js'
 import { registerEnvironmentSecrets } from './redact.js'
 import {
   credentialFreeUrl,
@@ -45,6 +45,7 @@ const secretsBannedFromFile: ReadonlyArray<{ path: string; envHint: string }> = 
   { path: 'integrations.github.token', envHint: 'GITHUB_TOKEN' },
   { path: 'integrations.google.clientSecret', envHint: 'GOOGLE_CLIENT_SECRET' },
   { path: 'auth.provider.clientSecret', envHint: 'CAROLINE_AUTH_CLIENT_SECRET' },
+  { path: 'mcp.accessToken', envHint: 'CAROLINE_MCP_ACCESS_TOKEN' },
   // `server.accessToken` is not a schema key any more (spec 13): the key, the environment
   // variable and the guard that read it for its old purpose are gone. The ban on the key
   // appearing in the file predates this spec and still applies unconditionally, which is why
@@ -209,6 +210,7 @@ const secretEnvVars = [
   'GITHUB_TOKEN',
   'GOOGLE_CLIENT_SECRET',
   'CAROLINE_AUTH_CLIENT_SECRET',
+  'CAROLINE_MCP_ACCESS_TOKEN',
 ] as const
 
 function environmentSecrets(env: NodeJS.ProcessEnv): string[] {
@@ -322,13 +324,60 @@ function assertPublicUrlSchemeIsSafe(config: Config): void {
   // `URL#hostname` renders an IPv6 host bracketed (`[::1]`), but `isLoopbackHost`'s set is
   // unbracketed: strip the brackets before comparing, or a genuinely-safe all-loopback IPv6
   // config would be wrongly refused here.
-  const publicUrlHostname = publicUrl.hostname.replace(/^\[(.+)\]$/, '$1')
+  const publicUrlHostname = stripHostnameBrackets(publicUrl.hostname)
   const bothLoopback = isLoopbackHost(config.server.host) && isLoopbackHost(publicUrlHostname)
   if (publicUrl.protocol !== 'https:' && !bothLoopback) {
     throw new ConfigError(
       `server.publicUrl is "${config.server.publicUrl}", which is not https, and server.host ("${config.server.host}") and server.publicUrl's host are not both loopback: a session cookie would be sent over plaintext.`,
     )
   }
+}
+
+/**
+ * Spec 12, criterion 6: a tool whose documented posture is that the bind address is the
+ * boundary does not get to become a service by way of a config key. In the same shape as
+ * `assertPublicUrlIsSetWhereBindIsNotLoopback`, naming both settings involved.
+ */
+function assertMcpIsLoopbackOnly(config: Config): void {
+  if (config.mcp.enabled && !isLoopbackHost(config.server.host)) {
+    throw new ConfigError(
+      `mcp.enabled is true and server.host is "${config.server.host}", which is not loopback: the MCP endpoint is loopback only. Set mcp.enabled to false, or bind server.host to a loopback address.`,
+    )
+  }
+}
+
+/**
+ * Spec 12, criterion 7, slice 2 only: loopback is not a substitute for the credential on this
+ * surface, so the check does not read `authRequired` at all and fires on any bind whatever.
+ * Replaced by criterion 32 once slice 3 makes the only credential a token issued at runtime.
+ */
+function assertMcpHasAccessTokenWhenEnabled(config: Config): void {
+  if (config.mcp.enabled && config.mcp.accessToken === null) {
+    throw new ConfigError(
+      'mcp.enabled is true and CAROLINE_MCP_ACCESS_TOKEN is not set: the MCP endpoint would have no credential to check requests against.',
+    )
+  }
+}
+
+/**
+ * Spec 12, criterion 17: an MCP client counts as a remote provider whatever `llm.provider` says,
+ * so `llmContent: "full"` with the MCP server enabled requires the flag whatever the provider is,
+ * `ollama` included. `assertContentPolicyIsAllowed` above is the same rule for the chat boundary
+ * and is checked against each configured provider's `isLocal`; this one is not, because enabling
+ * MCP makes every provider a channel a complete body could leave through.
+ */
+function assertMcpContentPolicyIsAllowed(config: Config): void {
+  if (
+    !config.mcp.enabled ||
+    config.privacy.llmContent !== 'full' ||
+    config.privacy.allowFullContentToRemoteProvider === true
+  ) {
+    return
+  }
+
+  throw new ConfigError(
+    'mcp.enabled is true, privacy.llmContent is "full" and privacy.allowFullContentToRemoteProvider is false: an MCP client is a remote provider whatever llm.provider is set to, so a complete body could leave through it. Set privacy.allowFullContentToRemoteProvider to true to accept that, or lower privacy.llmContent, or turn mcp.enabled off.',
+  )
 }
 
 /**
@@ -407,6 +456,11 @@ export function loadConfig({ file, env, runtimeChecks = true }: LoadOptions): Co
         chat: overrideSettings(base, parsed.llm.overrides.chat, env),
       },
     },
+    mcp: {
+      enabled: parsed.mcp.enabled,
+      sessionIdleMinutes: parsed.mcp.sessionIdleMinutes,
+      accessToken: nonEmpty(env.CAROLINE_MCP_ACCESS_TOKEN),
+    },
     integrations: {
       github: {
         enabled: parsed.integrations.github.enabled,
@@ -440,6 +494,9 @@ export function loadConfig({ file, env, runtimeChecks = true }: LoadOptions): Co
     assertAllowlistIsNonEmptyWhenAuthIsRequired(config)
     assertPublicUrlIsSetWhereBindIsNotLoopback(config)
     assertPublicUrlSchemeIsSafe(config)
+    assertMcpIsLoopbackOnly(config)
+    assertMcpHasAccessTokenWhenEnabled(config)
+    assertMcpContentPolicyIsAllowed(config)
   }
 
   return config
