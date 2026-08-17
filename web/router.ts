@@ -20,8 +20,16 @@ export type Route =
   | { readonly name: 'projects' }
   | { readonly name: 'project'; readonly id: string }
   | { readonly name: 'jobs' }
-  /** `outcome` is what the Google callback left in the hash, so Settings can say how it went. */
-  | { readonly name: 'settings'; readonly outcome: string | null }
+  /**
+   * `outcome` is what the Google callback left in the hash, so Settings can say how it went.
+   * `mcpRequest` is a pending MCP authorisation request's id, left by a redirect from
+   * `GET /api/mcp/authorize`, so Settings can show its consent screen. Spec 12, criterion 31.
+   */
+  | {
+      readonly name: 'settings'
+      readonly outcome: string | null
+      readonly mcpRequest: string | null
+    }
 
 /** The surface, and the conversation open beside it. Spec 08's five and a companion. */
 export interface AppLocation {
@@ -86,7 +94,12 @@ export function parseRoute(hash: string): Route {
   if (segments[0] === 'settings') {
     // The OAuth callback redirects here with its outcome. It is one of a fixed set of words
     // Caroline itself chose, and the screen matches it against that set rather than showing it.
-    return { name: 'settings', outcome: new URLSearchParams(query).get('google') }
+    const params = new URLSearchParams(query)
+    return {
+      name: 'settings',
+      outcome: params.get('google'),
+      mcpRequest: params.get('mcpRequest'),
+    }
   }
   if (segments[0] === 'projects') {
     const id = segments[1]

@@ -8,6 +8,7 @@ import { sameItem } from '../src/domain/selection.js'
 import {
   api,
   type ItemRef,
+  type McpConsentView,
   type ProjectState,
   type ProjectView,
   type TaskInput,
@@ -106,6 +107,7 @@ export function App() {
     calendar,
     google,
     preview,
+    mcpClients,
     userName,
     staleDays,
     loading,
@@ -298,6 +300,45 @@ export function App() {
     return saved
   }
 
+  /**
+   * The consent screen's own view, read from the request id `GET /api/mcp/authorize` left in the
+   * hash. `undefined` while the URL names none; `null` for one that no longer exists (spec 12,
+   * criterion 31). Read here rather than in `useCarolineData`, because it is not part of the
+   * settings answers the rest of that screen reads: it is a one-time landing rather than a state
+   * of the deployment.
+   */
+  const [mcpConsent, setMcpConsent] = useState<McpConsentView | null | undefined>(undefined)
+  const mcpRequestId = route.name === 'settings' ? route.mcpRequest : null
+
+  useEffect(() => {
+    if (mcpRequestId === null) {
+      setMcpConsent(undefined)
+      return
+    }
+    void api
+      .getMcpConsent(mcpRequestId)
+      .then(setMcpConsent)
+      .catch(() => setMcpConsent(null))
+  }, [mcpRequestId])
+
+  const onDecideMcpConsent = (approve: boolean) =>
+    void (async () => {
+      if (mcpRequestId === null) return
+      try {
+        const { redirectTo } = await api.decideMcpConsent(mcpRequestId, approve)
+        // Sends the browser back to the client's own redirect URI, with a code or a denial: the
+        // native client's own loopback listener is what is waiting on the other end of this.
+        window.location.assign(redirectTo)
+      } catch (error) {
+        setWriteFailure(error instanceof Error ? error.message : 'That did not work')
+      }
+    })()
+
+  const onRevokeMcpClient = (clientId: string) =>
+    void (async () => {
+      if (await write(() => api.revokeMcpClient(clientId))) await reloadSettings()
+    })()
+
   const setChat = (open: boolean) => {
     setChatOpen(open)
     // And in the URL, which is where the rail's openness really lives. The conversation leaves with
@@ -452,6 +493,10 @@ export function App() {
                 onDisconnectGoogle={onDisconnectGoogle}
                 onRefreshPreview={() => void reloadSettings()}
                 onSaveUserName={onSaveUserName}
+                mcpClients={mcpClients}
+                onRevokeMcpClient={onRevokeMcpClient}
+                mcpConsent={mcpConsent}
+                onDecideMcpConsent={onDecideMcpConsent}
               />
             ) : (
               <Dashboard

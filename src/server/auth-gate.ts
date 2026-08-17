@@ -28,15 +28,26 @@ export const EXEMPT_AUTH_ROUTES: ReadonlySet<string> = new Set([
   'POST /api/auth/login',
   'GET /api/auth/callback',
   /**
-   * Spec 12: the MCP endpoint checks its own credential, `mcp.accessToken`, which is not the
-   * browser's session and answers to a caller that has no session cookie to present in the
-   * first place. Exempt from the session check for that reason, and only from it: the `Origin`
-   * check below still runs, and the endpoint is unregistered at all unless `mcp.enabled` is
-   * true and the bind is loopback (spec 12, criteria 5 and 6), so this line grants nothing where
-   * that has not already been decided. Spec 12 criterion 33: nothing about the API's own
-   * credential changes here.
+   * Spec 12: the MCP endpoint checks its own credential, a bearer token Caroline's own
+   * authorisation server issued (validated in `src/mcp/route.ts` via `validateAccessToken`,
+   * `src/mcp/oauth/service.js`), which is not the browser's session and answers to a caller that
+   * has no session cookie to present in the first place. Exempt from the session check for that
+   * reason, and only from it: the `Origin` check below still runs, and the endpoint is
+   * unregistered at all unless `mcp.enabled` is true and the bind is loopback (spec 12, criteria
+   * 5 and 6), so this line grants nothing where that has not already been decided. Spec 12
+   * criterion 33: nothing about the API's own credential changes here.
    */
   'POST /api/mcp',
+  /**
+   * Spec 12, slice 3: the token endpoint is reached by an MCP client's own code, which holds no
+   * session cookie either, exactly as `POST /api/mcp` does not. `GET /api/mcp/authorize` and the
+   * two `/api/mcp/oauth/*` routes beside it are deliberately not exempt: they are hit by a
+   * browser, and the consent screen they lead to is exactly the surface a login already protects
+   * where one is configured. Exempting the token endpoint grants nothing about the MCP endpoint
+   * itself, which stays unregistered at all unless `mcp.enabled` is true and the bind is
+   * loopback (criteria 5 and 6).
+   */
+  'POST /api/mcp/token',
 ])
 
 function pathnameOf(request: FastifyRequest): string {

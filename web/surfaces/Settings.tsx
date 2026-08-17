@@ -7,7 +7,7 @@
  * the page. Spec 09, criterion 9.
  */
 import { useEffect, useState } from 'react'
-import type { GoogleStatus, PrivacyPreview } from '../api.js'
+import type { GoogleStatus, McpClientView, McpConsentView, PrivacyPreview } from '../api.js'
 import { formatDate } from '../format.js'
 import { ActionRow, Fact, Facts, Field, Panel } from '../components/primitives.js'
 import { useSurfaceTitle } from '../title.js'
@@ -24,6 +24,20 @@ export interface SettingsProps {
   readonly onRefreshPreview: () => void
   /** Answers whether it saved, so a refused name is not reported as having been accepted. */
   readonly onSaveUserName: (name: string) => Promise<boolean>
+  /**
+   * Every MCP client already approved once, and a way to revoke one. Spec 08. Null while it has
+   * not been read yet, which is also what a loopback install with `mcp.enabled` false answers
+   * with, so the panel says nothing rather than showing an empty list that never fills.
+   */
+  readonly mcpClients: readonly McpClientView[] | null
+  readonly onRevokeMcpClient: (clientId: string) => void
+  /**
+   * The pending authorisation request `GET /api/mcp/authorize` redirected here for, read from
+   * the hash. `undefined` means none is named in the URL; `null` means one was named but has
+   * since expired, was already decided, or never existed. Spec 12, criterion 31.
+   */
+  readonly mcpConsent: McpConsentView | null | undefined
+  readonly onDecideMcpConsent: (approve: boolean) => void
 }
 
 const outcomes: Record<string, string> = {
@@ -42,6 +56,10 @@ export function Settings({
   onDisconnectGoogle,
   onRefreshPreview,
   onSaveUserName,
+  mcpClients,
+  onRevokeMcpClient,
+  mcpConsent,
+  onDecideMcpConsent,
 }: SettingsProps) {
   useSurfaceTitle('Settings')
   const [typed, setTyped] = useState(userName)
@@ -107,6 +125,69 @@ export function Settings({
           </div>
         )}
       </Panel>
+
+      {/*
+        The consent screen the authorisation flow lands on (spec 12, criterion 31). Shown only
+        while the URL names a pending request: it is not a state of the panel below it, because
+        approving or denying it sends the browser away to the client's own redirect URI, and
+        there is nothing to show here once that has happened.
+      */}
+      {mcpConsent !== undefined && (
+        <Panel headingLevel={2} heading="An assistant is asking to connect">
+          {mcpConsent === null ? (
+            <p className="empty">
+              That request has expired, was already decided, or does not exist. Ask the assistant to
+              try connecting again.
+            </p>
+          ) : (
+            <div>
+              <p>
+                <strong>{mcpConsent.clientName ?? mcpConsent.clientId}</strong> is asking to connect
+                to Caroline over MCP. Once approved, it can read and change your board exactly as
+                chat can, through the same content policy, the same confirmation for a delete or a
+                bulk change, and the same undo.
+              </p>
+              <Facts>
+                <Fact label="Client">{mcpConsent.clientUri ?? mcpConsent.clientId}</Fact>
+                <Fact label="Redirects to">{mcpConsent.redirectUri}</Fact>
+              </Facts>
+              <ActionRow>
+                <button type="button" className="primary" onClick={() => onDecideMcpConsent(true)}>
+                  Approve
+                </button>
+                <button type="button" onClick={() => onDecideMcpConsent(false)}>
+                  Deny
+                </button>
+              </ActionRow>
+            </div>
+          )}
+        </Panel>
+      )}
+
+      {/* Spec 08: "a list of the clients already approved with a way to revoke one." Null
+          (mcp.enabled false, or not read yet) is nothing shown at all, rather than an empty
+          list that looks like a promise nothing is connected. */}
+      {mcpClients !== null && (
+        <Panel headingLevel={2} heading="Assistants connected over MCP">
+          {mcpClients.length === 0 ? (
+            <p className="empty">No assistant has been approved yet.</p>
+          ) : (
+            <ul className="mcp-client-list">
+              {mcpClients.map((client) => (
+                <li key={client.clientId}>
+                  <span>{client.clientName ?? client.clientId}</span>
+                  {client.approvedAt !== null && (
+                    <span className="policy-note"> Approved {formatDate(client.approvedAt)}.</span>
+                  )}
+                  <button type="button" onClick={() => onRevokeMcpClient(client.clientId)}>
+                    Revoke
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Panel>
+      )}
 
       {/* Spec 09: a name is data about a person rather than deployment configuration, so it is
           written here rather than hand-edited into `caroline.config.json`. */}

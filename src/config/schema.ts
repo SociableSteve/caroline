@@ -337,10 +337,16 @@ export const fileConfigSchema = z
       .strict()
       .default({}),
     /**
-     * Spec 12, slice 2. Every key has a default, so a file naming no `mcp` block at all loads
-     * exactly as it did before this spec, and `mcp.enabled` defaults to false: a tool whose
-     * documented posture is that the bind address is the boundary does not get to become a
-     * service by way of a config key nobody set.
+     * Spec 12. Every key has a default, so a file naming no `mcp` block at all loads exactly as
+     * it did before this spec, and `mcp.enabled` defaults to false: a tool whose documented
+     * posture is that the bind address is the boundary does not get to become a service by way
+     * of a config key nobody set.
+     *
+     * `accessToken` is not a key here, deliberately: slice 2's bearer credential was
+     * environment-only and never a file key, and slice 3 removes it outright rather than adding
+     * it here to then reject. A configuration file naming `mcp.accessToken` fails at startup on
+     * this schema's own strict-mode rejection of an unrecognised key, which is criterion 32's
+     * assertion about the file side of that removal.
      */
     mcp: z
       .object({
@@ -348,6 +354,20 @@ export const fileConfigSchema = z
         /** The idle window that ends a derived session. Thirty minutes is a number rather than a
          * principle, which is why it is a key. */
         sessionIdleMinutes: z.number().int().min(1).max(1440).default(30),
+        /**
+         * The guards on the one outbound destination a caller rather than the user chooses: a
+         * client's metadata document, fetched only while somebody is approving that client.
+         * Spec 12, "The client metadata document fetch".
+         */
+        clientMetadata: z
+          .object({
+            /** Enforced while the body is read, not after. */
+            maxResponseBytes: z.number().int().min(1024).max(1_048_576).default(65_536),
+            /** The whole fetch, not just the connection. */
+            timeoutMs: z.number().int().min(100).max(60_000).default(5_000),
+          })
+          .strict()
+          .default({}),
       })
       .strict()
       .default({}),
@@ -505,12 +525,10 @@ export interface Config {
   readonly mcp: {
     readonly enabled: boolean
     readonly sessionIdleMinutes: number
-    /**
-     * Slice 2's bearer credential, from `CAROLINE_MCP_ACCESS_TOKEN` and from nowhere else.
-     * Removed outright by slice 3, which is not built yet: this field, its criterion-6 startup
-     * guard and its criterion-7 requirement all belong to slice 2 only. Spec 12.
-     */
-    readonly accessToken: string | null
+    readonly clientMetadata: {
+      readonly maxResponseBytes: number
+      readonly timeoutMs: number
+    }
   }
   readonly integrations: {
     readonly github: {
@@ -554,5 +572,4 @@ export const secretPaths = [
   ['integrations', 'github', 'token'],
   ['integrations', 'google', 'clientSecret'],
   ['auth', 'provider', 'clientSecret'],
-  ['mcp', 'accessToken'],
 ] as const satisfies readonly (readonly string[])[]

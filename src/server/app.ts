@@ -24,6 +24,9 @@ import { registerPrivacyRoutes } from './routes/privacy.js'
 import { registerSettingsRoutes } from './routes/settings.js'
 import { registerAuthRoutes } from './routes/auth.js'
 import { registerMcpRoutes } from '../mcp/route.js'
+import { registerMcpOauthRoutes } from './routes/mcp-oauth.js'
+import type { fetchClientMetadata } from '../mcp/oauth/client-metadata.js'
+import { registerWellKnownRoutes } from './routes/well-known.js'
 import {
   errorSerialiser,
   redactLogFields,
@@ -56,6 +59,8 @@ export interface BuildServerOptions {
   /** Injected in tests so discovery and the token exchange never reach a network. Ignored if
    * `auth` is supplied directly. */
   authFetch?: typeof globalThis.fetch
+  /** Injected in tests so an MCP client's metadata document fetch never reaches a network. */
+  mcpClientMetadataFetch?: typeof fetchClientMetadata
   logger?: {
     level?: string
     /** Where log lines go. Wrapped in the secret scrubber before Fastify sees it. */
@@ -99,6 +104,7 @@ export interface RouteDependencies {
   now: () => number
   jobs: CarolineJobs
   auth: AuthService
+  mcpClientMetadataFetch?: typeof fetchClientMetadata
 }
 
 /**
@@ -108,7 +114,7 @@ export interface RouteDependencies {
  */
 export function registerRoutes(
   app: FastifyInstance,
-  { config, database, changes, now, jobs, auth }: RouteDependencies,
+  { config, database, changes, now, jobs, auth, mcpClientMetadataFetch }: RouteDependencies,
 ): void {
   registerHealthRoute(app, config, database)
   registerConfigRoute(app, config)
@@ -126,6 +132,18 @@ export function registerRoutes(
   // encapsulation carries its own error handler, so it must be `app.register`ed rather than
   // called as a plain function on `app` the other routes are. Spec 12, criterion 5.
   registerMcpRoutes(app, { config, database, changes, now, jobs })
+  // The authorisation server's own routes and the two well-known metadata documents, both off
+  // unless mcp.enabled (spec 12, criterion 5): a document describing a service that is not
+  // running is not a lesser version of the truth.
+  registerMcpOauthRoutes(app, {
+    config,
+    database,
+    now,
+    ...(mcpClientMetadataFetch === undefined
+      ? {}
+      : { fetchClientMetadata: mcpClientMetadataFetch }),
+  })
+  registerWellKnownRoutes(app, config)
 }
 
 /**
@@ -140,6 +158,7 @@ export async function buildServer({
   jobs = buildJobs({ database, config, changes, now }),
   authFetch,
   auth: authOverride,
+  mcpClientMetadataFetch,
   logger,
   webRoot = resolveWebRoot(),
 }: BuildServerOptions): Promise<FastifyInstance> {
@@ -204,7 +223,15 @@ export async function buildServer({
 
   registerErrorHandling(app, config, { spaFallback: serveWeb })
   registerAuthGate(app, config, auth)
-  registerRoutes(app, { config, database, changes, now, jobs, auth })
+  registerRoutes(app, {
+    config,
+    database,
+    changes,
+    now,
+    jobs,
+    auth,
+    ...(mcpClientMetadataFetch === undefined ? {} : { mcpClientMetadataFetch }),
+  })
 
   return app
 }

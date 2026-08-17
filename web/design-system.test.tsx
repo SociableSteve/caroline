@@ -115,6 +115,10 @@ const surfaces: ReadonlyArray<{ name: string; title: string; render: () => void 
           onDisconnectGoogle={vi.fn()}
           onRefreshPreview={vi.fn()}
           onSaveUserName={vi.fn(async () => true)}
+          mcpClients={null}
+          onRevokeMcpClient={vi.fn()}
+          mcpConsent={undefined}
+          onDecideMcpConsent={vi.fn()}
         />,
       ),
   },

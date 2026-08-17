@@ -108,6 +108,10 @@ export interface TestServerOptions {
   /** The `fetch` the auth service is built with, for a test that stubs OIDC discovery and the
    * token endpoint. Defaults to `refuseNetwork`, like every other fetch this helper builds. */
   readonly authFetch?: typeof globalThis.fetch
+  /** Replaces the MCP authorisation server's client metadata fetch, for a test that drives
+   * `GET /api/mcp/authorize` without reaching a real network. Undefined means the real one,
+   * which every such test therefore has to stub explicitly. */
+  readonly mcpClientMetadataFetch?: Parameters<typeof buildServer>[0]['mcpClientMetadataFetch']
 }
 
 export async function testServer({
@@ -118,6 +122,7 @@ export async function testServer({
   google,
   config = testConfig,
   authFetch,
+  mcpClientMetadataFetch,
 }: TestServerOptions = {}): Promise<TestServer> {
   const changes = createChangeFeed()
   const published: ChangeEvent[] = []
@@ -163,6 +168,7 @@ export async function testServer({
     now: () => REQUEST_TIME,
     jobs: finalJobs,
     authFetch: authFetch ?? refuseNetwork,
+    ...(mcpClientMetadataFetch === undefined ? {} : { mcpClientMetadataFetch }),
   })
   openApps.push(app)
 

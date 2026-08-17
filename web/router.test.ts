@@ -22,7 +22,7 @@ describe('parseRoute', () => {
 
   it('reads the jobs and settings surfaces', () => {
     expect(parseRoute('#/jobs')).toEqual({ name: 'jobs' })
-    expect(parseRoute('#/settings')).toEqual({ name: 'settings', outcome: null })
+    expect(parseRoute('#/settings')).toEqual({ name: 'settings', outcome: null, mcpRequest: null })
   })
 
   /** The Google callback redirects here with how it went, and Settings says so. Spec 09. */
@@ -30,6 +30,16 @@ describe('parseRoute', () => {
     expect(parseRoute('#/settings?google=connected')).toEqual({
       name: 'settings',
       outcome: 'connected',
+      mcpRequest: null,
+    })
+  })
+
+  /** `GET /api/mcp/authorize` redirects here with a pending request's id. Spec 12, criterion 31. */
+  it('reads the pending MCP authorisation request left on the settings route', () => {
+    expect(parseRoute('#/settings?mcpRequest=abc123')).toEqual({
+      name: 'settings',
+      outcome: null,
+      mcpRequest: 'abc123',
     })
   })
 

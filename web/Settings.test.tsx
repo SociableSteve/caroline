@@ -60,6 +60,8 @@ function renderSettings(overrides: Partial<Parameters<typeof Settings>[0]> = {})
     onDisconnectGoogle: vi.fn(),
     onRefreshPreview: vi.fn(),
     onSaveUserName: vi.fn(async () => true),
+    onRevokeMcpClient: vi.fn(),
+    onDecideMcpConsent: vi.fn(),
   }
 
   render(
@@ -68,6 +70,8 @@ function renderSettings(overrides: Partial<Parameters<typeof Settings>[0]> = {})
       preview={preview()}
       userName=""
       googleOutcome={null}
+      mcpClients={null}
+      mcpConsent={undefined}
       {...handlers}
       {...overrides}
     />,
@@ -318,5 +322,78 @@ describe('the item context preview', () => {
 
     expect(within(section).getByText('Waiting for the server.')).toBeInTheDocument()
     expect(within(section).queryByText(/Nothing is captured yet/)).not.toBeInTheDocument()
+  })
+})
+
+describe('the MCP consent screen', () => {
+  it('shows nothing about it when the URL names no pending request', () => {
+    renderSettings({ mcpConsent: undefined })
+
+    expect(
+      screen.queryByRole('heading', { name: /An assistant is asking to connect/ }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('names the client asking, and approves or denies on request', async () => {
+    const user = userEvent.setup()
+    const handlers = renderSettings({
+      mcpConsent: {
+        requestId: 'req-1',
+        clientId: 'https://example.com/client.json',
+        clientName: 'Example assistant',
+        clientUri: 'https://example.com',
+        redirectUri: 'http://127.0.0.1:51820/callback',
+      },
+    })
+
+    expect(
+      screen.getByRole('heading', { name: /An assistant is asking to connect/ }),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/Example assistant/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Approve' }))
+    expect(handlers.onDecideMcpConsent).toHaveBeenCalledWith(true)
+
+    await user.click(screen.getByRole('button', { name: 'Deny' }))
+    expect(handlers.onDecideMcpConsent).toHaveBeenCalledWith(false)
+  })
+
+  it('says a request has expired or was already decided, for a request found to be gone', () => {
+    renderSettings({ mcpConsent: null })
+
+    expect(screen.getByText(/expired, was already decided, or does not exist/)).toBeInTheDocument()
+  })
+})
+
+describe('assistants connected over MCP', () => {
+  it('shows nothing at all where the list has not been read (mcp.enabled false, or not yet loaded)', () => {
+    renderSettings({ mcpClients: null })
+
+    expect(screen.queryByText(/Assistants connected over MCP/)).not.toBeInTheDocument()
+  })
+
+  it('says nothing has been approved yet, on an empty list', () => {
+    renderSettings({ mcpClients: [] })
+
+    expect(screen.getByText('No assistant has been approved yet.')).toBeInTheDocument()
+  })
+
+  it('lists an approved client and revokes it on request', async () => {
+    const user = userEvent.setup()
+    const handlers = renderSettings({
+      mcpClients: [
+        {
+          clientId: 'https://example.com/client.json',
+          clientName: 'Example assistant',
+          clientUri: 'https://example.com',
+          approvedAt: NOW,
+        },
+      ],
+    })
+
+    expect(screen.getByText('Example assistant')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Revoke' }))
+    expect(handlers.onRevokeMcpClient).toHaveBeenCalledWith('https://example.com/client.json')
   })
 })
