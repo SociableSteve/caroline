@@ -84,6 +84,39 @@ function isRedirect(response: Response): boolean {
   return response.status >= 300 && response.status < 400
 }
 
+/**
+ * Reads the response body incrementally, refusing as soon as the accumulated byte count exceeds
+ * `maxBytes` rather than buffering the whole body first and checking afterward: the cap has to be
+ * enforced while reading or a hostile issuer can force an arbitrarily large response into memory
+ * before the check ever runs.
+ */
+async function readBoundedText(response: Response, maxBytes: number): Promise<string> {
+  const body = response.body
+  if (body === null) return ''
+
+  const reader = body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > maxBytes) {
+      await reader.cancel()
+      throw new DiscoveryError('The discovery document is larger than Caroline will read.')
+    }
+    chunks.push(value)
+  }
+
+  const combined = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    combined.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return new TextDecoder().decode(combined)
+}
+
 async function fetchOnce(
   fetchFn: typeof globalThis.fetch,
   url: URL,
@@ -158,10 +191,7 @@ export async function fetchDiscoveryDocument({
     )
   }
 
-  const text = await response.text()
-  if (text.length > DISCOVERY_MAX_BYTES) {
-    throw new DiscoveryError('The discovery document is larger than Caroline will read.')
-  }
+  const text = await readBoundedText(response, DISCOVERY_MAX_BYTES)
 
   let raw: RawDocument
   try {

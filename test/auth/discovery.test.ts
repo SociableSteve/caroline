@@ -4,6 +4,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
+  DISCOVERY_MAX_BYTES,
   DiscoveryError,
   fetchDiscoveryDocument,
   ProviderUnreachableError,
@@ -168,6 +169,39 @@ describe('fetchDiscoveryDocument', () => {
     await expect(
       fetchDiscoveryDocument({ issuer: ISSUER, fetch: redirectsWithNoLocation }),
     ).rejects.toThrow(/naming no location/)
+  })
+
+  it('refuses an oversized discovery response without reading the whole body', async () => {
+    const chunkSize = 200_000
+    const chunksAvailable = 50 // 10MB available; the cap is DISCOVERY_MAX_BYTES (1MB)
+    let pulls = 0
+    const oversizedBody = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulls += 1
+        if (pulls > chunksAvailable) {
+          controller.close()
+          return
+        }
+        controller.enqueue(new TextEncoder().encode('a'.repeat(chunkSize)))
+      },
+    })
+
+    const servesUnboundedBody: typeof globalThis.fetch = async () =>
+      new Response(oversizedBody, {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+
+    await expect(
+      fetchDiscoveryDocument({ issuer: ISSUER, fetch: servesUnboundedBody }),
+    ).rejects.toThrow(/larger than Caroline will read/)
+
+    // The cap trips after DISCOVERY_MAX_BYTES / chunkSize chunks, plus a little slack for the
+    // stream's own internal read-ahead; if the whole body had been buffered first (the bug this
+    // guards against), `pulls` would reach `chunksAvailable`.
+    const chunksNeededToExceedCap = Math.ceil(DISCOVERY_MAX_BYTES / chunkSize) + 2
+    expect(pulls).toBeLessThanOrEqual(chunksNeededToExceedCap)
+    expect(pulls).toBeLessThan(chunksAvailable)
   })
 
   it('refuses a non-https issuer before ever fetching', async () => {

@@ -480,6 +480,21 @@ describe('the auth boundary', () => {
     expect(config.server.publicUrl).toBe('http://localhost:5123')
   })
 
+  it('accepts a plaintext public URL where both it and the bind are the IPv6 loopback (criterion 4)', () => {
+    // `new URL(...).hostname` renders IPv6 loopback bracketed ("[::1]"); this must not be
+    // wrongly refused as "not both loopback" against isLoopbackHost's unbracketed set.
+    const config = loadConfig({
+      file: {
+        server: { host: '::1', publicUrl: 'http://[::1]:5123' },
+        auth: allowed,
+      },
+      env: noEnv,
+    })
+
+    expect(config.authRequired).toBe(true)
+    expect(config.server.publicUrl).toBe('http://[::1]:5123')
+  })
+
   it('requires an https public URL where the bind is not loopback even though the URL host is (criterion 4)', () => {
     expect(() =>
       loadConfig({

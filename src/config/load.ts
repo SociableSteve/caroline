@@ -319,7 +319,11 @@ function assertPublicUrlSchemeIsSafe(config: Config): void {
   if (!config.authRequired || config.server.publicUrl === null) return
 
   const publicUrl = new URL(config.server.publicUrl)
-  const bothLoopback = isLoopbackHost(config.server.host) && isLoopbackHost(publicUrl.hostname)
+  // `URL#hostname` renders an IPv6 host bracketed (`[::1]`), but `isLoopbackHost`'s set is
+  // unbracketed: strip the brackets before comparing, or a genuinely-safe all-loopback IPv6
+  // config would be wrongly refused here.
+  const publicUrlHostname = publicUrl.hostname.replace(/^\[(.+)\]$/, '$1')
+  const bothLoopback = isLoopbackHost(config.server.host) && isLoopbackHost(publicUrlHostname)
   if (publicUrl.protocol !== 'https:' && !bothLoopback) {
     throw new ConfigError(
       `server.publicUrl is "${config.server.publicUrl}", which is not https, and server.host ("${config.server.host}") and server.publicUrl's host are not both loopback: a session cookie would be sent over plaintext.`,
