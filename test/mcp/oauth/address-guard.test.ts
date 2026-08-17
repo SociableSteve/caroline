@@ -30,6 +30,8 @@ describe('isPublicAddress', () => {
     ['unspecified', '::'],
     ['loopback', '::1'],
     ['link-local', 'fe80::1'],
+    ['link-local (fea0, top of the /10)', 'fea0::1'],
+    ['link-local (febf, top of the /10)', 'febf::1'],
     ['unique-local', 'fc00::1'],
     ['unique-local (fd)', 'fd12:3456:789a::1'],
   ])('refuses an IPv6 %s address (%s)', (_label, address) => {

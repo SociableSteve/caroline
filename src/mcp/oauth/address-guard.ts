@@ -91,7 +91,7 @@ function isPrivateIpv6(address: string): boolean {
 
   if (groups.every((group) => group === 0)) return true // "::", unspecified
   if (groups.slice(0, 7).every((group) => group === 0) && groups[7] === 1) return true // ::1
-  if ((first & 0xffe0) === 0xfe80) return true // fe80::/10, link-local
+  if ((first & 0xffc0) === 0xfe80) return true // fe80::/10, link-local
   if ((first & 0xfe00) === 0xfc00) return true // fc00::/7, unique local
 
   // ::ffff:0:0/96 is the mapped-address block in its full expanded form; the compact dotted
