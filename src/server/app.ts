@@ -1,8 +1,9 @@
 import { existsSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 import Fastify, { type FastifyInstance } from 'fastify'
 import fastifyStatic from '@fastify/static'
 import { redactSecrets } from '../config/redact.js'
+import { WEB_BUILD_DIR } from './web-build-dir.js'
 import type { Config } from '../config/schema.js'
 import type { Database } from '../db/index.js'
 import { registerAuthGate } from './auth-gate.js'
@@ -60,10 +61,36 @@ export interface BuildServerOptions {
     /** Where log lines go. Wrapped in the secret scrubber before Fastify sees it. */
     stream?: NodeJS.WritableStream
   }
+  /**
+   * Where the built SPA lives. Defaults to {@link resolveWebRoot}'s `process.cwd()`-anchored
+   * guess, which is right for `npm run dev` and `npm run start` as both are run from the repo
+   * root, but not for every deployment: a Docker `WORKDIR`, a pm2 config with no explicit
+   * `cwd`, or a systemd unit missing `WorkingDirectory` can start the process somewhere else
+   * entirely, and the default would then miss the built SPA silently. Set this explicitly
+   * when the process's cwd is not the repo root. Also lets tests inject a path directly
+   * instead of `chdir`-ing the whole process.
+   *
+   * `main.ts`, the real production entry point, wires this from `config.server.webRoot`
+   * (`CAROLINE_WEB_ROOT` in the environment), which is how a deployment actually reaches
+   * this option: nothing calls `buildServer` directly outside of tests.
+   */
+  webRoot?: string
 }
 
-/** The built SPA, when `npm run build` has been run. Absent in development and in tests. */
-const webRoot = fileURLToPath(new URL('../web', import.meta.url))
+/**
+ * Where the built SPA's directory is, given the directory the process was started from.
+ *
+ * Anchored on `cwd` rather than `import.meta.url`: the latter resolves to the currently
+ * *executing* module, which differs between `tsx watch src/server/main.ts` (dev, runs this
+ * file from `src/server`) and `node dist/server/main.js` (prod, runs the compiled copy from
+ * `dist/server`). `vite.config.ts` writes the built SPA to {@link WEB_BUILD_DIR} relative to
+ * the repo root, so this only resolves correctly when `cwd` *is* the repo root: see
+ * `webRoot` on {@link BuildServerOptions} for how a deployment whose cwd differs can
+ * override it.
+ */
+export function resolveWebRoot(cwd: string = process.cwd()): string {
+  return join(cwd, ...WEB_BUILD_DIR)
+}
 
 export interface RouteDependencies {
   config: Config
@@ -114,6 +141,7 @@ export async function buildServer({
   authFetch,
   auth: authOverride,
   logger,
+  webRoot = resolveWebRoot(),
 }: BuildServerOptions): Promise<FastifyInstance> {
   const app = Fastify({
     // Written out explicitly rather than left to the default, so the intent is legible and a

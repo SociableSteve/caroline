@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { dirname, resolve as resolvePath } from 'node:path'
+import { dirname, isAbsolute, resolve as resolvePath } from 'node:path'
 import type { z } from 'zod'
 import { computeAuthRequired, isLoopbackHost, stripHostnameBrackets } from '../auth/boundary.js'
 import { registerEnvironmentSecrets } from './redact.js'
@@ -334,6 +334,21 @@ function assertPublicUrlSchemeIsSafe(config: Config): void {
 }
 
 /**
+ * `@fastify/static`'s `checkPath` throws a plain, uncaught `Error` synchronously at register
+ * time if `root` is not absolute. `docs/setup.md` tells the operator to set this to an
+ * absolute path, but nothing in the schema enforces that, so a relative value (plausible: it
+ * would resolve against whatever the process's cwd happens to be) reaches `fastifyStatic`
+ * unchecked and crashes startup with no clean `ConfigError` to say what is wrong.
+ */
+function assertWebRootIsAbsolute(config: Config): void {
+  if (config.server.webRoot !== null && !isAbsolute(config.server.webRoot)) {
+    throw new ConfigError(
+      `server.webRoot is "${config.server.webRoot}" (from CAROLINE_WEB_ROOT or caroline.config.json), which is not an absolute path: set it to the absolute path of dist/web.`,
+    )
+  }
+}
+
+/**
  * Spec 12, criterion 6: a tool whose documented posture is that the bind address is the
  * boundary does not get to become a service by way of a config key. In the same shape as
  * `assertPublicUrlIsSetWhereBindIsNotLoopback`, naming both settings involved.
@@ -425,6 +440,7 @@ export function loadConfig({ file, env, runtimeChecks = true }: LoadOptions): Co
       host,
       port: envPort(env, parsed.server.port),
       publicUrl,
+      webRoot: nonEmpty(env.CAROLINE_WEB_ROOT) ?? parsed.server.webRoot,
     },
     authRequired,
     database: {
@@ -488,6 +504,7 @@ export function loadConfig({ file, env, runtimeChecks = true }: LoadOptions): Co
   registerEnvironmentSecrets(config, environmentSecrets(env))
 
   if (runtimeChecks) {
+    assertWebRootIsAbsolute(config)
     assertContentPolicyIsAllowed(config)
     assertNoAccessTokenInEnvironment(env)
     assertProviderIsConfiguredWhenAuthIsRequired(config)

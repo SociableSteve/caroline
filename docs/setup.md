@@ -99,6 +99,13 @@ anything.
 Nothing Caroline writes lives outside the data directory, which is what makes
 [step 11](#11-removing-everything) one command.
 
+The built SPA (`dist/web`, `npm run build`'s output) is found the same way: relative to the
+process's working directory. That is right whenever `npm start` is run from the repo root, which
+is every case above, but not every deployment starts it that way: a Docker `WORKDIR`, a pm2 config
+or a systemd unit with no explicit working directory can leave Caroline looking in the wrong place
+and silently 404ing every page that is not an API route. If that is your setup, set
+`server.webRoot`, or `CAROLINE_WEB_ROOT`, to the absolute path of `dist/web`.
+
 Start your own config file from the example, which states the settings at their defaults. Two of them
 it cannot: `jobs.timezone` defaults to whatever this machine thinks it is in, so the example names
 Europe/London and you should change it to yours, because it is the zone every schedule is read in;
@@ -572,6 +579,7 @@ Nothing has started and nothing has been written when you see one of those. Fix 
 | Nothing in the Review column | The discovery search finds requests to you and to teams you belong to, on repositories that are not archived. A request made through a team the token cannot see arrives by [the backup source](specs/02-ingestion.md) instead, from the notification email |
 | Chat says it can read but not change anything | `llm.supportsTools`, which is false by default for Ollama because it depends on the model. Step 4 |
 | The classifier leaves everything in the inbox | Below `classification.confidenceThreshold` the answer is a proposal on the card rather than a move. Accepting one makes the status yours, and the classifier will not overrule it afterwards |
+| Testing the Google connect flow while running `npm run dev:web` does not land you back on its hot-reloading UI at 5173 | `redirect_uri` always points at `server.host`/`server.port` (5123 by default): that is the one stable address registered with Google, and it is correct that `dev:web`'s proxy does not change it. Run `npm run build:web`, then restart `npm run dev` so it picks up the newly built SPA (it decides once at startup whether one exists, and only restarts on changes under `src/`), complete the connect flow at 5123, then switch back to `dev:web` for UI iteration |
 
 Anything not here is worth reading a spec about: [docs/specs](specs/README.md) states what each
 part is meant to do, and the acceptance criteria are the contract the tests hold it to.
