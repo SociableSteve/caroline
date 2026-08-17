@@ -257,11 +257,12 @@ describe('with mcp.enabled true', () => {
   /**
    * Shaped after the actual first request Claude Code 2.1.233 sends against a running Caroline
    * instance: an `initialize` call, id `0`, no `Mcp-Method`, no `Mcp-Protocol-Version`, no
-   * `Mcp-Name`. Caroline does not implement `initialize` (protocol sessions are gone in
-   * 2026-07-28), so the answer is a JSON-RPC `methodNotFound`, not a `400` refusing the request
-   * outright for missing headers.
+   * `Mcp-Name`. Revision 2026-07-28 removed the handshake, and Caroline's derived-session logic
+   * does not need one, but the shipped client still opens every connection with this call
+   * regardless, so it is answered with a stateless success rather than `methodNotFound`: see
+   * "Handshake interoperability" in docs/specs/12-mcp-server.md.
    */
-  it("accepts Claude Code's actual header-less initialize request and reaches method dispatch", async () => {
+  it("accepts Claude Code's actual header-less initialize request and answers a handshake", async () => {
     const { app, database } = await testServer({ config: mcpConfig() })
     const token = mintAccessToken(database, mcpConfig())
 
@@ -273,7 +274,47 @@ describe('with mcp.enabled true', () => {
     })
 
     expect(response.statusCode).toBe(200)
-    expect(response.json()).toMatchObject({ id: 0, error: { code: -32601 } })
+    expect(response.json()).toMatchObject({
+      id: 0,
+      result: {
+        protocolVersion: '2026-07-28',
+        capabilities: { tools: {} },
+        serverInfo: { name: 'caroline', version: '1.0.0' },
+      },
+    })
+  })
+
+  /**
+   * `initialize` is a pure, stateless echo: it must not create a session, a conversation, or any
+   * other row, and a client that calls it must still be able to call `tools/list` normally
+   * afterwards on the same connection. Revision 2026-07-28 has no session to open in the first
+   * place (docs/specs/12-mcp-server.md, "The session, which the protocol no longer has"), and
+   * this asserts the handler introduces none of its own.
+   */
+  it('creates no session or conversation state for initialize, and tools/list still works afterwards', async () => {
+    const { app, database } = await testServer({ config: mcpConfig() })
+    const token = mintAccessToken(database, mcpConfig())
+
+    const initializeResponse = await app.inject({
+      method: 'POST',
+      url: '/api/mcp',
+      headers: { authorization: `Bearer ${token}`, host: '127.0.0.1' },
+      payload: { jsonrpc: '2.0', id: 0, method: 'initialize', params: {} },
+    })
+    expect(initializeResponse.statusCode).toBe(200)
+
+    // No conversation, and no row in the session table `initialize` might otherwise have been
+    // tempted to key something on.
+    expect(listConversations(database)).toEqual([])
+    const sessionCount = database.prepare('select count(*) as count from mcp_sessions').get() as {
+      count: number
+    }
+    expect(sessionCount.count).toBe(0)
+
+    const listResponse = await post(app, database, mcpConfig(), rpc('tools/list', undefined, 1))
+    expect(listResponse.statusCode).toBe(200)
+    const tools = listResponse.json().result.tools as Array<{ name: string }>
+    expect(tools.map((tool) => tool.name)).toContain('search_tasks')
   })
 
   it('refuses a request whose Mcp-Method disagrees with the request body', async () => {

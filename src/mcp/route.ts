@@ -39,6 +39,10 @@ import {
 } from './protocol.js'
 import { mcpToolDescriptors } from './tools.js'
 
+/** Named once and reused by both `server/discover` and `initialize`, so the two cannot drift
+ * into naming this server two different things. */
+const MCP_SERVER_INFO = { name: 'caroline', version: '1.0.0' } as const
+
 export interface McpRouteContext {
   readonly config: Config
   readonly database: Database
@@ -259,7 +263,28 @@ async function handleMethod(
     return reply.send(
       jsonRpcResult(id, {
         protocolVersion: MCP_PROTOCOL_VERSION,
-        server: { name: 'caroline', version: '1.0.0' },
+        server: MCP_SERVER_INFO,
+      }),
+    )
+  }
+
+  // Revision 2026-07-28 removed the handshake outright: no `initialize`, no
+  // `notifications/initialized`, no session identifier (see docs/specs/12-mcp-server.md, "The
+  // session, which the protocol no longer has"). Caroline's own derived-session logic does not
+  // depend on one either. But the shipped Claude Code MCP client still opens every connection
+  // with an `initialize` call regardless of what this revision says, and until this handler
+  // existed that fell through to `methodNotFound`, which the client surfaces to the user as a
+  // failed connection rather than a successful one. So this answers the handshake the same way
+  // `server/discover` answers its own capability query: a pure, stateless echo of what this
+  // server supports, computed fresh on every call. No `Mcp-Session-Id` is issued, nothing is
+  // stored, and a client that never calls this method loses nothing, because Caroline never
+  // required it. See "Handshake interoperability" in docs/specs/12-mcp-server.md.
+  if (envelope.method === 'initialize') {
+    return reply.send(
+      jsonRpcResult(id, {
+        protocolVersion: MCP_PROTOCOL_VERSION,
+        capabilities: { tools: {} },
+        serverInfo: MCP_SERVER_INFO,
       }),
     )
   }
