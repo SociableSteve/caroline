@@ -15,6 +15,7 @@ import {
   markSourceSuppressed,
   proposeSourceCompletion,
   relinkSource,
+  retractSourceResolution,
   upsertSource,
 } from '../db/repositories/sources.js'
 import { getSyncCursor, setSyncCursor } from '../db/repositories/sync-state.js'
@@ -26,7 +27,7 @@ import {
   updateTask,
 } from '../db/repositories/tasks.js'
 import { noCounts, type JobCounts, type JobRunStatus, type JobTrigger } from '../domain/job.js'
-import type { SourceProvider } from '../domain/source.js'
+import type { Source, SourceProvider } from '../domain/source.js'
 import { isUntriaged, type Task } from '../domain/task.js'
 import { trackedStatusesFor } from '../domain/tracking.js'
 import { contentHash } from './hash.js'
@@ -129,6 +130,14 @@ export function applyItem(
       return
     }
 
+    // The other half of resolution: this pass finds the item genuinely still open, which a
+    // prior one, wrongly or only transiently, did not. A false resolution must not be
+    // permanent, so it is retracted here and the item falls through to the ordinary path
+    // below, exactly as it would have if it had never been marked resolved at all.
+    if (item.resolved === false && existing !== null) {
+      retract(database, existing, task)
+    }
+
     if (task === null) {
       createTaskFor(database, provider, item, now, tally)
       return
@@ -213,6 +222,27 @@ function resolve(
 }
 
 /**
+ * The upstream item this pass finds open was marked resolved, or had completion proposed, by
+ * an earlier one: a transient state, such as a review request a rebase knocked out, rather
+ * than a genuine close. Retracted so the false resolution is not permanent and the visibility
+ * guarantee holds: an open pull request is never left looking closed. Spec 02.
+ *
+ * Refused, and left exactly as it was, only once the task has actually completed: accepted
+ * into `done`, whether that was the user clicking through on the card or sync completing it
+ * itself on an earlier, genuine resolution. That is the one response this codebase records to
+ * a completion proposal, there being no separate dismissal; a task any other status, including
+ * one the user set themselves, has not decided anything about this proposal; sync still owns
+ * that answer, and this only ever touches the source's own fields, never the task's status.
+ * Spec 01; spec 02, criterion 4.
+ */
+function retract(database: Database, existing: Source, task: Task | null): void {
+  if (existing.resolvedAt === null && existing.completionProposedAt === null) return
+  if (task !== null && task.status === 'done') return
+
+  retractSourceResolution(database, existing.id)
+}
+
+/**
  * Moves the task to where the connector's state machine says it belongs. Refused for a task
  * the user has filed outside the connector's tracked set, which is the permanent opt-out in
  * spec 01: `changeTaskStatus` is where that rule lives, and the refusal is simply not
@@ -230,6 +260,11 @@ function applyLifecycle(
   // The permanent opt-out. `changeTaskStatus` would refuse the move anyway; checking here
   // is what stops `waiting_on` being written to a task sync no longer owns.
   if (!task.syncTracked) return
+  // A completed task is a decision, sync's own or the user's, made by `resolve()` and only
+  // ever forward. `done` sits inside the tracked set alongside `review` and `waiting`, so
+  // without this an item found open again after a false resolution (`retract`, above) would
+  // have this ordinary lifecycle move silently reopen a task that had already been finished.
+  if (task.status === 'done') return
 
   // A connector owns transitions only inside the set of statuses it declares, and only for a
   // task that is currently in that set. A connector that declares no set owns no transitions

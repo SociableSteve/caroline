@@ -288,6 +288,131 @@ describe('an item whose upstream closes', () => {
   })
 })
 
+describe('an item resolved by one pass and found genuinely still open by a later one', () => {
+  // Dropped as a reviewer without having reviewed: resolved, completion proposed, but the
+  // connector names no task transition (the reviewer is gone, so nothing says where the task
+  // should be). Spec 02, "being dropped as a reviewer". `task` is omitted entirely rather than
+  // set to `undefined`, which is what an absent task intent actually looks like on the wire.
+  const { task: pullRequestTaskIntent, ...pullRequestWithoutTask } = pullRequest
+  void pullRequestTaskIntent
+  const droppedAsReviewer: SourceItem = { ...pullRequestWithoutTask, resolved: true }
+  // The reviewer request reappears, restored: genuinely open again, and still wants the task
+  // in `waiting`, exactly where the user already had it, so the lifecycle itself makes no move
+  // and the only change under test is the retraction.
+  const restored: SourceItem = {
+    ...pullRequest,
+    resolved: false,
+    lifecycleState: 'reviewed',
+    task: { status: 'waiting', waitingOn: 'author-one' },
+  }
+
+  /**
+   * `resolve()` only ever leaves a task short of `done` when the user had already set its
+   * status themselves (spec 02, criterion 4): otherwise sync completes it on the spot, and a
+   * completed task never shows the badge in the first place (`isCompletionProposed` excludes
+   * `done`). So the stuck-badge bug this fixes only actually arises once the task has a
+   * user-set status of its own, which every case below sets up first.
+   */
+  async function walkToStuckProposal(database: Database, connector: Connector) {
+    await sync(database, [connector], () => FIRST_RUN)
+    const task = onlyTask(database)
+    changeTaskStatus(database, task.id, { status: 'waiting', by: 'user', at: FIRST_RUN })
+
+    await sync(database, [connector], () => SECOND_RUN)
+
+    expect(getSourceByExternalId(database, 'github', pullRequest.externalId)).toMatchObject({
+      resolvedAt: SECOND_RUN,
+      completionProposedAt: SECOND_RUN,
+    })
+    expect(getTask(database, task.id)).toMatchObject({ status: 'waiting', statusSetBy: 'user' })
+
+    return task
+  }
+
+  it('un-resolves the source once a later pass finds it genuinely still open', async () => {
+    const database = migratedDatabase()
+    const connector = stubConnector('github', [[pullRequest], [droppedAsReviewer], [restored]])
+    const THIRD_RUN = SECOND_RUN + 900_000
+
+    await walkToStuckProposal(database, connector)
+    await sync(database, [connector], () => THIRD_RUN)
+
+    expect(getSourceByExternalId(database, 'github', pullRequest.externalId)).toMatchObject({
+      resolvedAt: null,
+      completionProposedAt: null,
+    })
+  })
+
+  it('leaves the task exactly where the user put it: retraction never touches status', async () => {
+    const database = migratedDatabase()
+    const connector = stubConnector('github', [[pullRequest], [droppedAsReviewer], [restored]])
+    const THIRD_RUN = SECOND_RUN + 900_000
+
+    const task = await walkToStuckProposal(database, connector)
+    await sync(database, [connector], () => THIRD_RUN)
+
+    expect(getTask(database, task.id)).toMatchObject({ status: 'waiting', statusSetBy: 'user' })
+  })
+
+  it('does not retract a proposal the task has already been completed against', async () => {
+    const database = migratedDatabase()
+    const connector = stubConnector('github', [[pullRequest], [droppedAsReviewer], [restored]])
+    const THIRD_RUN = SECOND_RUN + 900_000
+
+    const task = await walkToStuckProposal(database, connector)
+    // The one response this codebase records to the proposal: completing the task.
+    changeTaskStatus(database, task.id, { status: 'done', by: 'user', at: SECOND_RUN })
+
+    await sync(database, [connector], () => THIRD_RUN)
+
+    expect(getSourceByExternalId(database, 'github', pullRequest.externalId)).toMatchObject({
+      resolvedAt: SECOND_RUN,
+      completionProposedAt: SECOND_RUN,
+    })
+    expect(getTask(database, task.id)).toMatchObject({ status: 'done', statusSetBy: 'user' })
+  })
+
+  it('does not touch a source that was never resolved in the first place', async () => {
+    const database = migratedDatabase()
+    const connector = stubConnector('github', [[pullRequest], [pullRequest]])
+
+    await sync(database, [connector], () => FIRST_RUN)
+    const summary = await sync(database, [connector], () => SECOND_RUN)
+
+    expect(getSourceByExternalId(database, 'github', pullRequest.externalId)).toMatchObject({
+      resolvedAt: null,
+      completionProposedAt: null,
+    })
+    expect(summary.results[0]?.counts.tasksUpdated).toBe(0)
+  })
+
+  it('resolves normally afterwards: retraction does not disturb the forward path', async () => {
+    const database = migratedDatabase()
+    const merged: SourceItem = { ...restored, resolved: true, task: { status: 'done' } }
+    const connector = stubConnector('github', [
+      [pullRequest],
+      [droppedAsReviewer],
+      [restored],
+      [merged],
+    ])
+    const THIRD_RUN = SECOND_RUN + 900_000
+    const FOURTH_RUN = THIRD_RUN + 900_000
+
+    const task = await walkToStuckProposal(database, connector)
+    await sync(database, [connector], () => THIRD_RUN)
+    await sync(database, [connector], () => FOURTH_RUN)
+
+    expect(getSourceByExternalId(database, 'github', pullRequest.externalId)).toMatchObject({
+      resolvedAt: FOURTH_RUN,
+      completionProposedAt: FOURTH_RUN,
+    })
+    // Still the user's task, and this time nothing stops the merge being real: the source
+    // that was falsely resolved and then retracted resolves again, genuinely, same as any
+    // other source would. It is left as a proposal since the user, not sync, owns this task.
+    expect(getTask(database, task.id)).toMatchObject({ status: 'waiting', statusSetBy: 'user' })
+  })
+})
+
 describe('who a task is waiting on', () => {
   const reviewed: SourceItem = {
     ...pullRequest,

@@ -96,6 +96,19 @@ export function proposeCompletion(source: Source, at: number): Source {
   return { ...source, completionProposedAt: source.completionProposedAt ?? at }
 }
 
+/**
+ * The upstream item turned out not to have closed after all: a transient drop, such as a
+ * review request knocked out by a rebase, rather than the genuine close `markResolved` and
+ * `proposeCompletion` recorded. Clears both back to null so the lifecycle can run forward
+ * again from a clean state, rather than a false resolution being permanent.
+ *
+ * Whether it may is the caller's decision, exactly as with `proposeCompletion`: this only ever
+ * clears the source's own fields, and never touches a task. Spec 01, spec 02 criterion 4.
+ */
+export function retractResolution(source: Source): Source {
+  return { ...source, resolvedAt: null, completionProposedAt: null }
+}
+
 export function markRequeued(source: Source, at: number): Source {
   return { ...source, requeuedAt: at }
 }
