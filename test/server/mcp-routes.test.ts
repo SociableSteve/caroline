@@ -287,10 +287,14 @@ describe('with mcp.enabled true', () => {
   /**
    * Shaped after the actual first request Claude Code 2.1.233 sends against a running Caroline
    * instance: an `initialize` call, id `0`, no `Mcp-Method`, no `Mcp-Protocol-Version`, no
-   * `Mcp-Name`. Revision 2026-07-28 removed the handshake, and Caroline's derived-session logic
-   * does not need one, but the shipped client still opens every connection with this call
-   * regardless, so it is answered with a stateless success rather than `methodNotFound`: see
-   * "Handshake interoperability" in docs/specs/12-mcp-server.md.
+   * `Mcp-Name`, and no `protocolVersion` anywhere in `params` either. Revision 2026-07-28
+   * removed the handshake, and Caroline's derived-session logic does not need one, but the
+   * shipped client still opens every connection with this call regardless, so it is answered
+   * with a stateless success rather than `methodNotFound`: see "Handshake interoperability" in
+   * docs/specs/12-mcp-server.md. The client asking for no particular version is the same "no
+   * version specified" case as an absent header elsewhere on this route, so it resolves to
+   * `MCP_FALLBACK_PROTOCOL_VERSION`, not to `MCP_PROTOCOL_VERSION`: see "Version
+   * interoperability" in that same spec.
    */
   it("accepts Claude Code's actual header-less initialize request and answers a handshake", async () => {
     const { app, database } = await testServer({ config: mcpConfig() })
@@ -307,11 +311,92 @@ describe('with mcp.enabled true', () => {
     expect(response.json()).toMatchObject({
       id: 0,
       result: {
-        protocolVersion: '2026-07-28',
+        protocolVersion: '2025-11-25',
         capabilities: { tools: {} },
         serverInfo: { name: 'caroline', version: '1.0.0' },
       },
     })
+  })
+
+  /**
+   * Version negotiation, not a session handshake: "Version interoperability" in
+   * docs/specs/12-mcp-server.md. A client that names `MCP_PROTOCOL_VERSION` exactly, in the
+   * legacy top-level `params.protocolVersion` field revision 2026-07-28 moved away from (and
+   * that Claude Code's shipped client, built before the move, still sends), gets it echoed back
+   * because Caroline genuinely runs it.
+   */
+  it('echoes 2026-07-28 back when the client requests it by the legacy top-level field', async () => {
+    const { app, database } = await testServer({ config: mcpConfig() })
+    const token = mintAccessToken(database, mcpConfig())
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/mcp',
+      headers: { authorization: `Bearer ${token}`, host: '127.0.0.1' },
+      payload: {
+        jsonrpc: '2.0',
+        id: 0,
+        method: 'initialize',
+        params: { protocolVersion: '2026-07-28' },
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({ id: 0, result: { protocolVersion: '2026-07-28' } })
+  })
+
+  /**
+   * The version an older or different client actually requests, sent the same way Claude Code
+   * sends it (the legacy top-level field), is not parroted back: Caroline has not decided to
+   * hold compatibility with an arbitrary version string, so it answers with
+   * `MCP_FALLBACK_PROTOCOL_VERSION`, the `@modelcontextprotocol/sdk`'s own
+   * `LATEST_PROTOCOL_VERSION`, instead. This is not an error: the client still gets a usable
+   * handshake back, per "Version interoperability" in docs/specs/12-mcp-server.md.
+   */
+  it('falls back to 2025-11-25 rather than echoing an older version the client actually requested', async () => {
+    const { app, database } = await testServer({ config: mcpConfig() })
+    const token = mintAccessToken(database, mcpConfig())
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/mcp',
+      headers: { authorization: `Bearer ${token}`, host: '127.0.0.1' },
+      payload: {
+        jsonrpc: '2.0',
+        id: 0,
+        method: 'initialize',
+        params: { protocolVersion: '2025-06-18' },
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({ id: 0, result: { protocolVersion: '2025-11-25' } })
+  })
+
+  /**
+   * A hypothetical caller native to revision 2026-07-28 sends `protocolVersion` in
+   * `params._meta` rather than at the top level. Negotiation reads that location too, as the
+   * fallback behind the legacy field, so this caller is not treated as having specified no
+   * version at all.
+   */
+  it('reads a requested version from params._meta when there is no legacy top-level field', async () => {
+    const { app, database } = await testServer({ config: mcpConfig() })
+    const token = mintAccessToken(database, mcpConfig())
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/mcp',
+      headers: { authorization: `Bearer ${token}`, host: '127.0.0.1' },
+      payload: {
+        jsonrpc: '2.0',
+        id: 0,
+        method: 'initialize',
+        params: { _meta: { protocolVersion: '2026-07-28' } },
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({ id: 0, result: { protocolVersion: '2026-07-28' } })
   })
 
   /**
