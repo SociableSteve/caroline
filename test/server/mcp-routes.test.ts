@@ -230,10 +230,18 @@ describe('with mcp.enabled true', () => {
     expect(response.json()).toMatchObject({ error: { code: -32603 } })
   })
 
-  it('refuses a request omitting the required Mcp-Method header (criterion 10)', async () => {
+  /**
+   * Claude Code's MCP client (confirmed on 2.1.233, captured 2026-08-17) predates SEP-2243 and
+   * sends neither header at all. Refusing that request would mean Caroline's primary real-world
+   * client can never get past its first call, so an absent `Mcp-Method` is read as "this client
+   * hasn't implemented this part of revision 2026-07-28 yet" rather than a malformed request.
+   * Docs/specs/12-mcp-server.md, "Header interoperability".
+   */
+  it('accepts a request omitting the Mcp-Method header entirely (Claude Code compatibility)', async () => {
     const { app, database } = await testServer({ config: mcpConfig() })
     const headers = headersFor(rpc('server/discover'), mintAccessToken(database, mcpConfig()))
     delete (headers as Record<string, string | undefined>)['mcp-method']
+    delete (headers as Record<string, string | undefined>)['mcp-protocol-version']
 
     const response = await app.inject({
       method: 'POST',
@@ -242,7 +250,30 @@ describe('with mcp.enabled true', () => {
       payload: rpc('server/discover'),
     })
 
-    expect(response.statusCode).toBe(400)
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({ result: { protocolVersion: '2026-07-28' } })
+  })
+
+  /**
+   * Shaped after the actual first request Claude Code 2.1.233 sends against a running Caroline
+   * instance: an `initialize` call, id `0`, no `Mcp-Method`, no `Mcp-Protocol-Version`, no
+   * `Mcp-Name`. Caroline does not implement `initialize` (protocol sessions are gone in
+   * 2026-07-28), so the answer is a JSON-RPC `methodNotFound`, not a `400` refusing the request
+   * outright for missing headers.
+   */
+  it("accepts Claude Code's actual header-less initialize request and reaches method dispatch", async () => {
+    const { app, database } = await testServer({ config: mcpConfig() })
+    const token = mintAccessToken(database, mcpConfig())
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/mcp',
+      headers: { authorization: `Bearer ${token}`, host: '127.0.0.1' },
+      payload: { jsonrpc: '2.0', id: 0, method: 'initialize', params: {} },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({ id: 0, error: { code: -32601 } })
   })
 
   it('refuses a request whose Mcp-Method disagrees with the request body', async () => {
@@ -255,7 +286,7 @@ describe('with mcp.enabled true', () => {
     expect(response.statusCode).toBe(400)
   })
 
-  it('refuses a tools/call request omitting the required Mcp-Name header', async () => {
+  it('accepts a tools/call request omitting the Mcp-Name header entirely (Claude Code compatibility)', async () => {
     const { app, database } = await testServer({ config: mcpConfig() })
     const payload = rpc('tools/call', { name: 'search_tasks', arguments: {} })
     const headers = headersFor(payload, mintAccessToken(database, mcpConfig()))
@@ -263,7 +294,8 @@ describe('with mcp.enabled true', () => {
 
     const response = await app.inject({ method: 'POST', url: '/api/mcp', headers, payload })
 
-    expect(response.statusCode).toBe(400)
+    expect(response.statusCode).toBe(200)
+    expect(response.json().result?.isError).not.toBe(true)
   })
 
   it('refuses a tools/call request whose Mcp-Name disagrees with the tool actually named', async () => {

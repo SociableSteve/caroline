@@ -56,7 +56,9 @@ discovers. It is a large breaking revision and four of its changes shape this sp
   capabilities travel in `_meta` on each request and the client's identity SHOULD travel
   there too; the `MCP-Protocol-Version` header is required and must agree with the body, or
   the server answers `400` with `HeaderMismatch` (`-32020`); `Mcp-Method` is required on every
-  request and `Mcp-Name` on `tools/call`; and `server/discover` is a mandatory RPC.
+  request and `Mcp-Name` on `tools/call`, enforced strictly when a client sends them but not
+  used to refuse a client that omits them (see "Header interoperability" below); and
+  `server/discover` is a mandatory RPC.
 - **Servers no longer send requests to clients.** Sampling, elicitation and roots come back as
   a result the client answers by retrying the original call, and sampling, roots and logging
   are deprecated. Caroline uses none of them, for reasons given under Confirmation.
@@ -145,6 +147,40 @@ consistency, which is a real conformance requirement and is criterion 42: the `i
 authorisation server metadata is byte-identical to the identifier the well-known URL was built
 from, which is what a client is required to check, and the `resource` in the protected resource
 metadata is the endpoint's own origin and path.
+
+### Header interoperability: `Mcp-Method` and `Mcp-Name` are enforced only when present
+
+The revision requires `Mcp-Method` on every request and `Mcp-Name` on `tools/call`,
+`resources/read` and `prompts/get`, and Caroline's route validates both, strictly, when they
+arrive. It does not refuse a request for lacking them.
+
+The reason is the same kind of practicality this spec already names for the loopback scheme:
+a rule that is correct on paper and refuses the client that actually exists is not a rule worth
+enforcing to the letter yet. Claude Code, confirmed on 2.1.233 against a running instance of
+this server on 2026-08-17, authenticates successfully against the authorisation server above
+and then sends an `initialize` request carrying neither header at all: its MCP client (the
+`@modelcontextprotocol/sdk`-derived `StreamableHTTPClientTransport` it ships) predates SEP-2243
+and Anthropic's own announcement of the revision says only that support is "rolling out soon,"
+with no committed version. Refusing that request outright with `400` (`invalidRequest`) is
+correct by the letter of the revision and useless in practice: it means the primary real-world
+client this server needs to work with today can never get past its first request, for a gap
+that is the client's to close, not a defect in the request it sent.
+
+So the check is asymmetric by design, not by oversight. A header that disagrees with the
+request body is still a `400`: a client claiming to speak `tools/list` in `Mcp-Method` while
+its body says `tools/call` is sending a malformed request regardless of whether it implements
+the header at all, and that case is unchanged. A header that is simply absent is read as "this
+client has not implemented this part of revision 2026-07-28 yet," and the request proceeds as
+if the check did not apply, exactly as a server tolerates an older client on a feature the
+client never adopted. `MCP-Protocol-Version` already worked this way without any change:
+`HeaderMismatch` only fires on disagreement, never on absence, so an older or missing protocol
+version string was never a problem here.
+
+This is a temporary interoperability accommodation, not a retraction of criterion 10, and it
+should be revisited once client-ecosystem support for `Mcp-Method` and `Mcp-Name` is no longer
+the exception. When that day comes, the fix is to delete the `!== undefined` guards in
+`src/mcp/route.ts` and restore the strict-by-default check, which is exactly what a compliant
+client should have been getting all along.
 
 ### What is deliberately not built
 
@@ -581,8 +617,10 @@ is dropped for the same reason: it was never merged, so nothing cites it.
    answered `403` before any tool runs, and one whose `Host` header does not name a loopback
    name is refused.
 10. A request whose `MCP-Protocol-Version` header disagrees with the protocol version in its
-    body is answered `400` with the protocol's `HeaderMismatch` code, and a request omitting the
-    required `Mcp-Method` header is refused.
+    body is answered `400` with the protocol's `HeaderMismatch` code, and a request whose
+    `Mcp-Method` header disagrees with the request body's method is refused. A request that
+    omits `Mcp-Method` (or, on `tools/call`, `Mcp-Name`) entirely is accepted rather than
+    refused, per "Header interoperability" below.
 11. `server/discover` and `tools/list` answer without a tool being run, and `tools/list` returns
     exactly the tools of spec 07's registry, `list_reviews` included because this milestone adds it
     there, plus `get_overview` and nothing else. Asserted against the registry itself rather than a
