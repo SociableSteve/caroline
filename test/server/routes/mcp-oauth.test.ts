@@ -50,6 +50,22 @@ describe('GET /api/mcp/authorize', () => {
     expect(response.headers.location).toMatch(/^\/#\/settings\?mcpRequest=/)
   })
 
+  it('is not rejected for carrying a scope param, though spec 12 defines none for this slice', async () => {
+    const { app } = await testServer({
+      config: mcpConfig(),
+      mcpClientMetadataFetch: stubMetadata(),
+    })
+    const { challenge } = pkce()
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/mcp/authorize?response_type=code&client_id=${encodeURIComponent(CLIENT_ID)}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&code_challenge=${challenge}&code_challenge_method=S256&scope=${encodeURIComponent('mcp:tools')}`,
+    })
+
+    expect(response.statusCode).toBe(302)
+    expect(response.headers.location).toMatch(/^\/#\/settings\?mcpRequest=/)
+  })
+
   it('refuses a request with no PKCE challenge, or a method other than S256 (criterion 27)', async () => {
     const { app } = await testServer({
       config: mcpConfig(),

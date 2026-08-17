@@ -53,7 +53,12 @@ function stringField(value: unknown): string | undefined {
 
 const authorizeQuerystringSchema = {
   type: 'object',
-  additionalProperties: false,
+  // Spec 12 defines no scopes for this slice, so a spec-conformant client need not send `scope`,
+  // but real-world OAuth clients often send one anyway (PKCE libraries default to requesting
+  // one). A request carrying it is not a bad request: matches authCallbackQuerySchema's handling
+  // of Google's extra callback params, fixed for the same reason in PR #26. Extra params are
+  // ignored rather than rejected.
+  additionalProperties: true,
   properties: {
     response_type: { type: 'string' },
     client_id: { type: 'string' },
