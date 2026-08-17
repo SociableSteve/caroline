@@ -406,6 +406,37 @@ describe('POST /api/mcp/token', () => {
     expect(afterRevoke.statusCode).toBe(400)
   })
 
+  it('refuses to redeem a code issued to a client that was revoked before redemption', async () => {
+    const { app } = await testServer({
+      config: mcpConfig(),
+      mcpClientMetadataFetch: stubMetadata(),
+    })
+    const { verifier, challenge } = pkce()
+    const { code } = await approvedCode(app, challenge)
+
+    const revoke = await app.inject({
+      method: 'POST',
+      url: '/api/mcp/oauth/clients/revoke',
+      payload: { clientId: CLIENT_ID },
+    })
+    expect(revoke.statusCode).toBe(200)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/mcp/token',
+      payload: {
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: REDIRECT_URI,
+        client_id: CLIENT_ID,
+        code_verifier: verifier,
+      },
+    })
+
+    expect(response.statusCode).toBe(400)
+    expect(response.json()).toMatchObject({ error: 'invalid_grant' })
+  })
+
   it('answers in the OAuth error shape, never the API envelope, for an unsupported grant type', async () => {
     const { app } = await testServer({ config: mcpConfig() })
 

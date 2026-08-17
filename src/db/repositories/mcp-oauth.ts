@@ -128,6 +128,16 @@ export function revokeClient(database: Database, clientId: string, now: number):
       'update mcp_oauth_tokens set revoked_at = ? where client_id = ? and revoked_at is null',
     )
     .run(now, clientId)
+  // An authorisation code issued to this client but not yet redeemed must not survive the
+  // revocation either, or the bounded window up to AUTHORIZATION_CODE_TTL_MS lets it be
+  // exchanged for a brand-new, unrevoked token pair. Marked redeemed rather than deleted, for
+  // the same "stay diagnosable" reason `redeemAuthorizationCode` already gives, and so this
+  // reads exactly like the token revocation just above it.
+  database
+    .prepare(
+      'update mcp_oauth_codes set redeemed_at = ? where client_id = ? and redeemed_at is null',
+    )
+    .run(now, clientId)
 }
 
 /** For the Settings surface: every client with an undecided revocation, newest first. A revoked
