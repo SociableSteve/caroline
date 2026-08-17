@@ -15,9 +15,10 @@ Read it in order. Each integration ends with a way to check it actually works be
 | [5. GitHub](#5-github) | Review requests on the board | 10 minutes |
 | [6. Google](#6-google) | Mail in the inbox, the calendar and capacity | 20 minutes |
 | [7. What leaves the machine](#7-what-leaves-the-machine) | A policy you have actually looked at | 5 minutes |
-| [8. Checking the whole thing](#8-checking-the-whole-thing) | Confidence | 5 minutes |
-| [9. Running it day to day](#9-running-it-day-to-day) | Backups, upgrades, keeping it up | 10 minutes |
-| [10. Removing everything](#10-removing-everything) | An empty data directory | 1 minute |
+| [8. Reaching it from elsewhere](#8-reaching-it-from-elsewhere) | A login, if Caroline is not staying on this machine | 15 minutes |
+| [9. Checking the whole thing](#9-checking-the-whole-thing) | Confidence | 5 minutes |
+| [10. Running it day to day](#10-running-it-day-to-day) | Backups, upgrades, keeping it up | 10 minutes |
+| [11. Removing everything](#11-removing-everything) | An empty data directory | 1 minute |
 
 ## 1. What you need
 
@@ -25,18 +26,12 @@ Read it in order. Each integration ends with a way to check it actually works be
   stops being experimental, which is what lets Caroline use SQLite with no native module and so no
   compiler at install time.
 - **git**, to clone it.
-- **A browser on the same machine.** Caroline binds to `127.0.0.1` and has no login. Binding it
-  anywhere else is possible and is not what the rest of this guide assumes. Read the next
-  paragraph before you do it.
-
-Binding elsewhere requires `CAROLINE_ACCESS_TOKEN`, and as of version 1.0 that token is checked
-only when Caroline starts: nothing checks it against a request, so a Caroline bound to a routable
-address serves the whole API, the effective configuration included, to anyone who can reach the
-port. The requirement reads as though the token protects something, and it does not. It is a defect
-rather than a design, and M15 in [the plan](plan.md) closes it by taking the token away rather than
-by enforcing it: a login replaces it, and an exposed Caroline refuses to start without one. Until
-that ships, treat the bind address as the only access control there is and put Caroline behind a
-tunnel you already trust rather than on an interface.
+- **A browser on the same machine, unless you set up a login.** Caroline binds to `127.0.0.1` by
+  default, and on that bind the socket is the boundary: nothing is asked of a caller. Binding
+  anywhere else, declaring a public URL, or asking for one explicitly all require a login before
+  Caroline answers anything, and an exposed configuration with no login refuses to start rather
+  than serving unprotected. That is [step 8](#8-reaching-it-from-elsewhere), and the rest of this
+  guide assumes you are on loopback until you get there.
 
 Optional, one per integration: a GitHub account whose review requests you want to see, a Google
 account whose mail and calendar you want read, and either an API key for Anthropic or OpenAI or a
@@ -102,7 +97,7 @@ if you are not sure which one is in force, `npm run delete-data` prints it befor
 anything.
 
 Nothing Caroline writes lives outside the data directory, which is what makes
-[step 10](#10-removing-everything) one command.
+[step 11](#11-removing-everything) one command.
 
 Start your own config file from the example, which states the settings at their defaults. Two of them
 it cannot: `jobs.timezone` defaults to whatever this machine thinks it is in, so the example names
@@ -187,7 +182,7 @@ Two settings worth knowing about:
   inherits everything it does not name.
 
 Restart, then look at the dashboard: the state strip along the bottom lists **LLM provider** as
-configured. The end-to-end check is in [step 8](#8-checking-the-whole-thing), once there is
+configured. The end-to-end check is in [step 9](#9-checking-the-whole-thing), once there is
 something in the inbox to sort.
 
 ## 5. GitHub
@@ -330,7 +325,118 @@ writes to you rather than about you, and it is personal data going to a third pa
 in the same preview as everything else. Leaving it empty is a supported answer and sends nothing
 about you.
 
-## 8. Checking the whole thing
+## 8. Reaching it from elsewhere
+
+Skip this if Caroline is staying on the machine you installed it on and nothing else is proxying
+to it. Everything in this step is about the moment that stops being true.
+
+### What triggers a login, and what happens without one
+
+Caroline is single user, and on `127.0.0.1` the operating system is the boundary: nothing on this
+machine but you can open that socket, so nothing is asked of a caller. That stops being true the
+moment any of these holds:
+
+- `server.host` is set to anything other than a loopback address (`127.0.0.1`, `localhost`, `::1`
+  or `::ffff:127.0.0.1`). `0.0.0.0` and `::` count as not loopback too: they accept connections
+  from the network, so a request that happens to arrive over loopback on such a bind still needs a
+  session.
+- `server.publicUrl` is set. This is how you tell Caroline there is a reverse proxy in front of it:
+  the socket may be loopback while the traffic reaching it is not, and no request header can be
+  trusted to say so on its own.
+- `auth.mode` is `"required"`. This is how you turn a login on for a loopback install that has
+  no reverse proxy at all, and it is the only way to get one there.
+
+Once any of those is true, Caroline refuses to start unless a provider is configured
+(`auth.provider.clientId`) and `auth.allow` names at least one identity, and, where the bind is not
+loopback, `server.publicUrl` is set too. The refusal is a line on the terminal naming the setting
+it objected to, in the same shape as the other startup refusals in
+[troubleshooting](#troubleshooting): it does not start half-open and it does not guess.
+
+### 8a. A second OAuth client, for login
+
+The Google Cloud project from [step 6](#6-google) can hold this client too, but it has to be a
+second one. Reusing the Gmail and Calendar client would mean a loopback redirect, which an exposed
+install cannot use, and it would put a login behind a consent screen carrying mail scopes it has
+no business asking for. The consent screen from [step 6b](#6b-the-consent-screen) is already in
+place; this is just a second credential under it.
+
+1. In the same project, under **Credentials → Create credentials → OAuth client ID**, choose
+   application type **Web application**.
+2. Add one **authorised redirect URI**: the address you will reach Caroline at, plus
+   `/api/auth/callback`. For an exposed install behind a reverse proxy that is your public URL,
+   for example `https://caroline.example.com/api/auth/callback`; for a loopback install that has
+   turned a login on with `auth.mode: "required"` and no public URL, it is the loopback address
+   Caroline is already listening on, for example `http://127.0.0.1:5123/api/auth/callback`.
+3. Copy the client id into `caroline.config.json`, under `auth.provider.clientId`:
+
+   ```json
+   {
+     "auth": {
+       "provider": { "clientId": "1234567890-xyz789.apps.googleusercontent.com" }
+     }
+   }
+   ```
+
+4. Put the client secret in `CAROLINE_AUTH_CLIENT_SECRET`, not in the file. Google's own console
+   always issues one for a Web application client, so in practice this step is not optional the
+   way it can be with some other providers.
+
+### 8b. The rest of the configuration
+
+```jsonc
+{
+  "server": {
+    "publicUrl": null // e.g. "https://caroline.example.com", if there is a proxy in front
+  },
+  "auth": {
+    "mode": "auto", // auto | required
+    "allow": [], // your own address, or "sub:<value>"
+    "provider": {
+      "issuer": "https://accounts.google.com",
+      "clientId": null,
+      "clientSecret": null // CAROLINE_AUTH_CLIENT_SECRET only, never in the file
+    }
+  }
+}
+```
+
+- **`auth.provider.issuer`**, default `https://accounts.google.com`. The OIDC issuer: Caroline
+  fetches `{issuer}/.well-known/openid-configuration` from it on the first login attempt to learn
+  where to send you and where to exchange the code it gets back. Leave it at the default for a
+  Google client.
+- **`auth.provider.clientId`** and **`auth.provider.clientSecret`**, from [8a](#8a-a-second-oauth-client-for-login)
+  above. `clientId` defaults to `null`, and `null` is what tells Caroline no provider is configured
+  at all, which is one of the things an exposed install refuses to start without.
+- **`auth.allow`**, default an empty array, and mandatory once a login is required: an entry is
+  your own email address, or `sub:<value>` for a provider that does not return one. Signing in
+  successfully at Google says only that Google recognises you, not that you own this Caroline, so
+  the allowlist is the second decision, and it is Caroline's rather than the provider's. An empty
+  allowlist on an install that requires a login is refused at startup: the provider would
+  authenticate anybody with a Google account against Caroline's client, and an empty allowlist
+  would let every one of them in, which is no authentication at all with the ceremony of one.
+  The first successful sign-in from an allowed address is also pinned to the identity that
+  signed in, so a later sign-in against the same allowlist entry from a different account is
+  refused.
+
+Restart, open Caroline at the address you configured, and you should land on a login screen with
+one button naming the provider (`auth.provider.label`, `"Google"` by default) rather than the
+board. Signing in with the address in `auth.allow` takes you to it; signing in with anything else
+is refused.
+
+**Locked out?** The documented way back in is shell access to the machine: stop Caroline, edit
+`caroline.config.json` to put `server.host` back to `127.0.0.1`, remove `server.publicUrl`, and
+set `auth.mode` back to `"auto"` if you had set it to `"required"`, then restart. That is a
+loopback install with no login again, reachable over an SSH tunnel if the machine is remote, and
+you can put the settings back once whatever was wrong is fixed. There is no other recovery path
+and no one-time login link.
+
+**Using a different provider?** Google is the worked example above because its console is the one
+this guide can walk you through, but the login is built on OIDC discovery, and any provider
+offering the authorization code flow with PKCE and a stable `sub` claim works the same way, with
+its own issuer and its own client instead. [Spec 13](specs/13-authentication.md#provider-requirements-and-what-cannot-be-generic)
+states the generic requirements, if that is what you are setting up.
+
+## 9. Checking the whole thing
 
 - `curl -s http://127.0.0.1:5123/api/health` reports the version, the database and each
   integration. On a fresh install, with nothing configured, this is the answer, wrapped over lines
@@ -363,7 +469,7 @@ about you.
 - After the hourly classify job has run, the inbox should be shorter, and anything the model was
   unsure of stays there with its suggestion on the card and an **Accept** button.
 
-## 9. Running it day to day
+## 10. Running it day to day
 
 `npm start` in the checkout is all it is. To have it come back after a reboot, on Linux, a user
 service is enough:
@@ -396,7 +502,7 @@ than you expected.
 **Upgrades.** `git pull && npm install && npm run build`, then restart. Migrations run on start and
 are idempotent, so there is no separate step and no order to get wrong.
 
-## 10. Removing everything
+## 11. Removing everything
 
 ```sh
 npm run delete-data            # says what it would remove, removes nothing
@@ -450,8 +556,12 @@ Nothing has started and nothing has been written when you see one of those. Fix 
 | What you see | What it is |
 | --- | --- |
 | `Caroline cannot start: llm.apiKey must not appear in caroline.config.json` | A secret in the config file. The message names the environment variable to use instead |
-| `Caroline cannot start: server.host is "0.0.0.0", which is not loopback` | The UI has no login, so a non-loopback bind requires `CAROLINE_ACCESS_TOKEN`. Setting it satisfies the check at startup and nothing more: as of version 1.0 no request is checked against it, so the bind address is still the whole of the access control. See [step 1](#1-what-you-need) |
 | `Caroline cannot start: privacy.llmContent is "full" with the remote provider` | Sending whole bodies to a third party needs `privacy.allowFullContentToRemoteProvider` set deliberately. See [content-policy.md](content-policy.md) |
+| `Caroline cannot start: ... auth.provider.clientId is not set: there would be no way to log in` | A non-loopback bind, a public URL or `auth.mode: "required"` needs a provider configured. See [step 8](#8-reaching-it-from-elsewhere) |
+| `Caroline cannot start: ... auth.allow is empty: the provider would authenticate anybody with an account there` | The allowlist is mandatory once a login is required. Add your own address, or `sub:<value>`. See [step 8](#8-reaching-it-from-elsewhere) |
+| `Caroline cannot start: server.host is "...", which is not loopback, and server.publicUrl is not set: the redirect URI cannot be derived` | A non-loopback bind needs `server.publicUrl` set, so Caroline knows the address it is registering a redirect at. See [step 8](#8-reaching-it-from-elsewhere) |
+| `Caroline cannot start: server.publicUrl is "...", which is not https, ...: a session cookie would be sent over plaintext` | `server.publicUrl` must be `https` unless both it and `server.host` are loopback. See [step 8](#8-reaching-it-from-elsewhere) |
+| `Caroline cannot start: CAROLINE_ACCESS_TOKEN is set in the environment. It has been replaced by a login` | That variable no longer does anything. Remove it and configure `auth.provider` and `auth.allow` instead. See [step 8](#8-reaching-it-from-elsewhere) |
 | `EADDRINUSE` on 5123 | Something else has the port. `CAROLINE_PORT` moves it, and the Google redirect URI has to move with it |
 | `SyntaxError` about `node:sqlite`, or a version complaint at startup | Node older than 24.2.0 |
 | Google says `redirect_uri_mismatch` | The URI registered on the client is not the one Caroline sent. It is `/api/integrations/google/callback` on whatever `server.host` and `server.port` say, and `curl -s http://127.0.0.1:5123/api/integrations/google` (on your own port) prints the exact string Caroline sends, as `redirectUri`: compare it character for character, port included. The Settings screen shows it too, but only while no client is configured, which is before you would ever see this error |
