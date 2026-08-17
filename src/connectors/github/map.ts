@@ -147,7 +147,11 @@ export function toSourceItem(
     title: titleOf(node),
     metadata: { ...toMetadata(node, facts) },
     occurredAt: epoch(node.updatedAt) ?? 0,
-    ...(outcome.resolved ? { resolved: true } : {}),
+    // Explicit either way, not just when true: the engine tells a genuine "still open" apart
+    // from "this connector said nothing" by that distinction, and it is what lets a false
+    // resolution (a review request the refresh pass finds restored) be retracted rather than
+    // permanent.
+    resolved: outcome.resolved,
     lifecycleState: outcome.state,
     actedAt: outcome.actedAt,
     actedAtMarker: outcome.actedAtMarker,

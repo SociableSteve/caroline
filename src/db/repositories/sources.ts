@@ -8,6 +8,7 @@ import {
   markResolved,
   markSuppressed,
   proposeCompletion,
+  retractResolution,
   type ActedRecord,
   type Source,
   type SourceProvider,
@@ -318,6 +319,22 @@ export function proposeSourceCompletion(database: Database, id: string, at: numb
   if (existing === null) return null
 
   const source = proposeCompletion(existing, at)
+  writeSource(database, source)
+
+  return source
+}
+
+/**
+ * A later pass found the item genuinely still open. `resolvedAt` and `completionProposedAt`
+ * go back to null, exactly as `markSourceResolved`/`proposeSourceCompletion` set them, so a
+ * transient resolution is not permanent. Whether the caller may call this for a given source
+ * is the engine's decision (spec 02, criterion 4); this only ever writes what it is told to.
+ */
+export function retractSourceResolution(database: Database, id: string): Source | null {
+  const existing = getSource(database, id)
+  if (existing === null) return null
+
+  const source = retractResolution(existing)
   writeSource(database, source)
 
   return source

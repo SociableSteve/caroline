@@ -12,6 +12,7 @@ import {
   markSourceResolved,
   markSourceSuppressed,
   proposeSourceCompletion,
+  retractSourceResolution,
   setSourceLifecycle,
   upsertSource,
   type UpsertSourceInput,
@@ -336,6 +337,37 @@ describe('resolution', () => {
     proposeSourceCompletion(database, source.id, later + 60_000)
 
     expect(getSource(database, source.id)?.completionProposedAt).toBe(later)
+  })
+})
+
+describe('retracting a resolution', () => {
+  it('clears resolved_at and completion_proposed_at back to null', () => {
+    const source = upsertSource(database, pullRequest(), firstSeenAt)
+    markSourceResolved(database, source.id, later)
+    proposeSourceCompletion(database, source.id, later)
+
+    const retracted = retractSourceResolution(database, source.id)
+
+    expect(retracted).toMatchObject({ resolvedAt: null, completionProposedAt: null })
+    expect(getSource(database, source.id)).toMatchObject({
+      resolvedAt: null,
+      completionProposedAt: null,
+    })
+  })
+
+  it('survives a later upsert of the same item, which is what every pass does', () => {
+    const source = upsertSource(database, pullRequest(), firstSeenAt)
+    markSourceResolved(database, source.id, later)
+    proposeSourceCompletion(database, source.id, later)
+    retractSourceResolution(database, source.id)
+
+    const updated = upsertSource(database, pullRequest({ contentHash: 'hash-after-a-push' }), later)
+
+    expect(updated).toMatchObject({ resolvedAt: null, completionProposedAt: null })
+  })
+
+  it('reports null for a source that does not exist', () => {
+    expect(retractSourceResolution(database, 'nonexistent')).toBeNull()
   })
 })
 

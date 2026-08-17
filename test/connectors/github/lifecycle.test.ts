@@ -328,6 +328,57 @@ describe('being dropped as a reviewer', () => {
   })
 })
 
+describe('a reviewer request transiently dropped and then restored', () => {
+  it('un-sticks the completion proposal once the refresh pass finds it genuinely still open', async () => {
+    // The user has already filed this one in `waiting`, which is what stops sync forcing it
+    // straight to `done` the moment the reviewer request drops (spec 02, criterion 4) and is
+    // what makes the badge get stuck in the first place: a task sync already completed never
+    // shows it. A dependabot rebase is exactly this shape: it can knock the review request out
+    // for one refresh cycle before GitHub reinstates it.
+    const dropped = pullRequestNode({
+      headSha: FIRST_SHA,
+      requestedReviewers: [],
+      reviewRequestedAt: null,
+    })
+    const walked = walk([
+      { discovery: [requested] },
+      { discovery: [], refresh: [dropped] },
+      { discovery: [requested] },
+    ])
+
+    const first = (await walked.run()) as Task
+    changeTaskStatus(walked.database, first.id, {
+      status: 'waiting',
+      by: 'user',
+      at: Date.UTC(2026, 0, 5, 12, 0),
+    })
+
+    // The drop: resolved and completion proposed, but sync cannot force `done` on a task the
+    // user has already filed themselves, so the proposal is left showing on a task still in
+    // `waiting`. This is the stuck badge.
+    const stuck = await walked.run()
+    expect(stuck).toMatchObject({ status: 'waiting', statusSetBy: 'user' })
+    expect(getSourceByExternalId(walked.database, 'github', EXTERNAL_ID)).toMatchObject({
+      resolvedAt: expect.any(Number),
+      completionProposedAt: expect.any(Number),
+    })
+
+    // The rebase finishes and GitHub reinstates the request: genuinely still open, which the
+    // refresh pass now has to be able to say. Discovery finding it again is itself a fresh,
+    // genuine review request, so the ordinary lifecycle rightly moves the task back to
+    // `review`: that part is unrelated to retraction and is exactly what spec 01 says a
+    // tracked task's own lifecycle may still do even after the user has touched it. What
+    // retraction fixes is that the source no longer carries a false resolution alongside it.
+    const restored = await walked.run()
+
+    expect(getSourceByExternalId(walked.database, 'github', EXTERNAL_ID)).toMatchObject({
+      resolvedAt: null,
+      completionProposedAt: null,
+    })
+    expect(restored).toMatchObject({ status: 'review', statusSetBy: 'sync' })
+  })
+})
+
 describe('filing a tracked pull request outside the connector’s statuses', () => {
   it('stops tracking, and a later re-request does not move it back', async () => {
     const reRequested = pullRequestNode({
