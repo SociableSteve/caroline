@@ -51,6 +51,11 @@ export const mcp: Migration = {
         -- next held write, and they are not reconstructable from the database as it now stands,
         -- only as it stood at the moment each one was described.
         bulk_descriptions text not null default '[]',
+        -- Bumped by every write to the four columns above, and checked by the write that
+        -- follows a read: an MCP session's turn spans separate JSON-RPC requests rather than
+        -- one function's stack, so two calls against the same session can otherwise read the
+        -- same accumulator and each write back believing the other never happened.
+        accumulator_version integer not null default 0,
         created_at integer not null
       )
     `)

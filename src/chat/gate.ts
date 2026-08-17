@@ -55,6 +55,14 @@ export type GateOutcome =
        * arguments rather than by anything read from the database.
        */
       readonly message: string
+      /**
+       * True only when `confirmation` is not new or extended: the bulk confirmation this call
+       * would have joined was already decided, so the record handed back is the stale one that
+       * was there before the call. A caller that emits a `confirmation` event off every held
+       * outcome must not do so here, or it re-announces a decision nothing about this call
+       * changed.
+       */
+      readonly stale?: boolean
     }
 
 /**
@@ -158,6 +166,7 @@ export function gateWrite(
       confirmation: existing.record,
       message:
         'This turn has already changed as many tasks as it may without asking, and the confirmation it was collected into has been decided. Nothing was changed. Ask the user to start a new instruction.',
+      stale: true,
     }
   }
 

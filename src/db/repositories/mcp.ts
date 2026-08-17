@@ -9,6 +9,7 @@
 import { randomUUID } from 'node:crypto'
 import type { Database } from '../connection.js'
 import type { Row } from '../rows.js'
+import { operationsOf } from '../../chat/confirm.js'
 import type { GateAccumulator } from '../../chat/gate.js'
 import { createConversation, getConfirmation } from './chat.js'
 
@@ -40,10 +41,11 @@ interface SessionRow {
   readonly mutatedTaskIds: readonly string[]
   readonly bulkConfirmationId: string | null
   readonly bulkDescriptions: readonly string[]
+  readonly accumulatorVersion: number
 }
 
 const sessionColumns = `id, conversation_id, client_name, last_seen_at, current_turn_message_id,
-  mutated_task_ids, bulk_confirmation_id, bulk_descriptions`
+  mutated_task_ids, bulk_confirmation_id, bulk_descriptions, accumulator_version`
 
 function toSessionRow(row: Row): SessionRow {
   return {
@@ -56,6 +58,7 @@ function toSessionRow(row: Row): SessionRow {
     mutatedTaskIds: parseStringArray(row.mutated_task_ids),
     bulkConfirmationId: row.bulk_confirmation_id === null ? null : String(row.bulk_confirmation_id),
     bulkDescriptions: parseStringArray(row.bulk_descriptions),
+    accumulatorVersion: Number(row.accumulator_version),
   }
 }
 
@@ -151,21 +154,35 @@ export function findOrCreateSession(
 }
 
 /** Clears the accumulated state once its confirmation has been decided, so the caller sees an
- * empty accumulator and opens a fresh turn on its next write. Read-only otherwise. */
+ * empty accumulator and opens a fresh turn on its next write. Read-only otherwise.
+ *
+ * Guarded by `accumulator_version` the same way `saveSessionAccumulator` is below: a second call
+ * racing this one to clear the same decided confirmation would otherwise clear it twice, and the
+ * second clear's `where` clause finding no row to match is exactly how it is told its read is
+ * stale rather than silently repeating a write that already happened. */
 function openTurnState(database: Database, row: SessionRow): SessionRow {
   if (row.bulkConfirmationId === null) return row
 
   const confirmation = getConfirmation(database, row.bulkConfirmationId)
   if (confirmation !== null && confirmation.decidedAt === null) return row
 
-  database
+  const changed = database
     .prepare(
       `update mcp_sessions
        set current_turn_message_id = null, mutated_task_ids = '[]',
-           bulk_confirmation_id = null, bulk_descriptions = '[]'
-       where id = ?`,
+           bulk_confirmation_id = null, bulk_descriptions = '[]',
+           accumulator_version = accumulator_version + 1
+       where id = ? and accumulator_version = ?`,
     )
-    .run(row.id)
+    .run(row.id, row.accumulatorVersion).changes
+
+  // Lost the race to clear it: another call already did, so the row is read back fresh rather
+  // than assumed to be the stale shape this function was about to return.
+  if (changed === 0) {
+    const fresh = getSessionRow(database, row.id)
+    if (fresh === null) throw new Error(`no such MCP session: ${row.id}`)
+    return fresh
+  }
 
   return {
     ...row,
@@ -173,6 +190,7 @@ function openTurnState(database: Database, row: SessionRow): SessionRow {
     mutatedTaskIds: [],
     bulkConfirmationId: null,
     bulkDescriptions: [],
+    accumulatorVersion: row.accumulatorVersion + 1,
   }
 }
 
@@ -181,6 +199,13 @@ export interface OpenSessionTurn {
   readonly turnMessageId: string | null
   /** The `GateAccumulator` shape `src/chat/gate.ts` reads and mutates. */
   readonly accumulator: GateAccumulator
+  /**
+   * The version this read saw, to be handed back to `saveSessionAccumulator` unchanged. An MCP
+   * session's turn spans separate JSON-RPC requests, so the work between this read and that write
+   * (running the tool itself) is a gap another call to the same session can land in; the version
+   * is what lets the write notice and refuse to clobber it instead of silently losing it.
+   */
+  readonly accumulatorVersion: number
 }
 
 /**
@@ -213,43 +238,34 @@ export function openSessionTurn(database: Database, sessionId: string): OpenSess
               descriptions: [...opened.bulkDescriptions],
             },
     },
+    accumulatorVersion: opened.accumulatorVersion,
   }
-}
-
-/** Reads the stored operations back out, as `src/chat/confirm.ts` does for the same shape. */
-function operationsOf(confirmation: {
-  arguments: unknown
-}): Array<{ tool: string; arguments: unknown }> {
-  const stored = confirmation.arguments
-  if (stored === null || typeof stored !== 'object') return []
-  const operations = (stored as { operations?: unknown }).operations
-  if (!Array.isArray(operations)) return []
-
-  return operations.flatMap((raw) => {
-    if (raw === null || typeof raw !== 'object') return []
-    const operation = raw as { tool?: unknown; arguments?: unknown }
-    return typeof operation.tool === 'string'
-      ? [{ tool: operation.tool, arguments: operation.arguments }]
-      : []
-  })
 }
 
 /**
  * Writes an accumulator back after a write tool has run, and returns the message id its record
  * should be attached to: the open turn, or a freshly created one where there was none.
+ *
+ * `expectedVersion` is what `openSessionTurn` saw when it read the row this accumulator was built
+ * from. The tool itself ran between that read and this write, which is a gap another call against
+ * the same session can land in; the `where` clause below only takes effect if nothing else wrote
+ * to the row in between, so a lost race is answered with an error rather than a silently
+ * overwritten update from whichever call landed in the gap.
  */
 export function saveSessionAccumulator(
   database: Database,
   sessionId: string,
   turnMessageId: string,
   accumulator: GateAccumulator,
+  expectedVersion: number,
 ): void {
-  database
+  const changed = database
     .prepare(
       `update mcp_sessions
        set current_turn_message_id = ?, mutated_task_ids = ?,
-           bulk_confirmation_id = ?, bulk_descriptions = ?
-       where id = ?`,
+           bulk_confirmation_id = ?, bulk_descriptions = ?,
+           accumulator_version = accumulator_version + 1
+       where id = ? and accumulator_version = ?`,
     )
     .run(
       turnMessageId,
@@ -257,7 +273,14 @@ export function saveSessionAccumulator(
       accumulator.bulkConfirmation?.record.id ?? null,
       JSON.stringify(accumulator.bulkConfirmation?.descriptions ?? []),
       sessionId,
+      expectedVersion,
+    ).changes
+
+  if (changed === 0) {
+    throw new Error(
+      `MCP session ${sessionId}'s turn state changed under a concurrent call; not overwriting it`,
     )
+  }
 }
 
 export interface RecordCallInput {

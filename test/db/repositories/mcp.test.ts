@@ -108,14 +108,60 @@ describe('openSessionTurn', () => {
       NOW,
     )
 
-    saveSessionAccumulator(database, session.id, turn.id, {
-      mutatedTaskIds: new Set(['task-1', 'task-2']),
-      bulkConfirmation: null,
-    })
+    saveSessionAccumulator(
+      database,
+      session.id,
+      turn.id,
+      {
+        mutatedTaskIds: new Set(['task-1', 'task-2']),
+        bulkConfirmation: null,
+      },
+      0,
+    )
 
     const open = openSessionTurn(database, session.id)
     expect(open.turnMessageId).toBe(turn.id)
     expect(open.accumulator.mutatedTaskIds).toEqual(new Set(['task-1', 'task-2']))
+  })
+
+  /** Spec 12's session state spans separate JSON-RPC requests rather than one function's stack,
+   * so a call that read the accumulator before another call wrote to it must not overwrite that
+   * write with what it read. */
+  it('refuses to save an accumulator read before a concurrent call already wrote to it', () => {
+    const database = migratedDatabase()
+    const session = findOrCreateSession(database, { clientName: 'a', sessionIdleMinutes: 30 }, NOW)
+    const turn = appendMessage(
+      database,
+      { conversationId: session.conversationId, role: 'assistant', content: '' },
+      NOW,
+    )
+
+    // Two calls both read the same, empty accumulator at version 0.
+    const firstRead = openSessionTurn(database, session.id)
+    const secondRead = openSessionTurn(database, session.id)
+
+    saveSessionAccumulator(
+      database,
+      session.id,
+      turn.id,
+      { mutatedTaskIds: new Set(['task-1']), bulkConfirmation: null },
+      firstRead.accumulatorVersion,
+    )
+
+    expect(() =>
+      saveSessionAccumulator(
+        database,
+        session.id,
+        turn.id,
+        { mutatedTaskIds: new Set(['task-2']), bulkConfirmation: null },
+        secondRead.accumulatorVersion,
+      ),
+    ).toThrow(/concurrent/)
+
+    // The first call's write survived; the second's did not silently clobber it.
+    expect(openSessionTurn(database, session.id).accumulator.mutatedTaskIds).toEqual(
+      new Set(['task-1']),
+    )
   })
 
   /** Spec 07, criterion 14: once a confirmation is decided, the next write opens a new turn. */
@@ -141,10 +187,16 @@ describe('openSessionTurn', () => {
       NOW,
     )
 
-    saveSessionAccumulator(database, session.id, turn.id, {
-      mutatedTaskIds: new Set(Array.from({ length: 10 }, (_, index) => `task-${index}`)),
-      bulkConfirmation: { record: confirmation, operations: [], descriptions: ['held'] },
-    })
+    saveSessionAccumulator(
+      database,
+      session.id,
+      turn.id,
+      {
+        mutatedTaskIds: new Set(Array.from({ length: 10 }, (_, index) => `task-${index}`)),
+        bulkConfirmation: { record: confirmation, operations: [], descriptions: ['held'] },
+      },
+      0,
+    )
 
     // Not yet decided: the accumulator still carries what was there.
     expect(openSessionTurn(database, session.id).accumulator.mutatedTaskIds.size).toBe(10)

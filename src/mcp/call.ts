@@ -11,6 +11,7 @@ import { argumentsProblem, executeTool } from '../chat/execute.js'
 import { gateWrite } from '../chat/gate.js'
 import type { ChatToolContext, PlanRegeneration } from '../chat/types.js'
 import type { Database } from '../db/connection.js'
+import { stableStringify } from '../domain/stable-stringify.js'
 import { appendMessage, type ChatConfirmationRecord } from '../db/repositories/chat.js'
 import {
   findOrCreateSession,
@@ -55,9 +56,14 @@ export type McpToolCallResult =
     }
   | { readonly outcome: 'error'; readonly message: string; readonly session?: McpSession }
 
+/**
+ * `stableStringify` rather than `JSON.stringify`: keys are sorted at every depth, so two calls
+ * with the same arguments in a different order digest to the same audit row instead of looking
+ * like different calls (`src/domain/stable-stringify.ts`).
+ */
 function digestOf(value: unknown): string {
   return createHash('sha256')
-    .update(JSON.stringify(value ?? null))
+    .update(stableStringify(value ?? null))
     .digest('hex')
 }
 
@@ -65,15 +71,18 @@ function digestOf(value: unknown): string {
  * How many items a response answered for, for the audit row. Counted rather than measured: a
  * response naming an array of rows (`tasks`, `review`, `items`...) counts that array; anything
  * else, including a single item, counts as one. Spec 12, criterion 24.
+ *
+ * Summed over every array-valued field rather than just the first one found: `list_reviews`
+ * answers with two of them (`review` and, when asked for, `waiting`), and a response with an
+ * empty `review` but a populated `waiting` is not a response with zero items.
  */
 function itemCountOf(data: unknown): number {
   if (data === null || typeof data !== 'object') return 1
 
-  for (const value of Object.values(data as Record<string, unknown>)) {
-    if (Array.isArray(value)) return value.length
-  }
+  const arrays = Object.values(data as Record<string, unknown>).filter(Array.isArray)
+  if (arrays.length === 0) return 1
 
-  return 1
+  return arrays.reduce((total, array) => total + array.length, 0)
 }
 
 /** The data-is-not-instruction notice, added to every response that may carry an item's own text.
@@ -159,13 +168,13 @@ export async function callMcpTool(
   // confirmation decision (spec 07, criterion 14), so it is resolved from the database rather
   // than kept in memory the way a browser turn's `TurnState` is.
   const open = openSessionTurn(database, session.id)
-  const { accumulator } = open
+  const { accumulator, accumulatorVersion } = open
   const turnId = open.turnMessageId ?? newTurn(database, session, at)
 
   const gated = gateWrite(toolContext, tool, { arguments: input.arguments }, turnId, accumulator)
 
   if (gated.held) {
-    saveSessionAccumulator(database, session.id, turnId, accumulator)
+    saveSessionAccumulator(database, session.id, turnId, accumulator, accumulatorVersion)
     audit(
       database,
       config,
@@ -194,7 +203,7 @@ export async function callMcpTool(
   }
 
   for (const taskId of result.taskIds) accumulator.mutatedTaskIds.add(taskId)
-  saveSessionAccumulator(database, session.id, turnId, accumulator)
+  saveSessionAccumulator(database, session.id, turnId, accumulator, accumulatorVersion)
 
   if (result.changes.length > 0) {
     deps.changes?.publish({ kind: 'tasks', at })

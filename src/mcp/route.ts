@@ -15,6 +15,7 @@
 import { timingSafeEqual } from 'node:crypto'
 import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { isLoopbackHost, stripHostnameBrackets } from '../auth/boundary.js'
+import { loopbackHostnames } from '../auth/origin.js'
 import type { Config } from '../config/schema.js'
 import type { Database } from '../db/connection.js'
 import type { PlanRegeneration } from '../chat/types.js'
@@ -69,9 +70,16 @@ function hostnameOf(value: string): string {
     : (value.split(':')[0] ?? value)
 }
 
+/**
+ * Compared against `loopbackHostnames`, not `loopbackHosts`: `URL#hostname` normalises an
+ * IPv4-mapped IPv6 literal (`::ffff:127.0.0.1` parses to `[::ffff:7f00:1]`), so a legitimate
+ * loopback `Origin` header in that form would otherwise fail to match the unnormalised set and
+ * be refused with 403. `src/auth/origin.ts` had the same bug in `isAcceptableOrigin` and this is
+ * the fix it already carries, reused rather than repeated.
+ */
 function isAcceptableMcpOrigin(origin: string): boolean {
   try {
-    return isLoopbackHost(stripHostnameBrackets(new URL(origin).hostname))
+    return loopbackHostnames.has(new URL(origin).hostname)
   } catch {
     return false
   }
@@ -103,10 +111,22 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteContext): 
   // never the rest of the API. Spec 08, criterion 37.
   void app.register(async (instance) => {
     instance.setErrorHandler<FastifyError>((error, _request, reply) => {
+      // `parseError` is for a body this route could not read as JSON-RPC at all: invalid JSON, or
+      // schema validation rejecting it before a handler ever ran. Anything else reaching this
+      // handler is this route's own code failing on a request it did parse, which is
+      // `internalError` rather than a claim that the request itself was malformed.
+      const isParseFailure =
+        error.code === 'FST_ERR_CTP_INVALID_JSON_BODY' || error.code === 'FST_ERR_VALIDATION'
       reply
         .status(200)
         .send(
-          jsonRpcError(null, jsonRpcErrorCodes.parseError, `Malformed request: ${error.message}`),
+          isParseFailure
+            ? jsonRpcError(
+                null,
+                jsonRpcErrorCodes.parseError,
+                `Malformed request: ${error.message}`,
+              )
+            : jsonRpcError(null, jsonRpcErrorCodes.internalError, error.message),
         )
     })
 

@@ -6,6 +6,7 @@ import type { FastifyInstance } from 'fastify'
 import type { Config } from '../../src/config/schema.js'
 import { listConversations } from '../../src/db/repositories/chat.js'
 import { listMcpCalls } from '../../src/db/repositories/mcp.js'
+import { upsertSource } from '../../src/db/repositories/sources.js'
 import { createTask } from '../../src/db/repositories/tasks.js'
 import { testConfig, testServer, REQUEST_TIME } from '../helpers/test-server.js'
 
@@ -120,6 +121,22 @@ describe('with mcp.enabled true', () => {
     expect(response.statusCode).toBe(200)
   })
 
+  /**
+   * `new URL('http://::ffff:127.0.0.1').hostname` normalises to `[::ffff:7f00:1]`, which is not
+   * a string `loopbackHosts` names literally. A legitimate loopback client sending an IPv4-mapped
+   * IPv6 Origin was refused with 403 until `isAcceptableMcpOrigin` compared against the
+   * normalised set (`loopbackHostnames`, `src/auth/origin.ts`) instead.
+   */
+  it('accepts a loopback Origin in its IPv4-mapped IPv6 form', async () => {
+    const { app } = await testServer({ config: mcpConfig() })
+
+    const response = await post(app, rpc('server/discover'), {
+      origin: 'http://[::ffff:127.0.0.1]:5555',
+    })
+
+    expect(response.statusCode).toBe(200)
+  })
+
   it('refuses a Host header that does not name a loopback name (criterion 9)', async () => {
     const { app } = await testServer({ config: mcpConfig() })
 
@@ -139,6 +156,39 @@ describe('with mcp.enabled true', () => {
 
     expect(response.statusCode).toBe(400)
     expect(response.json()).toMatchObject({ error: { code: -32020 } })
+  })
+
+  it('answers parseError for a body that is not valid JSON', async () => {
+    const { app } = await testServer({ config: mcpConfig() })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/mcp',
+      headers: {
+        ...headersFor(rpc('server/discover')),
+        'content-type': 'application/json',
+      },
+      payload: '{not valid json',
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({ error: { code: -32700 } })
+  })
+
+  /**
+   * A thrown exception from this route's own code, once past the framing checks, is not the
+   * request being malformed: it is `internalError` (-32603), which the handler had unused until
+   * this fix, because every uncaught exception used to be answered as `parseError` regardless of
+   * cause.
+   */
+  it('answers internalError, not parseError, for an uncaught exception past the framing checks', async () => {
+    const { app, database } = await testServer({ config: mcpConfig() })
+    database.exec('drop table mcp_sessions')
+
+    const response = await post(app, rpc('tools/call', { name: 'search_tasks', arguments: {} }))
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({ error: { code: -32603 } })
   })
 
   it('refuses a request omitting the required Mcp-Method header (criterion 10)', async () => {
@@ -243,6 +293,28 @@ describe('with mcp.enabled true', () => {
     expect(conversations[0]).toMatchObject({ source: 'mcp', clientName: 'review-bot' })
   })
 
+  /** Migration 0012 added `source`/`clientName` specifically so an MCP conversation is told apart
+   * from a browser one over the REST API too, not only in the repository. */
+  it('reports the MCP source and client name over the chat conversation list API', async () => {
+    const { app } = await testServer({ config: mcpConfig() })
+
+    await post(
+      app,
+      rpc('tools/call', {
+        name: 'create_task',
+        arguments: { title: 'Ship the MCP surface' },
+        _meta: { clientInfo: { name: 'review-bot' } },
+      }),
+    )
+
+    const response = await app.inject({ method: 'GET', url: '/api/chat/conversations' })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({
+      conversations: [{ source: 'mcp', clientName: 'review-bot' }],
+    })
+  })
+
   it('attributes a call with no declared client name to an unnamed client rather than refusing it (criterion 14)', async () => {
     const { app, database } = await testServer({ config: mcpConfig() })
 
@@ -293,6 +365,89 @@ describe('with mcp.enabled true', () => {
     expect(calls).toHaveLength(1)
     expect(calls[0]).toMatchObject({ tool: 'search_tasks', held: false, itemCount: 1 })
     expect(JSON.stringify(calls[0])).not.toContain('Something to find')
+  })
+
+  /**
+   * `list_reviews` answers with two arrays, `review` and `waiting`, and only the latter is
+   * populated here: a naive `itemCountOf` that counted the first array field found would say
+   * zero items came back when in fact one did.
+   */
+  it('counts every item across a response with more than one array field', async () => {
+    const { app, database } = await testServer({ config: mcpConfig() })
+    // A task in `waiting`, with the pull-request source `list_reviews` requires to answer for
+    // it, and nothing in `review`: the response is `{ review: [], waiting: [<one row>] }`, so
+    // a naive count of the first array field found would say zero items came back.
+    createTask(
+      database,
+      { id: 'task-1', title: 'Waiting on someone', status: 'waiting' },
+      REQUEST_TIME,
+    )
+    upsertSource(
+      database,
+      {
+        provider: 'github',
+        externalId: 'example-org/service#7',
+        taskId: 'task-1',
+        lifecycleState: 'changes_requested',
+        metadata: { repository: 'example-org/service', number: 7 },
+      },
+      REQUEST_TIME,
+    )
+
+    await post(
+      app,
+      rpc('tools/call', { name: 'list_reviews', arguments: { includeWaiting: true } }),
+    )
+
+    const conversations = listConversations(database)
+    const sessionRow = database
+      .prepare(
+        `select mcp_sessions.id as id from mcp_sessions
+         join chat_conversations on chat_conversations.id = mcp_sessions.conversation_id
+         where chat_conversations.id = ?`,
+      )
+      .get(conversations[0]!.id) as { id: string }
+    const calls = listMcpCalls(database, sessionRow.id)
+
+    expect(calls[0]).toMatchObject({ tool: 'list_reviews', itemCount: 1 })
+  })
+
+  /**
+   * `digestOf` hashes with `stableStringify`, so the same arguments in a different key order
+   * digest identically rather than looking like two different calls in the audit trail.
+   */
+  it('digests the same arguments identically regardless of key order', async () => {
+    const { app, database } = await testServer({ config: mcpConfig() })
+
+    await post(
+      app,
+      rpc(
+        'tools/call',
+        { name: 'search_tasks', arguments: { status: ['inbox'], limit: 5 } },
+        'call-a',
+      ),
+    )
+    await post(
+      app,
+      rpc(
+        'tools/call',
+        { name: 'search_tasks', arguments: { limit: 5, status: ['inbox'] } },
+        'call-b',
+      ),
+    )
+
+    const conversations = listConversations(database)
+    const sessionRow = database
+      .prepare(
+        `select mcp_sessions.id as id from mcp_sessions
+         join chat_conversations on chat_conversations.id = mcp_sessions.conversation_id
+         where chat_conversations.id = ?`,
+      )
+      .get(conversations[0]!.id) as { id: string }
+    const calls = listMcpCalls(database, sessionRow.id)
+
+    expect(calls).toHaveLength(2)
+    expect(calls[0]!.argumentsDigest).toBe(calls[1]!.argumentsDigest)
   })
 
   it('withholds an item’s own text to ids and the withholding sentence at none, on a write tool’s answer too (criterion 19)', async () => {

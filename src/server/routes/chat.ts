@@ -140,6 +140,10 @@ function toConversation(conversation: Conversation) {
     messageCount: conversation.messageCount,
     inputTokens: conversation.inputTokens,
     outputTokens: conversation.outputTokens,
+    // Migration 0012's whole purpose: distinguishing an MCP session's conversation from a
+    // browser one over this same API, which dropping these here would defeat.
+    source: conversation.source,
+    clientName: conversation.clientName,
   }
 }
 

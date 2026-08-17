@@ -452,8 +452,13 @@ function hold(
   const outcome = gateWrite(toolContext, tool, { arguments: call.arguments }, turnId, state)
   if (!outcome.held) return null
 
-  emit({ type: 'confirmation', confirmation: outcome.confirmation })
-  emit({ type: 'tool', name: call.name, outcome: 'held' })
+  // A stale outcome means the confirmation it points at was already decided before this call: the
+  // call changed nothing, so there is nothing new to show. Re-emitting the same confirmation here
+  // would have the client believe a decided card is open again.
+  if (outcome.stale !== true) {
+    emit({ type: 'confirmation', confirmation: outcome.confirmation })
+    emit({ type: 'tool', name: call.name, outcome: 'held' })
+  }
 
   return refusal(call, outcome.message, { retryable: false })
 }
