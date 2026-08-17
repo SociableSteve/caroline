@@ -69,6 +69,10 @@ export interface BuildServerOptions {
    * entirely, and the default would then miss the built SPA silently. Set this explicitly
    * when the process's cwd is not the repo root. Also lets tests inject a path directly
    * instead of `chdir`-ing the whole process.
+   *
+   * `main.ts`, the real production entry point, wires this from `config.server.webRoot`
+   * (`CAROLINE_WEB_ROOT` in the environment), which is how a deployment actually reaches
+   * this option: nothing calls `buildServer` directly outside of tests.
    */
   webRoot?: string
 }

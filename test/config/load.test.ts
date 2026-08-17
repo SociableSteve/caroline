@@ -10,6 +10,9 @@ describe('loadConfig defaults', () => {
     expect(config.server.host).toBe('127.0.0.1')
     expect(config.server.port).toBe(5123)
     expect(config.server.publicUrl).toBeNull()
+    // Null means "use resolveWebRoot()'s own cwd-anchored default", the right answer for the
+    // common case of a process started from the repo root.
+    expect(config.server.webRoot).toBeNull()
     expect(config.authRequired).toBe(false)
     expect(config.privacy.llmContent).toBe('snippet')
     expect(config.privacy.storeContent).toBe('metadata')
@@ -80,6 +83,30 @@ describe('loadConfig precedence', () => {
     })
 
     expect(config.server.port).toBe(7000)
+  })
+
+  /**
+   * The escape hatch for a deployment whose cwd is not the repo root (a Docker `WORKDIR`, a
+   * pm2 config or a systemd unit with no explicit cwd): `resolveWebRoot()`'s own default would
+   * otherwise silently resolve to the wrong path. `main.ts` threads this straight into
+   * `buildServer`'s `webRoot` option; see test/server/web-root.test.ts for that end to end.
+   */
+  it('takes webRoot from the file', () => {
+    const config = loadConfig({
+      file: { server: { webRoot: '/srv/caroline/web' } },
+      env: noEnv,
+    })
+
+    expect(config.server.webRoot).toBe('/srv/caroline/web')
+  })
+
+  it('lets CAROLINE_WEB_ROOT override the file', () => {
+    const config = loadConfig({
+      file: { server: { webRoot: '/srv/caroline/web' } },
+      env: { CAROLINE_WEB_ROOT: '/opt/caroline/web' } as NodeJS.ProcessEnv,
+    })
+
+    expect(config.server.webRoot).toBe('/opt/caroline/web')
   })
 
   it('reads secrets from the environment only', () => {

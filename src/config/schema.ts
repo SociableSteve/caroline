@@ -136,6 +136,15 @@ export const fileConfigSchema = z
          * with a null default, the shape `integrations.google.clientId` already uses.
          */
         publicUrl: credentialFreeUrl.nullable().default(null),
+        /**
+         * Where the built SPA lives, overriding `resolveWebRoot`'s `process.cwd()`-anchored
+         * guess (`src/server/app.ts`). Nullable with a null default, the shape
+         * `server.publicUrl` already uses: absent means "use the default", not "there is no
+         * SPA". An escape hatch for a deployment whose working directory is not the repo
+         * root (a Docker `WORKDIR`, a pm2 config or a systemd unit with no explicit cwd),
+         * where the default guess would otherwise resolve to the wrong path silently.
+         */
+        webRoot: z.string().min(1).nullable().default(null),
       })
       .strict()
       .default({}),
@@ -423,6 +432,8 @@ export interface Config {
     readonly host: string
     readonly port: number
     readonly publicUrl: string | null
+    /** The `webRoot` override for `buildServer`. Null means "use its own default". */
+    readonly webRoot: string | null
   }
   /**
    * Whether a request needs a session. Computed once at startup from `server.host`,

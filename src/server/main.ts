@@ -17,7 +17,17 @@ async function start(): Promise<void> {
   // The routes and the scheduler share one set of jobs, so the overlap guard covers both: a manual
   // run while a scheduled one is still going is answered rather than queued.
   const jobs = buildJobs({ database, config, changes })
-  const app = await buildServer({ config, database, changes, jobs })
+  const app = await buildServer({
+    config,
+    database,
+    changes,
+    jobs,
+    // `resolveWebRoot()`'s own default is right for `npm run dev` and `npm run start`, both
+    // run from the repo root; `server.webRoot`/`CAROLINE_WEB_ROOT` is the escape hatch for a
+    // deployment whose cwd is not (a Docker WORKDIR, a pm2 config or a systemd unit with no
+    // explicit cwd), where that default would otherwise silently resolve to the wrong path.
+    ...(config.server.webRoot === null ? {} : { webRoot: config.server.webRoot }),
+  })
 
   await app.listen({ host: config.server.host, port: config.server.port })
 

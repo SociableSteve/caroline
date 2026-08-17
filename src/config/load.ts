@@ -425,6 +425,7 @@ export function loadConfig({ file, env, runtimeChecks = true }: LoadOptions): Co
       host,
       port: envPort(env, parsed.server.port),
       publicUrl,
+      webRoot: nonEmpty(env.CAROLINE_WEB_ROOT) ?? parsed.server.webRoot,
     },
     authRequired,
     database: {

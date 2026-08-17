@@ -99,6 +99,13 @@ anything.
 Nothing Caroline writes lives outside the data directory, which is what makes
 [step 11](#11-removing-everything) one command.
 
+The built SPA (`dist/web`, `npm run build`'s output) is found the same way: relative to the
+process's working directory. That is right whenever `npm start` is run from the repo root, which
+is every case above, but not every deployment starts it that way: a Docker `WORKDIR`, a pm2 config
+or a systemd unit with no explicit working directory can leave Caroline looking in the wrong place
+and silently 404ing every page that is not an API route. If that is your setup, set
+`server.webRoot`, or `CAROLINE_WEB_ROOT`, to the absolute path of `dist/web`.
+
 Start your own config file from the example, which states the settings at their defaults. Two of them
 it cannot: `jobs.timezone` defaults to whatever this machine thinks it is in, so the example names
 Europe/London and you should change it to yours, because it is the zone every schedule is read in;
