@@ -20,12 +20,12 @@ import {
   listProjects,
   listStalledProjects,
 } from '../../db/repositories/projects.js'
-import { listSourcesForTask } from '../../db/repositories/sources.js'
+import { listSourcesForTask, listSourcesForTasks } from '../../db/repositories/sources.js'
 import { getTask, getTaskTags, listTasks } from '../../db/repositories/tasks.js'
 import { consumesCapacity } from '../../domain/capacity.js'
 import { projectStates, type ProjectState } from '../../domain/project.js'
 import type { Source } from '../../domain/source.js'
-import { taskStatuses, type TaskStatus } from '../../domain/task.js'
+import { taskStatuses, type Task, type TaskStatus } from '../../domain/task.js'
 import { isStaleWait } from '../../domain/waiting.js'
 import { defineTool, type ChatTool } from '../types.js'
 import {
@@ -429,6 +429,97 @@ const listWaiting = defineTool<{ readonly staleOnly?: boolean }>({
   },
 })
 
+/**
+ * The pull request facts a `review` or `waiting` task's GitHub source carries, read once and
+ * shared by the two halves of `list_reviews` below.
+ */
+function pullRequestMetadataOf(source: Source): {
+  readonly repository: string | null
+  readonly number: number | null
+  readonly reviewRequestedAt: string | null
+} {
+  const metadata = (source.metadata ?? {}) as {
+    repository?: unknown
+    number?: unknown
+    reviewRequestedAt?: unknown
+  }
+
+  return {
+    repository: typeof metadata.repository === 'string' ? metadata.repository : null,
+    number: typeof metadata.number === 'number' ? metadata.number : null,
+    reviewRequestedAt: asIso(
+      typeof metadata.reviewRequestedAt === 'number' ? metadata.reviewRequestedAt : null,
+    ),
+  }
+}
+
+const listReviews = defineTool<{ readonly includeWaiting?: boolean }>({
+  name: 'list_reviews',
+  kind: 'read',
+  description:
+    'The review queue: every task awaiting your review, with its pull request URL, repository, number, size estimate, when the review was requested and where it is in the connector\'s lifecycle, in one call. Set includeWaiting to also list the ones you have reviewed and are waiting on the author for, which is "you reviewed it and nothing has happened since". Written for an agent that would otherwise need a get_task per row.',
+  parameters: {
+    type: 'object',
+    additionalProperties: false,
+    properties: { includeWaiting: { type: 'boolean' } },
+  },
+  execute(context, args) {
+    const reviewTasks = listTasks(context.database, { status: ['review'] }, context.now).tasks
+    const waitingTasks =
+      args.includeWaiting === true
+        ? listTasks(context.database, { status: ['waiting'] }, context.now).tasks
+        : []
+
+    const sources = listSourcesForTasks(context.database, [
+      ...reviewTasks.map((task) => task.id),
+      ...waitingTasks.map((task) => task.id),
+    ])
+
+    const withheld = withholdsText(context)
+
+    const rows = (tasks: readonly Task[]): unknown[] =>
+      tasks.flatMap((task): unknown[] => {
+        const pullRequest = (sources.get(task.id) ?? []).find(
+          (source) => source.provider === 'github',
+        )
+        // Not a pull request at all: `review` and `waiting` both hold tasks that reached that
+        // status by other means, and a row with no provenance to show is not this tool's to
+        // answer for. Spec 07's description says "for a pull request task" for a reason.
+        if (pullRequest === undefined) return []
+
+        const facts = pullRequestMetadataOf(pullRequest)
+
+        if (withheld) {
+          return [{ kind: 'task' as const, id: task.id, withheld: WITHHELD_ITEM_TEXT }]
+        }
+
+        return [
+          {
+            id: task.id,
+            title: task.title,
+            status: task.status,
+            url: pullRequest.url,
+            repository: facts.repository,
+            number: facts.number,
+            estimateMinutes: task.estimateMinutes,
+            reviewRequestedAt: facts.reviewRequestedAt,
+            lifecycleState: pullRequest.lifecycleState,
+            waitingOn: task.status === 'waiting' ? task.waitingOn : null,
+          },
+        ]
+      })
+
+    return {
+      ok: true,
+      data: {
+        review: rows(reviewTasks),
+        ...(args.includeWaiting === true ? { waiting: rows(waitingTasks) } : {}),
+        ...(withheld ? { withheld: WITHHELD_ITEM_TEXT } : {}),
+      },
+    }
+  },
+})
+
 /** Every read tool, in the order spec 07 lists them. */
 export const readTools: readonly ChatTool[] = [
   searchTasks,
@@ -437,4 +528,5 @@ export const readTools: readonly ChatTool[] = [
   getDailyPlan,
   getCapacity,
   listWaiting,
+  listReviews,
 ]

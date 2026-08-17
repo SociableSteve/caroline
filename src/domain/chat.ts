@@ -32,6 +32,14 @@ export const chatConfirmationDecisions = ['confirmed', 'rejected'] as const
 export type ChatConfirmationDecision = (typeof chatConfirmationDecisions)[number]
 
 /**
+ * Which kind of caller a conversation belongs to. Spec 12: a session is a conversation, so
+ * `chat_conversations` carries the source that says which it was, and the browser is `browser`
+ * exactly as it always was rather than a new value invented for symmetry.
+ */
+export const chatConversationSources = ['browser', 'mcp'] as const
+export type ChatConversationSource = (typeof chatConversationSources)[number]
+
+/**
  * The inverse of one change, decided and written when the change is made, because that is the
  * last moment the previous values exist to be read. Spec 07: undo is a stored inverse
  * operation, not a general history rewind.

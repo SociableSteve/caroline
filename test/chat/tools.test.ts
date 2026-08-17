@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import { loadConfig } from '../../src/config/load.js'
 import { allChatTools } from '../../src/chat/registry.js'
+import { getOverviewTool } from '../../src/chat/tools/overview.js'
 import type { Config } from '../../src/config/schema.js'
 import type { ChatTool, ChatToolContext, PlanRegeneration } from '../../src/chat/types.js'
 import { upsertCalendarEvent } from '../../src/db/repositories/calendar-events.js'
@@ -512,6 +513,129 @@ describe('list_waiting', () => {
     const answer = await run(waitingDatabase(), 'list_waiting', { staleOnly: true })
 
     expect(answer.data).toMatchObject({ items: [{ taskId: 'task-1' }] })
+  })
+})
+
+/**
+ * Spec 12: written so an agent processing the review queue does not need a `get_task` per row.
+ * Everything the test asserts comes back from one call.
+ */
+describe('list_reviews', () => {
+  function reviewDatabase(): Database {
+    const database = migratedDatabase()
+    createTask(
+      database,
+      { id: 'task-1', title: 'octo/repo#42 Fix the thing', status: 'review', estimateMinutes: 20 },
+      CHAT_NOW,
+    )
+    upsertSource(
+      database,
+      {
+        provider: 'github',
+        externalId: 'octo/repo/pull/42',
+        url: 'https://github.com/octo/repo/pull/42',
+        taskId: 'task-1',
+        lifecycleState: 'awaiting_review',
+        metadata: { repository: 'octo/repo', number: 42, reviewRequestedAt: CHAT_NOW - 1000 },
+      },
+      CHAT_NOW,
+    )
+    createTask(
+      database,
+      {
+        id: 'task-2',
+        title: 'octo/repo#7 Tidy up',
+        status: 'waiting',
+        waitingOn: 'the author',
+        estimateMinutes: 10,
+      },
+      CHAT_NOW,
+    )
+    upsertSource(
+      database,
+      {
+        provider: 'github',
+        externalId: 'octo/repo/pull/7',
+        url: 'https://github.com/octo/repo/pull/7',
+        taskId: 'task-2',
+        lifecycleState: 'reviewed',
+        metadata: { repository: 'octo/repo', number: 7, reviewRequestedAt: CHAT_NOW - 2000 },
+      },
+      CHAT_NOW,
+    )
+    return database
+  }
+
+  it('answers the review queue in one call, with provenance and no per-task follow-up', async () => {
+    const answer = await run(reviewDatabase(), 'list_reviews', {})
+
+    expect(answer.data).toMatchObject({
+      review: [
+        {
+          id: 'task-1',
+          url: 'https://github.com/octo/repo/pull/42',
+          repository: 'octo/repo',
+          number: 42,
+          estimateMinutes: 20,
+          lifecycleState: 'awaiting_review',
+        },
+      ],
+    })
+    expect((answer.data as { waiting?: unknown }).waiting).toBeUndefined()
+  })
+
+  it('includes the waiting side only when asked', async () => {
+    const answer = await run(reviewDatabase(), 'list_reviews', { includeWaiting: true })
+
+    expect(answer.data).toMatchObject({
+      review: [{ id: 'task-1' }],
+      waiting: [{ id: 'task-2', repository: 'octo/repo', number: 7, waitingOn: 'the author' }],
+    })
+  })
+
+  it('answers with ids and the withholding sentence at none (spec 09, criterion 13)', async () => {
+    const answer = await run(reviewDatabase(), 'list_reviews', {}, { config: policyAt('none') })
+
+    expect(answer.data).toMatchObject({
+      review: [{ kind: 'task', id: 'task-1' }],
+      withheld: expect.stringContaining('content policy'),
+    })
+  })
+
+  it('leaves out a review task with no pull request provenance', async () => {
+    const database = reviewDatabase()
+    createTask(database, { id: 'task-3', title: 'Not a pull request', status: 'review' }, CHAT_NOW)
+
+    const answer = await run(database, 'list_reviews', {})
+
+    expect(
+      (answer.data as { review: readonly { id: string }[] }).review.map((row) => row.id),
+    ).toEqual(['task-1'])
+  })
+})
+
+/**
+ * Spec 12, criterion 41: not offered to chat (asserted in `test/chat/registry.test.ts`), but a
+ * `ChatTool` in the same shape, answering the object `chatSystemPrompt` sends chat unasked, and
+ * through the same code that assembles it, so the two cannot drift.
+ */
+describe('get_overview', () => {
+  it('answers the same context object the chat prompt assembles', async () => {
+    const database = migratedDatabase()
+    createTask(database, { id: 'task-1', title: 'Inbox item' }, CHAT_NOW)
+
+    const outcome = await getOverviewTool.execute(context(database), {})
+    if (!outcome.ok) throw new Error('get_overview refused')
+
+    expect(outcome.data).toMatchObject({
+      taskCountsByStatus: { inbox: 1 },
+      todaysPlan: null,
+    })
+  })
+
+  it('is read-only and carries no idempotency decision, since it is not a write tool', () => {
+    expect(getOverviewTool.kind).toBe('read')
+    expect(getOverviewTool.idempotent).toBeUndefined()
   })
 })
 

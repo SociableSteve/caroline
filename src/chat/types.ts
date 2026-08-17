@@ -74,6 +74,15 @@ export interface ChatTool {
    */
   readonly touchesTasks?: boolean
   /**
+   * Whether calling this tool twice with the same arguments has the effect of calling it once.
+   * Undefined on a read tool, which is idempotent by construction and has nothing to derive.
+   * Required on every write tool (see the two `defineTool` overloads below), so that MCP's
+   * `idempotentHint` (spec 12) is derived from a decision every write tool has made rather than
+   * guessed at for one that has not. `complete_task` and `mark_reviewed` are the two tools that
+   * declare it true: calling either again once it has applied changes nothing further.
+   */
+  readonly idempotent?: boolean
+  /**
    * What a confirmation of this call should say, built from the arguments before anything has
    * been done. Only the confirmable tools need one.
    */
@@ -81,24 +90,48 @@ export interface ChatTool {
   execute(context: ChatToolContext, args: unknown): ToolOutcome | Promise<ToolOutcome>
 }
 
-/**
- * A tool declared with its argument type. The loop validates every call against `parameters`
- * before it gets here, so the cast is the one place that fact is used rather than restated in
- * fourteen tools.
- */
-export function defineTool<Arguments>(definition: {
+interface ToolDefinitionBase<Arguments> {
   readonly name: string
   readonly description: string
   readonly parameters: JsonSchema
-  readonly kind: 'read' | 'write'
-  readonly alwaysConfirm?: boolean
   readonly touchesTasks?: boolean
   readonly describe?: (context: ChatToolContext, args: Arguments) => string
   readonly execute: (
     context: ChatToolContext,
     args: Arguments,
   ) => ToolOutcome | Promise<ToolOutcome>
-}): ChatTool {
+}
+
+/**
+ * A tool declared with its argument type. The loop validates every call against `parameters`
+ * before it gets here, so the cast is the one place that fact is used rather than restated in
+ * fourteen tools.
+ *
+ * Two overloads rather than one, so that a write tool's `idempotent` is required at the type
+ * level and not merely by convention: spec 12 asks that a write tool added without an
+ * idempotency decision fail rather than be advertised on a default nobody chose, and an optional
+ * field cannot enforce that. A read tool has no such field to omit.
+ */
+export function defineTool<Arguments>(
+  definition: ToolDefinitionBase<Arguments> & {
+    readonly kind: 'read'
+    readonly alwaysConfirm?: false
+  },
+): ChatTool
+export function defineTool<Arguments>(
+  definition: ToolDefinitionBase<Arguments> & {
+    readonly kind: 'write'
+    readonly alwaysConfirm?: boolean
+    readonly idempotent: boolean
+  },
+): ChatTool
+export function defineTool<Arguments>(
+  definition: ToolDefinitionBase<Arguments> & {
+    readonly kind: 'read' | 'write'
+    readonly alwaysConfirm?: boolean
+    readonly idempotent?: boolean
+  },
+): ChatTool {
   return {
     name: definition.name,
     description: definition.description,
@@ -106,6 +139,7 @@ export function defineTool<Arguments>(definition: {
     kind: definition.kind,
     ...(definition.alwaysConfirm === undefined ? {} : { alwaysConfirm: definition.alwaysConfirm }),
     ...(definition.touchesTasks === undefined ? {} : { touchesTasks: definition.touchesTasks }),
+    ...(definition.idempotent === undefined ? {} : { idempotent: definition.idempotent }),
     ...(definition.describe === undefined
       ? {}
       : {

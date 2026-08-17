@@ -133,9 +133,17 @@ describe('with authentication required (criterion 1, 31)', () => {
     await app.close()
   })
 
-  it('exempts exactly the three public auth routes', () => {
+  it('exempts exactly the three public auth routes and the MCP endpoint (spec 12)', () => {
+    // The MCP endpoint checks its own credential rather than a session, and is unregistered at
+    // all unless mcp.enabled is true and the bind is loopback (spec 12, criteria 5 and 6), so
+    // this line grants nothing on an install that has not already turned it on.
     expect([...EXEMPT_AUTH_ROUTES].toSorted()).toEqual(
-      ['GET /api/auth/callback', 'GET /api/auth/status', 'POST /api/auth/login'].toSorted(),
+      [
+        'GET /api/auth/callback',
+        'GET /api/auth/status',
+        'POST /api/auth/login',
+        'POST /api/mcp',
+      ].toSorted(),
     )
   })
 

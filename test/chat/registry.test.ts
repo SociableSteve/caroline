@@ -37,6 +37,7 @@ describe('the chat tool registry', () => {
     'get_daily_plan',
     'get_capacity',
     'list_waiting',
+    'list_reviews',
     'create_task',
     'update_task',
     'complete_task',
@@ -114,8 +115,32 @@ describe('the chat tool registry', () => {
     expect(confirmable).toEqual(['delete_task'])
   })
 
-  it('splits the tools into the six that read and the eight that write', () => {
-    expect(allChatTools.filter((tool) => tool.kind === 'read')).toHaveLength(6)
+  it('splits the tools into the seven that read and the eight that write', () => {
+    expect(allChatTools.filter((tool) => tool.kind === 'read')).toHaveLength(7)
     expect(allChatTools.filter((tool) => tool.kind === 'write')).toHaveLength(8)
+  })
+
+  /** Spec 12, criterion 12: required on a write tool, so a later one that omits it fails this. */
+  it('declares idempotent on every write tool', () => {
+    for (const tool of allChatTools.filter((tool) => tool.kind === 'write')) {
+      expect(typeof tool.idempotent, tool.name).toBe('boolean')
+    }
+  })
+
+  it('declares idempotent true only on complete_task and mark_reviewed (spec 12, criterion 12)', () => {
+    const idempotent = allChatTools
+      .filter((tool) => tool.idempotent === true)
+      .map((tool) => tool.name)
+
+    expect(idempotent.toSorted()).toEqual(['complete_task', 'mark_reviewed'])
+  })
+
+  /**
+   * Spec 12: get_overview is offered to MCP alone, because chat is already sent what it
+   * answers. It is still a `ChatTool`, executed through the same registry machinery, so this
+   * asserts it by name rather than by import, which `test/mcp` covers from its own side.
+   */
+  it('does not offer get_overview to chat, which is already sent what it answers', () => {
+    expect(allChatTools.map((tool) => tool.name)).not.toContain('get_overview')
   })
 })

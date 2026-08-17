@@ -22,6 +22,7 @@ import { registerIntegrationRoutes } from './routes/integrations.js'
 import { registerPrivacyRoutes } from './routes/privacy.js'
 import { registerSettingsRoutes } from './routes/settings.js'
 import { registerAuthRoutes } from './routes/auth.js'
+import { registerMcpRoutes } from '../mcp/route.js'
 import {
   errorSerialiser,
   redactLogFields,
@@ -94,6 +95,10 @@ export function registerRoutes(
   registerIntegrationRoutes(app, { config, database, google: jobs.google })
   registerPrivacyRoutes(app, { config, database, content: jobs.content, now })
   registerSettingsRoutes(app, { database, now })
+  // Off unless mcp.enabled, and registered here rather than in the shared list above: its own
+  // encapsulation carries its own error handler, so it must be `app.register`ed rather than
+  // called as a plain function on `app` the other routes are. Spec 12, criterion 5.
+  registerMcpRoutes(app, { config, database, changes, now, jobs })
 }
 
 /**

@@ -27,6 +27,16 @@ export const EXEMPT_AUTH_ROUTES: ReadonlySet<string> = new Set([
   'GET /api/auth/status',
   'POST /api/auth/login',
   'GET /api/auth/callback',
+  /**
+   * Spec 12: the MCP endpoint checks its own credential, `mcp.accessToken`, which is not the
+   * browser's session and answers to a caller that has no session cookie to present in the
+   * first place. Exempt from the session check for that reason, and only from it: the `Origin`
+   * check below still runs, and the endpoint is unregistered at all unless `mcp.enabled` is
+   * true and the bind is loopback (spec 12, criteria 5 and 6), so this line grants nothing where
+   * that has not already been decided. Spec 12 criterion 33: nothing about the API's own
+   * credential changes here.
+   */
+  'POST /api/mcp',
 ])
 
 function pathnameOf(request: FastifyRequest): string {

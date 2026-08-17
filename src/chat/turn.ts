@@ -21,10 +21,8 @@ import type { Database } from '../db/connection.js'
 import {
   appendMessage,
   contextMessages,
-  createConfirmation,
   createConversation,
   conversationTitle,
-  extendConfirmation,
   finishMessage,
   getConversation,
   recordTurnContext,
@@ -47,7 +45,8 @@ import {
 import type { ItemRef } from '../domain/selection.js'
 import type { ChangeFeed } from '../server/changes.js'
 import { resolveItemContext } from './context.js'
-import { argumentsProblem, executeTool, type ToolCallRequest } from './execute.js'
+import { argumentsProblem, executeTool } from './execute.js'
+import { gateWrite, type GateAccumulator } from './gate.js'
 import { buildChatContext, chatSystemPrompt } from './prompt.js'
 import { buildToolRegistry, type ToolRegistry } from './registry.js'
 import type { ChatToolContext, PlanRegeneration } from './types.js'
@@ -271,18 +270,9 @@ export async function runTurn(
   return null
 }
 
-interface TurnState {
+interface TurnState extends GateAccumulator {
   calls: number
   capped: boolean
-  /** Distinct tasks this turn has changed. What the bulk threshold is measured against. */
-  readonly mutatedTaskIds: Set<string>
-  /** The one confirmation a turn's held bulk operations are collected into, while it is open. */
-  bulkConfirmation: {
-    record: ChatConfirmationRecord
-    operations: ToolCallRequest[]
-    /** What each held operation would do, in the words the confirmation shows. */
-    descriptions: string[]
-  } | null
   changed: boolean
   inputTokens: number
   outputTokens: number
@@ -417,7 +407,7 @@ async function handle(
   }
 
   if (tool.kind === 'write') {
-    const held = hold(options, toolContext, tool, call, turnId, state, emit)
+    const held = hold(toolContext, tool, call, turnId, state, emit)
     if (held !== null) return held
   }
 
@@ -440,9 +430,13 @@ async function handle(
 /**
  * The two gates, or null when neither applies. Both answer the model plainly: the operation was
  * not performed, the user has been asked, and that is not something to retry.
+ *
+ * The decision itself is `gateWrite` (`src/chat/gate.ts`), shared with the MCP session's own
+ * calls (spec 07 criterion 14, spec 12): this function's job is only to translate that decision
+ * into what a browser turn does with it, emitting the confirmation and the held outcome and
+ * shaping the model's `ToolResult`.
  */
 function hold(
-  options: ChatTurnOptions,
   toolContext: ChatToolContext,
   tool: {
     readonly name: string
@@ -455,126 +449,13 @@ function hold(
   state: TurnState,
   emit: ChatEmit,
 ): ToolResult | null {
-  const { database, config } = options
-  const description = describeCall(toolContext, tool, call)
-  /**
-   * The same operation as the model may be told it: `describe` reads the row out of the database, so
-   * at `none` the model is told what it asked for by the arguments it asked with instead. The
-   * confirmation record above keeps the full description, because the card is rendered on the user's
-   * own screen from their own database and a card reading "delete task-1" would only have them confirm
-   * blind. `llmContent` governs what leaves the machine. Spec 09, criterion 13.
-   */
-  const toldTheModel = withholdsItemText(config.privacy)
-    ? describeCall(toolContext, tool, call, { fromDatabase: false })
-    : description
+  const outcome = gateWrite(toolContext, tool, { arguments: call.arguments }, turnId, state)
+  if (!outcome.held) return null
 
-  if (tool.alwaysConfirm === true) {
-    const confirmation = createConfirmation(
-      database,
-      {
-        messageId: turnId,
-        reason: 'delete',
-        tool: tool.name,
-        arguments: { operations: [{ tool: tool.name, arguments: call.arguments }] },
-        affectedCount: 1,
-        summary: description,
-      },
-      toolContext.now,
-    )
-
-    emit({ type: 'confirmation', confirmation })
-    emit({ type: 'tool', name: call.name, outcome: 'held' })
-
-    return refusal(
-      call,
-      `Nothing was deleted. ${toldTheModel} has been put to the user to confirm, which is how deleting always works here. Do not try again; say what you have proposed and why.`,
-      { retryable: false },
-    )
-  }
-
-  // The threshold counts tasks, so a write that changes none of them is not held by it: creating a
-  // project or redrawing the plan is not part of a bulk edit however many tasks came before it.
-  if (tool.touchesTasks === false) return null
-  if (state.mutatedTaskIds.size < config.chat.bulkConfirmThreshold) return null
-
-  const operations = [
-    ...(state.bulkConfirmation?.operations ?? []),
-    { tool: tool.name, arguments: call.arguments },
-  ]
-  const descriptions = [...(state.bulkConfirmation?.descriptions ?? []), description]
-  // What confirming would affect, which is the held batch and not the turn: the tasks already
-  // changed are done, and counting them here would have the card say eleven items are waiting when
-  // ten of them have happened. The turn's total is in the summary, where the sentence can explain it.
-  const affectedCount = operations.length
-  const summary = bulkSummary(state.mutatedTaskIds.size, operations.length, config, descriptions)
-
-  const record =
-    state.bulkConfirmation === null
-      ? createConfirmation(
-          database,
-          {
-            messageId: turnId,
-            reason: 'bulk',
-            tool: tool.name,
-            arguments: { operations },
-            affectedCount,
-            summary,
-          },
-          toolContext.now,
-        )
-      : extendConfirmation(database, state.bulkConfirmation.record.id, {
-          arguments: { operations },
-          affectedCount,
-          summary,
-        })
-
-  // A confirmation that has already been decided cannot be added to, which leaves the operation
-  // unheld and unperformed. Saying so is the honest answer; silently running it would be the
-  // opposite of what the gate is for.
-  if (record === null) {
-    return refusal(
-      call,
-      'This turn has already changed as many tasks as it may without asking, and the confirmation it was collected into has been decided. Nothing was changed. Ask the user to start a new instruction.',
-      { retryable: false },
-    )
-  }
-
-  state.bulkConfirmation = { record, operations, descriptions }
-  emit({ type: 'confirmation', confirmation: record })
+  emit({ type: 'confirmation', confirmation: outcome.confirmation })
   emit({ type: 'tool', name: call.name, outcome: 'held' })
 
-  return refusal(
-    call,
-    `Nothing was changed. This turn has already changed ${state.mutatedTaskIds.size} tasks, which is the point at which the rest of a turn is proposed rather than applied, so ${toldTheModel} has been put to the user with the others. Carry on with what is left and say what you have proposed.`,
-    { retryable: false },
-  )
-}
-
-function bulkSummary(
-  changed: number,
-  held: number,
-  config: Config,
-  descriptions: readonly string[],
-): string {
-  return `This turn would change ${changed + held} tasks, more than the ${config.chat.bulkConfirmThreshold} it may change without being asked. ${changed} are already done. Confirming applies the remaining ${held}: ${descriptions.join('; ')}.`
-}
-
-function describeCall(
-  context: ChatToolContext,
-  tool: { readonly name: string; describe?: (context: ChatToolContext, args: unknown) => string },
-  call: ToolCall,
-  { fromDatabase = true }: { fromDatabase?: boolean } = {},
-): string {
-  if (fromDatabase && tool.describe !== undefined) return tool.describe(context, call.arguments)
-
-  // No description of its own, so the call is named by what it addresses. Enough for a person to
-  // recognise it, and it never invents a title the arguments did not carry, which is also why it is
-  // what the model is told at `none`: the arguments are the model's own words coming back.
-  const args = (call.arguments ?? {}) as { id?: unknown; title?: unknown }
-  if (typeof args.title === 'string') return `${tool.name}: “${args.title}”`
-  if (typeof args.id === 'string') return `${tool.name} on ${args.id}`
-
-  return tool.name
+  return refusal(call, outcome.message, { retryable: false })
 }
 
 function refusal(

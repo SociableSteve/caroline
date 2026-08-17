@@ -17,6 +17,16 @@ export function isLoopbackHost(host: string): boolean {
   return loopbackHosts.has(host)
 }
 
+/**
+ * `URL#hostname` renders an IPv6 literal bracketed (`[::1]`), but `loopbackHosts` is unbracketed,
+ * so a comparison against it needs the brackets stripped first. Shared by `src/config/load.ts`
+ * and `src/mcp/route.ts`, which both parse a header or a configured URL and need to compare its
+ * host against this same set.
+ */
+export function stripHostnameBrackets(hostname: string): string {
+  return hostname.replace(/^\[(.+)\]$/, '$1')
+}
+
 export interface BoundaryInputs {
   /** The bind address, `server.host`. */
   readonly host: string

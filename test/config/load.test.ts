@@ -264,6 +264,18 @@ describe('loadConfig secret placement (spec 09: keys come from the environment o
       /server\.accessToken/,
     )
   })
+
+  it('fails when the MCP access token is present in the config file (spec 12)', () => {
+    expect(() => loadConfig({ file: { mcp: { accessToken: 'in-file' } }, env: noEnv })).toThrow(
+      /mcp\.accessToken/,
+    )
+  })
+
+  it('names CAROLINE_MCP_ACCESS_TOKEN as the way to set the MCP access token', () => {
+    expect(() => loadConfig({ file: { mcp: { accessToken: 'in-file' } }, env: noEnv })).toThrow(
+      /CAROLINE_MCP_ACCESS_TOKEN/,
+    )
+  })
 })
 
 describe('loadConfig startup guards', () => {
@@ -338,6 +350,66 @@ describe('loadConfig startup guards', () => {
     })
 
     expect(config.authRequired).toBe(false)
+  })
+
+  it('does not enable the MCP endpoint by default (spec 12, criterion 5)', () => {
+    const config = loadConfig({ file: null, env: noEnv })
+    expect(config.mcp.enabled).toBe(false)
+  })
+
+  it('fails when mcp.enabled is true and server.host is not loopback (criterion 6)', () => {
+    expect(() =>
+      loadConfig({
+        file: {
+          server: { host: '0.0.0.0', publicUrl: 'https://caroline.example.com' },
+          auth: { allow: ['user@example.com'], provider: { clientId: 'client-id' } },
+          mcp: { enabled: true },
+        },
+        env: { CAROLINE_MCP_ACCESS_TOKEN: 'a-token' } as NodeJS.ProcessEnv,
+      }),
+    ).toThrow(/mcp\.enabled.*server\.host|server\.host.*mcp\.enabled/s)
+  })
+
+  it('fails when mcp.enabled is true with no CAROLINE_MCP_ACCESS_TOKEN, on any bind (criterion 7)', () => {
+    expect(() => loadConfig({ file: { mcp: { enabled: true } }, env: noEnv })).toThrow(
+      /CAROLINE_MCP_ACCESS_TOKEN/,
+    )
+  })
+
+  it('loads with mcp.enabled true, loopback, and the token set', () => {
+    const config = loadConfig({
+      file: { mcp: { enabled: true } },
+      env: { CAROLINE_MCP_ACCESS_TOKEN: 'a-token' } as NodeJS.ProcessEnv,
+    })
+
+    expect(config.mcp.enabled).toBe(true)
+    expect(config.mcp.accessToken).toBe('a-token')
+  })
+
+  it('fails when MCP is enabled with full content and no remote-provider flag, whatever the provider is (criterion 17)', () => {
+    expect(() =>
+      loadConfig({
+        file: {
+          mcp: { enabled: true },
+          privacy: { llmContent: 'full' },
+          llm: { provider: 'ollama', model: 'llama' },
+        },
+        env: { CAROLINE_MCP_ACCESS_TOKEN: 'a-token' } as NodeJS.ProcessEnv,
+      }),
+    ).toThrow(/mcp\.enabled.*privacy\.llmContent|privacy\.llmContent.*mcp\.enabled/s)
+  })
+
+  it('allows full content with MCP enabled once the remote-provider flag is set (criterion 17)', () => {
+    const config = loadConfig({
+      file: {
+        mcp: { enabled: true },
+        privacy: { llmContent: 'full', allowFullContentToRemoteProvider: true },
+        llm: { provider: 'ollama', model: 'llama' },
+      },
+      env: { CAROLINE_MCP_ACCESS_TOKEN: 'a-token' } as NodeJS.ProcessEnv,
+    })
+
+    expect(config.privacy.llmContent).toBe('full')
   })
 
   it('treats ::1 and localhost as loopback', () => {
