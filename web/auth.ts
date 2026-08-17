@@ -11,6 +11,46 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, onUnauthorized } from './api.js'
 
+/**
+ * What `GET /api/auth/callback` names in `?login=<code>` on a refusal, mapped to what the login
+ * screen says. Spec 13's own wording for the one case it specifies: "the login screen says that
+ * the account is not permitted to use this Caroline" (criterion 16, and the subject-pinning
+ * mismatch in criterion 17, which is refused the same way). Every other code
+ * (`bad_request`, `provider_unreachable`, `internal_error`) is bucketed generically: none of
+ * them are something the person looking at the login screen can act on, and the diagnostic that
+ * would help an operator act on one is logged server-side rather than carried in the redirect.
+ */
+const LOGIN_FAILURE_MESSAGES: Readonly<Record<string, string>> = {
+  forbidden: 'This account is not permitted to use this Caroline.',
+}
+
+const GENERIC_LOGIN_FAILURE_MESSAGE = 'Something went wrong signing in.'
+
+/**
+ * Reads `?login=<code>` from the URL the SPA loaded with, which is how a refused
+ * `GET /api/auth/callback` reports itself: that route is a top-level browser navigation rather
+ * than a call this client makes and can inspect, so the refusal cannot reach here any other
+ * way. Returns null where there is nothing to report, which is every load except the one right
+ * after a refused callback.
+ */
+function readLoginFailure(): string | null {
+  const code = new URLSearchParams(window.location.search).get('login')
+  if (code === null) return null
+  return LOGIN_FAILURE_MESSAGES[code] ?? GENERIC_LOGIN_FAILURE_MESSAGE
+}
+
+/**
+ * Drops `login` from the URL once it has been read, so a reload of this same tab does not show
+ * the same failure a second time for a browser event (the callback redirect) that has already
+ * happened once and will not happen again on a reload. `replaceState` rather than a navigation:
+ * nothing else about the location, including the hash the router owns, should move.
+ */
+function clearLoginParam(): void {
+  const url = new URL(window.location.href)
+  url.searchParams.delete('login')
+  window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
+}
+
 export interface AuthGate {
   /** Whether the first status check has answered. Nothing gates on `authenticated` before this
    * is true, so the common case (no login configured) never flashes a login screen while the
@@ -21,7 +61,9 @@ export interface AuthGate {
   readonly authRequired: boolean
   readonly authenticated: boolean
   readonly providerLabel: string
-  /** What went wrong starting or continuing the login, if anything. Cleared on the next attempt. */
+  /** What went wrong starting, continuing or being refused a login, if anything. Cleared on the
+   * next attempt. Populated on load from `?login=<code>` where the browser has just come back
+   * from a refused `GET /api/auth/callback`, as well as by a failed `login()` call. */
   readonly failure: string | null
   /** Starts the flow for the hash the person is on, and sends the browser to the provider. */
   readonly login: (hash: string) => Promise<void>
@@ -36,7 +78,13 @@ export function useAuthGate(): AuthGate {
   /** Set by a 401 from anywhere. Cleared only by a status read that finds a session again, which
    * a fresh login's redirect back into the app causes. */
   const [unauthorized, setUnauthorized] = useState(false)
-  const [failure, setFailure] = useState<string | null>(null)
+  // The initializer runs once, before the effect below strips the param, so this is the one
+  // chance to read it: by the time anything could re-render and re-read the URL, it is gone.
+  const [failure, setFailure] = useState<string | null>(() => readLoginFailure())
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).has('login')) clearLoginParam()
+  }, [])
 
   const refresh = useCallback(async () => {
     const status = await api.getAuthStatus()

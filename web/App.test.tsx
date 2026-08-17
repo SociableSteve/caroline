@@ -238,6 +238,7 @@ function stubEventSource(): { emit: () => void; closed: () => boolean } {
 
 beforeEach(() => {
   window.location.hash = ''
+  window.history.replaceState(null, '', window.location.pathname)
 })
 
 afterEach(() => {
@@ -1087,6 +1088,47 @@ describe('the login screen', () => {
     expect(calls.some((call) => call.method === 'POST' && call.url === '/api/auth/logout')).toBe(
       true,
     )
+  })
+
+  /**
+   * A refused `GET /api/auth/callback` is a top-level browser navigation, not a call this client
+   * makes and can inspect, so it reports itself by redirecting back into the SPA with the
+   * refusal named in `?login=<code>` rather than in a response body (spec 13's slice-1 auth
+   * work). Spec 13 gives the exact wording for one of them: "the login screen says that the
+   * account is not permitted to use this Caroline."
+   */
+  it('shows spec 13’s wording for a refused login named in the URL', async () => {
+    stubApi({ authStatus: { authRequired: true, hasSession: false, providerLabel: 'Google' } })
+    window.history.replaceState(null, '', `${window.location.pathname}?login=forbidden`)
+
+    render(<App />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'This account is not permitted to use this Caroline.',
+    )
+  })
+
+  /** Every other code (`bad_request`, `provider_unreachable`, `internal_error`) is nothing the
+   * person at the login screen can act on, so it is bucketed under one generic sentence. */
+  it('shows a generic message for a refusal code other than forbidden', async () => {
+    stubApi({ authStatus: { authRequired: true, hasSession: false, providerLabel: 'Google' } })
+    window.history.replaceState(null, '', `${window.location.pathname}?login=provider_unreachable`)
+
+    render(<App />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Something went wrong signing in.')
+  })
+
+  /** The failure is read once and the URL is left clean, so reloading this same tab (which does
+   * not repeat the callback redirect) does not show the same failure a second time. */
+  it('clears the login param from the URL after reading it', async () => {
+    stubApi({ authStatus: { authRequired: true, hasSession: false, providerLabel: 'Google' } })
+    window.history.replaceState(null, '', `${window.location.pathname}?login=forbidden`)
+
+    render(<App />)
+    await screen.findByRole('alert')
+
+    await waitFor(() => expect(window.location.search).toBe(''))
   })
 
   /**
