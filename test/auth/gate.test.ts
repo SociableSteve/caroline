@@ -165,13 +165,21 @@ describe('with authentication required (criterion 1, 31)', () => {
 
 describe('the SPA shell and its assets (criterion 8)', () => {
   it('are not gated, whether or not authentication is required', async () => {
-    const app = await buildServer({ config: strictConfig(), database: migratedDatabase() })
+    // Pointed at a directory that provably does not exist, rather than relying on the built
+    // SPA being incidentally absent from this checkout during `npm test`: this test's premise
+    // is that there is no shell to serve, and it should hold regardless of build state.
+    const webRoot = '/dev/null/no-such-caroline-web-build'
+    const app = await buildServer({
+      config: strictConfig(),
+      database: migratedDatabase(),
+      webRoot,
+    })
 
     const response = await app.inject({ method: 'GET', url: '/some-client-route' })
 
-    // The built SPA is absent in this checkout, so this 404s rather than serving the shell.
-    // What matters here is that it is not the session gate that refused it.
-    expect(response.statusCode).not.toBe(401)
+    // With no SPA to serve, this 404s rather than serving the shell. What matters here is
+    // that it is not the session gate that refused it.
+    expect(response.statusCode).toBe(404)
 
     await app.close()
   })

@@ -1,11 +1,16 @@
+import { join } from 'node:path'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { WEB_BUILD_DIR } from './src/server/web-build-dir.js'
 
 export default defineConfig({
   root: 'web',
   plugins: [react()],
   build: {
-    outDir: '../dist/web',
+    // Relative to `root` above, not the repo root, so this climbs back out of `web/` before
+    // going down into `WEB_BUILD_DIR` (shared with `resolveWebRoot` in `src/server/app.ts`,
+    // so the two cannot drift apart silently).
+    outDir: join('..', ...WEB_BUILD_DIR),
     emptyOutDir: true,
   },
   server: {
