@@ -13,7 +13,7 @@ const configuredEnv = {
   ANTHROPIC_API_KEY: 'sk-ant-supersecret',
   GITHUB_TOKEN: 'ghp_supersecret',
   GOOGLE_CLIENT_SECRET: 'google-supersecret',
-  CAROLINE_ACCESS_TOKEN: 'access-supersecret',
+  CAROLINE_AUTH_CLIENT_SECRET: 'access-supersecret',
 } as NodeJS.ProcessEnv
 
 const secretValues = Object.values(configuredEnv) as string[]
@@ -31,7 +31,7 @@ describe('redactConfig', () => {
     expect(redacted.llm.apiKey).toBe(REDACTED)
     expect(redacted.integrations.github.token).toBe(REDACTED)
     expect(redacted.integrations.google.clientSecret).toBe(REDACTED)
-    expect(redacted.server.accessToken).toBe(REDACTED)
+    expect(redacted.auth.provider.clientSecret).toBe(REDACTED)
   })
 
   /** An override may name a hosted provider the base config never did. Spec 09, criterion 8. */
@@ -147,7 +147,7 @@ describe('redactSecrets', () => {
     const secretWithReservedChars = 'access+token/value'
     const config = loadConfig({
       file: null,
-      env: { CAROLINE_ACCESS_TOKEN: secretWithReservedChars } as NodeJS.ProcessEnv,
+      env: { CAROLINE_AUTH_CLIENT_SECRET: secretWithReservedChars } as NodeJS.ProcessEnv,
     })
 
     const encoded = encodeURIComponent(secretWithReservedChars)
@@ -159,7 +159,7 @@ describe('redactSecrets', () => {
   it('still matches the literal characters of a secret case-sensitively', () => {
     const config = loadConfig({
       file: null,
-      env: { CAROLINE_ACCESS_TOKEN: 'MixedCaseToken' } as NodeJS.ProcessEnv,
+      env: { CAROLINE_AUTH_CLIENT_SECRET: 'MixedCaseToken' } as NodeJS.ProcessEnv,
     })
 
     expect(redactSecrets('mixedcasetoken', config)).toBe('mixedcasetoken')
@@ -168,7 +168,7 @@ describe('redactSecrets', () => {
   it('treats regular expression syntax in a secret as literal text', () => {
     const config = loadConfig({
       file: null,
-      env: { CAROLINE_ACCESS_TOKEN: 'a.c*d' } as NodeJS.ProcessEnv,
+      env: { CAROLINE_AUTH_CLIENT_SECRET: 'a.c*d' } as NodeJS.ProcessEnv,
     })
 
     expect(redactSecrets('abcxd', config)).toBe('abcxd')

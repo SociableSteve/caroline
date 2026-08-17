@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { dirname, resolve as resolvePath } from 'node:path'
 import type { z } from 'zod'
+import { computeAuthRequired, isLoopbackHost } from '../auth/boundary.js'
 import { registerEnvironmentSecrets } from './redact.js'
 import {
   credentialFreeUrl,
@@ -22,16 +23,16 @@ export interface LoadOptions {
   file: unknown
   env: NodeJS.ProcessEnv
   /**
-   * Whether to enforce the two checks that are about running rather than about the configuration
-   * being well formed: that a non-loopback bind has an access token, and that full content is not
-   * sent to a remote provider unless that was said out loud. True for the server, which is what
-   * they protect.
+   * Whether to enforce the checks that are about running rather than about the configuration
+   * being well formed: that full content is not sent to a remote provider unless that was said
+   * out loud, that `CAROLINE_ACCESS_TOKEN` is not set, and every refusal spec 13 adds where
+   * authentication is required. True for the server, which is what they protect.
    *
    * The deletion command reads this configuration to find out where the data is and then starts no
    * server and calls no provider. Refusing to delete somebody's data until they have fixed a content
-   * policy would be a refusal to answer the question they asked, and the setup guide's own
-   * troubleshooting table sends people here holding exactly that error. Everything else still
-   * applies: the schema, the ban on secrets in the file, and every default.
+   * policy, or configured a login they are not going to use, would be a refusal to answer the
+   * question they asked. Everything else still applies: the schema, the ban on secrets in the
+   * file, and every default.
    */
   runtimeChecks?: boolean
 }
@@ -43,10 +44,13 @@ const secretsBannedFromFile: ReadonlyArray<{ path: string; envHint: string }> = 
   { path: 'llm.overrides.chat.apiKey', envHint: 'ANTHROPIC_API_KEY or OPENAI_API_KEY' },
   { path: 'integrations.github.token', envHint: 'GITHUB_TOKEN' },
   { path: 'integrations.google.clientSecret', envHint: 'GOOGLE_CLIENT_SECRET' },
+  { path: 'auth.provider.clientSecret', envHint: 'CAROLINE_AUTH_CLIENT_SECRET' },
+  // `server.accessToken` is not a schema key any more (spec 13): the key, the environment
+  // variable and the guard that read it for its old purpose are gone. The ban on the key
+  // appearing in the file predates this spec and still applies unconditionally, which is why
+  // this entry, and the string "server.accessToken", still exist.
   { path: 'server.accessToken', envHint: 'CAROLINE_ACCESS_TOKEN' },
 ]
-
-const loopbackHosts = new Set(['127.0.0.1', 'localhost', '::1', '::ffff:127.0.0.1'])
 
 function valueAtPath(source: unknown, path: string): unknown {
   return path.split('.').reduce<unknown>((current, key) => {
@@ -204,7 +208,7 @@ const secretEnvVars = [
   'OPENAI_API_KEY',
   'GITHUB_TOKEN',
   'GOOGLE_CLIENT_SECRET',
-  'CAROLINE_ACCESS_TOKEN',
+  'CAROLINE_AUTH_CLIENT_SECRET',
 ] as const
 
 function environmentSecrets(env: NodeJS.ProcessEnv): string[] {
@@ -258,10 +262,71 @@ export function googleTokenPath(databasePath: string): string {
   return resolvePath(dirname(databasePath), 'google-tokens.json')
 }
 
-function assertBindIsSafe(config: Config): void {
-  if (!loopbackHosts.has(config.server.host) && config.server.accessToken === null) {
+/**
+ * `CAROLINE_ACCESS_TOKEN` is not read for any decision any more (spec 13): its presence in the
+ * environment is refused outright, naming what replaced it. A runtime check, like the rest of
+ * this section, so `npm run delete-data` still runs with it exported in the shell.
+ */
+function assertNoAccessTokenInEnvironment(env: NodeJS.ProcessEnv): void {
+  if (nonEmpty(env.CAROLINE_ACCESS_TOKEN) !== null) {
     throw new ConfigError(
-      `server.host is "${config.server.host}", which is not loopback, and the UI has no login. Set an access token in CAROLINE_ACCESS_TOKEN, or bind to 127.0.0.1.`,
+      'CAROLINE_ACCESS_TOKEN is set in the environment. It has been replaced by a login: remove it, and configure auth.provider and auth.allow instead.',
+    )
+  }
+}
+
+/**
+ * The four startup refusals spec 13 adds where `authRequired` is true, each in the shape
+ * `assertContentPolicyIsAllowed` already uses: one sentence naming every setting involved.
+ * Skipped, like that guard, where `runtimeChecks` is false.
+ */
+function assertProviderIsConfiguredWhenAuthIsRequired(config: Config): void {
+  if (config.authRequired && config.auth.provider.clientId === null) {
+    throw new ConfigError(
+      'Authentication is required (from server.host, server.publicUrl and auth.mode), and auth.provider.clientId is not set: there would be no way to log in.',
+    )
+  }
+}
+
+function assertAllowlistIsNonEmptyWhenAuthIsRequired(config: Config): void {
+  if (config.authRequired && config.auth.allow.length === 0) {
+    throw new ConfigError(
+      'Authentication is required (from server.host, server.publicUrl and auth.mode), and auth.allow is empty: the provider would authenticate anybody with an account there.',
+    )
+  }
+}
+
+function assertPublicUrlIsSetWhereBindIsNotLoopback(config: Config): void {
+  if (
+    config.authRequired &&
+    config.server.publicUrl === null &&
+    !isLoopbackHost(config.server.host)
+  ) {
+    throw new ConfigError(
+      `server.host is "${config.server.host}", which is not loopback, and server.publicUrl is not set: the redirect URI cannot be derived.`,
+    )
+  }
+}
+
+/**
+ * A public URL may be `http` only where both its own host and `server.host` are loopback,
+ * because only then is there no network between the browser and the socket to protect. The bind
+ * is half of the test rather than a redundant extra: `server.host: "0.0.0.0"` with
+ * `server.publicUrl: "http://127.0.0.1:5123"` is refused here, because the URL's host says
+ * nothing about who can reach the socket.
+ */
+function assertPublicUrlSchemeIsSafe(config: Config): void {
+  if (!config.authRequired || config.server.publicUrl === null) return
+
+  const publicUrl = new URL(config.server.publicUrl)
+  // `URL#hostname` renders an IPv6 host bracketed (`[::1]`), but `isLoopbackHost`'s set is
+  // unbracketed: strip the brackets before comparing, or a genuinely-safe all-loopback IPv6
+  // config would be wrongly refused here.
+  const publicUrlHostname = publicUrl.hostname.replace(/^\[(.+)\]$/, '$1')
+  const bothLoopback = isLoopbackHost(config.server.host) && isLoopbackHost(publicUrlHostname)
+  if (publicUrl.protocol !== 'https:' && !bothLoopback) {
+    throw new ConfigError(
+      `server.publicUrl is "${config.server.publicUrl}", which is not https, and server.host ("${config.server.host}") and server.publicUrl's host are not both loopback: a session cookie would be sent over plaintext.`,
     )
   }
 }
@@ -302,12 +367,17 @@ export function loadConfig({ file, env, runtimeChecks = true }: LoadOptions): Co
 
   const databasePath = nonEmpty(env.CAROLINE_DB_PATH) ?? parsed.database.path
 
+  const host = nonEmpty(env.CAROLINE_HOST) ?? parsed.server.host
+  const publicUrl = parsed.server.publicUrl
+  const authRequired = computeAuthRequired({ host, publicUrl, mode: parsed.auth.mode })
+
   const config: Config = {
     server: {
-      host: nonEmpty(env.CAROLINE_HOST) ?? parsed.server.host,
+      host,
       port: envPort(env, parsed.server.port),
-      accessToken: nonEmpty(env.CAROLINE_ACCESS_TOKEN),
+      publicUrl,
     },
+    authRequired,
     database: {
       path: databasePath,
     },
@@ -317,6 +387,19 @@ export function loadConfig({ file, env, runtimeChecks = true }: LoadOptions): Co
     chat: parsed.chat,
     planning: parsed.planning,
     privacy: parsed.privacy,
+    auth: {
+      mode: parsed.auth.mode,
+      allow: parsed.auth.allow,
+      sessionIdleDays: parsed.auth.sessionIdleDays,
+      sessionMaxDays: parsed.auth.sessionMaxDays,
+      provider: {
+        label: parsed.auth.provider.label,
+        issuer: parsed.auth.provider.issuer,
+        clientId: parsed.auth.provider.clientId,
+        clientSecret: nonEmpty(env.CAROLINE_AUTH_CLIENT_SECRET),
+        scopes: parsed.auth.provider.scopes,
+      },
+    },
     llm: {
       ...base,
       overrides: {
@@ -352,7 +435,11 @@ export function loadConfig({ file, env, runtimeChecks = true }: LoadOptions): Co
 
   if (runtimeChecks) {
     assertContentPolicyIsAllowed(config)
-    assertBindIsSafe(config)
+    assertNoAccessTokenInEnvironment(env)
+    assertProviderIsConfiguredWhenAuthIsRequired(config)
+    assertAllowlistIsNonEmptyWhenAuthIsRequired(config)
+    assertPublicUrlIsSetWhereBindIsNotLoopback(config)
+    assertPublicUrlSchemeIsSafe(config)
   }
 
   return config

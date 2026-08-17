@@ -11,6 +11,7 @@
  * finish the work and write it down rather than to cancel it half-applied.
  */
 import type { FastifyInstance, FastifyReply } from 'fastify'
+import { onSessionEnded } from '../../auth/revocation.js'
 import type { Config } from '../../config/schema.js'
 import type { Database } from '../../db/index.js'
 import { latestDailyPlan } from '../../db/repositories/daily-plans.js'
@@ -299,8 +300,23 @@ export function registerChatRoutes(
        * started, so listening to that would treat every turn as abandoned.
        */
       let open = true
-      reply.raw.on('close', () => {
+      const stopWriting = () => {
         open = false
+      }
+      reply.raw.on('close', stopWriting)
+
+      /**
+       * Spec 13, criterion 23: a turn already streaming when its session is revoked has its
+       * stream cut and its turn still recorded. Cutting the stream is exactly what stopping
+       * `write` below and ending the raw response does; the recording is unaffected because the
+       * turn loop underneath runs to completion regardless of whether anyone is still listening,
+       * the same property spec 08 criterion 7 already relies on for an abandoned read. What does
+       * not happen is a new turn: the next `POST /api/chat` is a 401 like any other route, from
+       * the gate that ran before this handler did.
+       */
+      const stopListeningForRevocation = onSessionEnded(request.sessionId, () => {
+        stopWriting()
+        reply.raw.end()
       })
 
       const write = (payload: string) => {
@@ -352,6 +368,7 @@ export function registerChatRoutes(
       }
 
       clearInterval(heartbeat)
+      stopListeningForRevocation()
       if (open) reply.raw.end()
     },
   )

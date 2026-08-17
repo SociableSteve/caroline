@@ -8,7 +8,7 @@ import { UNMATCHED_ROUTE } from '../../src/server/log-redaction.js'
 const secrets = {
   ANTHROPIC_API_KEY: 'sk-ant-supersecret',
   GITHUB_TOKEN: 'ghp_supersecret',
-  CAROLINE_ACCESS_TOKEN: 'access-supersecret',
+  CAROLINE_AUTH_CLIENT_SECRET: 'access-supersecret',
 } as NodeJS.ProcessEnv
 
 function captureLog() {
@@ -66,7 +66,7 @@ describe('secrets are redacted before the log line is serialised', () => {
     const { lines, stream } = captureLog()
     const config = loadConfig({
       file: null,
-      env: { CAROLINE_ACCESS_TOKEN: secretNeedingEscapes } as NodeJS.ProcessEnv,
+      env: { CAROLINE_AUTH_CLIENT_SECRET: secretNeedingEscapes } as NodeJS.ProcessEnv,
     })
     const app = await buildServer({
       config,
@@ -143,7 +143,7 @@ describe('no secret reaches a log line (spec 09 criterion 6)', () => {
     const { lines, stream } = captureLog()
     const config = loadConfig({
       file: null,
-      env: { CAROLINE_ACCESS_TOKEN: secretWithReservedChars } as NodeJS.ProcessEnv,
+      env: { CAROLINE_AUTH_CLIENT_SECRET: secretWithReservedChars } as NodeJS.ProcessEnv,
     })
     const app = await buildServer({
       config,
@@ -163,7 +163,7 @@ describe('no secret reaches a log line (spec 09 criterion 6)', () => {
     const { lines, stream } = captureLog()
     const config = loadConfig({
       file: null,
-      env: { CAROLINE_ACCESS_TOKEN: secretWithReservedChars } as NodeJS.ProcessEnv,
+      env: { CAROLINE_AUTH_CLIENT_SECRET: secretWithReservedChars } as NodeJS.ProcessEnv,
     })
     const app = await buildServer({
       config,
@@ -201,7 +201,7 @@ describe('no secret reaches a log line (spec 09 criterion 6)', () => {
     const { lines, stream } = captureLog()
     const config = loadConfig({
       file: null,
-      env: { CAROLINE_ACCESS_TOKEN: secretNeedingEscapes } as NodeJS.ProcessEnv,
+      env: { CAROLINE_AUTH_CLIENT_SECRET: secretNeedingEscapes } as NodeJS.ProcessEnv,
     })
     const app = await buildServer({
       config,
@@ -223,7 +223,7 @@ describe('no secret reaches a log line (spec 09 criterion 6)', () => {
     const { lines, stream } = captureLog()
     const config = loadConfig({
       file: null,
-      env: { CAROLINE_ACCESS_TOKEN: secretNeedingEscapes } as NodeJS.ProcessEnv,
+      env: { CAROLINE_AUTH_CLIENT_SECRET: secretNeedingEscapes } as NodeJS.ProcessEnv,
     })
     const app = await buildServer({
       config,
@@ -249,7 +249,7 @@ describe('no secret reaches a log line (spec 09 criterion 6)', () => {
     const { lines, stream } = captureLog()
     const config = loadConfig({
       file: null,
-      env: { CAROLINE_ACCESS_TOKEN: secretNeedingEscapes } as NodeJS.ProcessEnv,
+      env: { CAROLINE_AUTH_CLIENT_SECRET: secretNeedingEscapes } as NodeJS.ProcessEnv,
     })
     const app = await buildServer({
       config,
@@ -273,7 +273,7 @@ describe('no secret reaches a log line (spec 09 criterion 6)', () => {
     const { lines, stream } = captureLog()
     const config = loadConfig({
       file: null,
-      env: { CAROLINE_ACCESS_TOKEN: secretNeedingEscapes } as NodeJS.ProcessEnv,
+      env: { CAROLINE_AUTH_CLIENT_SECRET: secretNeedingEscapes } as NodeJS.ProcessEnv,
     })
     const app = await buildServer({
       config,
@@ -311,7 +311,7 @@ describe('no secret reaches a log line (spec 09 criterion 6)', () => {
     const { lines, stream } = captureLog()
     const config = loadConfig({
       file: null,
-      env: { CAROLINE_ACCESS_TOKEN: secretNeedingEscapes } as NodeJS.ProcessEnv,
+      env: { CAROLINE_AUTH_CLIENT_SECRET: secretNeedingEscapes } as NodeJS.ProcessEnv,
     })
     const app = await buildServer({
       config,

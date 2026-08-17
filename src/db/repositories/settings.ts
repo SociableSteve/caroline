@@ -37,3 +37,22 @@ export function getUserName(database: Database): string {
 export function setUserName(database: Database, name: string, now: number): void {
   setSetting(database, 'userName', name, now)
 }
+
+/**
+ * The subject pinned to an `auth.allow` entry, or null where that entry has never matched a
+ * successful login. Spec 13: the first successful login pins the id_token's `sub` to the
+ * allowlist entry it matched, and the pin lives here rather than on the `sessions` row so it
+ * survives logout, every session's expiry, and a restart.
+ */
+export function getPinnedSubject(database: Database, allowEntry: string): string | null {
+  return getSetting(database, `authPin:${allowEntry}`)
+}
+
+export function setPinnedSubject(
+  database: Database,
+  allowEntry: string,
+  subject: string,
+  now: number,
+): void {
+  setSetting(database, `authPin:${allowEntry}`, subject, now)
+}

@@ -10,6 +10,7 @@ import { REQUEST_TIME, testConfig } from '../helpers/test-server.js'
 import { createChangeFeed } from '../../src/server/changes.js'
 import { buildJobs } from '../../src/jobs/registry.js'
 import { migratedDatabase } from '../helpers/temp-database.js'
+import { createAuthService } from '../../src/auth/service.js'
 
 interface RecordedRoute {
   readonly method: string
@@ -39,6 +40,7 @@ async function registeredRoutes(): Promise<RecordedRoute[]> {
     changes: createChangeFeed(),
     now: () => REQUEST_TIME,
     jobs: buildJobs({ database, config: testConfig, now: () => REQUEST_TIME }),
+    auth: createAuthService({ config: testConfig, database, now: () => REQUEST_TIME }),
   })
   await app.ready()
   await app.close()

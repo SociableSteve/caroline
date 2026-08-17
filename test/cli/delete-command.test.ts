@@ -90,9 +90,10 @@ describe('runDeleteCommand', () => {
   })
 
   it('deletes under a configuration the server itself would refuse to start on', () => {
-    // The two startup checks are about running: a non-loopback bind with no access token, and full
-    // content bound for a remote provider. Neither says anything about where the data is, and the
-    // setup guide's troubleshooting table sends people here holding exactly that second error.
+    // The startup checks are about running: a non-loopback bind with no public URL, full content
+    // bound for a remote provider, and (spec 13) `CAROLINE_ACCESS_TOKEN` set in the environment.
+    // None of them says anything about where the data is, and the setup guide's troubleshooting
+    // table sends people here holding exactly the content-policy one.
     const directory = mkdtempSync(join(tmpdir(), 'caroline-delete-command-'))
     directories.push(directory)
 
@@ -108,7 +109,13 @@ describe('runDeleteCommand', () => {
       }),
     )
 
-    const env = { CAROLINE_CONFIG: configPath } as NodeJS.ProcessEnv
+    // Spec 13, criterion 32: every refusal this milestone adds is a runtime check too, so a
+    // `CAROLINE_ACCESS_TOKEN` in the environment that would fail a real start still lets deletion
+    // run.
+    const env = {
+      CAROLINE_CONFIG: configPath,
+      CAROLINE_ACCESS_TOKEN: 'a-token',
+    } as NodeJS.ProcessEnv
     openCarolineDatabase(
       loadConfig({ file: { database: { path: databasePath } }, env, runtimeChecks: false }),
     ).close()
