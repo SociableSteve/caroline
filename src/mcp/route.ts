@@ -35,7 +35,9 @@ import {
   MCP_PROTOCOL_VERSION,
   readEnvelope,
   readMeta,
+  type JsonRpcErrorBody,
   type JsonRpcRequest,
+  type JsonRpcSuccess,
 } from './protocol.js'
 import { mcpToolDescriptors } from './tools.js'
 
@@ -93,6 +95,36 @@ function isAcceptableMcpOrigin(origin: string): boolean {
   } catch {
     return false
   }
+}
+
+/**
+ * JSON-RPC 2.0 (https://www.jsonrpc.org/specification, section 4.1): "A Notification is a
+ * Request object without an 'id' member... The Server MUST NOT reply to a Notification,
+ * including those that are within a batch request." `readEnvelope` already preserves the
+ * distinction between "no `id` at all" and "`id` explicitly `null`" by only setting the `id`
+ * property when the body had one, so `envelope.id === undefined` is exactly "this was a
+ * Notification."
+ *
+ * Every call site that would otherwise answer with a JSON-RPC body funnels through this instead
+ * of calling `reply.send` directly, so the rule holds for every method Caroline dispatches
+ * (`initialize`, `server/discover`, `tools/list`, `tools/call`, and the `methodNotFound`
+ * fallback alike), not only the specific notification (`notifications/initialized`) that
+ * motivated it. A request that does carry an `id`, however malformed otherwise, is answered
+ * exactly as before: this only changes behaviour for the no-`id` case.
+ *
+ * `202 Accepted` with an empty body, rather than `204 No Content`, because the request was
+ * accepted for processing rather than definitively completed with nothing further to say; both
+ * are within JSON-RPC 2.0's discretion, since the specification only forbids a JSON-RPC
+ * response body, not a particular HTTP status.
+ */
+function sendJsonRpc(
+  reply: FastifyReply,
+  isNotification: boolean,
+  status: number,
+  body: JsonRpcSuccess | JsonRpcErrorBody,
+): FastifyReply {
+  if (isNotification) return reply.status(202).send()
+  return reply.status(status).send(body)
 }
 
 /**
@@ -181,21 +213,25 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteContext): 
 
         const meta = readMeta(envelope.params)
         const id = envelope.id ?? null
+        // JSON-RPC 2.0 section 4.1: a Notification is a request with no `id` member at all, and
+        // the server MUST NOT reply to one. See `sendJsonRpc` above.
+        const isNotification = envelope.id === undefined
 
         if (
           protocolVersionHeader !== undefined &&
           meta.protocolVersion !== null &&
           protocolVersionHeader !== meta.protocolVersion
         ) {
-          return reply
-            .status(400)
-            .send(
-              jsonRpcError(
-                id,
-                jsonRpcErrorCodes.headerMismatch,
-                'MCP-Protocol-Version disagrees with the protocol version in the request body.',
-              ),
-            )
+          return sendJsonRpc(
+            reply,
+            isNotification,
+            400,
+            jsonRpcError(
+              id,
+              jsonRpcErrorCodes.headerMismatch,
+              'MCP-Protocol-Version disagrees with the protocol version in the request body.',
+            ),
+          )
         }
 
         // Revision 2026-07-28 (SEP-2243) requires Mcp-Method on every request, and Mcp-Name on
@@ -209,15 +245,16 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteContext): 
         // exact agreement. See docs/specs/12-mcp-server.md, "Header interoperability" for the
         // full reasoning; revisit once client support for these headers is widespread.
         if (methodHeader !== undefined && methodHeader !== envelope.method) {
-          return reply
-            .status(400)
-            .send(
-              jsonRpcError(
-                id,
-                jsonRpcErrorCodes.invalidRequest,
-                'Mcp-Method is required and must agree with the request body.',
-              ),
-            )
+          return sendJsonRpc(
+            reply,
+            isNotification,
+            400,
+            jsonRpcError(
+              id,
+              jsonRpcErrorCodes.invalidRequest,
+              'Mcp-Method is required and must agree with the request body.',
+            ),
+          )
         }
 
         if (envelope.method === 'tools/call') {
@@ -229,19 +266,20 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteContext): 
               : null
 
           if (nameHeader !== undefined && nameHeader !== toolName) {
-            return reply
-              .status(400)
-              .send(
-                jsonRpcError(
-                  id,
-                  jsonRpcErrorCodes.invalidRequest,
-                  'Mcp-Name is required on tools/call and must agree with the request body.',
-                ),
-              )
+            return sendJsonRpc(
+              reply,
+              isNotification,
+              400,
+              jsonRpcError(
+                id,
+                jsonRpcErrorCodes.invalidRequest,
+                'Mcp-Name is required on tools/call and must agree with the request body.',
+              ),
+            )
           }
         }
 
-        return handleMethod(deps, { regeneratePlan }, envelope, reply)
+        return handleMethod(deps, { regeneratePlan }, envelope, isNotification, reply)
       },
     )
   })
@@ -255,12 +293,16 @@ async function handleMethod(
   deps: McpRouteContext,
   handlerDeps: HandlerDeps,
   envelope: JsonRpcRequest,
+  isNotification: boolean,
   reply: FastifyReply,
 ): Promise<FastifyReply> {
   const id = envelope.id ?? null
 
   if (envelope.method === 'server/discover') {
-    return reply.send(
+    return sendJsonRpc(
+      reply,
+      isNotification,
+      200,
       jsonRpcResult(id, {
         protocolVersion: MCP_PROTOCOL_VERSION,
         server: MCP_SERVER_INFO,
@@ -280,7 +322,10 @@ async function handleMethod(
   // stored, and a client that never calls this method loses nothing, because Caroline never
   // required it. See "Handshake interoperability" in docs/specs/12-mcp-server.md.
   if (envelope.method === 'initialize') {
-    return reply.send(
+    return sendJsonRpc(
+      reply,
+      isNotification,
+      200,
       jsonRpcResult(id, {
         protocolVersion: MCP_PROTOCOL_VERSION,
         capabilities: { tools: {} },
@@ -290,15 +335,23 @@ async function handleMethod(
   }
 
   if (envelope.method === 'tools/list') {
-    return reply.send(jsonRpcResult(id, { tools: mcpToolDescriptors() }))
+    return sendJsonRpc(
+      reply,
+      isNotification,
+      200,
+      jsonRpcResult(id, { tools: mcpToolDescriptors() }),
+    )
   }
 
   if (envelope.method === 'tools/call') {
     const params = envelope.params
     if (params === null || typeof params !== 'object') {
-      return reply
-        .status(200)
-        .send(jsonRpcError(id, jsonRpcErrorCodes.invalidParams, 'tools/call requires params.'))
+      return sendJsonRpc(
+        reply,
+        isNotification,
+        200,
+        jsonRpcError(id, jsonRpcErrorCodes.invalidParams, 'tools/call requires params.'),
+      )
     }
 
     const { name, arguments: toolArguments } = params as {
@@ -307,9 +360,12 @@ async function handleMethod(
     }
 
     if (typeof name !== 'string') {
-      return reply
-        .status(200)
-        .send(jsonRpcError(id, jsonRpcErrorCodes.invalidParams, 'tools/call requires a tool name.'))
+      return sendJsonRpc(
+        reply,
+        isNotification,
+        200,
+        jsonRpcError(id, jsonRpcErrorCodes.invalidParams, 'tools/call requires a tool name.'),
+      )
     }
 
     const meta = readMeta(params)
@@ -330,18 +386,27 @@ async function handleMethod(
     // marked as an error rather than as a protocol error: a tool that declined to do something
     // is a tool that answered. Spec 12, "Errors and limits".
     if (result.outcome === 'error') {
-      return reply.send(
+      return sendJsonRpc(
+        reply,
+        isNotification,
+        200,
         jsonRpcResult(id, { content: [{ type: 'text', text: result.message }], isError: true }),
       )
     }
 
     if (result.outcome === 'held') {
-      return reply.send(
+      return sendJsonRpc(
+        reply,
+        isNotification,
+        200,
         jsonRpcResult(id, { content: [{ type: 'text', text: result.message }], isError: true }),
       )
     }
 
-    return reply.send(
+    return sendJsonRpc(
+      reply,
+      isNotification,
+      200,
       jsonRpcResult(id, {
         content: [{ type: 'text', text: JSON.stringify(result.data) }],
         isError: false,
@@ -349,7 +414,10 @@ async function handleMethod(
     )
   }
 
-  return reply
-    .status(200)
-    .send(jsonRpcError(id, jsonRpcErrorCodes.methodNotFound, `No such method: ${envelope.method}.`))
+  return sendJsonRpc(
+    reply,
+    isNotification,
+    200,
+    jsonRpcError(id, jsonRpcErrorCodes.methodNotFound, `No such method: ${envelope.method}.`),
+  )
 }

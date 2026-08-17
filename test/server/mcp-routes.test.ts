@@ -317,6 +317,53 @@ describe('with mcp.enabled true', () => {
     expect(tools.map((tool) => tool.name)).toContain('search_tasks')
   })
 
+  /**
+   * JSON-RPC 2.0 section 4.1: "A Notification is a Request object without an 'id' member... The
+   * Server MUST NOT reply to a Notification." `notifications/initialized` is the standard MCP
+   * handshake follow-up a client sends once `initialize` succeeds, and it carries no `id` at
+   * all, so it is the case this rule was written for: unlike every other test in this file, this
+   * payload is built by hand rather than through `rpc()`, because `rpc()` always attaches an id.
+   * Before this fix, `handleMethod`'s fallback answered every method with a JSON-RPC body
+   * regardless of whether the request had an `id`, which this milestone's own `initialize`
+   * handler now makes reachable: see "Handshake interoperability" in
+   * docs/specs/12-mcp-server.md.
+   */
+  it('sends no body for notifications/initialized, which arrives with no id at all', async () => {
+    const { app, database } = await testServer({ config: mcpConfig() })
+    const token = mintAccessToken(database, mcpConfig())
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/mcp',
+      headers: { authorization: `Bearer ${token}`, host: '127.0.0.1' },
+      payload: { jsonrpc: '2.0', method: 'notifications/initialized' },
+    })
+
+    expect(response.statusCode).toBe(202)
+    expect(response.body).toBe('')
+  })
+
+  /**
+   * The rule is general, not specific to `notifications/initialized`: any method called with no
+   * `id` is a Notification and gets no reply, including a method Caroline does not recognise at
+   * all (the `methodNotFound` fallback), and including one it does recognise and answers
+   * normally when an `id` is present (`tools/list`, asserted elsewhere in this file).
+   */
+  it('sends no body for an unrecognised method called with no id, rather than methodNotFound', async () => {
+    const { app, database } = await testServer({ config: mcpConfig() })
+    const token = mintAccessToken(database, mcpConfig())
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/mcp',
+      headers: { authorization: `Bearer ${token}`, host: '127.0.0.1' },
+      payload: { jsonrpc: '2.0', method: 'notifications/some-unrecognised-notification' },
+    })
+
+    expect(response.statusCode).toBe(202)
+    expect(response.body).toBe('')
+  })
+
   it('refuses a request whose Mcp-Method disagrees with the request body', async () => {
     const { app, database } = await testServer({ config: mcpConfig() })
 
