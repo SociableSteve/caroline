@@ -28,7 +28,7 @@ body {
   z-index: 2;
   padding: var(--space-2) var(--space-4);
   background: var(--accent);
-  color: var(--accent-ink);
+  color: var(--accent-text);
   border-bottom-right-radius: var(--radius-md);
 }
 
@@ -317,7 +317,7 @@ hr {
 
 .actions .primary {
   background: var(--accent);
-  color: var(--accent-ink);
+  color: var(--accent-text);
   border-color: var(--accent);
   font-weight: 500;
 }

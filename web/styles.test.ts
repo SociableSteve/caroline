@@ -220,6 +220,7 @@ describe('the stylesheet holds to the palettes', () => {
       '--surface',
       '--surface-sunk',
       '--surface-raised',
+      '--nav-active',
       '--ink',
       '--ink-quiet',
       '--line-faint',

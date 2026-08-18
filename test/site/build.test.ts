@@ -491,6 +491,33 @@ describe('the site and the application look like one thing', () => {
   const own = declarations(source('site/styles.css')).filter(
     (rule) => !rule.property.startsWith('--'),
   )
+
+  /**
+   * A token renamed in `web/styles.css` but not in `site/styles.css`'s hand-maintained rules is a
+   * rule that resolves against nothing: the browser silently falls through to the property's
+   * initial value, which is not a build failure and not a lint failure either, so nothing else
+   * catches it. Checking every `var(--x)` this stylesheet writes against the names the palette
+   * above actually extracts is what makes that class of drift a test failure instead.
+   */
+  it('references only tokens the application actually declares, so a rename cannot leave a rule pointing at nothing', () => {
+    const declaredTokens = new Set([
+      ...declared(application, '').map((rule) => rule.property),
+      ...declared(application, '@media (prefers-color-scheme: light)').map((rule) => rule.property),
+    ])
+
+    const referenced = new Set<string>()
+    for (const rule of own) {
+      for (const match of rule.value.matchAll(/var\((--[a-z0-9-]+)/g)) {
+        const token = match[1]
+        if (token !== undefined) referenced.add(token)
+      }
+    }
+
+    expect(referenced.size).toBeGreaterThan(5)
+    for (const token of referenced) {
+      expect(declaredTokens, `${token}, referenced in site/styles.css`).toContain(token)
+    }
+  })
   const exempt = new Set(['0', 'auto', 'inherit', 'initial', 'unset', 'none', '100%'])
   const tokenised = (value: string): boolean =>
     value.split(/\s+/).every((part) => exempt.has(part) || part.startsWith('var(--'))

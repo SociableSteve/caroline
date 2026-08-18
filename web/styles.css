@@ -82,6 +82,10 @@
   --surface: #141414;
   --surface-sunk: #0d0d0d;
   --surface-raised: #1c1c1c;
+  /* The active nav item's chip. Issue #47 states it as a literal distinct from `--surface-raised`
+     (a card lighter than a panel; this chip a shade lighter again than that), so it gets its own
+     token rather than reusing one that happens to be close. */
+  --nav-active: #262626;
   --ink: #fafafa;
   --ink-quiet: #b4b4b4;
   --line: rgb(255 255 255 / 10%);
@@ -127,6 +131,9 @@
     --surface: #f5f5f5;
     --surface-sunk: #f0f0f0;
     --surface-raised: #ffffff;
+    /* The issue states the active chip's colour for the dark mockup only; light keeps the value
+       already in use here (equal to `--surface-raised`) rather than inventing an unstated one. */
+    --nav-active: #ffffff;
     --ink: #0a0a0a;
     --ink-quiet: #666666;
     --line: #e5e5e5;
@@ -394,7 +401,7 @@ button[disabled] {
 /* The active surface gets a chip behind it rather than only an underline: `--surface-raised` reads
    as "pressed in" against the header's own `--chrome` ground, in both themes. */
 .app-header nav a[aria-current='page'] {
-  background: var(--surface-raised);
+  background: var(--nav-active);
   font-weight: 500;
 }
 

@@ -36,6 +36,7 @@ import {
   formatAge,
   formatEstimate,
   formatTimeOfDay,
+  formatVerdictDate,
   isStale,
   statusLabel,
   waitingAge,
@@ -124,6 +125,13 @@ function verdict(calendar: CalendarDay | null, planned: number): string | null {
 
   const over = planned - free
   return `Today’s tight — ${formatEstimate(planned)} planned of ${formatEstimate(free)} free, ${formatEstimate(over)} over.`
+}
+
+/** The day's working window, spelled out the way the old separate calendar panel used to: the
+ *  total working-day minutes are otherwise nowhere on the redesigned surface (issue #47's verdict
+ *  headline states only the free/planned split, not the window it was drawn from). */
+function capacityDetail(capacity: CapacityView): string {
+  return `${formatEstimate(capacity.windowMinutes)} of working day, less ${formatEstimate(capacity.busyMinutes)} of meetings and ${formatEstimate(capacity.reserveMinutes)} held back`
 }
 
 /**
@@ -335,22 +343,27 @@ function EntryTitle({
   )
 }
 
-function AgendaEntryRow({
-  scheduled,
+/**
+ * A plan entry's rank, title, rationale, estimate and completion state: everything about the
+ * entry itself, as opposed to where it sits (an agenda row carries a clock time beside this; an
+ * overflow row does not). Shared between the two so a fix to one is a fix to both, the way a
+ * single `PlanEntryLine` used to be shared between the plan panel and its overflow before issue
+ * #47's agenda merge split the main list out into `AgendaEntryRow` and left the overflow list
+ * with its own, incomplete copy that dropped the Complete button and the "done" text.
+ */
+function PlanEntryLine({
+  entry,
   onComplete,
   onSelect,
   selected,
 }: {
-  readonly scheduled: ScheduledEntry
+  readonly entry: PlanEntryView
   readonly onComplete: (taskId: string) => void
   readonly onSelect: (item: ItemRef) => void
   readonly selected: ItemRef | null
 }) {
-  const { entry, startsAt } = scheduled
-
   return (
-    <li className={entry.done ? 'agenda-row plan-entry plan-done' : 'agenda-row plan-entry'}>
-      <span className="agenda-time">{startsAt === null ? null : formatTimeOfDay(startsAt)}</span>
+    <>
       <span className="plan-rank">{entry.rank}</span>
       <span className="plan-title">
         <EntryTitle entry={entry} onSelect={onSelect} selected={selected} />
@@ -371,6 +384,32 @@ function AgendaEntryRow({
           Complete
         </button>
       )}
+    </>
+  )
+}
+
+function AgendaEntryRow({
+  scheduled,
+  onComplete,
+  onSelect,
+  selected,
+}: {
+  readonly scheduled: ScheduledEntry
+  readonly onComplete: (taskId: string) => void
+  readonly onSelect: (item: ItemRef) => void
+  readonly selected: ItemRef | null
+}) {
+  const { entry, startsAt } = scheduled
+
+  return (
+    <li className={entry.done ? 'agenda-row plan-entry plan-done' : 'agenda-row plan-entry'}>
+      <span className="agenda-time">{startsAt === null ? null : formatTimeOfDay(startsAt)}</span>
+      <PlanEntryLine
+        entry={entry}
+        onComplete={onComplete}
+        onSelect={onSelect}
+        selected={selected}
+      />
     </li>
   )
 }
@@ -381,7 +420,9 @@ function AgendaMeetingRow({ event }: { readonly event: CalendarEventView }) {
   return (
     <li className={free === null ? 'agenda-row event-busy' : 'agenda-row event-free'}>
       <span className="agenda-time">
-        {event.allDay ? 'all day' : formatTimeOfDay(event.startsAt)}
+        {event.allDay
+          ? 'all day'
+          : `${formatTimeOfDay(event.startsAt)}–${formatTimeOfDay(event.endsAt)}`}
       </span>
       <span className="event-summary">{event.summary ?? 'Busy'}</span>
       {/* Why it costs nothing, rather than leaving a declined meeting looking like an hour that
@@ -513,7 +554,10 @@ function Agenda({
     .sort((first, second) => (first.startsAt ?? 0) - (second.startsAt ?? 0))
   const untimed = rows.filter((row) => row.startsAt === null)
 
-  const nowAt = canSchedule ? nowIndex(timed, now) : -1
+  // Gated on whether a row has a real clock time, not on `canSchedule`: a calendar's meetings
+  // carry their own `startsAt` regardless of whether the plan's entries could be scheduled
+  // against free intervals, so the "now" marker still has somewhere real to go among them.
+  const nowAt = nowIndex(timed, now)
 
   const renderRow = (row: Row): ReactNode => {
     if (row.kind === 'meeting') return <AgendaMeetingRow key={row.key} event={row.event} />
@@ -558,7 +602,7 @@ function Agenda({
           {renderRow(row)}
         </Fragment>
       ))}
-      {nowAt === -1 && canSchedule && timed.length > 0 && nowRow}
+      {nowAt === -1 && timed.length > 0 && nowRow}
       {untimed.map((row) => renderRow(row))}
     </ol>
   )
@@ -577,6 +621,28 @@ interface NeedsYouItem {
   readonly title: ReactNode
   readonly subtitle: ReactNode
   readonly note: ReactNode | null
+}
+
+/**
+ * Why the rail has nothing in it, when it has nothing: two independent facts, kept apart rather
+ * than folded into the one claim "nothing is waiting on anyone else" (which used to be literally
+ * false whenever a waiting task just was not stale yet, or a project just was not stalled — the
+ * rail only ranks the stale, the nudged and the stalled, not everything waiting or every active
+ * project). Issue #47's merge deleted the old "Gone quiet" and "Stalled projects" panels' own
+ * accurate, distinct empty states along with the panels; this restores both, as two lines rather
+ * than one, since the rail now answers for both at once.
+ */
+function needsYouEmptyMessages(
+  waiting: readonly TaskView[],
+  staleDays: number,
+  projects: readonly ProjectView[],
+): readonly string[] {
+  return [
+    waiting.length === 0
+      ? 'Nothing is waiting on anyone else.'
+      : `Nothing has been waiting longer than ${staleDays} days.`,
+    projects.length === 0 ? 'No projects yet.' : 'Every active project has a next action.',
+  ]
 }
 
 function NeedsYouRow({ item }: { readonly item: NeedsYouItem }) {
@@ -670,7 +736,11 @@ export function Dashboard({
             </h2>
 
             {needsYou.length === 0 ? (
-              <p className="empty">Nothing is waiting on anyone else.</p>
+              needsYouEmptyMessages(waiting, staleDays, projects).map((message) => (
+                <p className="empty" key={message}>
+                  {message}
+                </p>
+              ))
             ) : (
               <ul className="needs-you-list">
                 {needsYou.map((item) => (
@@ -773,7 +843,14 @@ export function Dashboard({
             {todaysVerdict !== null && (
               <p className="verdict">
                 <span className="verdict-headline">{todaysVerdict}</span>
+                <span className="verdict-date">{formatVerdictDate(now)}</span>
               </p>
+            )}
+            {/* The window the verdict was drawn from, in words: issue #47's headline states only
+                the free/planned split, and the old separate calendar panel's working-day total
+                and reserve are otherwise dropped entirely by the merge. */}
+            {todaysVerdict !== null && calendar !== null && (
+              <p className="verdict-detail">{capacityDetail(calendar.capacity)}</p>
             )}
             <button
               type="button"
@@ -846,16 +923,12 @@ export function Dashboard({
               <ul className="plan-list">
                 {plan.overflow.map((entry) => (
                   <li key={entry.id} className={entry.done ? 'plan-entry plan-done' : 'plan-entry'}>
-                    <span className="plan-rank">{entry.rank}</span>
-                    <span className="plan-title">
-                      <EntryTitle entry={entry} onSelect={onSelect} selected={selected} />
-                    </span>
-                    {entry.rationale !== null && (
-                      <span className="plan-why">{entry.rationale}</span>
-                    )}
-                    {entry.estimateMinutes !== null && (
-                      <span className="plan-estimate">{formatEstimate(entry.estimateMinutes)}</span>
-                    )}
+                    <PlanEntryLine
+                      entry={entry}
+                      onComplete={onComplete}
+                      onSelect={onSelect}
+                      selected={selected}
+                    />
                   </li>
                 ))}
               </ul>

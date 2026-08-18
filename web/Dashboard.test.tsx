@@ -165,6 +165,37 @@ describe('the verdict', () => {
     expect(today().queryByText(/Today fits/)).not.toBeInTheDocument()
     expect(today().queryByText(/Today’s tight/)).not.toBeInTheDocument()
   })
+
+  /** Issue #47's mockup shows the date beside the verdict headline. */
+  it('names today’s date alongside the verdict', () => {
+    renderDashboard({ calendar: aCalendarDay(), plan: aPlan({}) })
+
+    // Wednesday 10 June 2026 (the fixtures' NOW). Matched by content rather than a fixed order,
+    // since a locale's short weekday/day/month order is its own to choose; no year is asserted,
+    // since the verdict is always about today.
+    const region = screen.getByRole('region', { name: /today/i })
+    const dateElement = region.querySelector('.verdict-date')
+    expect(dateElement).not.toBeNull()
+    expect(dateElement?.textContent).toMatch(/Wed/)
+    expect(dateElement?.textContent).toMatch(/Jun/)
+    expect(dateElement?.textContent).toMatch(/\b10\b/)
+  })
+
+  /** The window the verdict was drawn from, otherwise dropped entirely by the agenda merge. */
+  it('spells out the working window the verdict summarised', () => {
+    renderDashboard({
+      calendar: aCalendarDay({
+        capacity: { windowMinutes: 510, busyMinutes: 60, reserveMinutes: 102 },
+      }),
+      plan: aPlan({}),
+    })
+
+    expect(
+      today().getByText(
+        /8 hours 30 min of working day, less 1 hour of meetings and 1 hour 42 min held back/,
+      ),
+    ).toBeInTheDocument()
+  })
 })
 
 describe('the day bar', () => {
@@ -304,6 +335,39 @@ describe('the agenda', () => {
 
     expect(overflow.getByText('Spare capacity work')).toBeInTheDocument()
     expect(overflow.queryByText('Planned work')).not.toBeInTheDocument()
+  })
+
+  /** A task sitting in overflow is no less completable from here than one in the main agenda. */
+  it('offers to complete an overflow entry too, and says which task', async () => {
+    const onComplete = vi.fn()
+    renderDashboard({
+      plan: aPlan({
+        overflow: [
+          aPlanEntry({ id: 'entry-2', kind: 'overflow', taskId: 'task-b', title: 'Tidy the docs' }),
+        ],
+      }),
+      onComplete,
+    })
+
+    const overflow = within(screen.getByRole('region', { name: /if there is time/i }))
+    await userEvent.click(overflow.getByRole('button', { name: /complete tidy the docs/i }))
+
+    expect(onComplete).toHaveBeenCalledWith('task-b')
+  })
+
+  /** Done is said in text as well as in the styling in overflow too, not only in the main agenda. */
+  it('marks an overflow entry whose task is done, with the same text the main agenda uses', () => {
+    renderDashboard({
+      plan: aPlan({
+        overflow: [
+          aPlanEntry({ id: 'entry-2', kind: 'overflow', title: 'Already finished', done: true }),
+        ],
+      }),
+    })
+
+    const overflow = within(screen.getByRole('region', { name: /if there is time/i }))
+    expect(overflow.getByText('done')).toBeInTheDocument()
+    expect(overflow.getByText('Already finished').closest('li')).toHaveClass('plan-done')
   })
 
   it('says nothing about overflow when everything fitted', () => {
@@ -496,6 +560,68 @@ describe('the agenda', () => {
     })
 
     expect(today().getByText('Hub weekly')).toBeInTheDocument()
+  })
+
+  /** A meeting's end time used to be dropped by the agenda merge: a start time on its own does not
+   *  say how much of the day it takes. */
+  it('shows a timed event’s end time alongside its start', () => {
+    renderDashboard({
+      calendar: aCalendarDay({
+        events: [
+          {
+            id: 'event-1',
+            calendarId: 'primary',
+            summary: 'Hub weekly',
+            startsAt: NOW,
+            endsAt: NOW + 60 * 60_000,
+            allDay: false,
+            responseStatus: 'accepted',
+            transparency: 'opaque',
+            status: 'confirmed',
+            attendeeCount: 3,
+            url: null,
+            consumesCapacity: true,
+          },
+        ],
+      }),
+    })
+
+    const row = today().getByText('Hub weekly').closest('li')
+    expect(row).not.toBeNull()
+    expect(row?.textContent).toMatch(/\d{1,2}:\d{2}\s?[AP]?M?–\d{1,2}:\d{2}\s?[AP]?M?/i)
+  })
+
+  /**
+   * A real-timed meeting is something to place the "now" rule against whether or not the plan's
+   * own entries could be scheduled: `canSchedule` only gates the plan side of the merge, not
+   * whether the calendar carried real clock times of its own.
+   */
+  it('places the "now" marker against a timed meeting even when the plan cannot be scheduled', () => {
+    renderDashboard({
+      calendar: aCalendarDay({
+        capacity: { free: [] },
+        events: [
+          {
+            id: 'event-1',
+            calendarId: 'primary',
+            summary: 'Hub weekly',
+            startsAt: NOW + 30 * 60_000,
+            endsAt: NOW + 90 * 60_000,
+            allDay: false,
+            responseStatus: 'accepted',
+            transparency: 'opaque',
+            status: 'confirmed',
+            attendeeCount: 3,
+            url: null,
+            consumesCapacity: true,
+          },
+        ],
+      }),
+      plan: aPlan({ entries: [aPlanEntry({ id: 'entry-1', title: 'Write the report' })] }),
+    })
+
+    const region = screen.getByRole('region', { name: /today/i })
+    expect(region.querySelector('.agenda-now')).not.toBeNull()
   })
 
   /** A declined meeting is still on the diary, and the agenda should say why it costs nothing. */
@@ -729,6 +855,28 @@ describe('the needs-you rail', () => {
       'href',
       '#/projects/project-1?conversation=abc',
     )
+  })
+
+  /**
+   * The rail's one empty message used to claim "nothing is waiting on anyone else" whenever
+   * nothing was stale, nudged or stalled, even when a fresher waiting task or an active project
+   * was sitting right there. Restoring the old panels' two independent, accurate claims.
+   */
+  it('says a fresh waiting item is not waited on anyone, distinctly from projects all having a next action', () => {
+    renderDashboard({
+      tasks: [fresh],
+      projects: [aProject({ id: 'project-1', title: 'Moving along', stalled: false })],
+    })
+
+    expect(rail().getByText(`Nothing has been waiting longer than 7 days.`)).toBeInTheDocument()
+    expect(rail().getByText('Every active project has a next action.')).toBeInTheDocument()
+  })
+
+  it('says no projects exist yet, distinctly from nothing waiting at all', () => {
+    renderDashboard({ tasks: [], projects: [] })
+
+    expect(rail().getByText('Nothing is waiting on anyone else.')).toBeInTheDocument()
+    expect(rail().getByText('No projects yet.')).toBeInTheDocument()
   })
 })
 
