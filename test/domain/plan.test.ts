@@ -146,6 +146,12 @@ describe('what the model is not allowed to get away with', () => {
     expect(result.warnings.join(' ')).toMatch(/ghost/)
   })
 
+  it('warns only once when the same invented task id is listed twice', () => {
+    const result = applyTo([ranked('ghost'), ranked('ghost')], [aCandidate({ taskId: 'a' })])
+
+    expect(result.warnings).toEqual([expect.stringMatching(/ghost/)])
+  })
+
   it('keeps the first of a task listed twice', () => {
     const result = applyTo([ranked('a', 30), ranked('a', 60)], [aCandidate({ taskId: 'a' })])
 
