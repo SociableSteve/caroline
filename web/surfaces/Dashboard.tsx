@@ -297,9 +297,15 @@ export function Dashboard({
 
               {plan.entries.length === 0 ? (
                 <p className="empty">
+                  {/* A day with no capacity says so regardless of what else is true: that is the
+                      reason nothing fitted. Only once capacity is positive does the overflow
+                      list above distinguish "nothing was eligible" from "nothing fitted" -
+                      the items were eligible, ranked and listed there as overflow. Issue #22. */}
                   {plan.capacityMinutes <= 0
                     ? 'There is no free capacity today, so nothing is planned.'
-                    : 'Nothing was eligible for planning today.'}
+                    : plan.overflow.length > 0
+                      ? 'Nothing fitted into the free time left today.'
+                      : 'Nothing was eligible for planning today.'}
                 </p>
               ) : (
                 <ul className="plan-list">

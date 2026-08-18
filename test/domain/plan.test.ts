@@ -279,6 +279,9 @@ describe('fitting the day', () => {
     )
 
     expect(result.warnings.join(' ')).toMatch(/did not fit/i)
+    // Criterion 16: no count and no number of minutes, so the warning cannot come to disagree
+    // with the overflow list or the capacity drawn beside it.
+    expect(result.warnings.join(' ')).not.toMatch(/\d/)
   })
 
   it('says nothing of the sort when the whole answer fitted', () => {

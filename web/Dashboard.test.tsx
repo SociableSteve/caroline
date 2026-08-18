@@ -250,6 +250,29 @@ describe('today’s plan', () => {
     expect(planPanel().getByText(/no free capacity/i)).toBeInTheDocument()
   })
 
+  /**
+   * Issue #22: capacity was positive and every candidate overflowed, so "Nothing was eligible for
+   * planning today" sat directly under the criterion-16 warning saying work did not fit. The
+   * items were eligible, ranked and listed as overflow, so the empty state must not claim
+   * otherwise.
+   */
+  it('says nothing fitted rather than nothing was eligible, when capacity is positive but everything overflowed', () => {
+    renderDashboard({
+      plan: aPlan({
+        entries: [],
+        capacityMinutes: 30,
+        overflow: [aPlanEntry({ id: 'entry-1', kind: 'overflow', title: 'Too big for today' })],
+        warnings: [
+          "Some of today's work did not fit into the free time left, so it is below rather than in the plan.",
+        ],
+      }),
+    })
+
+    expect(planPanel().queryByText(/nothing was eligible/i)).not.toBeInTheDocument()
+    expect(planPanel().queryByText(/no free capacity/i)).not.toBeInTheDocument()
+    expect(planPanel().getByText(/nothing fitted into the free time left/i)).toBeInTheDocument()
+  })
+
   it('regenerates on demand', async () => {
     const onRegeneratePlan = vi.fn()
     renderDashboard({ plan: aPlan({}), onRegeneratePlan })
