@@ -7,6 +7,7 @@ import {
   boardStatuses,
   type ItemRef,
   type ProjectView,
+  type TaskInput,
   type TaskStatus,
   type TaskView,
 } from '../api.js'
@@ -23,6 +24,10 @@ export interface BoardProps {
   readonly onStatusChange: (id: string, status: TaskStatus) => void
   readonly onComplete: (id: string) => void
   readonly onDelete: (id: string) => void
+  readonly onDatesChange: (
+    id: string,
+    patch: Partial<Pick<TaskInput, 'dueAt' | 'deferUntil'>>,
+  ) => void
   readonly onMarkReviewed: (id: string) => void
   readonly onAcceptProposal: (id: string) => void
   readonly onDismissProposal: (id: string) => void
@@ -73,6 +78,7 @@ export function Board({
   onStatusChange,
   onComplete,
   onDelete,
+  onDatesChange,
   onMarkReviewed,
   onAcceptProposal,
   onDismissProposal,
@@ -317,6 +323,7 @@ export function Board({
                       onStatusChange={onStatusChange}
                       onComplete={onComplete}
                       onDelete={onDelete}
+                      onDatesChange={onDatesChange}
                       onMarkReviewed={onMarkReviewed}
                       onAcceptProposal={onAcceptProposal}
                       onDismissProposal={onDismissProposal}

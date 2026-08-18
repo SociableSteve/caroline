@@ -224,6 +224,38 @@ export function isDeferred(task: Pick<TaskView, 'deferUntil'>, now: number): boo
 }
 
 /**
+ * The three conversions between an `<input type="date">` value and the instant the API wants,
+ * in the reader's own zone: `dueState` and `formatDate` already reason about a day in local time
+ * rather than UTC, so the create and edit forms follow the same convention rather than a second
+ * one of their own.
+ */
+function partsOf(value: string): [number, number, number] {
+  const [year, month, day] = value.split('-').map(Number)
+  return [year ?? 0, (month ?? 1) - 1, day ?? 1]
+}
+
+/** The last local millisecond of the day named. A deadline is the end of that day. */
+export function dueAtFromDateInput(value: string): number {
+  const [year, month, day] = partsOf(value)
+  return new Date(year, month, day, 23, 59, 59, 999).getTime()
+}
+
+/** The first local millisecond of the day named. A deferral lifts at the start of it. */
+export function deferUntilFromDateInput(value: string): number {
+  const [year, month, day] = partsOf(value)
+  return new Date(year, month, day).getTime()
+}
+
+/** The inverse of both: an instant as the local `YYYY-MM-DD` a date input control wants. */
+export function dateInputValue(epochMs: number): string {
+  const date = new Date(epochMs)
+  const year = String(date.getFullYear()).padStart(4, '0')
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+/**
  * A confidence as a percentage. Rounded, because the difference between 0.42 and 0.418 is not
  * something anybody is going to act on, and two decimal places would suggest it is.
  */

@@ -4,10 +4,11 @@
  * whatever opened it. Not borrowed from `<dialog>`, therefore tested here.
  */
 import { describe, expect, it, vi } from 'vitest'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { useState } from 'react'
 import { QuickCapture } from './components/QuickCapture.js'
+import { deferUntilFromDateInput, dueAtFromDateInput } from './format.js'
 import { aProject } from './test-fixtures.js'
 
 /** The dialog as the app uses it: something focusable outside it, and an opener button. */
@@ -89,6 +90,12 @@ describe('the focus trap', () => {
     expect(screen.getByLabelText('Project')).toHaveFocus()
 
     await userEvent.tab()
+    expect(screen.getByLabelText('Due')).toHaveFocus()
+
+    await userEvent.tab()
+    expect(screen.getByLabelText('Defer until')).toHaveFocus()
+
+    await userEvent.tab()
     expect(screen.getByRole('button', { name: 'Capture' })).toHaveFocus()
 
     await userEvent.tab()
@@ -131,6 +138,46 @@ describe('capturing', () => {
       notes: 'Before it lapses',
       projectId: 'project-1',
     })
+  })
+
+  /**
+   * A native date input rather than free text: the board and the card both already read a due
+   * date and a defer-until date as a local day, so capture sets them the same way it displays
+   * them. Criterion 18 and the surrounding text in spec 08.
+   */
+  it('sends a due date and a defer-until date as the end and the start of the days given', async () => {
+    const onCreate = await openCapture()
+
+    await userEvent.type(screen.getByLabelText('What is it?'), 'Renew the domain')
+    fireEvent.change(screen.getByLabelText('Due'), { target: { value: '2026-07-01' } })
+    fireEvent.change(screen.getByLabelText('Defer until'), { target: { value: '2026-06-20' } })
+    await userEvent.click(screen.getByRole('button', { name: 'Capture' }))
+
+    expect(onCreate).toHaveBeenCalledWith({
+      title: 'Renew the domain',
+      dueAt: dueAtFromDateInput('2026-07-01'),
+      deferUntil: deferUntilFromDateInput('2026-06-20'),
+    })
+  })
+
+  it('does not send a due date or a defer-until date when neither is set', async () => {
+    const onCreate = await openCapture()
+
+    await userEvent.type(screen.getByLabelText('What is it?'), 'Renew the domain')
+    await userEvent.click(screen.getByRole('button', { name: 'Capture' }))
+
+    expect(onCreate).toHaveBeenCalledWith({ title: 'Renew the domain' })
+  })
+
+  it('clears the dates it did send, so the next capture starts with neither set', async () => {
+    await openCapture()
+
+    await userEvent.type(screen.getByLabelText('What is it?'), 'Renew the domain')
+    fireEvent.change(screen.getByLabelText('Due'), { target: { value: '2026-07-01' } })
+    await userEvent.click(screen.getByRole('button', { name: 'Capture' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Quick capture' }))
+
+    expect(screen.getByLabelText('Due')).toHaveValue('')
   })
 
   it('closes once the task has been created', async () => {

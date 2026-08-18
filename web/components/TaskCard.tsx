@@ -3,10 +3,19 @@
  * spec 08, and every state that is carried by colour is also carried by text.
  */
 import { useState, type KeyboardEvent } from 'react'
-import { boardStatuses, type ItemRef, type TaskStatus, type TaskView } from '../api.js'
+import {
+  boardStatuses,
+  type ItemRef,
+  type TaskInput,
+  type TaskStatus,
+  type TaskView,
+} from '../api.js'
 import { ActionRow, Badge, Fact, Facts, Field } from './primitives.js'
 import {
   canMarkReviewed,
+  dateInputValue,
+  deferUntilFromDateInput,
+  dueAtFromDateInput,
   formatAge,
   formatConfidence,
   formatDate,
@@ -31,6 +40,15 @@ export interface TaskCardProps {
   readonly onStatusChange: (id: string, status: TaskStatus) => void
   readonly onComplete: (id: string) => void
   readonly onDelete: (id: string) => void
+  /**
+   * Setting, changing or clearing the due date or the defer-until date, from the card's "More"
+   * disclosure. Either field is `null` to clear it and absent to leave it alone, the same
+   * three-state contract `update_task` offers from chat.
+   */
+  readonly onDatesChange: (
+    id: string,
+    patch: Partial<Pick<TaskInput, 'dueAt' | 'deferUntil'>>,
+  ) => void
   /** Absent on surfaces that do not offer the action, such as a project drill-in. */
   readonly onMarkReviewed?: ((id: string) => void) | undefined
   /** The one-click accept spec 04 asks for. Absent where a proposal cannot be acted on. */
@@ -59,6 +77,7 @@ export function TaskCard({
   onStatusChange,
   onComplete,
   onDelete,
+  onDatesChange,
   onMarkReviewed,
   onAcceptProposal,
   onDismissProposal,
@@ -289,6 +308,37 @@ export function TaskCard({
                 Undo move
               </button>
             )}
+
+            {/* A native date input, empty for unset. Clearing it back to empty sends `null`
+                rather than leaving the field alone, so taking a date off a task is as direct as
+                setting one. Issue #44. */}
+            <Field label={`Due date of ${task.title}`} hiddenLabel>
+              <input
+                type="date"
+                value={task.dueAt === null ? '' : dateInputValue(task.dueAt)}
+                onChange={(event) =>
+                  onDatesChange(task.id, {
+                    dueAt:
+                      event.target.value === '' ? null : dueAtFromDateInput(event.target.value),
+                  })
+                }
+              />
+            </Field>
+
+            <Field label={`Defer-until date of ${task.title}`} hiddenLabel>
+              <input
+                type="date"
+                value={task.deferUntil === null ? '' : dateInputValue(task.deferUntil)}
+                onChange={(event) =>
+                  onDatesChange(task.id, {
+                    deferUntil:
+                      event.target.value === ''
+                        ? null
+                        : deferUntilFromDateInput(event.target.value),
+                  })
+                }
+              />
+            </Field>
 
             {confirmingDelete ? (
               <>

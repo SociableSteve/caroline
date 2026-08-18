@@ -386,3 +386,17 @@ The MCP endpoint adds the following, appended for the same reason.
     error object rather than in the standard error shape, because a JSON-RPC caller cannot parse that
     shape. Criterion 1 holds unchanged for every other route, which is asserted by keeping the
     exception a list of one. Spec 12 states the same resolution from its side as its criterion 43.
+
+Criterion 18 asked only that a due date and a defer-until date be displayed once set; nothing set
+either from the UI, short of chat or a direct API call. Issue #44's fix adds the following, appended
+for the same reason.
+
+38. Quick capture offers a due-date input and a defer-until date input alongside title, notes and
+    project, each a native date control left empty by default; a date given at capture is sent as
+    the end of that day for `dueAt` and the start of it for `deferUntil`, and an empty control sends
+    neither field rather than a default.
+39. A task card's "More" disclosure offers a due-date input and a defer-until date input, prefilled
+    from the task where either is already set. Changing one sends the corresponding instant;
+    clearing the control back to empty sends `null`, taking the field off the task rather than
+    leaving it as it was. This is the same three-state contract `update_task` offers from chat: set,
+    change or clear, with an untouched field left alone.

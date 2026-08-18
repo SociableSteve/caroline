@@ -10,6 +10,7 @@
  */
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import type { ProjectView, TaskInput } from '../api.js'
+import { deferUntilFromDateInput, dueAtFromDateInput } from '../format.js'
 import { ActionRow, Field } from './primitives.js'
 
 export interface QuickCaptureProps {
@@ -26,6 +27,10 @@ export function QuickCapture({ open, projects, onClose, onCreate }: QuickCapture
   const [title, setTitle] = useState('')
   const [notes, setNotes] = useState('')
   const [projectId, setProjectId] = useState('')
+  /** Empty means unset. A native date input's own value is already the local `YYYY-MM-DD` the
+   *  API's fields are built from, so nothing else is kept for these two. */
+  const [dueDate, setDueDate] = useState('')
+  const [deferDate, setDeferDate] = useState('')
   const [saving, setSaving] = useState(false)
   const dialog = useRef<HTMLElement>(null)
   const titleField = useRef<HTMLInputElement>(null)
@@ -42,6 +47,8 @@ export function QuickCapture({ open, projects, onClose, onCreate }: QuickCapture
     setTitle('')
     setNotes('')
     setProjectId('')
+    setDueDate('')
+    setDeferDate('')
     onClose()
   }, [onClose])
 
@@ -90,14 +97,22 @@ export function QuickCapture({ open, projects, onClose, onCreate }: QuickCapture
    * text typed in that window belongs to the next capture rather than to this one, so a blanket
    * reset would throw it away.
    */
-  const clearSent = (sent: { title: string; notes: string; projectId: string }) => {
+  const clearSent = (sent: {
+    title: string
+    notes: string
+    projectId: string
+    dueDate: string
+    deferDate: string
+  }) => {
     setTitle((current) => (current === sent.title ? '' : current))
     setNotes((current) => (current === sent.notes ? '' : current))
     setProjectId((current) => (current === sent.projectId ? '' : current))
+    setDueDate((current) => (current === sent.dueDate ? '' : current))
+    setDeferDate((current) => (current === sent.deferDate ? '' : current))
   }
 
   const submit = async () => {
-    const sent = { title, notes, projectId }
+    const sent = { title, notes, projectId, dueDate, deferDate }
     const mine = session.current
     const trimmed = sent.title.trim()
     if (trimmed === '' || saving) return
@@ -109,6 +124,8 @@ export function QuickCapture({ open, projects, onClose, onCreate }: QuickCapture
         title: trimmed,
         ...(sent.notes.trim() === '' ? {} : { notes: sent.notes.trim() }),
         ...(sent.projectId === '' ? {} : { projectId: sent.projectId }),
+        ...(sent.dueDate === '' ? {} : { dueAt: dueAtFromDateInput(sent.dueDate) }),
+        ...(sent.deferDate === '' ? {} : { deferUntil: deferUntilFromDateInput(sent.deferDate) }),
       })
     } catch {
       // A rejection is a capture that did not happen, which is what `false` already means, so
@@ -208,6 +225,24 @@ export function QuickCapture({ open, projects, onClose, onCreate }: QuickCapture
                 </option>
               ))}
             </select>
+          </Field>
+
+          <Field label="Due">
+            <input
+              type="date"
+              name="dueAt"
+              value={dueDate}
+              onChange={(event) => setDueDate(event.target.value)}
+            />
+          </Field>
+
+          <Field label="Defer until">
+            <input
+              type="date"
+              name="deferUntil"
+              value={deferDate}
+              onChange={(event) => setDeferDate(event.target.value)}
+            />
           </Field>
 
           <p className="capture-hint">It lands in the inbox, to be triaged later.</p>

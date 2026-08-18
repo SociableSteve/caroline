@@ -161,6 +161,7 @@ function renderDetail(overrides: Partial<Parameters<typeof ProjectDetail>[0]> = 
     onStatusChange: vi.fn(),
     onComplete: vi.fn(),
     onDelete: vi.fn(),
+    onDatesChange: vi.fn(),
     onSelect: vi.fn(),
   }
 

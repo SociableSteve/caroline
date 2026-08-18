@@ -6,7 +6,12 @@ import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { Board } from './surfaces/Board.js'
-import { formatDate } from './format.js'
+import {
+  dateInputValue,
+  deferUntilFromDateInput,
+  dueAtFromDateInput,
+  formatDate,
+} from './format.js'
 import type { SourceView } from './api.js'
 import { aProject, aPullRequestSource, aReviewTask, aTask, DAY, NOW } from './test-fixtures.js'
 
@@ -15,6 +20,7 @@ function renderBoard(overrides: Partial<Parameters<typeof Board>[0]> = {}) {
     onStatusChange: vi.fn(),
     onComplete: vi.fn(),
     onDelete: vi.fn(),
+    onDatesChange: vi.fn(),
     onMarkReviewed: vi.fn(),
     onAcceptProposal: vi.fn(),
     onDismissProposal: vi.fn(),
@@ -591,6 +597,101 @@ describe('what a card shows without being asked', () => {
     expect(due('Late')).toMatch(/^Overdue, /)
     expect(due('Now')).toMatch(/^Today, /)
     expect(due('Soon')).toBe(formatDate(NOW + 5 * DAY))
+  })
+})
+
+/**
+ * Setting, changing and clearing a due date or a defer-until date from the card's "More"
+ * disclosure. Issue #44: the fields were displayed but nowhere editable.
+ */
+describe('editing a due date and a defer-until date', () => {
+  it('shows a task with neither date set as two empty date inputs', async () => {
+    renderBoard({ tasks: [aTask({ id: 'task-1', title: 'Renew the domain' })] })
+
+    const card = screen.getByRole('article', { name: 'Renew the domain' })
+    await userEvent.click(within(card).getByText('More'))
+
+    expect(within(card).getByLabelText('Due date of Renew the domain')).toHaveValue('')
+    expect(within(card).getByLabelText('Defer-until date of Renew the domain')).toHaveValue('')
+  })
+
+  it('shows a task with dates already set, filled in as the local day', async () => {
+    renderBoard({
+      tasks: [
+        aTask({
+          id: 'task-1',
+          title: 'Renew the domain',
+          dueAt: NOW + 5 * DAY,
+          deferUntil: NOW + 2 * DAY,
+        }),
+      ],
+    })
+
+    const card = screen.getByRole('article', { name: 'Renew the domain' })
+    await userEvent.click(within(card).getByText('More'))
+
+    expect(within(card).getByLabelText('Due date of Renew the domain')).toHaveValue(
+      dateInputValue(NOW + 5 * DAY),
+    )
+    expect(within(card).getByLabelText('Defer-until date of Renew the domain')).toHaveValue(
+      dateInputValue(NOW + 2 * DAY),
+    )
+  })
+
+  it('sets a due date as the end of the day picked', async () => {
+    const handlers = renderBoard({ tasks: [aTask({ id: 'task-1', title: 'Renew the domain' })] })
+
+    const card = screen.getByRole('article', { name: 'Renew the domain' })
+    await userEvent.click(within(card).getByText('More'))
+    fireEvent.change(within(card).getByLabelText('Due date of Renew the domain'), {
+      target: { value: '2026-07-01' },
+    })
+
+    expect(handlers.onDatesChange).toHaveBeenCalledWith('task-1', {
+      dueAt: dueAtFromDateInput('2026-07-01'),
+    })
+  })
+
+  it('sets a defer-until date as the start of the day picked', async () => {
+    const handlers = renderBoard({ tasks: [aTask({ id: 'task-1', title: 'Renew the domain' })] })
+
+    const card = screen.getByRole('article', { name: 'Renew the domain' })
+    await userEvent.click(within(card).getByText('More'))
+    fireEvent.change(within(card).getByLabelText('Defer-until date of Renew the domain'), {
+      target: { value: '2026-06-20' },
+    })
+
+    expect(handlers.onDatesChange).toHaveBeenCalledWith('task-1', {
+      deferUntil: deferUntilFromDateInput('2026-06-20'),
+    })
+  })
+
+  it('clears a due date by clearing the input, rather than leaving it alone', async () => {
+    const handlers = renderBoard({
+      tasks: [aTask({ id: 'task-1', title: 'Renew the domain', dueAt: NOW + 5 * DAY })],
+    })
+
+    const card = screen.getByRole('article', { name: 'Renew the domain' })
+    await userEvent.click(within(card).getByText('More'))
+    fireEvent.change(within(card).getByLabelText('Due date of Renew the domain'), {
+      target: { value: '' },
+    })
+
+    expect(handlers.onDatesChange).toHaveBeenCalledWith('task-1', { dueAt: null })
+  })
+
+  it('clears a defer-until date by clearing the input, rather than leaving it alone', async () => {
+    const handlers = renderBoard({
+      tasks: [aTask({ id: 'task-1', title: 'Renew the domain', deferUntil: NOW + 2 * DAY })],
+    })
+
+    const card = screen.getByRole('article', { name: 'Renew the domain' })
+    await userEvent.click(within(card).getByText('More'))
+    fireEvent.change(within(card).getByLabelText('Defer-until date of Renew the domain'), {
+      target: { value: '' },
+    })
+
+    expect(handlers.onDatesChange).toHaveBeenCalledWith('task-1', { deferUntil: null })
   })
 })
 

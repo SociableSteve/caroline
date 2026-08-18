@@ -22,6 +22,7 @@ const boardHandlers = {
   onStatusChange: vi.fn(),
   onComplete: vi.fn(),
   onDelete: vi.fn(),
+  onDatesChange: vi.fn(),
   onMarkReviewed: vi.fn(),
   onAcceptProposal: vi.fn(),
   onDismissProposal: vi.fn(),
@@ -90,6 +91,7 @@ const surfaces: ReadonlyArray<{ name: string; title: string; render: () => void 
           onStatusChange={vi.fn()}
           onComplete={vi.fn()}
           onDelete={vi.fn()}
+          onDatesChange={vi.fn()}
           onSelect={vi.fn()}
           selected={null}
           hash="#/projects/project-1"
