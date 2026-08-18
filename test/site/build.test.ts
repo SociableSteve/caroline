@@ -182,9 +182,9 @@ describe('the site renders the documentation rather than restating it', () => {
     const built = buildSite(commented)
     const stylesheet = built.get('styles.css') ?? ''
 
-    expect(stylesheet).toContain('--accent: #1c4f8b')
+    expect(stylesheet).toContain('--accent: #60a5fa')
     expect(stylesheet.split('{').length).toBe(stylesheet.split('}').length)
-    expect(built.get('icon.svg')).toContain('#1c4f8b')
+    expect(built.get('icon.svg')).toContain('#2563eb')
   })
 
   it('publishes a document that has commented a tag out, rather than refusing the page', () => {
@@ -470,8 +470,8 @@ describe('the site and the application look like one thing', () => {
 
   // Criterion 6. Extracted, not copied: a second palette is a palette that drifts.
   it.each([
-    { theme: 'light', context: '' },
-    { theme: 'dark', context: '@media (prefers-color-scheme: dark)' },
+    { theme: 'dark', context: '' },
+    { theme: 'light', context: '@media (prefers-color-scheme: light)' },
   ])('declares every $theme token the application declares, at the same value', ({ context }) => {
     const expected = declared(application, context)
 
@@ -491,6 +491,33 @@ describe('the site and the application look like one thing', () => {
   const own = declarations(source('site/styles.css')).filter(
     (rule) => !rule.property.startsWith('--'),
   )
+
+  /**
+   * A token renamed in `web/styles.css` but not in `site/styles.css`'s hand-maintained rules is a
+   * rule that resolves against nothing: the browser silently falls through to the property's
+   * initial value, which is not a build failure and not a lint failure either, so nothing else
+   * catches it. Checking every `var(--x)` this stylesheet writes against the names the palette
+   * above actually extracts is what makes that class of drift a test failure instead.
+   */
+  it('references only tokens the application actually declares, so a rename cannot leave a rule pointing at nothing', () => {
+    const declaredTokens = new Set([
+      ...declared(application, '').map((rule) => rule.property),
+      ...declared(application, '@media (prefers-color-scheme: light)').map((rule) => rule.property),
+    ])
+
+    const referenced = new Set<string>()
+    for (const rule of own) {
+      for (const match of rule.value.matchAll(/var\((--[a-z0-9-]+)/g)) {
+        const token = match[1]
+        if (token !== undefined) referenced.add(token)
+      }
+    }
+
+    expect(referenced.size).toBeGreaterThan(5)
+    for (const token of referenced) {
+      expect(declaredTokens, `${token}, referenced in site/styles.css`).toContain(token)
+    }
+  })
   const exempt = new Set(['0', 'auto', 'inherit', 'initial', 'unset', 'none', '100%'])
   const tokenised = (value: string): boolean =>
     value.split(/\s+/).every((part) => exempt.has(part) || part.startsWith('var(--'))
@@ -553,7 +580,11 @@ describe('the site and the application look like one thing', () => {
   })
 
   it('draws the icon in the accent colour the application uses, rather than a fourth blue', () => {
-    const accent = declared(application).find((rule) => rule.property === '--accent')?.value
+    // The icon takes the light pair (see `icon` in site/build.ts), so this compares against the
+    // light override rather than the dark default `--accent` now is.
+    const accent = declared(application, '@media (prefers-color-scheme: light)').find(
+      (rule) => rule.property === '--accent',
+    )?.value
 
     expect(accent).toBeDefined()
     expect(page('icon.svg')).toContain(String(accent))
@@ -564,13 +595,16 @@ describe('the site and the application look like one thing', () => {
    * takes the light pair. It should take it because it is the light pair, not because that palette is
    * written first: reordering the file should not repaint the favicon.
    */
-  it('takes the icon colours from the light palette wherever the dark one is written', () => {
-    const dark =
-      /@media \(prefers-color-scheme: dark\) \{\s*:root \{[^}]*\}\s*\}/.exec(application)?.[0] ?? ''
-    const reordered = override('web/styles.css', `${dark}\n${application.replace(dark, '')}`)
+  it('takes the icon colours from the light palette wherever it is written', () => {
+    // Issue #47 made dark the unconditioned default, so the light palette is now the media-query
+    // block; moving it ahead of `:root` must not change which pair the icon draws from.
+    const light =
+      /@media \(prefers-color-scheme: light\) \{\s*:root \{[^}]*\}\s*\}/.exec(application)?.[0] ??
+      ''
+    const reordered = override('web/styles.css', `${light}\n${application.replace(light, '')}`)
 
-    expect(dark).not.toBe('')
-    expect(buildSite(reordered).get('icon.svg')).toContain('#1c4f8b')
+    expect(light).not.toBe('')
+    expect(buildSite(reordered).get('icon.svg')).toContain('#2563eb')
   })
 })
 

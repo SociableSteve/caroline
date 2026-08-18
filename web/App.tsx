@@ -31,6 +31,7 @@ import { Dashboard } from './surfaces/Dashboard.js'
 import { Jobs } from './surfaces/Jobs.js'
 import { ProjectDetail, Projects } from './surfaces/Projects.js'
 import { Settings } from './surfaces/Settings.js'
+import { AlertBand } from './components/AlertBand.js'
 import { ChatRail } from './components/ChatRail.js'
 import { DetailsPanel, type DetailsSubject } from './components/DetailsPanel.js'
 import { LoginScreen } from './components/LoginScreen.js'
@@ -429,139 +430,153 @@ export function App() {
           />
         </main>
       ) : (
-        <div className={chatOpen ? 'app-body with-rail' : 'app-body'}>
-          <main>
-            {/* The message carries its own context, because the two cases read differently: the
+        <>
+          {/* Issue #47: only broken or overdue things, capped at three. Expanded on Today; a
+              one-line collapsed strip with a count, linking back to Today, everywhere else. */}
+          <AlertBand
+            jobs={jobStatus}
+            tasks={tasks}
+            now={now}
+            onRunJob={onRunJob}
+            onOpenTask={(id) => onSelectItem({ kind: 'task', id })}
+            expanded={route.name === 'dashboard'}
+            hash={hash}
+          />
+
+          <div className={chatOpen ? 'app-body with-rail' : 'app-body'}>
+            <main>
+              {/* The message carries its own context, because the two cases read differently: the
               whole board being unreachable, and one panel of it that could not be read while the
               rest of the screen is current. */}
-            {failure !== null && (
-              <p role="alert" className="failure">
-                {failure}{' '}
-                <button type="button" onClick={() => void reload()}>
-                  Try again
-                </button>
-              </p>
-            )}
+              {failure !== null && (
+                <p role="alert" className="failure">
+                  {failure}{' '}
+                  <button type="button" onClick={() => void reload()}>
+                    Try again
+                  </button>
+                </p>
+              )}
 
-            {writeFailure !== null && (
-              <p role="alert" className="failure">
-                {writeFailure}
-              </p>
-            )}
+              {writeFailure !== null && (
+                <p role="alert" className="failure">
+                  {writeFailure}
+                </p>
+              )}
 
-            {/* Said out loud rather than left to be noticed: a screen showing a subset of the
+              {/* Said out loud rather than left to be noticed: a screen showing a subset of the
               tasks and not saying so is worse than one that admits it. */}
-            {unfetchedTaskTotal !== null && (
-              <p role="status" className="failure">
-                Showing {tasks.length} of {unfetchedTaskTotal} tasks. Complete or delete some, or
-                narrow what you are looking at.
-              </p>
-            )}
+              {unfetchedTaskTotal !== null && (
+                <p role="status" className="failure">
+                  Showing {tasks.length} of {unfetchedTaskTotal} tasks. Complete or delete some, or
+                  narrow what you are looking at.
+                </p>
+              )}
 
-            {loading ? (
-              <p>Loading.</p>
-            ) : route.name === 'board' ? (
-              <Board
-                tasks={tasks}
-                projects={projects}
-                staleDays={staleDays}
-                timezone={timezone}
-                configLoaded={configLoaded}
+              {loading ? (
+                <p>Loading.</p>
+              ) : route.name === 'board' ? (
+                <Board
+                  tasks={tasks}
+                  projects={projects}
+                  staleDays={staleDays}
+                  timezone={timezone}
+                  configLoaded={configLoaded}
+                  now={now}
+                  onMarkReviewed={onMarkReviewed}
+                  onAcceptProposal={onAcceptProposal}
+                  onDismissProposal={onDismissProposal}
+                  onUndoStatus={onUndoStatus}
+                  {...cardHandlers}
+                />
+              ) : route.name === 'projects' ? (
+                <Projects
+                  projects={projects}
+                  selected={selected}
+                  hash={hash}
+                  onSelect={onSelectItem}
+                  onCreate={onCreateProject}
+                  onStateChange={onProjectState}
+                  onDelete={onDeleteProject}
+                />
+              ) : route.name === 'project' ? (
+                <ProjectDetail
+                  project={projects.find((project) => project.id === route.id)}
+                  tasks={tasks.filter((task) => task.projectId === route.id)}
+                  staleDays={staleDays}
+                  timezone={timezone}
+                  configLoaded={configLoaded}
+                  now={now}
+                  hash={hash}
+                  {...cardHandlers}
+                />
+              ) : route.name === 'jobs' ? (
+                <Jobs jobs={jobStatus} runs={jobRuns} now={now} onRun={onRunJob} />
+              ) : route.name === 'settings' ? (
+                <Settings
+                  google={google}
+                  preview={preview}
+                  userName={userName}
+                  googleOutcome={route.outcome}
+                  onConnectGoogle={onConnectGoogle}
+                  onDisconnectGoogle={onDisconnectGoogle}
+                  onRefreshPreview={() => void reloadSettings()}
+                  onSaveUserName={onSaveUserName}
+                  mcpClients={mcpClients}
+                  onRevokeMcpClient={onRevokeMcpClient}
+                  mcpConsent={mcpConsent}
+                  onDecideMcpConsent={onDecideMcpConsent}
+                />
+              ) : (
+                <Dashboard
+                  tasks={tasks}
+                  projects={projects}
+                  health={health}
+                  jobRuns={jobRuns}
+                  plan={plan}
+                  history={planHistory}
+                  calendar={calendar}
+                  staleDays={staleDays}
+                  now={now}
+                  onRegeneratePlan={onRegeneratePlan}
+                  regenerating={regenerating}
+                  onComplete={onComplete}
+                  onSelect={onSelectItem}
+                  selected={selected}
+                  hash={hash}
+                />
+              )}
+            </main>
+
+            {chatOpen && (
+              <ChatRail
+                details={
+                  selected === null ? null : (
+                    <DetailsPanel
+                      item={selected}
+                      subject={subjectFor(selected, tasks, projects, unfetchedTaskTotal === null)}
+                      staleDays={staleDays}
+                      now={now}
+                      onClose={closeDetails}
+                    />
+                  )
+                }
+                status={chat.status}
+                conversations={chat.conversations}
+                conversation={chat.conversation}
+                messages={chat.messages}
+                draft={chat.draft}
+                sending={chat.sending}
+                failure={chat.failure}
                 now={now}
-                onMarkReviewed={onMarkReviewed}
-                onAcceptProposal={onAcceptProposal}
-                onDismissProposal={onDismissProposal}
-                onUndoStatus={onUndoStatus}
-                {...cardHandlers}
-              />
-            ) : route.name === 'projects' ? (
-              <Projects
-                projects={projects}
-                selected={selected}
                 hash={hash}
-                onSelect={onSelectItem}
-                onCreate={onCreateProject}
-                onStateChange={onProjectState}
-                onDelete={onDeleteProject}
-              />
-            ) : route.name === 'project' ? (
-              <ProjectDetail
-                project={projects.find((project) => project.id === route.id)}
-                tasks={tasks.filter((task) => task.projectId === route.id)}
-                staleDays={staleDays}
-                timezone={timezone}
-                configLoaded={configLoaded}
-                now={now}
-                hash={hash}
-                {...cardHandlers}
-              />
-            ) : route.name === 'jobs' ? (
-              <Jobs jobs={jobStatus} runs={jobRuns} now={now} onRun={onRunJob} />
-            ) : route.name === 'settings' ? (
-              <Settings
-                google={google}
-                preview={preview}
-                userName={userName}
-                googleOutcome={route.outcome}
-                onConnectGoogle={onConnectGoogle}
-                onDisconnectGoogle={onDisconnectGoogle}
-                onRefreshPreview={() => void reloadSettings()}
-                onSaveUserName={onSaveUserName}
-                mcpClients={mcpClients}
-                onRevokeMcpClient={onRevokeMcpClient}
-                mcpConsent={mcpConsent}
-                onDecideMcpConsent={onDecideMcpConsent}
-              />
-            ) : (
-              <Dashboard
-                tasks={tasks}
-                projects={projects}
-                health={health}
-                jobRuns={jobRuns}
-                plan={plan}
-                history={planHistory}
-                calendar={calendar}
-                staleDays={staleDays}
-                now={now}
-                onRegeneratePlan={onRegeneratePlan}
-                regenerating={regenerating}
-                onComplete={onComplete}
-                onSelect={onSelectItem}
-                selected={selected}
-                hash={hash}
+                onSend={chat.send}
+                onConfirm={chat.confirm}
+                onUndo={chat.undo}
+                onClose={() => setChat(false)}
               />
             )}
-          </main>
-
-          {chatOpen && (
-            <ChatRail
-              details={
-                selected === null ? null : (
-                  <DetailsPanel
-                    item={selected}
-                    subject={subjectFor(selected, tasks, projects, unfetchedTaskTotal === null)}
-                    staleDays={staleDays}
-                    now={now}
-                    onClose={closeDetails}
-                  />
-                )
-              }
-              status={chat.status}
-              conversations={chat.conversations}
-              conversation={chat.conversation}
-              messages={chat.messages}
-              draft={chat.draft}
-              sending={chat.sending}
-              failure={chat.failure}
-              now={now}
-              hash={hash}
-              onSend={chat.send}
-              onConfirm={chat.confirm}
-              onUndo={chat.undo}
-              onClose={() => setChat(false)}
-            />
-          )}
-        </div>
+          </div>
+        </>
       )}
 
       <QuickCapture

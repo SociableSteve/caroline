@@ -1,24 +1,21 @@
 /**
- * The dashboard. The morning question is "what am I doing today, and does it fit", so the surface
- * answers that first and everything else after, in the three bands spec 08 sets out:
+ * The dashboard, redesigned per issue #47. The morning question is "what am I doing today, and
+ * does it fit", so the surface answers that first and everything else after:
  *
- * 1. Today. The plan, with the capacity bar and the calendar column beside it, at the full width.
- * 2. Wants a decision. What has gone quiet, what is worth a chase, the plan's overflow, and the
- *    stalled projects: each of these is something only the user can resolve.
- * 3. State of the machine. Counts, the last run of each job, and what is configured, condensed
- *    into one strip. It is scanned to confirm nothing is broken and read no further when nothing
- *    is. A count is not work, and it should not lead a surface about work.
+ * 1. Today. A verdict headline, a to-scale day bar and one time-ordered agenda merging the plan's
+ *    entries with the calendar's events, in the main column.
+ * 2. A left rail: a ranked "Needs you" list (gone quiet, worth a chase, stalled, oldest first),
+ *    then a bordered "Where everything is" card, and the background-jobs and planned-against-
+ *    completed strips issue #47's mockup does not depict but which nothing else on the page
+ *    replaces, so they stay rather than silently losing a feature no one asked to drop.
  *
- * The bands are fixed rows rather than one reflowing grid, because a reading path that changes
- * with the window width is not a reading path. Spec 08, criterion 11.
+ * Criterion 6: the day bar's numbers are the ones `GET /api/calendar` gave. They are not
+ * recomputed here, so the two cannot disagree.
  *
  * Criterion 4: with no plan, no calendar and no integrations configured it shows empty states
  * rather than errors, because that is the state a clean checkout is in.
- *
- * Criterion 6: the capacity bar's numbers are the ones `GET /api/calendar` gave. They are not
- * recomputed here, so the two cannot disagree.
  */
-import { useId, type ReactNode } from 'react'
+import { Fragment, type ReactNode } from 'react'
 import { taskStatuses } from '../api.js'
 import type {
   CalendarDay,
@@ -39,13 +36,15 @@ import {
   formatAge,
   formatEstimate,
   formatTimeOfDay,
+  formatVerdictDate,
   isStale,
   statusLabel,
   waitingAge,
 } from '../format.js'
 import { unverifiedCapacityNotice } from '../../src/domain/capacity.js'
+import type { Interval } from '../../src/domain/capacity.js'
 import { projectHref, surfaceHref } from '../router.js'
-import { Panel } from '../components/primitives.js'
+import { Badge, Panel } from '../components/primitives.js'
 import { useSurfaceTitle } from '../title.js'
 
 export interface DashboardProps {
@@ -88,17 +87,59 @@ const integrationNames: Record<string, string> = {
   llm: 'LLM provider',
 }
 
-/** What the plan has committed to. The bar compares it against the capacity it was drawn for. */
+/** What the plan has committed to, done and not done alike. The verdict compares it against the
+ *  capacity it was drawn for. */
 function plannedMinutes(plan: PlanView | null): number {
   return (plan?.entries ?? []).reduce((total, entry) => total + (entry.estimateMinutes ?? 0), 0)
 }
 
+/** The same total, split by whether the task behind it is already done. The day bar and the
+ *  agenda both need the split; the verdict does not, so it keeps using the combined figure. */
+function splitPlannedMinutes(plan: PlanView | null): { planned: number; done: number } {
+  let planned = 0
+  let done = 0
+  for (const entry of plan?.entries ?? []) {
+    const minutes = entry.estimateMinutes ?? 0
+    if (entry.done) done += minutes
+    else planned += minutes
+  }
+  return { planned, done }
+}
+
 /**
- * Why the plan panel has no entries, when it has none. A day with no capacity or no eligible
- * work already says so elsewhere on the dashboard (the domain warning above this panel, or
- * `plan.summary` itself), so this only fills in the one case neither of those covers: capacity
- * was positive, nothing overflowed, and the job never set a summary. Returning `null` means
- * "something else on the page already explains this", not "nothing to show".
+ * The verdict: whether today fits. Issue #47's headline, computed from the same numbers the day
+ * bar already shows (spec 08, criterion 6: never recomputed from anything else), so the two can
+ * never disagree. Null where there is nothing to verdict yet: no calendar, or a day with no
+ * working window at all.
+ */
+function verdict(calendar: CalendarDay | null, planned: number): string | null {
+  if (calendar === null || !calendar.capacity.workingDay) return null
+
+  const free = Math.max(0, calendar.capacity.capacityMinutes)
+  if (free <= 0) return 'Today has no free capacity.'
+
+  if (planned <= free) {
+    const spare = free - planned
+    return `Today fits — ${formatEstimate(planned)} planned of ${formatEstimate(free)} free, and ${formatEstimate(spare)} to spare.`
+  }
+
+  const over = planned - free
+  return `Today’s tight — ${formatEstimate(planned)} planned of ${formatEstimate(free)} free, ${formatEstimate(over)} over.`
+}
+
+/** The day's working window, spelled out the way the old separate calendar panel used to: the
+ *  total working-day minutes are otherwise nowhere on the redesigned surface (issue #47's verdict
+ *  headline states only the free/planned split, not the window it was drawn from). */
+function capacityDetail(capacity: CapacityView): string {
+  return `${formatEstimate(capacity.windowMinutes)} of working day, less ${formatEstimate(capacity.busyMinutes)} of meetings and ${formatEstimate(capacity.reserveMinutes)} held back`
+}
+
+/**
+ * Why the agenda has no plan entries in it, when it has none. A day with no capacity or no
+ * eligible work already says so elsewhere (the domain warning above, or `plan.summary` itself),
+ * so this only fills in the one case neither of those covers: capacity was positive, nothing
+ * overflowed, and the job never set a summary. Returning `null` means "something else on the page
+ * already explains this", not "nothing to show".
  */
 function emptyPlanMessage(plan: PlanView): string | null {
   // Criterion 16, issue #22: capacity <= 0 always carries its own domain warning (`plan.ts`'s
@@ -126,6 +167,190 @@ function whyFree(event: CalendarEventView): string | null {
   return 'not counted'
 }
 
+/**
+ * The day bar: the capacity meter and the calendar column, merged into one to-scale strip.
+ * Issue #47. Five segments, in the order the appearance model's legend reads them rather than
+ * the order the day actually runs in: the window's numbers are exact (criterion 6), but the
+ * client is not told which minute of the day each one occupies, so the bar draws proportions
+ * rather than a literal timeline. The agenda below carries the real clock times.
+ */
+function DayBar({
+  capacity,
+  planned,
+  done,
+  now,
+}: {
+  readonly capacity: CapacityView
+  readonly planned: number
+  readonly done: number
+  readonly now: number
+}) {
+  if (!capacity.workingDay) {
+    return <p className="empty">Today is not a working day, so there is no capacity to plan.</p>
+  }
+
+  const meetings = capacity.busyMinutes
+  const reserve = Math.max(0, capacity.reserveMinutes)
+  const capacityFree = Math.max(0, capacity.capacityMinutes)
+  const doneWidth = Math.min(done, capacityFree)
+  const plannedWidth = Math.min(planned, Math.max(0, capacityFree - doneWidth))
+  const free = Math.max(0, capacityFree - doneWidth - plannedWidth)
+
+  const segments = [
+    { key: 'meetings', minutes: meetings, className: 'daybar-meetings' },
+    { key: 'planned', minutes: plannedWidth, className: 'daybar-planned' },
+    { key: 'done', minutes: doneWidth, className: 'daybar-done' },
+    { key: 'free', minutes: free, className: 'daybar-free' },
+    { key: 'reserve', minutes: reserve, className: 'daybar-reserve' },
+  ].filter((segment) => segment.minutes > 0)
+
+  const total = segments.reduce((sum, segment) => sum + segment.minutes, 0)
+
+  return (
+    <div className="day-bar">
+      {/* A decoration of the legend below, which is what actually carries the numbers in words:
+          colour is never the only carrier of meaning. Spec 08. */}
+      {total > 0 && (
+        <div className="day-bar-track" aria-hidden="true">
+          {segments.map((segment) => (
+            <span
+              key={segment.key}
+              className={segment.className}
+              style={{ flexGrow: segment.minutes / total }}
+            />
+          ))}
+        </div>
+      )}
+
+      <ul className="day-bar-legend">
+        <li className="legend-meetings">meetings {formatEstimate(meetings)}</li>
+        <li className="legend-planned">planned {formatEstimate(plannedWidth)}</li>
+        <li className="legend-done">done {formatEstimate(doneWidth)}</li>
+        <li className="legend-free">free {formatEstimate(free)}</li>
+        {reserve > 0 && <li className="legend-reserve">held back {formatEstimate(reserve)}</li>}
+        <li className="legend-now">
+          now <span className="legend-now-time">{formatTimeOfDay(now)}</span>
+        </li>
+      </ul>
+    </div>
+  )
+}
+
+/** One plan entry's placement in the agenda, once its estimate has been walked through the free
+ *  intervals in rank order. Null where nothing placed it: an entry that could not be scheduled
+ *  still has to render somewhere, just without a time. */
+interface ScheduledEntry {
+  readonly entry: PlanEntryView
+  readonly startsAt: number | null
+}
+
+/** A stretch of free time nothing was scheduled into. Long enough that an overflow entry might
+ *  be offered into it, per issue #47's "would fit" slack row. */
+interface SlackGap {
+  readonly startsAt: number
+  readonly minutes: number
+}
+
+/**
+ * Walks `entries` (rank order) through `freeIntervals` (chronological order), consuming each
+ * entry's estimate from wherever the cursor currently sits. An entry too big for what remains of
+ * an interval waits for the next one; an entry with no estimate is placed at the cursor without
+ * moving it, since there is nothing to consume. Whatever of an interval is left over once entries
+ * stop fitting becomes a gap.
+ */
+function scheduleAgenda(
+  entries: readonly PlanEntryView[],
+  freeIntervals: readonly Interval[],
+): { readonly scheduled: ScheduledEntry[]; readonly gaps: SlackGap[] } {
+  const scheduled: ScheduledEntry[] = []
+  const gaps: SlackGap[] = []
+  let index = 0
+
+  for (const interval of freeIntervals) {
+    let cursor = interval.start
+    let entry = entries[index]
+    while (entry !== undefined) {
+      const minutes = entry.estimateMinutes ?? 0
+      const durationMs = minutes * 60_000
+      if (durationMs > 0 && cursor + durationMs > interval.end) break
+      scheduled.push({ entry, startsAt: cursor })
+      cursor += durationMs
+      index += 1
+      entry = entries[index]
+    }
+
+    if (cursor < interval.end) {
+      gaps.push({ startsAt: cursor, minutes: Math.round((interval.end - cursor) / 60_000) })
+    }
+  }
+
+  // Nothing left to place it in. Still shown, just without a resolved time: a plan the client
+  // cannot schedule is not a plan the client should hide.
+  for (let entry = entries[index]; entry !== undefined; index += 1, entry = entries[index]) {
+    scheduled.push({ entry, startsAt: null })
+  }
+
+  return { scheduled, gaps }
+}
+
+/**
+ * Each gap's offer, computed once in a single left-to-right pass so the same overflow entry is
+ * never offered into two different gaps. Spec: "sourced from the plan's overflow."
+ */
+function offersForGaps(
+  gaps: readonly SlackGap[],
+  overflow: readonly PlanEntryView[],
+): Array<{ readonly gap: SlackGap; readonly offer: PlanEntryView | null }> {
+  const offered = new Set<string>()
+
+  return gaps.map((gap) => {
+    const offer =
+      overflow.find((entry) => {
+        if (offered.has(entry.id)) return false
+        const minutes = entry.estimateMinutes ?? 0
+        return minutes > 0 && minutes <= gap.minutes
+      }) ?? null
+    if (offer !== null) offered.add(offer.id)
+    return { gap, offer }
+  })
+}
+
+function EntryTitle({
+  entry,
+  onSelect,
+  selected,
+}: {
+  readonly entry: PlanEntryView
+  readonly onSelect: (item: ItemRef) => void
+  readonly selected: ItemRef | null
+}) {
+  // A plan entry is not a fourth kind of item: it names a task, and opening one opens that task.
+  // An entry whose task has been deleted is a record of what was proposed and names nothing to
+  // open. Spec 08, criterion 31.
+  const taskId = entry.taskId
+  if (taskId === null) return <>{entry.title}</>
+
+  const open = selected?.kind === 'task' && selected.id === taskId
+  return (
+    <button
+      type="button"
+      className="item-open"
+      aria-pressed={open}
+      onClick={() => onSelect({ kind: 'task', id: taskId })}
+    >
+      {entry.title}
+    </button>
+  )
+}
+
+/**
+ * A plan entry's rank, title, rationale, estimate and completion state: everything about the
+ * entry itself, as opposed to where it sits (an agenda row carries a clock time beside this; an
+ * overflow row does not). Shared between the two so a fix to one is a fix to both, the way a
+ * single `PlanEntryLine` used to be shared between the plan panel and its overflow before issue
+ * #47's agenda merge split the main list out into `AgendaEntryRow` and left the overflow list
+ * with its own, incomplete copy that dropped the Complete button and the "done" text.
+ */
 function PlanEntryLine({
   entry,
   onComplete,
@@ -137,28 +362,11 @@ function PlanEntryLine({
   readonly onSelect: (item: ItemRef) => void
   readonly selected: ItemRef | null
 }) {
-  // A plan entry is not a fourth kind of item: it names a task, and opening one opens that task. An
-  // entry whose task has been deleted is a record of what was proposed and names nothing to open.
-  // Spec 08, criterion 31.
-  const taskId = entry.taskId
-  const open = taskId !== null && selected?.kind === 'task' && selected.id === taskId
-
   return (
-    <li className={entry.done ? 'plan-entry plan-done' : 'plan-entry'}>
+    <>
       <span className="plan-rank">{entry.rank}</span>
       <span className="plan-title">
-        {taskId === null ? (
-          entry.title
-        ) : (
-          <button
-            type="button"
-            className="item-open"
-            aria-pressed={open}
-            onClick={() => onSelect({ kind: 'task', id: taskId })}
-          >
-            {entry.title}
-          </button>
-        )}
+        <EntryTitle entry={entry} onSelect={onSelect} selected={selected} />
       </span>
       {entry.rationale !== null && <span className="plan-why">{entry.rationale}</span>}
       {entry.estimateMinutes !== null && (
@@ -167,11 +375,6 @@ function PlanEntryLine({
       {/* Done is said in text as well as in the styling: colour is never the only carrier of
           meaning. Spec 08. */}
       {entry.done && <span className="plan-state">done</span>}
-      {/* An entry whose task has been deleted is a record of what was proposed, and there is
-          nothing left to complete.
-
-          The label is a word and the name of the thing goes to the accessible name: a button
-          whose visible label is a whole sentence is a button nobody can find twice. */}
       {!entry.done && entry.taskId !== null && (
         <button
           type="button"
@@ -181,82 +384,278 @@ function PlanEntryLine({
           Complete
         </button>
       )}
+    </>
+  )
+}
+
+function AgendaEntryRow({
+  scheduled,
+  onComplete,
+  onSelect,
+  selected,
+}: {
+  readonly scheduled: ScheduledEntry
+  readonly onComplete: (taskId: string) => void
+  readonly onSelect: (item: ItemRef) => void
+  readonly selected: ItemRef | null
+}) {
+  const { entry, startsAt } = scheduled
+
+  return (
+    <li className={entry.done ? 'agenda-row plan-entry plan-done' : 'agenda-row plan-entry'}>
+      <span className="agenda-time">{startsAt === null ? null : formatTimeOfDay(startsAt)}</span>
+      <PlanEntryLine
+        entry={entry}
+        onComplete={onComplete}
+        onSelect={onSelect}
+        selected={selected}
+      />
     </li>
   )
 }
 
-/**
- * Planned against available. Spec 08 criterion 6: the numbers are the ones `GET /api/calendar`
- * gave, never recomputed here, so the bar and the route cannot disagree.
- */
-function CapacityBar({
-  capacity,
-  planned,
-}: {
-  readonly capacity: CapacityView
-  readonly planned: number
-}) {
-  if (!capacity.workingDay) {
-    return <p className="empty">Today is not a working day, so there is no capacity to plan.</p>
-  }
-
-  const free = Math.max(0, capacity.capacityMinutes)
+function AgendaMeetingRow({ event }: { readonly event: CalendarEventView }) {
+  const free = whyFree(event)
 
   return (
-    <p className="capacity">
-      {/* The numbers in text as well as in the bar, so the bar is not the only carrier of the
-          meaning. Spec 08's accessibility rules. */}
-      <span>
-        {formatEstimate(planned)} planned of {formatEstimate(free)} free
+    <li className={free === null ? 'agenda-row event-busy' : 'agenda-row event-free'}>
+      <span className="agenda-time">
+        {event.allDay
+          ? 'all day'
+          : `${formatTimeOfDay(event.startsAt)}–${formatTimeOfDay(event.endsAt)}`}
       </span>
-      {/* A day with no free capacity gets no meter. A meter whose minimum and maximum are both
-          zero is not a range, and a screen reader announcing it has nothing to say; the text
-          above and the detail below carry the whole answer on their own. */}
-      {free > 0 && (
-        <span
-          role="meter"
-          aria-label="Capacity used"
-          aria-valuenow={planned}
-          aria-valuemin={0}
-          aria-valuemax={free}
-          className="capacity-bar"
-        >
-          <span
-            className="capacity-used"
-            style={{ width: `${Math.min(100, (planned / free) * 100)}%` }}
-          />
+      <span className="event-summary">{event.summary ?? 'Busy'}</span>
+      {/* Why it costs nothing, rather than leaving a declined meeting looking like an hour that
+          has gone. */}
+      {free !== null && <span className="event-free-reason">{free}</span>}
+      {free === null && <span className="event-free-reason">meeting</span>}
+    </li>
+  )
+}
+
+function AgendaGapRow({
+  gap,
+  offer,
+  onSelect,
+  selected,
+}: {
+  readonly gap: SlackGap
+  readonly offer: PlanEntryView | null
+  readonly onSelect: (item: ItemRef) => void
+  readonly selected: ItemRef | null
+}) {
+  return (
+    <li className="agenda-row agenda-gap">
+      <span className="agenda-time">{formatTimeOfDay(gap.startsAt)}</span>
+      <span className="gap-free">{formatEstimate(gap.minutes)} free</span>
+      {offer !== null && (
+        <span className="gap-offer">
+          <EntryTitle entry={offer} onSelect={onSelect} selected={selected} /> (
+          {formatEstimate(offer.estimateMinutes ?? 0)}) would fit
         </span>
       )}
-      <span className="capacity-detail">
-        {formatEstimate(capacity.windowMinutes)} of working day, less{' '}
-        {formatEstimate(capacity.busyMinutes)} of meetings and{' '}
-        {formatEstimate(capacity.reserveMinutes)} held back
-      </span>
-    </p>
+    </li>
+  )
+}
+
+/** Whichever row falls first after `now`. Rows without a resolved time never take part: there is
+ *  nowhere sensible to put a "now" rule next to a row that carries no clock time of its own. */
+function nowIndex(rows: readonly { readonly startsAt: number | null }[], now: number): number {
+  return rows.findIndex((row) => row.startsAt !== null && row.startsAt >= now)
+}
+
+/**
+ * The agenda: one time-ordered spine, plan entries and calendar events interleaved, a "now" rule,
+ * and free gaps offered as slack. Issue #47. Falls back to two simple, unscheduled lists — the
+ * plan in rank order, the calendar in its own — when the calendar carried no free/busy interval
+ * data to schedule against, which every existing fixture that only sets the summary minutes does.
+ */
+function Agenda({
+  plan,
+  calendar,
+  now,
+  onComplete,
+  onSelect,
+  selected,
+}: {
+  readonly plan: PlanView | null
+  readonly calendar: CalendarDay | null
+  readonly now: number
+  readonly onComplete: (taskId: string) => void
+  readonly onSelect: (item: ItemRef) => void
+  readonly selected: ItemRef | null
+}) {
+  const entries = plan?.entries ?? []
+  const events = calendar?.events ?? []
+  const freeIntervals = calendar?.capacity.free ?? []
+  const canSchedule = freeIntervals.length > 0
+
+  // Two rows, so a meeting keeps its own key even though a plan entry can also carry a
+  // `startsAt`: nothing here reuses a calendar event's id for an entry or vice versa.
+  interface MeetingRow {
+    readonly kind: 'meeting'
+    readonly key: string
+    readonly startsAt: number | null
+    readonly event: CalendarEventView
+  }
+  interface EntryRow {
+    readonly kind: 'entry'
+    readonly key: string
+    readonly startsAt: number | null
+    readonly scheduled: ScheduledEntry
+  }
+  interface GapRow {
+    readonly kind: 'gap'
+    readonly key: string
+    readonly startsAt: number | null
+    readonly gap: SlackGap
+    readonly offer: PlanEntryView | null
+  }
+  type Row = MeetingRow | EntryRow | GapRow
+
+  const meetingRows: MeetingRow[] = events.map((event) => ({
+    kind: 'meeting',
+    key: `meeting:${event.id}`,
+    startsAt: event.allDay ? null : event.startsAt,
+    event,
+  }))
+
+  let entryRows: EntryRow[]
+  let gapRows: GapRow[]
+
+  if (canSchedule) {
+    const { scheduled, gaps } = scheduleAgenda(entries, freeIntervals)
+    entryRows = scheduled.map((row) => ({
+      kind: 'entry',
+      key: `entry:${row.entry.id}`,
+      startsAt: row.startsAt,
+      scheduled: row,
+    }))
+    gapRows = offersForGaps(gaps, plan?.overflow ?? []).map(({ gap, offer }, index) => ({
+      kind: 'gap',
+      key: `gap:${index}`,
+      startsAt: gap.startsAt,
+      gap,
+      offer,
+    }))
+  } else {
+    entryRows = entries.map((entry) => ({
+      kind: 'entry',
+      key: `entry:${entry.id}`,
+      startsAt: null,
+      scheduled: { entry, startsAt: null },
+    }))
+    gapRows = []
+  }
+
+  const rows: Row[] = [...meetingRows, ...entryRows, ...gapRows]
+  const timed = rows
+    .filter((row) => row.startsAt !== null)
+    .sort((first, second) => (first.startsAt ?? 0) - (second.startsAt ?? 0))
+  const untimed = rows.filter((row) => row.startsAt === null)
+
+  // Gated on whether a row has a real clock time, not on `canSchedule`: a calendar's meetings
+  // carry their own `startsAt` regardless of whether the plan's entries could be scheduled
+  // against free intervals, so the "now" marker still has somewhere real to go among them.
+  const nowAt = nowIndex(timed, now)
+
+  const renderRow = (row: Row): ReactNode => {
+    if (row.kind === 'meeting') return <AgendaMeetingRow key={row.key} event={row.event} />
+    if (row.kind === 'entry')
+      return (
+        <AgendaEntryRow
+          key={row.key}
+          scheduled={row.scheduled}
+          onComplete={onComplete}
+          onSelect={onSelect}
+          selected={selected}
+        />
+      )
+    return (
+      <AgendaGapRow
+        key={row.key}
+        gap={row.gap}
+        offer={row.offer}
+        onSelect={onSelect}
+        selected={selected}
+      />
+    )
+  }
+
+  const nowRow = (
+    <li key="now" className="agenda-now" aria-hidden="true">
+      <span className="agenda-time">{formatTimeOfDay(now)}</span>
+      <span className="agenda-now-line" />
+      now
+    </li>
+  )
+
+  if (timed.length === 0 && untimed.length === 0) {
+    return <p className="empty">Nothing on the agenda yet.</p>
+  }
+
+  return (
+    <ol className="agenda">
+      {timed.map((row, index) => (
+        <Fragment key={row.key}>
+          {index === nowAt && nowRow}
+          {renderRow(row)}
+        </Fragment>
+      ))}
+      {nowAt === -1 && timed.length > 0 && nowRow}
+      {untimed.map((row) => renderRow(row))}
+    </ol>
   )
 }
 
 /**
- * One entry in band 3's strip. A named region, so it is navigable and testable, but deliberately
- * not a `Panel`: it has no ground, no border and no padding of its own, which is what keeps it
- * from being laid out at the weight of a band 1 panel. Spec 08, criterion 11.
+ * One entry in the left rail's ranked "Needs you" list: what has gone quiet, what is worth a
+ * chase and which projects are stalled, in one list rather than three panels, oldest first.
+ * Issue #47.
  */
-function StripSection({
-  heading,
-  children,
-}: {
-  readonly heading: string
-  readonly children: ReactNode
-}) {
-  const headingId = useId()
+interface NeedsYouItem {
+  readonly key: string
+  readonly tone: 'alarm' | 'accent' | 'quiet'
+  readonly pill: string
+  readonly ageMs: number | null
+  readonly title: ReactNode
+  readonly subtitle: ReactNode
+  readonly note: ReactNode | null
+}
 
+/**
+ * Why the rail has nothing in it, when it has nothing: two independent facts, kept apart rather
+ * than folded into the one claim "nothing is waiting on anyone else" (which used to be literally
+ * false whenever a waiting task just was not stale yet, or a project just was not stalled — the
+ * rail only ranks the stale, the nudged and the stalled, not everything waiting or every active
+ * project). Issue #47's merge deleted the old "Gone quiet" and "Stalled projects" panels' own
+ * accurate, distinct empty states along with the panels; this restores both, as two lines rather
+ * than one, since the rail now answers for both at once.
+ */
+function needsYouEmptyMessages(
+  waiting: readonly TaskView[],
+  staleDays: number,
+  projects: readonly ProjectView[],
+): readonly string[] {
+  return [
+    waiting.length === 0
+      ? 'Nothing is waiting on anyone else.'
+      : `Nothing has been waiting longer than ${staleDays} days.`,
+    projects.length === 0 ? 'No projects yet.' : 'Every active project has a next action.',
+  ]
+}
+
+function NeedsYouRow({ item }: { readonly item: NeedsYouItem }) {
   return (
-    <section className="strip-section" aria-labelledby={headingId}>
-      <h2 id={headingId} className="strip-heading">
-        {heading}
-      </h2>
-      {children}
-    </section>
+    <li className="needs-you-row">
+      <div className="needs-you-meta">
+        <Badge tone={item.tone}>{item.pill}</Badge>
+        {item.ageMs !== null && <span className="needs-you-age">{formatAge(item.ageMs)}</span>}
+      </div>
+      <p className="needs-you-title">{item.title}</p>
+      <p className="needs-you-subtitle">{item.subtitle}</p>
+      {item.note !== null && <p className="needs-you-note">{item.note}</p>}
+    </li>
   )
 }
 
@@ -285,254 +684,257 @@ export function Dashboard({
   const waiting = tasks.filter((task) => task.status === 'waiting').sort(byOldestFirst)
   const quiet = waiting.filter((task) => isStale(task, now, staleDays))
   const stalled = projects.filter((project) => project.stalled)
-  const planned = plannedMinutes(plan)
+  const totalPlanned = plannedMinutes(plan)
+  const { planned, done } = splitPlannedMinutes(plan)
   const capacityNotice = calendar === null ? null : unverifiedCapacityNotice(calendar.capacity)
+  const todaysVerdict = verdict(calendar, totalPlanned)
+  const lastSync = latestRuns.find((run) => run.job === 'sync')
+
+  const needsYou: NeedsYouItem[] = [
+    ...quiet.map((task): NeedsYouItem => ({
+      key: `quiet:${task.id}`,
+      tone: 'alarm',
+      pill: 'Gone quiet',
+      ageMs: waitingAge(task, now),
+      title: task.title,
+      subtitle: task.waitingOn ?? 'nobody named',
+      note: null,
+    })),
+    ...(plan?.nudges ?? []).map((nudge): NeedsYouItem => ({
+      key: `chase:${nudge.id}`,
+      tone: 'accent',
+      pill: 'Worth a chase',
+      ageMs: nudge.waitingSince === null ? null : Math.max(0, now - nudge.waitingSince),
+      title: nudge.title,
+      subtitle: nudge.waitingOn ?? 'nobody named',
+      note: nudge.pushedSinceReview ? 'the author has pushed since you reviewed' : null,
+    })),
+    ...stalled.map((project): NeedsYouItem => ({
+      key: `stalled:${project.id}`,
+      tone: 'quiet',
+      pill: 'Stalled',
+      ageMs: null,
+      title: <a href={surfaceHref(projectHref(project.id), hash)}>{project.title}</a>,
+      subtitle: 'has no next action',
+      note: null,
+    })),
+    // Oldest first: an item with no age (a stalled project) sorts after every one that has one.
+  ].sort((first, second) => (second.ageMs ?? -1) - (first.ageMs ?? -1))
 
   return (
     <div className="dashboard">
       <h1>Dashboard</h1>
 
-      {/* Band 1. Today: the answer to the question the surface exists to answer. */}
-      <div className="band band-today">
-        <Panel headingLevel={2} heading="Today’s plan">
-          <button type="button" onClick={onRegeneratePlan} disabled={regenerating}>
-            {regenerating ? 'Regenerating' : 'Regenerate'}
-          </button>
+      <div className="dashboard-layout">
+        {/* The left rail. Issue #47: ranked "Needs you" first, then the bordered "Where
+            everything is" card, then the background-jobs and planned-against-completed strips
+            the mockup does not draw but nothing else on the page replaces. */}
+        <div className="dashboard-rail">
+          <section className="needs-you" aria-labelledby="needs-you-heading">
+            <h2 id="needs-you-heading" className="rail-heading-plain">
+              Needs you
+            </h2>
 
-          {plan === null ? (
+            {needsYou.length === 0 ? (
+              needsYouEmptyMessages(waiting, staleDays, projects).map((message) => (
+                <p className="empty" key={message}>
+                  {message}
+                </p>
+              ))
+            ) : (
+              <ul className="needs-you-list">
+                {needsYou.map((item) => (
+                  <NeedsYouRow key={item.key} item={item} />
+                ))}
+              </ul>
+            )}
+
+            <p className="needs-you-caption">Everything waiting, oldest first.</p>
+          </section>
+
+          <Panel headingLevel={2} heading="Where everything is" className="rail-card">
+            <ul className="counts">
+              {taskStatuses.map((status) => (
+                <li key={status}>
+                  <span className="count">{counts.get(status) ?? 0}</span>
+                  <span className="count-label">{statusLabel(status)}</span>
+                </li>
+              ))}
+            </ul>
+
+            {health !== null &&
+              (() => {
+                const configuredNames = Object.entries(health.integrations)
+                  .filter(([, integration]) => integration.configured)
+                  .map(([key]) => integrationNames[key] ?? key)
+
+                return (
+                  <p className="rail-integrations">
+                    {configuredNames.length === 0
+                      ? 'Nothing is configured yet.'
+                      : `${configuredNames.join(', ')} ${configuredNames.length === 1 ? 'is' : 'are'} configured.`}
+                    {lastSync !== undefined && configuredNames.length > 0 && (
+                      <> Synced {ago(lastSync.finishedAt, now)}.</>
+                    )}
+                  </p>
+                )
+              })()}
+
+            {/* Named per integration too, so a reader after the specific status of one does not
+                have to parse the sentence above. */}
+            <ul className="integration-list">
+              {health === null
+                ? null
+                : Object.entries(health.integrations).map(([key, integration]) => (
+                    <li key={key}>
+                      <span>{integrationNames[key] ?? key}</span>
+                      <span>{integration.status}</span>
+                    </li>
+                  ))}
+            </ul>
+          </Panel>
+
+          {/* Kept rather than dropped: issue #47's mockup does not depict this strip, but the
+              board and today's plan cover a job's failure, not its ordinary runs, and nothing
+              else on the page shows every job at a glance. Spec 02, criterion 5. */}
+          <Panel headingLevel={2} heading="Background jobs" className="rail-card">
+            {latestRuns.length === 0 ? (
+              <p className="empty">
+                Nothing has run yet. Sync runs every quarter of an hour; see Jobs for the schedule.
+              </p>
+            ) : (
+              <ul className="job-list">
+                {latestRuns.map((run) => (
+                  <li key={run.job} className={run.status === 'failure' ? 'job-failed' : undefined}>
+                    <span>{run.job}</span>
+                    <span>{run.status}</span>
+                    <span className="job-when">{ago(run.finishedAt, now)}</span>
+                    {run.error !== null && <span className="job-error">{run.error}</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
+
+          {history.length > 0 && (
+            <Panel headingLevel={2} heading="Planned against completed" className="rail-card">
+              <ul className="plan-history">
+                {history.map((day) => (
+                  <li key={day.planDate}>
+                    <span className="history-date">{day.planDate}</span>
+                    <span className="history-count">
+                      {day.completed} of {day.planned}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </Panel>
+          )}
+        </div>
+
+        {/* The main column: the verdict, the day bar and the agenda. One region rather than the
+            separate plan and calendar panels this replaces, because the agenda interleaves both
+            into a single spine. */}
+        <section className="dashboard-main" aria-labelledby="today-heading">
+          <div className="today-head">
+            <h2 id="today-heading" className="visually-hidden">
+              Today
+            </h2>
+            {todaysVerdict !== null && (
+              <p className="verdict">
+                <span className="verdict-headline">{todaysVerdict}</span>
+                <span className="verdict-date">{formatVerdictDate(now)}</span>
+              </p>
+            )}
+            {/* The window the verdict was drawn from, in words: issue #47's headline states only
+                the free/planned split, and the old separate calendar panel's working-day total
+                and reserve are otherwise dropped entirely by the merge. */}
+            {todaysVerdict !== null && calendar !== null && (
+              <p className="verdict-detail">{capacityDetail(calendar.capacity)}</p>
+            )}
+            <button
+              type="button"
+              className="verdict-regenerate"
+              onClick={onRegeneratePlan}
+              disabled={regenerating}
+            >
+              {regenerating ? 'Regenerating' : 'Regenerate'}
+            </button>
+          </div>
+
+          {calendar !== null && (
+            <DayBar capacity={calendar.capacity} planned={planned} done={done} now={now} />
+          )}
+
+          {capacityNotice !== null && <p className="capacity-unverified">{capacityNotice}</p>}
+
+          {/* Independent empty states, kept apart rather than folded into one sentence: a plan
+              with no calendar and a calendar with no plan are different states of the world, and
+              a reader after one should not have to parse a claim about the other. Criterion 4. */}
+          {plan === null && (
             <p className="empty">
               No plan yet. The planner runs each morning, and needs an LLM provider configured.
             </p>
-          ) : (
-            <>
-              {plan.summary !== null && <p className="plan-summary">{plan.summary}</p>}
+          )}
+          {calendar === null && (
+            <p className="empty">No calendar yet. Connect a Google account in Settings.</p>
+          )}
 
-              {/* A plan that had to leave something out says so here rather than in the
-                  database. Spec 05. */}
-              {plan.warnings.length > 0 && (
-                <ul className="plan-warnings">
-                  {plan.warnings.map((warning) => (
-                    <li key={warning}>{warning}</li>
-                  ))}
-                </ul>
-              )}
+          {plan !== null && plan.summary !== null && <p className="plan-summary">{plan.summary}</p>}
 
-              {/* A day with no capacity says so regardless of what else is true (the domain
-                  warning above this panel already carries that message): that is the reason
-                  nothing fitted. Only once capacity is positive does the overflow list below
-                  distinguish "nothing was eligible" from "nothing fitted": the items were
-                  eligible, ranked and listed there as overflow. Issue #22. */}
-              {plan.entries.length === 0 ? (
-                emptyPlanMessage(plan) !== null && <p className="empty">{emptyPlanMessage(plan)}</p>
-              ) : (
-                <ul className="plan-list">
-                  {plan.entries.map((entry) => (
+          {/* A plan that had to leave something out says so here rather than in the database.
+              Spec 05. */}
+          {plan !== null && plan.warnings.length > 0 && (
+            <ul className="plan-warnings">
+              {plan.warnings.map((warning) => (
+                <li key={warning}>{warning}</li>
+              ))}
+            </ul>
+          )}
+
+          {plan !== null && plan.entries.length === 0 && emptyPlanMessage(plan) !== null && (
+            <p className="empty">{emptyPlanMessage(plan)}</p>
+          )}
+
+          {calendar !== null &&
+            calendar.events.length === 0 &&
+            (plan?.entries.length ?? 0) === 0 && (
+              <p className="empty">Nothing in the diary today.</p>
+            )}
+
+          {(plan !== null || calendar !== null) &&
+            ((plan?.entries.length ?? 0) > 0 || (calendar?.events.length ?? 0) > 0) && (
+              <Agenda
+                plan={plan}
+                calendar={calendar}
+                now={now}
+                onComplete={onComplete}
+                onSelect={onSelect}
+                selected={selected}
+              />
+            )}
+
+          {/* Spec 05: excess is offered rather than dropped, and offered as what it is. One entry
+              may already have been offered inline as a fitting slack suggestion in the agenda
+              above; every one of them is still listed here regardless, so nothing the plan
+              ranked is only visible in passing. */}
+          {plan !== null && plan.overflow.length > 0 && (
+            <Panel headingLevel={2} heading="If there is time">
+              <ul className="plan-list">
+                {plan.overflow.map((entry) => (
+                  <li key={entry.id} className={entry.done ? 'plan-entry plan-done' : 'plan-entry'}>
                     <PlanEntryLine
-                      key={entry.id}
                       entry={entry}
                       onComplete={onComplete}
                       onSelect={onSelect}
                       selected={selected}
                     />
-                  ))}
-                </ul>
-              )}
-            </>
+                  </li>
+                ))}
+              </ul>
+            </Panel>
           )}
-        </Panel>
-
-        <Panel headingLevel={2} heading="Today’s calendar">
-          {calendar === null ? (
-            <p className="empty">No calendar yet. Connect a Google account in Settings.</p>
-          ) : (
-            <>
-              <CapacityBar capacity={calendar.capacity} planned={planned} />
-
-              {capacityNotice !== null && <p className="capacity-unverified">{capacityNotice}</p>}
-
-              {calendar.events.length === 0 ? (
-                <p className="empty">Nothing in the diary today.</p>
-              ) : (
-                <ul className="calendar-column">
-                  {calendar.events.map((event) => {
-                    const free = whyFree(event)
-
-                    return (
-                      <li key={event.id} className={free === null ? 'event-busy' : 'event-free'}>
-                        <span className="event-time">
-                          {event.allDay
-                            ? 'all day'
-                            : `${formatTimeOfDay(event.startsAt)}–${formatTimeOfDay(event.endsAt)}`}
-                        </span>
-                        <span className="event-summary">{event.summary ?? 'Busy'}</span>
-                        {/* Why it costs nothing, rather than leaving a declined meeting looking
-                            like an hour that has gone. */}
-                        {free !== null && <span className="event-free-reason">{free}</span>}
-                      </li>
-                    )
-                  })}
-                </ul>
-              )}
-            </>
-          )}
-        </Panel>
-      </div>
-
-      {/* Band 2. Each of these is something only the user can resolve. */}
-      <div className="band band-decisions">
-        {/* A chase list, not a count: it names the item, who it is on, and for how long. */}
-        <Panel headingLevel={2} heading="Gone quiet">
-          {quiet.length === 0 ? (
-            <p className="empty">
-              {waiting.length === 0
-                ? 'Nothing is waiting on anyone else.'
-                : `Nothing has been waiting longer than ${staleDays} days.`}
-            </p>
-          ) : (
-            <ul className="chase-list">
-              {quiet.map((task) => (
-                <li key={task.id}>
-                  <span className="chase-title">{task.title}</span>
-                  <span className="chase-who">{task.waitingOn ?? 'nobody named'}</span>
-                  <span className="chase-age">{formatAge(waitingAge(task, now))}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Panel>
-
-        {/* A nudge names the item, who it is waiting on and for how long, and for a reviewed
-            pull request whether the author has pushed since. Spec 05, criteria 11 and 12. */}
-        {plan !== null && plan.nudges.length > 0 && (
-          <Panel headingLevel={2} heading="Worth a chase">
-            <ul className="chase-list">
-              {plan.nudges.map((nudge) => (
-                <li key={nudge.id}>
-                  <span className="chase-title">{nudge.title}</span>
-                  <span className="chase-who">{nudge.waitingOn ?? 'nobody named'}</span>
-                  {nudge.waitingSince !== null && (
-                    <span className="chase-age">
-                      {formatAge(Math.max(0, now - nudge.waitingSince))}
-                    </span>
-                  )}
-                  {nudge.pushedSinceReview && (
-                    <span className="chase-pushed">the author has pushed since you reviewed</span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </Panel>
-        )}
-
-        {/* Spec 05: excess is offered rather than dropped, and offered as what it is. */}
-        {plan !== null && plan.overflow.length > 0 && (
-          <Panel headingLevel={2} heading="If there is time">
-            <ul className="plan-list">
-              {plan.overflow.map((entry) => (
-                <PlanEntryLine
-                  key={entry.id}
-                  entry={entry}
-                  onComplete={onComplete}
-                  onSelect={onSelect}
-                  selected={selected}
-                />
-              ))}
-            </ul>
-          </Panel>
-        )}
-
-        <Panel headingLevel={2} heading="Stalled projects">
-          {stalled.length === 0 ? (
-            <p className="empty">
-              {projects.length === 0
-                ? 'No projects yet.'
-                : 'Every active project has a next action.'}
-            </p>
-          ) : (
-            <ul className="stalled-list">
-              {stalled.map((project) => (
-                <li key={project.id}>
-                  <a href={surfaceHref(projectHref(project.id), hash)}>{project.title}</a>
-                  <span> has no next action</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Panel>
-      </div>
-
-      {/*
-       * Band 3. One strip, not a panel each: this is scanned to confirm nothing is broken. Nothing
-       * here is given the weight of a band 1 panel, which is the rule the previous version of this
-       * surface was missing and why counts led it for three milestones.
-       */}
-      <div className="band state-strip">
-        <StripSection heading="Where everything is">
-          <ul className="counts">
-            {taskStatuses.map((status) => (
-              <li key={status}>
-                <span className="count">{counts.get(status) ?? 0}</span>
-                <span className="count-label">{statusLabel(status)}</span>
-              </li>
-            ))}
-          </ul>
-        </StripSection>
-
-        {/* The last run of each job, so a failed sync is visible rather than silent (spec 02,
-            criterion 5). The Jobs surface is where the schedule and the whole history live.
-
-            The rows are a grid: their columns line up whether or not a row carries an error, and
-            the error takes the width beneath them rather than squeezing the row. Criterion 19. */}
-        <StripSection heading="Background jobs">
-          {latestRuns.length === 0 ? (
-            <p className="empty">
-              Nothing has run yet. Sync runs every quarter of an hour; see Jobs for the schedule.
-            </p>
-          ) : (
-            <ul className="job-list">
-              {latestRuns.map((run) => (
-                <li key={run.job} className={run.status === 'failure' ? 'job-failed' : undefined}>
-                  <span>{run.job}</span>
-                  <span>{run.status}</span>
-                  <span className="job-when">{ago(run.finishedAt, now)}</span>
-                  {run.error !== null && <span className="job-error">{run.error}</span>}
-                </li>
-              ))}
-            </ul>
-          )}
-        </StripSection>
-
-        <StripSection heading="Integrations">
-          {health === null ? (
-            <p className="empty">Waiting for the server.</p>
-          ) : (
-            <ul className="integration-list">
-              {Object.entries(health.integrations).map(([key, integration]) => (
-                <li key={key}>
-                  <span>{integrationNames[key] ?? key}</span>
-                  <span>{integration.status}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </StripSection>
-
-        {/* Spec 05 records what was planned and what was completed, and draws no conclusion
-            from the gap. */}
-        {history.length > 0 && (
-          <StripSection heading="Planned against completed">
-            <ul className="plan-history">
-              {history.map((day) => (
-                <li key={day.planDate}>
-                  <span className="history-date">{day.planDate}</span>
-                  <span className="history-count">
-                    {day.completed} of {day.planned}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </StripSection>
-        )}
+        </section>
       </div>
     </div>
   )

@@ -80,9 +80,11 @@ export function Projects({
     <div className="projects">
       <h1>Projects</h1>
 
-      <Panel headingLevel={2} heading="New project">
+      <Panel headingLevel={2} heading="All projects">
+        {/* Inline capture in the header row, per issue #47, rather than a form of its own above
+            the table. */}
         <form
-          className="inline-form"
+          className="inline-form projects-toolbar"
           onSubmit={(event) => {
             event.preventDefault()
             void create()
@@ -100,99 +102,121 @@ export function Projects({
             Add project
           </button>
         </form>
-      </Panel>
 
-      <Panel headingLevel={2} heading="All projects">
         {projects.length === 0 ? (
           <p className="empty">
             No projects yet. A project is an outcome that takes more than one action.
           </p>
         ) : (
-          <ul className="project-list">
-            {projects.map((project) => (
-              <li
-                key={project.id}
-                className={`project${project.stalled ? ' stalled' : ''}${
-                  selected?.kind === 'project' && selected.id === project.id ? ' project-open' : ''
-                }`}
-              >
-                <h3>
-                  <a href={surfaceHref(projectHref(project.id), hash)}>{project.title}</a>
-                </h3>
-
-                <p className="project-next">
-                  {project.nextAction === null ? (
-                    <>
-                      <span>No next action</span>
-                      {/* Colour is not the only carrier: the word is on the card. */}
+          <>
+            <table className="project-table">
+              <thead>
+                <tr>
+                  <th scope="col">Project</th>
+                  <th scope="col">Next action</th>
+                  <th scope="col">State</th>
+                  <th scope="col">
+                    <span className="visually-hidden">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {projects.map((project) => (
+                  <tr
+                    key={project.id}
+                    className={`${project.stalled ? 'stalled' : ''}${
+                      selected?.kind === 'project' && selected.id === project.id
+                        ? ' project-open'
+                        : ''
+                    }`.trim()}
+                  >
+                    <td>
+                      <a href={surfaceHref(projectHref(project.id), hash)}>{project.title}</a>
+                      {/* Colour is not the only carrier: the word is on the row too. */}
                       {project.stalled && (
                         <>
                           {' '}
                           <Badge tone="alarm">Stalled</Badge>
                         </>
                       )}
-                    </>
-                  ) : (
-                    <>
-                      <span className="label">Next action</span> {project.nextAction.title}
-                    </>
-                  )}
-                </p>
+                    </td>
 
-                <ActionRow>
-                  <button
-                    type="button"
-                    aria-pressed={selected?.kind === 'project' && selected.id === project.id}
-                    onClick={() => onSelect({ kind: 'project', id: project.id })}
-                  >
-                    Details
-                  </button>
+                    <td>
+                      <p className="project-next">
+                        {project.nextAction === null ? (
+                          <span className={project.stalled ? 'warning' : undefined}>
+                            No next action
+                          </span>
+                        ) : (
+                          project.nextAction.title
+                        )}
+                      </p>
+                    </td>
 
-                  <Field label={`State of ${project.title}`} hiddenLabel>
-                    <select
-                      value={project.state}
-                      onChange={(event) =>
-                        onStateChange(project.id, event.target.value as ProjectState)
-                      }
-                    >
-                      {projectStates.map((state) => (
-                        <option key={state} value={state}>
-                          {stateLabels[state]}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
+                    <td>
+                      <Field label={`State of ${project.title}`} hiddenLabel>
+                        <select
+                          value={project.state}
+                          onChange={(event) =>
+                            onStateChange(project.id, event.target.value as ProjectState)
+                          }
+                        >
+                          {projectStates.map((state) => (
+                            <option key={state} value={state}>
+                              {stateLabels[state]}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                    </td>
 
-                  {confirming === project.id ? (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setConfirming(null)
-                          onDelete(project.id)
-                        }}
-                      >
-                        Confirm delete
-                      </button>
-                      <button type="button" onClick={() => setConfirming(null)}>
-                        Keep
-                      </button>
-                    </>
-                  ) : (
-                    <button type="button" onClick={() => setConfirming(project.id)}>
-                      Delete
-                    </button>
-                  )}
-                </ActionRow>
+                    <td>
+                      <ActionRow>
+                        <button
+                          type="button"
+                          aria-pressed={selected?.kind === 'project' && selected.id === project.id}
+                          onClick={() => onSelect({ kind: 'project', id: project.id })}
+                        >
+                          Details
+                        </button>
 
-                {confirming === project.id && (
-                  <p className="warning">
-                    Its tasks are kept and lose their project, rather than being deleted.
-                  </p>
-                )}
-              </li>
-            ))}
-          </ul>
+                        {confirming === project.id ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setConfirming(null)
+                                onDelete(project.id)
+                              }}
+                            >
+                              Confirm delete
+                            </button>
+                            <button type="button" onClick={() => setConfirming(null)}>
+                              Keep
+                            </button>
+                          </>
+                        ) : (
+                          <button type="button" onClick={() => setConfirming(project.id)}>
+                            Delete
+                          </button>
+                        )}
+                      </ActionRow>
+
+                      {confirming === project.id && (
+                        <p className="warning">
+                          Its tasks are kept and lose their project, rather than being deleted.
+                        </p>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <p className="policy-note">
+              Deleting a project keeps its tasks; they lose their project rather than being deleted.
+            </p>
+          </>
         )}
       </Panel>
     </div>

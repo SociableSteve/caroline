@@ -67,6 +67,16 @@ export function formatDate(epochMs: number): string {
   })
 }
 
+/** "Tue 18 Aug": the verdict headline's date. No year, since the verdict is always about today,
+ *  and a weekday leading it since that is the fact a reader glancing at "today" actually wants. */
+export function formatVerdictDate(epochMs: number): string {
+  return new Date(epochMs).toLocaleDateString(undefined, {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  })
+}
+
 /**
  * Which side of today a date falls. Spec 10: a date on its own asks the reader to know today's
  * date and do the comparison, so anywhere one is shown the state is named instead.

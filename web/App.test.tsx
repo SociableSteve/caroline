@@ -596,11 +596,12 @@ describe('more tasks than the client will fetch', () => {
 })
 
 describe('the dashboard through the shell', () => {
+  /** Issue #47: integrations moved into the "Where everything is" card, beside the counts. */
   it('shows the integrations the server reported', async () => {
     stubApi()
 
     render(<App />)
-    const panel = await screen.findByRole('region', { name: /integrations/i })
+    const panel = await screen.findByRole('region', { name: /where everything is/i })
 
     expect(within(panel).getByText('GitHub')).toBeInTheDocument()
     expect(within(panel).getAllByText('not configured')).toHaveLength(3)

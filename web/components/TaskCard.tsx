@@ -360,7 +360,15 @@ export function TaskCard({
                 Undo move
               </button>
             )}
+          </ActionRow>
 
+          {/*
+           * A visible label above each date input, rather than `hiddenLabel`: `Field`'s own
+           * docstring reserves the hidden form for a control whose purpose the surrounding text
+           * already gives, such as a card's status column, and a bare date picker has no such
+           * context. A sighted user was seeing two unlabelled date pickers here before this fix.
+           */}
+          <div className="card-dates">
             {/* A native date input, empty for unset. Clearing it back to empty sends `null`
                 rather than leaving the field alone, so taking a date off a task is as direct as
                 setting one. Issue #44.
@@ -370,7 +378,7 @@ export function TaskCard({
                 already-set date, for instance), and committing that transient reading would
                 clear the date under the person typing it. Committed on blur instead, the same
                 convention `QuickCapture`'s own date fields use. */}
-            <Field label={`Due date of ${task.title}`} hiddenLabel>
+            <Field label="Due">
               <input
                 type="date"
                 name="dueAt"
@@ -386,7 +394,7 @@ export function TaskCard({
               />
             </Field>
 
-            <Field label={`Defer-until date of ${task.title}`} hiddenLabel>
+            <Field label="Defer until">
               <input
                 type="date"
                 name="deferUntil"
@@ -401,7 +409,9 @@ export function TaskCard({
                 }
               />
             </Field>
+          </div>
 
+          <ActionRow className="card-actions">
             {confirmingDelete ? (
               <>
                 <button type="button" onClick={() => onDelete(task.id)}>
