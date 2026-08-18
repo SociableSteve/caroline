@@ -1,10 +1,20 @@
 # Caroline
 
-{{lede}}
+<div class="hero">
+
+{{eyebrow}}
+
+{{headline}}
+
+{{subhead}}
+
+{{requirements}}
 
 {{start}}
 
-{{diagram}}
+{{shot}}
+
+</div>
 
 ## What it does
 
@@ -20,6 +30,8 @@
 
 ## What it will not do
 
+{{refusals}}
+
 - **Write anything back.** It never writes to GitHub, Gmail or Calendar. The credentials it asks for
   are read-only, and the list of things chat can do is the enforcement rather than an instruction it
   has been given.
@@ -33,26 +45,8 @@
   credential: your own API key, or a local model, and an OAuth client belonging to a Google Cloud
   project of yours.
 
-## What it needs
+## Running in an afternoon, checked at every step
 
-A machine you use, with Node 24 or later on it, and a browser. There is nothing to compile and no
-container to run. Every integration is optional and Caroline says which are configured: with none of
-them it is a manual GTD board, which is a fair way to decide whether you like it before handing it
-any credentials.
+{{afternoon}}
 
-Then, one at a time and in any order: a GitHub account whose review requests you want to see, a
-Google account whose mail and calendar you want read, and either an API key from Anthropic or
-OpenAI or a model you run yourself.
-
-## Where to start
-
-[Setting Caroline up](../../docs/setup.md) is the guide: it is written in the order somebody
-actually does it, and each integration ends with a way to check it works before you move on. The two
-steps that cost people an afternoon, GitHub's token scopes and Google's consent screen, are called
-out where you meet them.
-
-[What leaves the machine](../../docs/content-policy.md) is worth reading before you point it at a
-work mailbox rather than after.
-
-[The documentation](../../docs/README.md) is the rest: the specs are the contract each part is held
-to, and the tests assert their acceptance criteria one by one.
+{{footer}}

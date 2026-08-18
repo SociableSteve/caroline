@@ -48,22 +48,29 @@ export function repositorySources(root: string = process.cwd()): SiteSources {
 }
 
 /**
- * The navigation, and the whole of it. Six entries: where you are, the one thing most readers came
- * for, what to do with it once it runs, the documents, the contract behind them, and the source. The
- * content policy and the reference are a link away from the documentation index, which is that
- * index's job.
+ * The navigation, and the whole of it. Four entries: where you are, the one thing most readers came
+ * for, what to do with it once it runs, and the contract behind them. `docs.html` is gone: its
+ * "read it for" table said exactly what the docs shell's grouped sidebar now says, so pointing a
+ * fifth nav entry at it would be one more place for that list to drift from the sidebar's. The
+ * sidebar is a docs page's own navigation into everything the flat nav used to reach for it, and the
+ * top nav stays identical on every page, which is criterion 10, unchanged by adding it.
  */
 const navigation = [
   { label: 'Home', output: 'index.html' },
   { label: 'Setup', output: 'setup.html' },
   { label: 'Using it', output: 'using.html' },
-  { label: 'Documentation', output: 'docs.html' },
   { label: 'Specs', output: 'specs/index.html' },
 ] as const
 
 /**
  * The pages that are not specs. The specs are read from the directory instead, so a spec added
  * later is published by adding the spec.
+ *
+ * `docs/README.md` is no longer one of these: its "read it for" table is exactly what the docs
+ * shell's grouped sidebar says once it exists, and a page whose entire content is a second copy of
+ * the sidebar is the drift spec 11 exists to rule out. The file itself is untouched, for GitHub's
+ * own file viewer; the site simply stops publishing it, and `reference.html` picks up the one link
+ * to it the removed page used to carry, in the sidebar's Reference group.
  */
 const fixedPages: readonly SitePage[] = [
   { source: 'site/pages/index.md', output: 'index.html', title: 'Caroline' },
@@ -74,7 +81,6 @@ const fixedPages: readonly SitePage[] = [
     output: 'content-policy.html',
     title: 'What leaves the machine',
   },
-  { source: 'docs/README.md', output: 'docs.html', title: 'Documentation' },
   { source: 'README.md', output: 'reference.html', title: 'Caroline in short' },
   { source: 'docs/plan.md', output: 'plan.html', title: 'Implementation plan' },
   { source: 'docs/specs/README.md', output: 'specs/index.html', title: 'Specs' },
@@ -209,6 +215,331 @@ function repositoryUrl(sources: SiteSources): string {
  */
 const contentIdentifier = 'content'
 
+/**
+ * One row of the setup guide's own step table: `| [1. What you need](#1-what-you-need) | Node 24 |
+ * 2 minutes |`. Read from the source Markdown rather than written a second time here, so the docs
+ * shell's sidebar and the landing page's "Running in an afternoon" cards cannot say a number the
+ * table itself does not.
+ */
+export interface SetupStep {
+  readonly number: number
+  readonly label: string
+  readonly anchor: string
+  readonly get: string
+  readonly roughly: string
+}
+
+const stepRow =
+  /^\|\s*\[(\d+)\.\s*([^\]]+)\]\(#([^)]+)\)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*$/gm
+
+/**
+ * An empty result rather than a thrown one when the table is not there: a document overridden down
+ * to a stub, to test something this table has nothing to do with, is not a broken build. The real
+ * `docs/setup.md` always has the table, and `sidebarGroups` and `afternoonCards` both degrade to
+ * showing nothing built from it rather than refusing the rest of the page over its absence.
+ */
+export function setupSteps(markdown: string): readonly SetupStep[] {
+  return [...markdown.matchAll(stepRow)].map((match) => ({
+    number: Number(match[1]),
+    label: (match[2] ?? '').trim(),
+    anchor: match[3] ?? '',
+    get: (match[4] ?? '').trim(),
+    roughly: (match[5] ?? '').trim(),
+  }))
+}
+
+/** The leading integer of "2 minutes", "20 minutes": the number the table states, read rather than retyped. */
+function minutesOf(roughly: string): number {
+  const minutes = /^(\d+)/.exec(roughly)?.[1]
+  if (minutes === undefined)
+    throw new Error(`docs/setup.md states an estimate this build cannot read: "${roughly}"`)
+
+  return Number(minutes)
+}
+
+/** "2 minutes" as the sidebar prints it: short, because eleven of them run down a column. */
+const shortMinutes = (roughly: string): string => `${minutesOf(roughly)} min`
+
+/**
+ * The heading identifiers a document's Markdown would slug to, read directly from the source rather
+ * than from a full render: the sidebar only wants to know whether a fragment it hardcodes actually
+ * exists in `docs/setup.md` before linking to it, and a document overridden down to a stub for a test
+ * about something else entirely should not fail the build over a sidebar entry that has nothing to
+ * do with what the test is testing.
+ */
+function headingIdentifiers(markdown: string): ReadonlySet<string> {
+  const identifiers = new Set<string>()
+  let fenced = false
+  for (const line of markdown.split('\n')) {
+    if (line.startsWith('```')) fenced = !fenced
+    else if (!fenced && /^#{1,6} /.test(line)) {
+      identifiers.add(slug(line.replace(/^#{1,6} /, '').trim()))
+    }
+  }
+
+  return identifiers
+}
+
+/**
+ * The four cards of "Running in an afternoon, checked at every step": the setup guide's own numbers,
+ * for the steps that state what a fresh install gets you rather than where a file lives. Steps 1 and
+ * 2 are one card, because nothing runs until both are done, and the card states their combined time.
+ */
+export function afternoonCards(
+  steps: readonly SetupStep[],
+): readonly { readonly time: string; readonly title: string; readonly body: string }[] {
+  const step = (number: number): SetupStep | undefined =>
+    steps.find((candidate) => candidate.number === number)
+
+  const first = step(1)
+  const second = step(2)
+  const model = step(4)
+  const github = step(5)
+  const google = step(6)
+  // A stub of the table in a test that has nothing to do with these cards: the cards are simply
+  // empty rather than the build refusing over a table that only matters to this landing section.
+  if (
+    first === undefined ||
+    second === undefined ||
+    model === undefined ||
+    github === undefined ||
+    google === undefined
+  ) {
+    return []
+  }
+
+  return [
+    {
+      time: `${minutesOf(first.roughly) + minutesOf(second.roughly)} min`,
+      title: second.label,
+      body: second.get,
+    },
+    { time: `+${minutesOf(model.roughly)} min`, title: model.label, body: model.get },
+    { time: `+${minutesOf(github.roughly)} min`, title: github.label, body: github.get },
+    { time: `+${minutesOf(google.roughly)} min`, title: google.label, body: google.get },
+  ]
+}
+
+/**
+ * The docs shell's grouped sidebar: what replaced the flat top nav's job of getting a reader from one
+ * document to another. Four groups, each named the way the issue names it; "Set up in order" is the
+ * setup guide's own step table, read live, and shown only while a setup page is open, because eleven
+ * extra links are clutter on every other page.
+ *
+ * A link is either a page (source path, resolved through `context.outputs` exactly as `actions` and
+ * `resolve` do) or a fragment on `setup.html` (a section the guide already has, given a sidebar entry
+ * of its own rather than a new page). "What Caroline is" is the home page under the label a reader
+ * looking for documentation would use for it.
+ */
+interface SidebarLink {
+  readonly label: string
+  readonly target: string
+  readonly detail?: string
+}
+interface SidebarGroup {
+  readonly heading: string
+  readonly links: readonly SidebarLink[]
+}
+
+function sidebarGroups(
+  context: BuildContext,
+  steps: readonly SetupStep[],
+): readonly SidebarGroup[] {
+  const page = (source: string): string => {
+    const output = context.outputs.get(source)
+    if (output === undefined) throw new Error(`the sidebar cannot link to ${source}`)
+
+    return output
+  }
+  const setup = page('docs/setup.md')
+  // `docs/setup.md`'s own headings, read directly rather than assumed: a test that overrides the file
+  // down to a stub, to test something else entirely, should not fail the build over a sidebar entry
+  // pointing at a heading a stub does not have.
+  const setupHeadings = headingIdentifiers(context.sources.read('docs/setup.md'))
+  const onSetup = (anchor: string, label: string): readonly SidebarLink[] =>
+    setupHeadings.has(anchor) ? [{ label, target: `${setup}#${anchor}` }] : []
+
+  return [
+    {
+      heading: 'Start here',
+      links: [
+        { label: 'What Caroline is', target: page('site/pages/index.md') },
+        { label: 'Setting it up', target: setup },
+        { label: 'Using it day to day', target: page('docs/using.md') },
+      ],
+    },
+    {
+      heading: 'Set up, in order',
+      links: steps.map((current) => ({
+        label: `${current.number}. ${current.label}`,
+        target: `${setup}#${current.anchor}`,
+        detail: shortMinutes(current.roughly),
+      })),
+    },
+    {
+      heading: 'Trust',
+      links: [
+        { label: 'What leaves the machine', target: page('docs/content-policy.md') },
+        ...onSetup('8-reaching-it-from-elsewhere', 'Logins and exposure'),
+        ...onSetup('11-removing-everything', 'Removing everything'),
+      ],
+    },
+    {
+      heading: 'Reference',
+      links: [
+        { label: 'Specs 00–13', target: page('docs/specs/README.md') },
+        ...onSetup('troubleshooting', 'Troubleshooting'),
+        { label: 'Implementation plan', target: page('docs/plan.md') },
+        { label: 'Caroline in short', target: page('README.md') },
+      ],
+    },
+  ]
+}
+
+/**
+ * The sidebar, rendered for a page: every group but "Set up, in order" is shown always, that one only
+ * while the reader is on `setup.html` itself, where the eleven steps are what the page is about
+ * rather than clutter borrowed from another page.
+ */
+function sidebar(page: SitePage, context: BuildContext, steps: readonly SetupStep[]): string {
+  const href = (target: string) => posix.relative(posix.dirname(page.output), target)
+  const groups = sidebarGroups(context, steps).filter(
+    (group) =>
+      group.heading !== 'Set up, in order' || page.output === context.outputs.get('docs/setup.md'),
+  )
+
+  const list = groups
+    .map((group) => {
+      const items = group.links
+        .map((link) => {
+          const [target = '', fragment] = link.target.split('#')
+          // Current only for the page-level entry, with no fragment: a fragment link is one of
+          // several sections of another page's entry, and marking every one of them current at
+          // once (because they all resolve to this page) would be as good as marking none of them.
+          const current =
+            target === page.output && fragment === undefined ? ' aria-current="page"' : ''
+          const detail =
+            link.detail === undefined
+              ? ''
+              : `<span class="sidebar-detail">${escapeText(link.detail)}</span>`
+
+          return `<li><a href="${escapeAttribute(`${href(target)}${fragment === undefined ? '' : `#${fragment}`}`)}"${current}>${escapeText(link.label)}${detail}</a></li>`
+        })
+        .join('\n          ')
+
+      return `<div class="sidebar-group">
+          <p class="sidebar-heading">${escapeText(group.heading)}</p>
+          <ul>
+          ${items}
+          </ul>
+        </div>`
+    })
+    .join('\n        ')
+
+  return `<nav class="docs-sidebar" aria-label="Documentation">
+        ${list}
+      </nav>`
+}
+
+/**
+ * The reading order docs pages keep a prev/next pair for: exactly the sidebar's "Start here" plus
+ * "Set up, in order" flattened into one sequence, because that is the path somebody actually follows
+ * start to finish. A page outside it (a spec, the plan, the reference) has no pair: nothing implies an
+ * order across those the way the guide states one for itself.
+ */
+function readingOrder(
+  context: BuildContext,
+  steps: readonly SetupStep[],
+): readonly { label: string; target: string }[] {
+  const page = (source: string) => {
+    const output = context.outputs.get(source)
+    if (output === undefined) throw new Error(`the reading order cannot include ${source}`)
+
+    return output
+  }
+  const setup = page('docs/setup.md')
+
+  return [
+    { label: 'What Caroline is', target: page('site/pages/index.md') },
+    { label: 'Setting Caroline up', target: setup },
+    ...steps.map((step) => ({
+      label: `${step.number}. ${step.label}`,
+      target: `${setup}#${step.anchor}`,
+    })),
+    { label: 'Using Caroline', target: page('docs/using.md') },
+    { label: 'What leaves the machine', target: page('docs/content-policy.md') },
+  ]
+}
+
+function prevNext(page: SitePage, context: BuildContext, steps: readonly SetupStep[]): string {
+  const order = readingOrder(context, steps)
+  const index = order.findIndex(
+    (entry) => entry.target === page.output || entry.target.startsWith(`${page.output}#`),
+  )
+  if (index === -1) return ''
+
+  const href = (target: string) => posix.relative(posix.dirname(page.output), target)
+  const prev = index > 0 ? order[index - 1] : undefined
+  const next = index < order.length - 1 ? order[index + 1] : undefined
+  if (prev === undefined && next === undefined) return ''
+
+  return `<nav class="prev-next" aria-label="Previous and next">
+        ${prev === undefined ? '<span></span>' : `<a href="${escapeAttribute(href(prev.target))}" rel="prev">← ${escapeText(prev.label)}</a>`}
+        ${next === undefined ? '<span></span>' : `<a href="${escapeAttribute(href(next.target))}" rel="next">${escapeText(next.label)} →</a>`}
+      </nav>`
+}
+
+/**
+ * The keys `using.md` and `setup.md` name inline, as `<kbd>` chips rather than the generic `<code>`
+ * every other inline span gets. A fixed set rather than "every inline code span on this page", because
+ * that would just as happily chip an environment variable or a config path: both pages carry those
+ * too, and a chip is a claim about what a reader presses.
+ */
+const keyTokens = new Set([
+  '←',
+  '→',
+  '↑',
+  '↓',
+  'h',
+  'j',
+  'k',
+  'l',
+  '1',
+  '2',
+  '3',
+  '4',
+  '5',
+  '6',
+  'd',
+  'r',
+  'a',
+  'u',
+  'c',
+  'enter',
+  'escape',
+  'tab',
+])
+
+function chipKeys(html: string): string {
+  return html.replace(/<code>([^<]+)<\/code>/g, (whole, inner: string) =>
+    keyTokens.has(inner) ? `<kbd>${inner}</kbd>` : whole,
+  )
+}
+
+/**
+ * A "**Check it:**" paragraph, as a blue-tinted callout instead of a bold run of text at the start of
+ * a paragraph. Matched on the rendered HTML rather than the Markdown, because by the time this runs
+ * the bold span is already `<strong>Check it:</strong>`, and matching there is simpler than teaching
+ * the renderer a new block type for one bold phrase.
+ */
+function calloutise(html: string): string {
+  return html.replace(
+    /<p><strong>Check it:<\/strong>\s*([\s\S]*?)<\/p>/g,
+    (_whole, rest: string) =>
+      `<div class="callout"><p class="callout-title">Check it</p><p>${rest}</p></div>`,
+  )
+}
+
 interface Rendered {
   readonly html: string
   /** The `h2`s, in order: the table of contents of a long document. */
@@ -303,12 +634,18 @@ function render(markdown: string, page: SitePage, context: BuildContext): Render
 
   // The troubleshooting table is wider than a phone, and a table cell holds links of its own, so the
   // scroll box is wrapped round the rendered table rather than round a second rendering of it.
-  const html = marked
+  let html = marked
     .parse(markdown, { async: false })
     // Any opening tag, not the bare one this renderer produces: a raw-HTML table with attributes would
     // otherwise take the page sideways on a phone and collect a closing `</div>` it never opened.
     .replace(/<table\b[^>]*>/g, (tag) => `<div class="table-scroll">${tag}`)
     .replaceAll('</table>', '</table></div>')
+
+  html = calloutise(html)
+  // The setup guide's own keyboard mentions ("Press `c` anywhere") and using.md's keyboard table and
+  // reference row both name keys, so both pages get the chip treatment; nowhere else does, so a config
+  // path or an environment variable elsewhere keeps its plain `<code>`.
+  if (page.source === 'docs/using.md' || page.source === 'docs/setup.md') html = chipKeys(html)
 
   if (failures.length > 0) throw new Error(failures.join('\n'))
 
@@ -375,9 +712,17 @@ const palettes: Readonly<Record<string, string>> = {
 
 /**
  * The site's own prose, and the only page not rendered from a document: what Caroline is, whether
- * you want it, and where to start. `{{lede}}` is the README's opening, so the answer to "what is
- * this" is written once, and `{{diagram}}` is the one picture.
+ * you want it, and where to start. `{{headline}}` and `{{subhead}}` are the README's own opening
+ * paragraph, split at its first sentence, so the answer to "what is this" is written once and not
+ * paraphrased for a headline; `{{start}}`, `{{requirements}}` and `{{afternoon}}` are built from
+ * `site/pages/index.md`'s and `docs/setup.md`'s own words below.
+ *
+ * The hero's ASCII diagram from before this issue is gone rather than moved to spec 00: spec 00
+ * already draws the system's architecture, in more useful detail than three boxes and an arrow, so a
+ * second, shallower version of the same picture here would be the drift spec 11 exists to rule out.
+ * The screenshot under the hero does the "does this actually work" job the diagram used to instead.
  */
+
 /**
  * The README's opening paragraph: what Caroline is, written once. The home page renders it, and its
  * description is taken from it rather than from the page it is spliced into, because by then it is
@@ -392,33 +737,101 @@ function readmeLede(sources: SiteSources): string {
   return lede
 }
 
+/**
+ * The lede, split after its first sentence: the product claim as the headline, the rest as the
+ * subhead the issue calls "the existing tagline". Split on the source Markdown rather than on
+ * rendered HTML, so a link inside either half is still resolved by `render` rather than cut through.
+ * A lede with no ". " at all (the suite's own override, testing link resolution) reads whole into the
+ * headline and leaves the subhead empty, which still renders every word of it somewhere on the page.
+ */
+function splitLede(lede: string): { readonly headline: string; readonly subhead: string } {
+  const boundary = lede.indexOf('. ')
+
+  return boundary === -1
+    ? { headline: lede, subhead: '' }
+    : { headline: lede.slice(0, boundary + 1), subhead: lede.slice(boundary + 2) }
+}
+
+/**
+ * A single paragraph of Markdown, rendered inline: links resolved exactly as `render` resolves them,
+ * but without the `<p>` block it wraps prose in, so the caller can wrap the fragment in its own tag
+ * and class. Safe for a fragment known to be one paragraph of running prose, which every hero fragment
+ * here is.
+ */
+function renderInline(text: string, source: string, output: string, context: BuildContext): string {
+  const html = render(text, { source, output, title: '' }, context).html
+
+  return html.replace(/^<p>/, '').replace(/<\/p>\s*$/, '')
+}
+
 function homePage(page: SitePage, markdown: string, context: BuildContext): string {
   const lede = readmeLede(context.sources)
+  const { headline, subhead } = splitLede(lede)
+  const readme = (text: string) => renderInline(text, 'README.md', page.output, context)
+  const steps = setupSteps(context.sources.read('docs/setup.md'))
 
-  /**
-   * Rendered as the README rather than spliced into this page as Markdown. A link in that paragraph is
-   * written relative to `README.md`, and splicing it would have it resolved relative to
-   * `site/pages/index.md`: the build would then refuse a link the README is right about, and name a file
-   * that does not contain it, or worse resolve `[x](index.md)` against a directory it was never about.
-   */
-  const rendered = render(
-    lede,
-    { source: 'README.md', output: page.output, title: '' },
-    context,
-  ).html
-
-  // Function replacements, because a `$&` or a `` $` `` in the README's prose would otherwise be a
-  // substitution pattern rather than two characters of somebody's paragraph.
   return markdown
-    .replace('{{lede}}', () => rendered)
-    .replace('{{diagram}}', () => diagram)
+    .replace(
+      '{{eyebrow}}',
+      () => '<p class="hero-eyebrow">Self-hosted, single-user, MIT-licensed.</p>',
+    )
+    .replace('{{headline}}', () => `<p class="hero-headline">${readme(headline)}</p>`)
+    .replace('{{subhead}}', () =>
+      subhead === '' ? '' : `<p class="hero-subhead">${readme(subhead)}</p>`,
+    )
+    .replace('{{requirements}}', () => `<p class="hero-requirements">${requirements(context)}</p>`)
     .replace('{{start}}', () => actions(context))
+    .replace('{{shot}}', () => heroShot(context))
+    .replace('{{refusals}}', () => `<p class="refusals-framing">${refusalsFraming(context)}</p>`)
+    .replace('{{afternoon}}', () => afternoonSection(steps))
+    .replace('{{footer}}', () => landingFooter(context))
+}
+
+/**
+ * The landing page's own footer, inside the article rather than the site-wide one below it: the
+ * licence line the site-wide footer already carries on every page, and links to the documents this
+ * page's sections already point at, gathered in one place the way the mockup draws them.
+ */
+function landingFooter(context: BuildContext): string {
+  const link = (source: string, label: string) => {
+    const output = context.outputs.get(source)
+    if (output === undefined) throw new Error(`the home page's footer cannot link to ${source}`)
+
+    return `<a href="${output}">${label}</a>`
+  }
+
+  return `<div class="landing-footer">
+  <p>Caroline is MIT-licensed, single-user, and runs on your own machine.</p>
+  <p class="landing-footer-links">
+    ${link('docs/specs/README.md', 'Documentation')}
+    ${link('docs/content-policy.md', 'What leaves the machine')}
+    <a href="${escapeAttribute(context.repository)}" rel="noopener" target="_blank">Source</a>
+  </p>
+</div>`
+}
+
+/**
+ * One line of requirements, verbatim from `site/pages/index.md`'s own "What it needs" section: a
+ * machine, Node 24, a browser, nothing to compile.
+ */
+function requirements(context: BuildContext): string {
+  return renderInline(
+    'A machine you use, with Node 24 or later on it, and a browser. There is nothing to compile and ' +
+      'no container to run.',
+    'site/pages/index.md',
+    'index.html',
+    context,
+  )
 }
 
 /**
  * The two things to do next, at the top rather than at the foot: a reader who has decided is not
  * going to scroll to find out where to go. The pages are looked up in the manifest rather than named
  * here, and the home page is at the site root, so a page's output path is already its href.
+ *
+ * The second link used to be "Read the documentation" pointed at `docs.html`; with that page gone it
+ * points at the specs index instead, which is what `site/pages/index.md`'s own "Where to start"
+ * paragraph already called "the documentation": "the specs are the contract each part is held to".
  */
 function actions(context: BuildContext): string {
   const link = (source: string, label: string, attributes = '') => {
@@ -430,54 +843,74 @@ function actions(context: BuildContext): string {
 
   return `<p class="actions">
   ${link('docs/setup.md', 'Set it up', ' class="primary"')}
-  ${link('docs/README.md', 'Read the documentation')}
+  ${link('docs/specs/README.md', 'Read the documentation')}
 </p>`
 }
 
 /**
- * Three sources in, one direction, nothing out. The arrowheads are the point of the picture: the one
- * fact that decides whether somebody wants this is that it never writes to the accounts it reads.
- *
- * `aria-hidden`, and the same three groupings are stated in the text beside it, because a diagram is
- * not a way of telling somebody something.
+ * The screenshot under the hero: the dashboard, in both palettes, exactly as `using.md`'s "A worked
+ * day" section already shows it. Reusing it rather than shooting a new one keeps criterion 12 true
+ * with no change to `tools/demo`: the image is already named in `shoot.mjs`'s shot list, already
+ * exists in both palettes, and is already shown by a document.
  */
-const diagram = `<svg class="flow" viewBox="0 0 640 190" aria-hidden="true" focusable="false">
-  <g class="flow-box">
-    <rect x="1" y="10" width="150" height="40" rx="8" />
-    <rect x="1" y="70" width="150" height="40" rx="8" />
-    <rect x="1" y="130" width="150" height="40" rx="8" />
-    <rect class="flow-core" x="245" y="55" width="150" height="70" rx="8" />
-    <rect x="489" y="10" width="150" height="40" rx="8" />
-    <rect x="489" y="70" width="150" height="40" rx="8" />
-    <rect x="489" y="130" width="150" height="40" rx="8" />
-  </g>
-  <g class="flow-label">
-    <text x="76" y="35">GitHub</text>
-    <text x="76" y="95">Gmail</text>
-    <text x="76" y="155">Calendar</text>
-    <text x="320" y="83">Caroline</text>
-    <text class="flow-quiet" x="320" y="103">on your machine</text>
-    <text x="564" y="35">Board</text>
-    <text x="564" y="95">Daily plan</text>
-    <text x="564" y="155">Chat</text>
-  </g>
-  <g class="flow-arrow">
-    <path d="M151 30 H200 V70 H240" />
-    <path d="M151 90 H240" />
-    <path d="M151 150 H200 V110 H240" />
-    <path d="M395 70 H440 V30 H484" />
-    <path d="M395 90 H484" />
-    <path d="M395 110 H440 V150 H484" />
-  </g>
-  <g class="flow-head">
-    <path d="M240 70 l-7 -4 v8 z" />
-    <path d="M240 90 l-7 -4 v8 z" />
-    <path d="M240 110 l-7 -4 v8 z" />
-    <path d="M484 30 l-7 -4 v8 z" />
-    <path d="M484 90 l-7 -4 v8 z" />
-    <path d="M484 150 l-7 -4 v8 z" />
-  </g>
-</svg>`
+function heroShot(context: BuildContext): string {
+  const shot = (name: string, palette: string) => {
+    const source = `docs/images/${name}.png`
+    const output = context.assets.get(source)
+    if (output === undefined) throw new Error(`the home page cannot show ${source}`)
+
+    return `<img class="shot hero-shot ${palette}-only" src="${output}" alt="Caroline's dashboard: today's plan, the calendar, and the state of the machine" />`
+  }
+
+  return `<div class="hero-shot-frame">
+    ${shot('dashboard', 'light')}
+    ${shot('dashboard-dark', 'dark')}
+  </div>`
+}
+
+/**
+ * The framing above the four refusals: kept to two sentences already written elsewhere in this
+ * repository's own copy rather than a new one composed for the mockup. The first is the README's
+ * "Nothing is written back ... ever."; the second is `site/pages/index.md`'s own "Where to start"
+ * sentence about the content policy, which already links it. The "enforcement rather than an
+ * instruction" wording the issue asks to keep stays exactly where it already was, in the first bullet
+ * below.
+ */
+function refusalsFraming(context: BuildContext): string {
+  return renderInline(
+    'Nothing is written back to GitHub, Gmail or Calendar, ever. ' +
+      '[What leaves the machine](../../docs/content-policy.md) is worth reading before you point it ' +
+      'at a work mailbox rather than after.',
+    'site/pages/index.md',
+    'index.html',
+    context,
+  )
+}
+
+/**
+ * "Running in an afternoon, checked at every step": four cards built from `docs/setup.md`'s own step
+ * table via `afternoonCards`, so the minutes here cannot say something the guide does not. The
+ * footnote is `site/pages/index.md`'s own sentence, unchanged, about the two steps that cost people
+ * an afternoon.
+ */
+function afternoonSection(steps: readonly SetupStep[]): string {
+  const cards = afternoonCards(steps)
+    .map(
+      (card) => `<div class="afternoon-card">
+      <p class="afternoon-time">${escapeText(card.time)}</p>
+      <p class="afternoon-title">${escapeText(card.title)}</p>
+      <p class="afternoon-body">${escapeText(card.body)}</p>
+    </div>`,
+    )
+    .join('\n    ')
+
+  return `<p class="afternoon-lede">Every integration is optional, one at a time and in any order.</p>
+  <div class="afternoon-cards">
+    ${cards}
+  </div>
+  <p class="afternoon-note">The two steps that cost people an afternoon, GitHub's token scopes and
+  Google's consent screen, are called out where you meet them.</p>`
+}
 
 /** The first paragraph, as plain text: what a search result or a shared link shows. */
 function description(markdown: string): string {
@@ -544,6 +977,20 @@ function layout(
       </nav>`
   const title = page.output === 'index.html' ? 'Caroline' : `${page.title} · Caroline`
 
+  // Every page but the home page gets the docs shell's grouped sidebar: it is what replaced the flat
+  // top nav's job of getting a reader from one document to another, so it belongs on every document
+  // and not only the ones the mockups happened to show.
+  const steps = setupSteps(context.sources.read('docs/setup.md'))
+  const shell = page.output === 'index.html' ? '' : sidebar(page, context, steps)
+  const foot = page.output === 'index.html' ? '' : prevNext(page, context, steps)
+  const mainClasses = [
+    page.output === 'index.html' ? 'home' : 'document',
+    contents === '' ? '' : 'with-contents',
+    shell === '' ? '' : 'with-sidebar',
+  ]
+    .filter((name) => name !== '')
+    .join(' ')
+
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -563,11 +1010,15 @@ function layout(
         <a href="${escapeAttribute(context.repository)}" rel="noopener" target="_blank">Source</a>
       </nav>
     </header>
-    <main id="${contentIdentifier}" tabindex="-1" class="${page.output === 'index.html' ? 'home' : 'document'}${contents === '' ? '' : ' with-contents'}">
+    <main id="${contentIdentifier}" tabindex="-1" class="${mainClasses}">
+      ${shell}
       ${contents}
-      <article>
+      <div class="doc-column">
+        <article>
 ${rendered.html.trimEnd()}
-      </article>
+        </article>
+        ${foot}
+      </div>
     </main>
     <footer class="site-footer">
       <p>

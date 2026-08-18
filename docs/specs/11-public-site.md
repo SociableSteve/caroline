@@ -19,20 +19,54 @@ first.
 
 | Page | Renders | For |
 | --- | --- | --- |
-| `index.html` | `site/pages/index.md` | What Caroline is, what it will not do, what it needs, and where to start |
+| `index.html` | `site/pages/index.md` | A product landing page: what Caroline is, what it does, what it will not do, and how long each step of setting it up takes |
 | `setup.html` | `docs/setup.md` | Setting it up from nothing |
 | `using.html` | `docs/using.md` | Using it once it runs: what to press and what to say |
 | `content-policy.html` | `docs/content-policy.md` | What leaves the machine |
-| `docs.html` | `docs/README.md` | The documentation index |
 | `reference.html` | `README.md` | The whole of it in short, and the configuration reference |
 | `plan.html` | `docs/plan.md` | The order it was built in |
 | `specs/index.html` | `docs/specs/README.md` | The specs, which are the contract |
 | `specs/NN-name.html` | `docs/specs/NN-name.md` | One per spec |
 
-The home page is the only prose the site owns, because it is the only thing nobody has written yet:
-a reader arriving at a repository already has a README, and a reader arriving at a site has nothing.
-It says what Caroline is and sends you to the setup guide; it does not tell you how to set anything
-up.
+`docs.html` is retired. Its "read it for" table said exactly what the grouped sidebar below now
+says for every docs page, and a page whose whole content is a second copy of the sidebar is the kind
+of drift this spec exists to rule out. `docs/README.md` is unchanged and unpublished: GitHub still
+renders it as the directory's own index, the site simply stops generating a page from it, and
+`reference.html` carries the one link to it that page used to be reached by, from the sidebar's
+Reference group.
+
+The home page is a product page rather than the paragraph and link list it used to be, and it is
+still the only prose the site owns: every claim on it is copy that already exists, verbatim,
+elsewhere in this repository (`site/pages/index.md`'s own existing text, and the README's), gathered
+into a hero, four things it does, four things it will not, and the setup guide's own time-per-step
+table read live rather than retyped. It sends a reader to the setup guide and to the specs; it does
+not tell you how to set anything up.
+
+## The docs shell
+
+Every page but the home page shares a second piece of navigation beside the top one: a sidebar,
+grouped by what a reader is trying to do rather than by which file the answer lives in.
+
+- **Start here** — what Caroline is, setting it up, using it day to day.
+- **Set up, in order** — the eleven steps of `docs/setup.md`'s own table, each with the time
+  estimate the table states, shown only while a setup page is open.
+- **Trust** — what leaves the machine, logins and exposure, removing everything.
+- **Reference** — the specs, troubleshooting, the implementation plan, and the README.
+
+The eleven-step group and the estimates on every group's entries are read from `docs/setup.md`'s own
+table rather than written a second time in the sidebar, for the same reason spec 10's tokens are
+extracted rather than copied: two copies of a number are one of them wrong the day the other
+changes.
+
+Every docs page also carries an "on this page" rail built from its own `##` headings, and a
+previous/next pair at its foot along the reading order the sidebar's first two groups state, so a
+sidebar that lets a reader jump anywhere does not cost them the guide's own order. A `**Check it:**`
+paragraph, already a convention in `docs/setup.md`, renders as a callout rather than a bold run of
+text.
+
+A live, in-page search field is deliberately not part of this: the Non-goals below already rule out
+anything a reader has to run JavaScript to read, and doing a search field honestly needs one. A
+decorative field that does nothing would be worse than no field.
 
 ## Rules
 
@@ -123,8 +157,10 @@ lives in repository settings rather than in the repository.
    Two files outside those three reach the output and no others: `web/styles.css`, as the tokens
    criterion 6 takes from it, and `package.json`, as the repository every page links its source at.
 9. Two builds of the same tree produce identical output.
-10. Every page carries the same navigation and a `<title>` naming the page, and every page is
-    reachable from the home page in at most two links.
+10. Every page carries the same top navigation and a `<title>` naming the page, and every page is
+    reachable from the home page in at most two links. Every page but the home page also carries the
+    docs shell's grouped sidebar, which is additional wayfinding rather than a second, differing
+    navigation: the top navigation stays identical everywhere it appears.
 11. One workflow builds and deploys the site, on a push to `main` and on demand, with the `pages` and
     `id-token` permissions it needs for that and no write permission on the repository's contents.
 12. Every image the site publishes comes from `docs/images`, is named in the shot list of

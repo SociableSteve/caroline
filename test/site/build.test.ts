@@ -550,24 +550,6 @@ describe('the site and the application look like one thing', () => {
   })
 
   /**
-   * `.flow-box rect` is a class and an element, and `.flow-core` is a class: the accent stroke lost to
-   * the neutral one on specificity rather than on source order, so the box the diagram is about was
-   * outlined like the seven around it. The selector has to name the element to outrank it.
-   */
-  it('outlines the middle of the diagram in the accent rather than losing to the box rule', () => {
-    const accent = own.find(
-      (rule) =>
-        rule.selector.includes('.flow-core') &&
-        rule.property === 'stroke' &&
-        rule.value === 'var(--accent)',
-    )?.selector
-
-    // Named, rather than "contains rect": an unrelated accented SVG rule would otherwise satisfy this
-    // test on the day `.flow-core` lost its own.
-    expect(accent).toBe('.flow-box rect.flow-core')
-  })
-
-  /**
    * A sticky header and a fragment link are the two halves of the same problem: scrolling a heading to
    * the top of the viewport puts it behind the header, so the reader arrives at the paragraph after the
    * heading. Criterion 4 says the fragments land, and under the furniture is not landing.
@@ -834,11 +816,18 @@ describe('the site asks nothing of the reader', () => {
     expect(page('specs/index.html')).not.toContain('class="toc"')
     expect(page('specs/index.html')).not.toContain('with-contents')
 
+    // Scoped to `main`'s own rules: the extra columns belong to `main.with-contents`, `.with-sidebar`
+    // and their combination, and not to the unrelated card grids elsewhere in this stylesheet that
+    // also happen to be `grid-template-columns` rules.
     const layout = declarations(source('site/styles.css')).filter(
-      (rule) => rule.property === 'grid-template-columns',
+      (rule) => rule.property === 'grid-template-columns' && rule.selector.startsWith('main'),
     )
 
-    expect(layout.map((rule) => rule.selector)).toEqual(['main.with-contents'])
+    expect(layout.map((rule) => rule.selector)).toEqual([
+      'main.with-contents',
+      'main.with-sidebar',
+      'main.with-sidebar.with-contents',
+    ])
   })
 
   it('reaches every page from the home page in at most two links', () => {

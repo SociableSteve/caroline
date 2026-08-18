@@ -86,8 +86,22 @@ main {
   align-items: start;
   padding: var(--space-6) var(--space-5) var(--space-7);
   margin: 0 auto;
-  /* A column of prose and no more. The pages with a contents list beside them take the wider cap. */
+  /* A column of prose and no more. The pages with a sidebar or a contents list beside them take the
+     wider caps below. */
   max-width: 58rem;
+}
+
+main.with-sidebar,
+main.with-contents {
+  max-width: 74rem;
+}
+
+main.with-sidebar.with-contents {
+  max-width: 86rem;
+}
+
+.doc-column {
+  min-width: 0;
 }
 
 /*
@@ -209,6 +223,10 @@ td {
 
 th {
   font-weight: 500;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   background: var(--surface);
 }
 
@@ -270,17 +288,67 @@ hr {
 }
 
 /*
- * Wide enough for a column beside the document; below it the list sits above, where it still works.
- * The two columns belong to the pages that have a contents list and not to every page, or a short
- * document is rendered in the fifteen-rem column with two thirds of the window empty beside it.
+ * The docs shell's grouped sidebar: what a document's own navigation is now, instead of a flat top
+ * nav trying to be six things at once. Sunk into the page like the contents list beside it, for the
+ * same reason: it is a way into the documents and not one of them.
  */
-@media (min-width: 60rem) {
-  main.with-contents {
-    grid-template-columns: 15rem minmax(0, 1fr);
-    max-width: 74rem;
-  }
+.docs-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding: var(--space-4);
+  font-size: var(--text-sm);
+  background: var(--surface);
+  border-radius: var(--radius-md);
+}
 
-  .toc {
+.sidebar-heading {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-quiet);
+}
+
+.docs-sidebar ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.docs-sidebar li {
+  margin: 0 0 var(--space-1);
+}
+
+.docs-sidebar a {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--ink-quiet);
+  text-decoration: none;
+}
+
+.docs-sidebar a:hover,
+.docs-sidebar a:focus-visible {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+/* Where you are, said in the one way that is not colour alone, exactly as the top nav does. */
+.docs-sidebar a[aria-current='page'] {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.sidebar-detail {
+  flex: none;
+  font-family: var(--font-mono);
+  color: var(--ink-quiet);
+}
+
+@media (min-width: 60rem) {
+  .docs-sidebar {
     position: sticky;
     top: 4.5rem;
     max-height: calc(100vh - 6rem);
@@ -288,9 +356,147 @@ hr {
   }
 }
 
-/* The one paragraph a reader deciding whether they want this will certainly read. */
-.home article > p:first-of-type {
+/*
+ * The prev/next pair at the foot of every docs page: the in-order reading path, so a sidebar that
+ * lets a reader jump anywhere does not cost them the guide's own order.
+ */
+.prev-next {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: var(--space-5) 0 0;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line-faint);
+  font-size: var(--text-sm);
+}
+
+.prev-next a {
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.prev-next a:hover,
+.prev-next a:focus-visible {
+  text-decoration: underline;
+}
+
+/*
+ * A "Check it:" paragraph, tinted rather than a bold run of text: the one thing worth pausing on
+ * before moving to the next step.
+ */
+.callout {
+  padding: var(--space-4);
+  margin: 0 0 var(--space-4);
+  background: var(--accent-tint);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+}
+
+.callout p {
+  margin: 0;
+}
+
+.callout p.callout-title {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+/* A key, as a chip rather than a code span: `using.md`'s keyboard tables and `setup.md`'s mentions. */
+kbd {
+  display: inline-block;
+  padding: 0 var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/*
+ * Wide enough for a column beside the document; below it the sidebar and the contents list both sit
+ * above the document, in that order, where they still work. The extra columns belong to the pages
+ * that have a sidebar or a contents list and not to every page, or a short document is rendered in a
+ * fifteen-rem column with two thirds of the window empty beside it.
+ *
+ * `order` rather than a fixed `grid-column` on each region: the sidebar, the document and the
+ * contents list are written to the page in whatever order is convenient in `site/build.ts` (the
+ * sidebar first, so a narrow screen meets it before the document), and `order` places them into the
+ * grid's columns left to right regardless, without creating a spare column for a page that has one
+ * region and not the other.
+ */
+@media (min-width: 60rem) {
+  main.with-contents {
+    grid-template-columns: 15rem minmax(0, 1fr);
+  }
+
+  main.with-sidebar {
+    grid-template-columns: 14rem minmax(0, 1fr);
+  }
+
+  main.with-sidebar.with-contents {
+    grid-template-columns: 14rem minmax(0, 1fr) 15rem;
+  }
+
+  .docs-sidebar {
+    order: 1;
+  }
+
+  .doc-column {
+    order: 2;
+  }
+
+  .toc {
+    order: 3;
+    position: sticky;
+    top: 4.5rem;
+    max-height: calc(100vh - 6rem);
+    overflow-y: auto;
+  }
+}
+
+/*
+ * The hero. Centred, and capped wider than the running-text measure: it is the one part of the page
+ * meant to be read as a poster rather than as a column of prose.
+ */
+.hero {
+  max-width: 100%;
+  text-align: center;
+  margin: 0 0 var(--space-6);
+}
+
+.hero-eyebrow {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-quiet);
+}
+
+.hero-headline {
+  max-width: none;
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-xl);
+  font-weight: 600;
+  line-height: var(--leading-tight);
+}
+
+.hero-subhead {
+  max-width: var(--measure);
+  margin: 0 auto var(--space-4);
   font-size: var(--text-lg);
+  color: var(--ink-quiet);
+}
+
+.hero-requirements {
+  max-width: var(--measure);
+  margin: 0 auto var(--space-5);
+  font-size: var(--text-sm);
   color: var(--ink-quiet);
 }
 
@@ -302,8 +508,9 @@ hr {
 .actions {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: var(--space-3);
-  margin: var(--space-5) 0;
+  margin: 0 0 var(--space-5);
 }
 
 .actions a {
@@ -326,45 +533,107 @@ hr {
   text-decoration: underline;
 }
 
+/* The hero's screenshot, cropped at the bottom edge of the section rather than framed whole. */
+.hero-shot-frame {
+  max-width: 100%;
+  max-height: 26rem;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+}
+
+.hero-shot-frame .shot {
+  margin: 0;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+}
+
 /*
- * Three sources in, one direction, nothing out. Decorative, and hidden from a screen reader: the
- * sections either side of it say the same thing in words.
+ * "What it does" and "What it will not do" as cards rather than a bare list: each point reads as its
+ * own fact, on the raised ground a card gets everywhere else on this site.
  */
-.flow {
-  width: 100%;
+h2#what-it-does ~ ul,
+h2#what-it-will-not-do ~ ul {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: var(--space-3);
+  list-style: none;
+  padding: 0;
+  max-width: none;
+}
+
+h2#what-it-does ~ ul > li,
+h2#what-it-will-not-do ~ ul > li {
+  padding: var(--space-4);
+  margin: 0;
+  background: var(--surface-raised);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-1);
+}
+
+.refusals-framing {
   max-width: var(--measure);
-  height: auto;
-  margin: var(--space-5) 0 var(--space-2);
+  color: var(--ink-quiet);
 }
 
-.flow-box rect {
-  fill: var(--surface-raised);
-  stroke: var(--line);
+/*
+ * "Running in an afternoon, checked at every step": four cards, each a running total rather than a
+ * fixed cost, because every integration after the first is optional and adds to what came before.
+ */
+.afternoon-lede {
+  color: var(--ink-quiet);
 }
 
-.flow-box rect.flow-core {
-  stroke: var(--accent);
-  stroke-width: 2;
+.afternoon-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: var(--space-3);
+  max-width: none;
+  margin: 0 0 var(--space-4);
 }
 
-.flow-label text {
-  fill: var(--ink);
+.afternoon-card {
+  padding: var(--space-4);
+  background: var(--surface-raised);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-1);
+}
+
+.afternoon-time {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-lg);
+  font-weight: 500;
+  color: var(--accent);
+}
+
+.afternoon-title {
+  margin: 0 0 var(--space-1);
+  font-weight: 500;
+}
+
+.afternoon-body {
+  margin: 0;
   font-size: var(--text-sm);
-  text-anchor: middle;
+  color: var(--ink-quiet);
 }
 
-.flow-label .flow-quiet {
-  fill: var(--ink-quiet);
-  font-size: var(--text-xs);
+.afternoon-note {
+  font-size: var(--text-sm);
+  color: var(--ink-quiet);
 }
 
-.flow-arrow path {
-  fill: none;
-  stroke: var(--line);
+/* The landing page's own footer: the licence line and the three links the mockup gathers together. */
+.landing-footer {
+  margin-top: var(--space-6);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--line-faint);
+  color: var(--ink-quiet);
+  font-size: var(--text-sm);
 }
 
-.flow-head path {
-  fill: var(--line);
+.landing-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
 }
 
 .site-footer {
