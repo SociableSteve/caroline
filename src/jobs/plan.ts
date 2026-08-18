@@ -134,16 +134,26 @@ function dayContext(
       : computeCapacity({
           window,
           // Whatever is stored. With nothing ever connected there is nothing to read, and the
-          // window is taken as free; disconnecting clears the diary, so there is no third case.
+          // window is taken as free. Disconnecting through the API clears the diary, but that is
+          // not the only way a calendar stops being readable: `calendarConnected()` also asks
+          // whether the integration is still configured, so clearing GOOGLE_CLIENT_SECRET (or
+          // disabling it) reports the capacity as unverified with every synced row still in
+          // place. Events on an unverified day are a real case, and the notice below is what
+          // keeps the wording honest about which of the two the reader has.
           events: listCalendarEvents(database, { from: window.start, to: window.end }),
           reservePercent,
           countAllDayEvents,
         })
 
-  // Judged against what was actually deducted, not just against the connection: a stale sync
-  // from before the connection dropped still counts as events found, and the notice must not
-  // claim the day was assumed free when it plainly was not.
-  const notice = unverifiedCapacityNotice(verified, capacity?.busyMinutes ?? 0)
+  // Judged against what was actually deducted, not just against the connection: a sync taken
+  // before the calendar stopped being readable still counts as events found, and the notice must
+  // not claim the window was assumed free when it plainly was not. No capacity means no working
+  // window, and nothing was assumed about a window that does not exist.
+  const notice = unverifiedCapacityNotice({
+    verified,
+    workingDay: capacity !== null,
+    busyMinutes: capacity?.busyMinutes ?? 0,
+  })
   if (notice !== null) {
     warnings.push(notice)
   }

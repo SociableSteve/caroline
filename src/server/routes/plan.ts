@@ -175,8 +175,11 @@ export function registerPlanRoutes(
       const connected = jobs.calendarConnected()
       const bounds = dayBounds(date, timeZone)
       // Whatever is stored, connected or not. A row in `calendar_events` is a meeting that was
-      // really in the diary; disconnecting the account clears them, so there is nothing to
-      // filter out here and a stale row would be a bug rather than a case to handle.
+      // really in the diary, so there is nothing to filter out here. Disconnecting the account
+      // clears them, but a calendar can stop being readable without that path being taken (the
+      // client secret cleared, the integration disabled), which leaves the rows behind: events
+      // under an unverified capacity are a real case rather than a bug, and
+      // `unverifiedCapacityNotice` is what tells the reader which of the two they are looking at.
       const events = listCalendarEvents(database, { from: bounds.start, to: bounds.end })
 
       // The events of the whole day, but the capacity of the working window: the column draws a

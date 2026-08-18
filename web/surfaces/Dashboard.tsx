@@ -264,10 +264,7 @@ export function Dashboard({
   const quiet = waiting.filter((task) => isStale(task, now, staleDays))
   const stalled = projects.filter((project) => project.stalled)
   const planned = plannedMinutes(plan)
-  const capacityNotice =
-    calendar === null
-      ? null
-      : unverifiedCapacityNotice(calendar.capacity.verified, calendar.capacity.busyMinutes)
+  const capacityNotice = calendar === null ? null : unverifiedCapacityNotice(calendar.capacity)
 
   return (
     <div className="dashboard">

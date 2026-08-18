@@ -169,6 +169,7 @@ describe('the capacity a plan is drawn against', () => {
     const { stored } = await planFor({ calendarConnected: false })
 
     expect(stored?.warnings.join(' ')).toMatch(/unverified/i)
+    expect(stored?.warnings.join(' ')).toMatch(/assumes the whole working window is free/i)
   })
 
   /**
@@ -204,6 +205,19 @@ describe('a day that is not a working day', () => {
     const { fake } = await planFor({ now: SUNDAY })
 
     expect(fake.requests).toHaveLength(0)
+  })
+
+  /**
+   * There is no window on a day that is not a working day, so nothing was taken as free and
+   * nothing was drawn from a stale sync. Saying the capacity is unverified next to "there is no
+   * capacity to plan into" offers the reader a distinction with nothing on either side of it.
+   */
+  it('does not add an unverified notice when there was no window to assume anything about', async () => {
+    const { database } = await planFor({ now: SUNDAY, calendarConnected: false })
+    const stored = latestDailyPlan(database, '2026-06-07')
+
+    expect(stored?.warnings.join(' ')).toMatch(/not a working day/i)
+    expect(stored?.warnings.join(' ')).not.toMatch(/unverified/i)
   })
 })
 

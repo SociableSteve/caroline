@@ -377,7 +377,9 @@ describe('the capacity bar', () => {
     })
 
     expect(capacityPanel().getByText(/unverified/i)).toBeInTheDocument()
-    expect(capacityPanel().getByText(/assumes the whole working day is free/i)).toBeInTheDocument()
+    expect(
+      capacityPanel().getByText(/assumes the whole working window is free/i),
+    ).toBeInTheDocument()
   })
 
   /**
@@ -404,6 +406,22 @@ describe('the capacity bar', () => {
     })
 
     expect(capacityPanel().getByText(/not a working day/i)).toBeInTheDocument()
+  })
+
+  /**
+   * A day with no working window has nothing that could have been assumed free and nothing drawn
+   * from a stale sync, so the unverified notice has no distinction left to draw and sits oddly
+   * beside "not a working day".
+   */
+  it('leaves the unverified notice off a day that is not a working day', () => {
+    renderDashboard({
+      calendar: aCalendarDay({
+        connected: false,
+        capacity: { workingDay: false, windowMinutes: 0, verified: false, busyMinutes: 0 },
+      }),
+    })
+
+    expect(capacityPanel().queryByText(/unverified/i)).not.toBeInTheDocument()
   })
 })
 

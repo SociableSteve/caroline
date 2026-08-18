@@ -183,18 +183,32 @@ export function computeCapacity({
   }
 }
 
+/** What the unverified notice is decided from: the same three fields every capacity carries. */
+export interface UnverifiedCapacityFacts {
+  readonly verified: boolean
+  readonly workingDay: boolean
+  readonly busyMinutes: number
+}
+
 /**
- * The notice for an unverified capacity, or null when the calendar is connected and there is
- * nothing to warn about. Two wordings, not one: a disconnected diary with nothing on record is a
- * genuine guess that the day is free, but when events were still found and deducted (a stale sync
- * from before the connection dropped, say) the day was not assumed free at all, and saying so
- * would be false. Shared so the job and the dashboard can't say something different from the same
+ * The notice for an unverified capacity, or null when there is nothing honest to warn about.
+ * Two wordings, not one: an unreadable calendar with nothing on record is a genuine guess that
+ * the window is free, but when events were still found and deducted (a sync taken before the
+ * calendar stopped being readable, say) the window was not assumed free at all, and saying so
+ * would be false. A day that is not a working day gets neither: with no window there is nothing
+ * that could have been assumed and nothing that was deducted, so the notice would draw a
+ * distinction with nothing on either side of it, next to a warning that already says there is no
+ * capacity here. Shared so the job and the dashboard can't say something different from the same
  * numbers. Spec 05, criterion 10.
  */
-export function unverifiedCapacityNotice(verified: boolean, busyMinutes: number): string | null {
-  if (verified) return null
+export function unverifiedCapacityNotice({
+  verified,
+  workingDay,
+  busyMinutes,
+}: UnverifiedCapacityFacts): string | null {
+  if (verified || !workingDay) return null
 
   return busyMinutes > 0
     ? 'The calendar could not be read, so this capacity is unverified: it is drawn from events last synced rather than a live diary.'
-    : 'No calendar is connected, so this capacity is unverified: it assumes the whole working day is free.'
+    : 'No calendar is connected, so this capacity is unverified: it assumes the whole working window is free.'
 }
