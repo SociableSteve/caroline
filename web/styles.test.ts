@@ -138,17 +138,21 @@ describe('no surface restates the panel', () => {
     (rule) => rule.property === 'border-radius' && rule.value === 'var(--radius-md)',
   )
 
-  it('is the only rule rounding a region at the panel radius, bar the four that are not panels', () => {
+  it('is the only rule rounding a region at the panel radius, bar the ones that are not panels', () => {
     // A card, a chat turn, a confirmation, the capture dialog and the two notes are components in
-    // their own right rather than panels written again. Anything new belongs in `Panel`.
+    // their own right rather than panels written again, and issue #47 adds two more: the app-level
+    // alert row, and the rail's details region once it became a bordered card of its own rather than
+    // a plain, unbounded region of the rail. Anything new belongs in `Panel`.
     expect(panelRadius.map((rule) => rule.selector).sort()).toEqual(
       [
+        '.alert-row',
         '.capture',
         '.card',
         '.chat-confirmation',
         '.chat-note, .chat-readonly',
         '.chat-turn',
         '.panel',
+        '.rail-details',
       ].sort(),
     )
   })
@@ -189,23 +193,30 @@ describe('the stylesheet holds to the palettes', () => {
     expect(literals).toEqual([])
   })
 
-  it('defines every colour token in both palettes, and overrides nothing else in the dark one', () => {
-    const light = all.filter(
+  /**
+   * Issue #47 flips which palette is unconditioned: dark is now the default, drawn directly on
+   * `:root`, because every mockup draws dark first and nothing in the codebase offered a manual
+   * override to fall back from. `@media (prefers-color-scheme: light)` overrides the same tokens
+   * for a system that prefers light, and nothing else.
+   */
+  it('defines every colour token in both palettes, and overrides nothing else in the light one', () => {
+    const dark = all.filter(
       (declaration) => declaration.selector === ':root' && declaration.property.startsWith('--'),
     )
-    // The dark block is the only other place `:root` is opened, inside the media query.
-    const darkBlock = /@media \(prefers-color-scheme: dark\) \{\s*:root \{([^}]*)\}/.exec(
+    // The light block is the only other place `:root` is opened, inside the media query.
+    const lightBlock = /@media \(prefers-color-scheme: light\) \{\s*:root \{([^}]*)\}/.exec(
       stylesheet.replace(/\/\*[\s\S]*?\*\//g, ''),
     )
-    expect(darkBlock).not.toBeNull()
+    expect(lightBlock).not.toBeNull()
 
-    const dark = (darkBlock?.[1] ?? '')
+    const light = (lightBlock?.[1] ?? '')
       .split(';')
       .map((line) => line.split(':')[0]?.trim() ?? '')
       .filter((name) => name.startsWith('--'))
 
     const colourTokens = [
       '--page',
+      '--chrome',
       '--surface',
       '--surface-sunk',
       '--surface-raised',
@@ -213,9 +224,13 @@ describe('the stylesheet holds to the palettes', () => {
       '--ink-quiet',
       '--line-faint',
       '--line',
+      '--primary',
+      '--primary-ink',
       '--accent',
-      '--accent-ink',
+      '--accent-text',
+      '--accent-tint',
       '--alarm',
+      '--alarm-text',
       '--alarm-surface',
       '--scrim',
       '--shadow-1',
@@ -223,10 +238,10 @@ describe('the stylesheet holds to the palettes', () => {
     ]
 
     for (const token of colourTokens) {
-      expect(light.map((declaration) => declaration.property)).toContain(token)
+      expect(dark.map((declaration) => declaration.property)).toContain(token)
     }
 
-    expect([...dark].sort()).toEqual([...colourTokens].sort())
+    expect([...light].sort()).toEqual([...colourTokens].sort())
   })
 })
 
@@ -246,19 +261,20 @@ describe('the appearance model', () => {
 
   /**
    * Both palettes, because "designed, not inverted" is the claim and a ramp that collapses in the
-   * dark is exactly the regression this is for: the light values could stay four and distinct while
-   * the dark override quietly made two of them the same.
+   * light theme is exactly the regression this is for: the dark values could stay five and distinct
+   * while the light override quietly made two of them the same. Dark is the unconditioned default
+   * since issue #47; light is the override.
    */
   const palettes = [
-    { theme: 'light', context: '' },
-    { theme: 'dark', context: '@media (prefers-color-scheme: dark)' },
+    { theme: 'dark', context: '' },
+    { theme: 'light', context: '@media (prefers-color-scheme: light)' },
   ]
 
   it.each(palettes)(
-    'grounds a ramp of four in the $theme palette, so a card is not the colour of the page',
+    'grounds a ramp of five in the $theme palette, so a card is not the colour of the page',
     ({ context }) => {
-      const grounds = ['--page', '--surface', '--surface-sunk', '--surface-raised'].map((name) =>
-        token(name, context),
+      const grounds = ['--page', '--chrome', '--surface', '--surface-sunk', '--surface-raised'].map(
+        (name) => token(name, context),
       )
 
       expect(grounds.every((value) => value !== undefined)).toBe(true)
@@ -299,22 +315,32 @@ describe('the appearance model', () => {
     expect(weights.filter((weight) => weight > 600 || weight < 400)).toEqual([])
   })
 
-  /** Small text is small. Uppercase and tracking are not a rank, and four rules used them as one. */
-  it('uppercases nothing and tracks nothing', () => {
+  /**
+   * Small text is small. Uppercase and *wide* tracking are not a rank, and four rules used them as
+   * one. Issue #47 asks titles to be tracking-*tight* instead (a small negative value on `h1` and
+   * the wordmark), which is a different, deliberate thing from the shouting pattern this guards
+   * against, so only positive (widening) letter-spacing counts here.
+   */
+  it('uppercases nothing and tracks nothing wide', () => {
     const shouting = rules.filter(
       (rule) =>
         (rule.property === 'text-transform' && rule.value === 'uppercase') ||
-        rule.property === 'letter-spacing',
+        (rule.property === 'letter-spacing' && Number.parseFloat(rule.value) > 0),
     )
 
     expect(shouting).toEqual([])
   })
 
+  /**
+   * Issue #47: the primary action is filled, but neutral rather than chromatic. Both mockups draw
+   * it near-black-on-white or near-white-on-black, never the blue ramp, which is reserved for
+   * links, badges and selection instead.
+   */
   it('fills the primary action rather than outlining accent-coloured text', () => {
     const primary = rules.filter((rule) => rule.selector === '.primary' && rule.context === '')
 
-    expect(primary.find((rule) => rule.property === 'background')?.value).toBe('var(--accent)')
-    expect(primary.find((rule) => rule.property === 'color')?.value).toBe('var(--accent-ink)')
+    expect(primary.find((rule) => rule.property === 'background')?.value).toBe('var(--primary)')
+    expect(primary.find((rule) => rule.property === 'color')?.value).toBe('var(--primary-ink)')
   })
 
   /** Depth, not outlines: what is raised says so with a shadow from the palette. */

@@ -596,7 +596,7 @@ const withoutComments = (css: string): string =>
  * rules over the same tokens, and extracting the blocks is what stops it becoming a second palette.
  */
 function palette(application: string): string {
-  const blocks = [':root {', '@media (prefers-color-scheme: dark) {']
+  const blocks = [':root {', '@media (prefers-color-scheme: light) {']
     .map((opening) => block(application, opening))
     .join('\n\n')
 
@@ -646,15 +646,20 @@ function block(css: string, opening: string): string {
  * chosen again here. It has one palette and not two, because a browser tab is drawn from a cached
  * image and knows nothing about the reader's theme, so it takes the light pair.
  *
- * Read from the `:root` block rather than from the file, so that "the light pair" is where the values come
- * from rather than which of the two palettes happens to be written first.
+ * Read from the light media query block rather than from the bare `:root` one: issue #47 made dark
+ * the application's unconditioned default, so "the light pair" is now the override rather than the
+ * block written first, and reading it by name rather than by position is what keeps this correct
+ * regardless of which palette a future edit writes first.
  */
 function icon(application: string): string {
-  const light = withoutComments(block(application, ':root {'))
+  const light = withoutComments(block(application, '@media (prefers-color-scheme: light) {'))
   const token = (name: string) => new RegExp(`--${name}:\\s*([^;]+);`).exec(light)?.[1]?.trim()
-  const [accent, ink] = [token('accent'), token('accent-ink')]
+  // `--primary-ink` rather than a dedicated "accent-ink": the redesign's one filled primary is
+  // neutral, not chromatic, and this is the one place outside the application itself that still
+  // wants a colour proven to read against a filled accent square.
+  const [accent, ink] = [token('accent'), token('primary-ink')]
   if (accent === undefined || ink === undefined) {
-    throw new Error('web/styles.css declares no accent pair for the icon')
+    throw new Error('web/styles.css declares no accent/primary-ink pair for the icon')
   }
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">

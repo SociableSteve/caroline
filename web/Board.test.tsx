@@ -613,8 +613,8 @@ describe('editing a due date and a defer-until date', () => {
     const card = screen.getByRole('article', { name: 'Renew the domain' })
     await userEvent.click(within(card).getByText('More'))
 
-    expect(within(card).getByLabelText('Due date of Renew the domain')).toHaveValue('')
-    expect(within(card).getByLabelText('Defer-until date of Renew the domain')).toHaveValue('')
+    expect(within(card).getByLabelText('Due')).toHaveValue('')
+    expect(within(card).getByLabelText('Defer until')).toHaveValue('')
   })
 
   it('shows a task with dates already set, filled in as the local day', async () => {
@@ -632,10 +632,8 @@ describe('editing a due date and a defer-until date', () => {
     const card = screen.getByRole('article', { name: 'Renew the domain' })
     await userEvent.click(within(card).getByText('More'))
 
-    expect(within(card).getByLabelText('Due date of Renew the domain')).toHaveValue(
-      dateInputValue(NOW + 5 * DAY, 'UTC'),
-    )
-    expect(within(card).getByLabelText('Defer-until date of Renew the domain')).toHaveValue(
+    expect(within(card).getByLabelText('Due')).toHaveValue(dateInputValue(NOW + 5 * DAY, 'UTC'))
+    expect(within(card).getByLabelText('Defer until')).toHaveValue(
       dateInputValue(NOW + 2 * DAY, 'UTC'),
     )
   })
@@ -645,7 +643,7 @@ describe('editing a due date and a defer-until date', () => {
 
     const card = screen.getByRole('article', { name: 'Renew the domain' })
     await userEvent.click(within(card).getByText('More'))
-    const dueInput = within(card).getByLabelText('Due date of Renew the domain')
+    const dueInput = within(card).getByLabelText('Due')
     fireEvent.change(dueInput, { target: { value: '2026-07-01' } })
     fireEvent.blur(dueInput)
 
@@ -659,7 +657,7 @@ describe('editing a due date and a defer-until date', () => {
 
     const card = screen.getByRole('article', { name: 'Renew the domain' })
     await userEvent.click(within(card).getByText('More'))
-    const deferInput = within(card).getByLabelText('Defer-until date of Renew the domain')
+    const deferInput = within(card).getByLabelText('Defer until')
     fireEvent.change(deferInput, { target: { value: '2026-06-20' } })
     fireEvent.blur(deferInput)
 
@@ -675,7 +673,7 @@ describe('editing a due date and a defer-until date', () => {
 
     const card = screen.getByRole('article', { name: 'Renew the domain' })
     await userEvent.click(within(card).getByText('More'))
-    const dueInput = within(card).getByLabelText('Due date of Renew the domain')
+    const dueInput = within(card).getByLabelText('Due')
     fireEvent.change(dueInput, { target: { value: '' } })
     fireEvent.blur(dueInput)
 
@@ -689,7 +687,7 @@ describe('editing a due date and a defer-until date', () => {
 
     const card = screen.getByRole('article', { name: 'Renew the domain' })
     await userEvent.click(within(card).getByText('More'))
-    const deferInput = within(card).getByLabelText('Defer-until date of Renew the domain')
+    const deferInput = within(card).getByLabelText('Defer until')
     fireEvent.change(deferInput, { target: { value: '' } })
     fireEvent.blur(deferInput)
 

@@ -1,34 +1,45 @@
 /*
- * The design system. Spec 10.
+ * The design system. Spec 10, redesigned per issue #47: dark shadcn-style foundations, the same
+ * layout and copy in both themes.
  *
  * Four short scales, five primitives and an appearance model, and every surface draws from them. A
  * value not on a scale is a defect rather than a judgement call, which is what `styles.test.ts`
  * asserts: it parses this file and fails on a literal in a spacing, `font-size`, `border-radius` or
- * `line-height` declaration, on a colour that is not a token, and on the two things this milestone
- * removed for good (uppercasing and letter-spacing).
+ * `line-height` declaration, on a colour that is not a token, and on the two things M9 removed for
+ * good (uppercasing and letter-spacing).
  *
- * The appearance model, in four sentences, because it is what M9's consistency was missing:
+ * The appearance model, in four sentences:
  *
  * - Depth, not outlines. A region is where it is because of its ground and its shadow. `--page` is
- *   tinted, a panel is sunk into it, a card is raised out of it in white with `--shadow-1`.
- * - A neutral ramp. Four grounds where one colour used to do three of their jobs, and two lines
- *   where one `--line` was both a component's edge and a divider inside it.
+ *   the backdrop, a panel is `--surface`, a card is raised out of it with `--shadow-1`, and a well
+ *   (a track, a quoted payload) is sunk into `--surface-sunk`.
+ * - A neutral ramp, five grounds: page, chrome (header and rail), panel, sunk and raised.
  * - Weight is scarce. `600` belongs to the one surface heading and nowhere else, `500` marks a
  *   heading or the one value that is the point of its row, and everything else is `400`.
- * - One filled primary per context. `.primary` is a filled action in `--accent`, so there is one
- *   obvious thing to press in a row of controls and only one.
+ * - One filled primary per context, and it is neutral rather than chromatic: `.primary` fills with
+ *   `--primary`, the near-black-on-white/near-white-on-black button both mockups show. The one
+ *   chromatic accent, the blue ramp, is reserved for links, badges and selection: it is never the
+ *   colour of the button everybody presses.
  *
  * Colour is never the only carrier of meaning. Every state a colour marks also says what it is in
  * words: a stale wait says "Stale", a completed plan entry says "done" beside the strikethrough, a
  * calendar block that costs nothing says why, and a failed job prints its error.
+ *
+ * Theme mechanism: dark is the unconditioned default (`:root`, no query), because the redesign's
+ * mockups default to dark and neither showed a manual toggle. `@media (prefers-color-scheme: light)`
+ * overrides every colour token, and nothing else, for a system that prefers light. There is no
+ * `data-theme` attribute and no stored preference: nothing in the issue or the mockups asks for one.
  */
 :root {
-  color-scheme: light dark;
+  color-scheme: dark light;
   font-family:
+    'Geist',
     system-ui,
     -apple-system,
     'Segoe UI',
     sans-serif;
+  /* Times, counts, ranks, cron lines and ages. Applied by selector below, not by hand per rule. */
+  --font-mono: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 
   /* Space. Seven steps, for every gap, padding and margin. */
   --space-1: 0.25rem;
@@ -39,7 +50,8 @@
   --space-6: 2rem;
   --space-7: 3rem;
 
-  /* Type. Five ranks of text, and the two line heights they are set in. */
+  /* Type. Five ranks of text, and the two line heights they are set in. Titles are tracking-tight,
+     which is `-0.01em` on the one heading that carries it, `h1`, below. */
   --text-xs: 0.75rem;
   --text-sm: 0.875rem;
   --text-base: 1rem;
@@ -48,61 +60,88 @@
   --leading-tight: 1.25;
   --leading-normal: 1.5;
 
-  /* Radius. Three values: controls, panels, and the one pill. */
-  --radius-sm: 0.25rem;
-  --radius-md: 0.5rem;
+  /* Radius. 10px cards and panels, 8px buttons and controls, and the one pill for badges. */
+  --radius-sm: 0.5rem;
+  --radius-md: 0.625rem;
   --radius-pill: 999px;
 
   /* Measure. Running text is capped so a line does not run past roughly 80 characters. */
   --measure: 76ch;
 
   /*
-   * Colour, light. Every value meets AA against the ground it sits on.
+   * Colour, dark. The default palette: issue #47 draws every mockup dark-first, and this
+   * deployment has no manual toggle to fall back from.
    *
-   * The four grounds are a ramp and not three names for white: the page is tinted so that a card
-   * can be white and be seen to be raised, a panel is sunk into the page, and a well is sunk
-   * further still.
+   * Five grounds, not three names for black: `--page` is the backdrop, `--chrome` is the header and
+   * the chat rail, `--surface` is an ordinary panel, `--surface-sunk` is a well (a track, a quoted
+   * payload), and `--surface-raised` is a card, lighter than the panel it sits on rather than darker,
+   * because a card in this design floats up towards the eye instead of receding from it.
    */
-  --page: #f2f3f6;
-  --surface: #e8eaef;
-  --surface-sunk: #dde1e8;
-  --surface-raised: #ffffff;
-  --ink: #16181c;
-  --ink-quiet: #4f545b;
-  --line-faint: #d3d8df;
-  --line: #b4bbc4;
-  --accent: #1c4f8b;
-  --accent-ink: #ffffff;
-  --alarm: #8b1c1c;
-  --alarm-surface: #fbe4e4;
-  --scrim: rgb(0 0 0 / 45%);
-  --shadow-1: 0 1px 2px rgb(16 24 40 / 10%), 0 1px 3px rgb(16 24 40 / 6%);
-  --shadow-2: 0 8px 24px rgb(16 24 40 / 16%);
+  --page: #0a0a0a;
+  --chrome: #111111;
+  --surface: #141414;
+  --surface-sunk: #0d0d0d;
+  --surface-raised: #1c1c1c;
+  --ink: #fafafa;
+  --ink-quiet: #b4b4b4;
+  --line: rgb(255 255 255 / 10%);
+  --line-faint: rgb(255 255 255 / 6%);
+  /* The one filled primary action. Neutral, not chromatic: near-white on near-black. */
+  --primary: #fafafa;
+  --primary-ink: #0a0a0a;
+  /* The one chromatic accent, the blue ramp. A fill for a solid mark, a text tone for a link or a
+     badge's words, and a translucent tint for a highlighted row or a selected background. */
+  --accent: #60a5fa;
+  --accent-text: #93c5fd;
+  --accent-tint: rgb(96 165 250 / 8%);
+  /* Red, strictly for broken, stale or overdue: never the accent, never decorative. */
+  --alarm: #f87171;
+  --alarm-text: #fca5a5;
+  --alarm-surface: rgb(248 113 113 / 12%);
+  --scrim: rgb(0 0 0 / 65%);
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 45%), 0 1px 3px rgb(0 0 0 / 35%);
+  --shadow-2: 0 8px 24px rgb(0 0 0 / 55%);
 
   line-height: var(--leading-normal);
 }
 
 /*
- * Designed, not inverted: the dark palette overrides the colour tokens and nothing else. The shadows
- * are among them, because the same shadow over a light ground and a dark one is wrong on one of them.
+ * Designed, not inverted: the light palette overrides the colour tokens and nothing else. The
+ * shadows are among them, because the same shadow over a light ground and a dark one is wrong on
+ * one of them.
+ *
+ * `--ink-quiet` is #666666 here rather than the issue's literal #737373: #737373 fails 4.5:1 against
+ * `--surface` (an invented mid-tone this ramp needed a fifth grey for, see below) and `--surface-sunk`
+ * once the maths are actually run, and #666666 is the smallest darkening that clears 4.5:1 against
+ * the lightest ground it sits on in either.
  */
-@media (prefers-color-scheme: dark) {
+@media (prefers-color-scheme: light) {
   :root {
-    --page: #14161a;
-    --surface: #1d2025;
-    --surface-sunk: #101215;
-    --surface-raised: #272b32;
-    --ink: #f2f3f5;
-    --ink-quiet: #b1b7bf;
-    --line-faint: #2e333a;
-    --line: #454b54;
-    --accent: #8fb8ea;
-    --accent-ink: #0f1216;
-    --alarm: #f4a3a3;
-    --alarm-surface: #3a2222;
-    --scrim: rgb(0 0 0 / 65%);
-    --shadow-1: 0 1px 2px rgb(0 0 0 / 45%), 0 1px 3px rgb(0 0 0 / 35%);
-    --shadow-2: 0 8px 24px rgb(0 0 0 / 55%);
+    /* The issue's light foundations give four literal greys (#ffffff, #fcfcfc, #fafafa, #f0f0f0)
+       for background, chrome and two subtle fills; a fifth, `--surface`, is invented between
+       `--page` and `--surface-sunk` to keep five grounds distinct, as `--surface-raised` needing to
+       read as a *raised*, whiter card pushes `--page` itself down to one of the two subtle fills
+       rather than pure white. */
+    --page: #fafafa;
+    --chrome: #fcfcfc;
+    --surface: #f5f5f5;
+    --surface-sunk: #f0f0f0;
+    --surface-raised: #ffffff;
+    --ink: #0a0a0a;
+    --ink-quiet: #666666;
+    --line: #e5e5e5;
+    --line-faint: #ededed;
+    --primary: #171717;
+    --primary-ink: #fafafa;
+    --accent: #2563eb;
+    --accent-text: #1d4ed8;
+    --accent-tint: rgb(37 99 235 / 8%);
+    --alarm: #dc2626;
+    --alarm-text: #b91c1c;
+    --alarm-surface: rgb(220 38 38 / 8%);
+    --scrim: rgb(0 0 0 / 45%);
+    --shadow-1: 0 1px 2px rgb(16 24 40 / 8%), 0 1px 3px rgb(16 24 40 / 5%);
+    --shadow-2: 0 8px 24px rgb(16 24 40 / 12%);
   }
 }
 
@@ -124,14 +163,15 @@ h3 {
 }
 
 /*
- * The one surface heading, and the only thing set at 600. The gap to a panel heading was 0.25rem of
- * font size and nothing else, which is not a hierarchy; it is now a rank of size and a rank of
- * weight.
+ * The one surface heading, and the only thing set at 600. Tracking-tight, per the issue's type
+ * foundations, and the gap to a panel heading is a rank of size and a rank of weight, not a rounding
+ * error.
  */
 h1 {
   margin: 0 0 var(--space-5);
   font-size: var(--text-xl);
   font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 h2,
@@ -140,7 +180,14 @@ h3 {
 }
 
 a {
-  color: var(--accent);
+  color: var(--accent-text);
+}
+
+/* Times, counts, ranks, cron lines and ages: Geist Mono, per the issue's type foundations. */
+code,
+kbd,
+pre {
+  font-family: var(--font-mono);
 }
 
 /* Focus is visible on everything interactive, the cards and their disclosure included. */
@@ -183,8 +230,8 @@ button[disabled] {
 /* ---- The five primitives. A surface composes these; it does not restyle them. ---- */
 
 /*
- * Panel: a titled region, sunk into the page. No border: the ground is what says where it is, and an
- * outline around a region that already has a ground is the habit this milestone exists to break.
+ * Panel: a titled region, on the panel ground. No border: the ground is what says where it is, and
+ * an outline around a region that already has a ground is the habit this milestone exists to break.
  */
 .panel {
   background: var(--surface);
@@ -222,12 +269,12 @@ button[disabled] {
   font-size: var(--text-sm);
 }
 
-/* Badge: a short state, in words, outlined in the colour that state calls for. */
+/* Badge: a short state, in words, as a pill outlined in the colour that state calls for. */
 .badge {
   display: inline-block;
-  padding: 0 var(--space-1);
+  padding: 0 var(--space-2);
   border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-pill);
   font-size: var(--text-xs);
   font-weight: 500;
   color: var(--ink-quiet);
@@ -235,12 +282,12 @@ button[disabled] {
 
 .badge-alarm {
   border-color: var(--alarm);
-  color: var(--alarm);
+  color: var(--alarm-text);
 }
 
 .badge-accent {
   border-color: var(--accent);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 /* Field: a label above its control, wired together, so there is one answer to where a label sits. */
@@ -268,19 +315,19 @@ button[disabled] {
 }
 
 /*
- * The primary action of a context, which is the one taken most often. Filled, because accent text in
- * an outlined box is a link wearing a button's clothes: at a glance it read as the same rank as
- * everything beside it. One of these per row of controls. Spec 10.
+ * The primary action of a context, which is the one taken most often. Filled, and neutral rather
+ * than chromatic: both mockups draw it near-black-on-white or near-white-on-black, never the blue
+ * ramp, which is reserved for links, badges and selection. One of these per row of controls.
  */
 .primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-ink);
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-ink);
   font-weight: 500;
 }
 
 .primary[disabled] {
-  color: var(--accent-ink);
+  color: var(--primary-ink);
   opacity: 0.6;
 }
 
@@ -291,7 +338,7 @@ button[disabled] {
   border: 1px solid var(--alarm);
   border-radius: var(--radius-sm);
   background: var(--alarm-surface);
-  color: var(--alarm);
+  color: var(--alarm-text);
 }
 
 .empty {
@@ -305,7 +352,7 @@ button[disabled] {
 }
 
 .warning {
-  color: var(--alarm);
+  color: var(--alarm-text);
 }
 
 /* Header and navigation */
@@ -317,7 +364,7 @@ button[disabled] {
   gap: var(--space-2) var(--space-4);
   padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--line-faint);
-  background: var(--surface);
+  background: var(--chrome);
 }
 
 /* Not a heading: each surface owns the one `h1` on the page, and it names the surface. Spec 10. */
@@ -325,20 +372,30 @@ button[disabled] {
   margin: 0;
   font-size: var(--text-lg);
   font-weight: 500;
+  letter-spacing: -0.01em;
 }
 
 .app-header nav ul {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-1) var(--space-3);
+  gap: var(--space-1) var(--space-1);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
+.app-header nav a {
+  display: inline-block;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+}
+
+/* The active surface gets a chip behind it rather than only an underline: `--surface-raised` reads
+   as "pressed in" against the header's own `--chrome` ground, in both themes. */
 .app-header nav a[aria-current='page'] {
+  background: var(--surface-raised);
   font-weight: 500;
-  text-decoration-thickness: 2px;
 }
 
 /* Pushed to the end where there is room, and wrapping under the nav where there is not: at 430px
@@ -348,6 +405,54 @@ button[disabled] {
   flex-wrap: wrap;
   gap: var(--space-2);
   margin-left: auto;
+}
+
+/*
+ * App-level alerts, directly under the header. Only broken or overdue things, capped at three, each
+ * carrying its reason and the one action that clears it. Expanded (the full row, on Today) or
+ * collapsed to a one-line strip with a count (every other surface), which links back to Today.
+ */
+.alert-band {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-5);
+  background: var(--surface);
+  border-bottom: 1px solid var(--line-faint);
+}
+
+.alert-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--alarm-surface);
+}
+
+.alert-reason {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.alert-detail {
+  color: var(--ink-quiet);
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+}
+
+.alert-action {
+  margin-left: auto;
+}
+
+/* Collapsed: a single line, a count and a link back to Today, on every surface but the one the
+   alerts are drawn out on in full. */
+.alert-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
 }
 
 /*
@@ -380,14 +485,15 @@ button[disabled] {
 
 /*
  * Sticky and scrolling on its own, so a long transcript does not lengthen the surface beside it, and
- * so the composer stays reachable while the board is being read.
+ * so the composer stays reachable while the board is being read. On `--chrome`, the same ground as
+ * the header, since it is the shell's own furniture rather than a surface.
  */
 .chat-rail {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
   padding: var(--space-4);
-  background: var(--surface);
+  background: var(--chrome);
   border-left: 1px solid var(--line-faint);
   position: sticky;
   top: 0;
@@ -429,7 +535,8 @@ button[disabled] {
  *
  * Pinned to the top of the rail and capped at a share of its height, scrolling within that cap, so a
  * task with long notes never takes the rail from the conversation it is supposed to be the subject of.
- * The ground is the rail's own, because it is a region of the rail rather than a card in it.
+ * A card of its own, raised out of the rail rather than a region of it: the mockups draw it as a
+ * bordered panel of facts sitting above the transcript.
  */
 .rail-details {
   position: sticky;
@@ -438,8 +545,10 @@ button[disabled] {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  padding-bottom: var(--space-3);
-  border-bottom: 1px solid var(--line-faint);
+  padding: var(--space-3);
+  margin: 0 0 var(--space-1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
   background: var(--surface);
   max-height: 45%;
   overflow-y: auto;
@@ -590,13 +699,16 @@ button[disabled] {
   color: var(--ink-quiet);
 }
 
+/* The numbered badge the keyboard shortcuts are keyed to, and the trailing count: both mono, both
+   pill-shaped, matching the badge primitive's own shape. */
 .column-number,
 .column-count {
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
   color: var(--ink-quiet);
   border: 1px solid var(--line-faint);
-  border-radius: var(--radius-sm);
-  padding: 0 var(--space-1);
+  border-radius: var(--radius-pill);
+  padding: 0 var(--space-2);
   font-variant-numeric: tabular-nums;
 }
 
@@ -620,8 +732,8 @@ button[disabled] {
   overflow-y: auto;
 }
 
-/* A card is raised out of the page rather than drawn around: white ground, one soft shadow, no
-   outline. Spec 10's appearance model. */
+/* A card is raised out of the panel rather than drawn around: `--surface-raised` ground, one soft
+   shadow, no outline. Spec 10's appearance model. */
 .card {
   display: block;
   background: var(--surface-raised);
@@ -679,23 +791,45 @@ button[disabled] {
   font-size: var(--text-sm);
 }
 
+/* The due and defer-until date pair, in the "More" disclosure: a compact label-above-input pair
+   rather than the bare, unlabelled pickers this replaced (issue #47's TaskCard accessibility fix). */
+.card-dates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* A one-line footer rather than a boxed panel: the keyboard map is still every key and what it
+   does, read as a compact line instead of a bordered region. */
 .shortcuts {
   margin-top: var(--space-5);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line-faint);
   font-size: var(--text-sm);
   color: var(--ink-quiet);
 }
 
 .shortcuts h2 {
-  font-size: var(--text-sm);
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-xs);
 }
 
 .shortcut-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
   margin: 0;
 }
 
-.shortcuts dt {
-  font-family: ui-monospace, monospace;
+.shortcut-facts dt {
+  font-family: var(--font-mono);
   color: var(--ink);
+  display: inline;
+}
+
+.shortcut-facts dd {
+  display: inline;
+  margin: 0 var(--space-4) 0 var(--space-1);
 }
 
 /* Dashboard */
@@ -711,25 +845,303 @@ button[disabled] {
   gap: var(--space-5);
 }
 
-.band {
+/*
+ * The left rail and the main column. Issue #47's layout floor: the rail is 232 to 260px, the
+ * main column takes what is left. Below the width where both are usable, the rail stacks above
+ * the main column rather than beside it, so nothing needs a second, narrower rail of its own.
+ */
+.dashboard-layout {
   display: grid;
-  gap: var(--space-4);
+  grid-template-columns: minmax(14.5rem, 16.25rem) minmax(0, 1fr);
+  gap: var(--space-5);
   align-items: start;
 }
 
-/* Today leads at the full width of the surface: the plan, with the calendar beside it. */
-.band-today {
-  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
-}
-
-.band-decisions {
-  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
-}
-
 @media (max-width: 60rem) {
-  .band-today {
+  .dashboard-layout {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+.dashboard-rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.dashboard-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+/* A card of its own, per issue #47: "a bordered Where everything is card". The background-jobs
+   and planned-against-completed strips share its weight, being no less a record of the machine's
+   state; nothing in band 3's old rule about panel weight applied to the rail beside the agenda,
+   which is not the surface's main reading path the way band 3 sat below it once was. */
+.rail-card {
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-1);
+}
+
+/* Needs you: a plain heading and an unbordered list, not a panel. Issue #47 draws it lighter
+   than the card beneath it, the way band 3 used to draw lighter than band 1. */
+.rail-heading-plain {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--ink-quiet);
+}
+
+.needs-you-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  list-style: none;
+}
+
+.needs-you-row {
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--line-faint);
+}
+
+.needs-you-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-1);
+}
+
+.needs-you-age {
+  font-family: var(--font-mono);
+  color: var(--ink-quiet);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.needs-you-title {
+  margin: 0;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.needs-you-subtitle {
+  margin: 0;
+  color: var(--ink-quiet);
+  font-size: var(--text-sm);
+}
+
+.needs-you-note {
+  margin: 0;
+  color: var(--accent-text);
+  font-size: var(--text-sm);
+}
+
+.needs-you-caption {
+  margin: 0;
+  color: var(--ink-quiet);
+  font-size: var(--text-xs);
+}
+
+.rail-integrations {
+  margin: var(--space-3) 0 var(--space-1);
+  color: var(--ink-quiet);
+  font-size: var(--text-sm);
+}
+
+/* The verdict and its regenerate button, above the day bar. Issue #47. */
+.today-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+}
+
+/* The verdict: whether today fits, stated as a headline before any panel. Issue #47. */
+.verdict {
+  margin: 0;
+}
+
+.verdict-headline {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.verdict-detail {
+  margin: var(--space-1) 0 0;
+  color: var(--ink-quiet);
+}
+
+.verdict-date {
+  color: var(--ink-quiet);
+  font-family: var(--font-mono);
+}
+
+/*
+ * The day bar: the capacity meter and the calendar column, merged into one to-scale strip.
+ * Issue #47. A well, sunk into the page, with each segment's own fill; the legend beneath is
+ * what actually carries the numbers in words, so the bar itself can stay decorative.
+ */
+.day-bar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-1) 0 var(--space-3);
+}
+
+.day-bar-track {
+  display: flex;
+  height: var(--space-3);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  background: var(--surface-sunk);
+}
+
+.daybar-meetings {
+  background: var(--line);
+}
+
+.daybar-planned {
+  background: var(--accent);
+}
+
+.daybar-done {
+  background: var(--accent-tint);
+}
+
+.daybar-free {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.daybar-reserve {
+  background: var(--surface-sunk);
+  box-shadow: inset 0 0 0 1px var(--line-faint);
+}
+
+.day-bar-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--ink-quiet);
+  font-size: var(--text-sm);
+}
+
+.day-bar-legend li::before {
+  content: '';
+  display: inline-block;
+  width: 0.6em;
+  height: 0.6em;
+  margin-right: var(--space-1);
+  border-radius: var(--radius-sm);
+  vertical-align: middle;
+}
+
+.legend-meetings::before {
+  background: var(--line);
+}
+
+.legend-planned::before {
+  background: var(--accent);
+}
+
+.legend-done::before {
+  background: var(--accent-tint);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.legend-free::before {
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.legend-reserve::before {
+  background: var(--surface-sunk);
+  box-shadow: inset 0 0 0 1px var(--line-faint);
+}
+
+.legend-now {
+  margin-left: auto;
+  color: var(--accent-text);
+  font-weight: 500;
+}
+
+.legend-now::before {
+  content: none;
+}
+
+.legend-now-time {
+  font-family: var(--font-mono);
+}
+
+/*
+ * The agenda: one time-ordered spine, per issue #47. A 44px mono gutter for the clock times, the
+ * same width whether a row is a meeting, a plan entry or a free gap, so the times themselves line
+ * up down the page.
+ */
+.agenda {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agenda-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--line-faint);
+}
+
+.agenda-time {
+  flex: 0 0 2.75rem;
+  font-family: var(--font-mono);
+  color: var(--ink-quiet);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* The "now" rule: a coloured line across the spine rather than only a row, so it is found by
+   scanning the page rather than by reading every row's time. The word beside it is what actually
+   carries the meaning; colour is never the only carrier. Spec 08. */
+.agenda-now {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+  color: var(--accent-text);
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+
+.agenda-now-line {
+  flex: 1 1 auto;
+  height: 2px;
+  background: var(--accent);
+}
+
+.agenda-gap {
+  color: var(--ink-quiet);
+  border-bottom-style: dashed;
+}
+
+.gap-free {
+  font-weight: 500;
+}
+
+.gap-offer {
+  color: var(--ink);
 }
 
 .counts {
@@ -751,11 +1163,11 @@ button[disabled] {
 .count {
   color: var(--ink);
   font-weight: 500;
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 
 .chase-list,
-.stalled-list,
 .integration-list,
 .job-list,
 .project-list {
@@ -786,6 +1198,7 @@ button[disabled] {
 }
 
 .chase-age {
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 
@@ -793,34 +1206,8 @@ button[disabled] {
    takes its own line: it is a sentence, and a sentence does not belong in a nowrap column. */
 .chase-pushed {
   flex-basis: 100%;
-  color: var(--ink-quiet);
+  color: var(--accent-text);
   font-size: var(--text-sm);
-}
-
-/* The state of the machine: scanned to confirm nothing is broken, and read no further when
-   nothing is. One strip, never at the weight of a band 1 panel. Spec 08. */
-/* A grid rather than a wrapping flex row: the sections are of very different heights, and flex
-   wrapping pushed the shortest of them onto a second row a full panel's height below the rest. */
-.state-strip {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(13rem, auto));
-  justify-content: start;
-  gap: var(--space-3) var(--space-6);
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--line-faint);
-  font-size: var(--text-sm);
-}
-
-.strip-section {
-  min-width: 0;
-}
-
-/* No ground, no border, no padding: nothing in band 3 is laid out at the weight of a band 1
-   panel, which is the rule this surface was missing. Spec 08, criterion 11. */
-.strip-heading {
-  margin: 0 0 var(--space-1);
-  font-size: var(--text-xs);
-  color: var(--ink-quiet);
 }
 
 .integration-list li {
@@ -852,13 +1239,13 @@ button[disabled] {
 
 .job-when {
   color: var(--ink-quiet);
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 
 /* The daily plan (spec 05) */
 
 .plan-list,
-.calendar-column,
 .plan-history,
 .plan-warnings {
   margin: 0;
@@ -878,6 +1265,7 @@ button[disabled] {
 }
 
 .plan-rank {
+  font-family: var(--font-mono);
   color: var(--ink-quiet);
   font-variant-numeric: tabular-nums;
   min-width: 1.2rem;
@@ -897,6 +1285,7 @@ button[disabled] {
 }
 
 .plan-estimate {
+  font-family: var(--font-mono);
   margin-left: auto;
   white-space: nowrap;
 }
@@ -919,48 +1308,11 @@ button[disabled] {
   padding: var(--space-1) 0;
 }
 
-/* The capacity bar. Its numbers are the ones the API gave, never recomputed here. Spec 08. */
-
-.capacity {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  margin: 0 0 var(--space-3);
-}
-
-/* A well rather than an outline: the track is sunk and the fill is what is read. */
-.capacity-bar {
-  display: block;
-  width: 100%;
-  height: var(--space-2);
-  background: var(--surface-sunk);
-  border-radius: var(--radius-pill);
-  overflow: hidden;
-}
-
-.capacity-used {
-  display: block;
-  height: 100%;
-  background: var(--accent);
-}
-
-.capacity-detail,
+/* The day bar (above) replaced the separate capacity bar and calendar column; only the
+   unverified-capacity notice is still its own paragraph. Spec 08. */
 .capacity-unverified {
   color: var(--ink-quiet);
   font-size: var(--text-sm);
-}
-
-.calendar-column li {
-  display: flex;
-  gap: var(--space-2);
-  padding: var(--space-1) 0;
-  border-bottom: 1px solid var(--line-faint);
-}
-
-.event-time {
-  color: var(--ink-quiet);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
 }
 
 /* An event that takes no time off the day is quieter, and says why in words beside it. */
@@ -985,6 +1337,7 @@ button[disabled] {
 
 .history-date,
 .history-count {
+  font-family: var(--font-mono);
   color: var(--ink-quiet);
   font-variant-numeric: tabular-nums;
 }
@@ -995,7 +1348,7 @@ button[disabled] {
 }
 
 .job-error {
-  color: var(--alarm);
+  color: var(--alarm-text);
   font-size: var(--text-sm);
 }
 
@@ -1005,7 +1358,6 @@ button[disabled] {
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
-  max-width: var(--measure);
 }
 
 .inline-form {
@@ -1015,33 +1367,41 @@ button[disabled] {
   flex-wrap: wrap;
 }
 
-.project {
-  padding: var(--space-3) 0;
+/* The inline "Add project" form, in the header row above the table rather than a form of its
+   own. */
+.projects-toolbar {
+  justify-content: flex-end;
+  margin: 0 0 var(--space-3);
+}
+
+/* The table: project, derived next action, state, actions. A stalled row is tinted, and its pill
+   and "No next action" carry the alarm colour in words as well. */
+.project-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.project-table th {
+  padding: var(--space-1) var(--space-2);
+  text-align: left;
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--ink-quiet);
   border-bottom: 1px solid var(--line-faint);
 }
 
-.project h3 {
-  margin: 0 0 var(--space-1);
-  font-size: var(--text-base);
+.project-table td {
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--line-faint);
+  vertical-align: top;
 }
 
-.project.stalled {
-  border-left: 4px solid var(--alarm);
-  padding-left: var(--space-3);
-}
-
-/*
- * The row the rail is showing, raised out of the list rather than edged. A left edge in the accent is
- * what this started as, and a stalled project already has one in the alarm and a specificity to match:
- * the open row and the row beside it were the same. A ground says it without competing with the state
- * the edge is already carrying, which is what the four grounds are for. Spec 10.
- */
-.project.project-open {
-  background: var(--surface-raised);
+.project-table tr.stalled td {
+  background: var(--alarm-surface);
 }
 
 .project-next {
-  margin: 0 0 var(--space-2);
+  margin: 0;
   font-size: var(--text-sm);
 }
 
@@ -1144,15 +1504,23 @@ button[disabled] {
 }
 
 /* A job's own panel is raised out of the surface rather than sunk into it, and its name is a rank
-   below a surface heading rather than at it. */
+   below a surface heading rather than at it. A failing job's card carries the alarm border as well
+   as the tint, matching the app-level alert row for the same job. */
 .job-status-list .panel {
   background: var(--surface-raised);
   box-shadow: var(--shadow-1);
 }
 
+.job-status-list .job-failed {
+  box-shadow:
+    inset 0 0 0 1px var(--alarm),
+    var(--shadow-1);
+}
+
 .job-name {
   margin: 0 0 var(--space-1);
   font-size: var(--text-base);
+  font-family: var(--font-mono);
 }
 
 .job-description {
@@ -1175,15 +1543,34 @@ button[disabled] {
 }
 
 .run-history .run-when {
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 
-/* Settings: what leaves the machine, and the payload that proves it. Spec 09. */
+.run-history tr.job-failed td {
+  background: var(--alarm-surface);
+}
+
+/* Settings: what leaves the machine, and the payload that proves it. Spec 09. Two columns of
+   panels on a wide screen, one under the other below the width they no longer fit. */
 .settings-surface {
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
-  max-width: var(--measure);
+}
+
+.settings-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.settings-column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  min-width: 0;
 }
 
 .settings-outcome {

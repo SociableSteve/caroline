@@ -1,6 +1,14 @@
 /**
  * Spec 08 criterion 4: with no plan, no calendar and no integrations configured, the dashboard
  * renders empty states rather than errors.
+ *
+ * Issue #47 redesigned the surface: a verdict headline, a to-scale day bar and one merged agenda
+ * (the plan's entries and the calendar's events interleaved) replace the separate plan and
+ * calendar panels this file used to test; "gone quiet", "worth a chase" and "stalled projects"
+ * are now one ranked "Needs you" list in the left rail rather than three panels. The background
+ * jobs strip and the planned-against-completed history stay, in the rail, because the mockup's
+ * silence on them is not the same claim as "remove this": nothing else on the page replaces
+ * either.
  */
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
@@ -43,58 +51,46 @@ function renderDashboard(overrides: Partial<Parameters<typeof Dashboard>[0]> = {
   )
 }
 
+/** The unified "Today" region: the verdict, the day bar and the agenda, replacing what used to
+ *  be two separate regions named "plan" and "calendar". */
+function today() {
+  return within(screen.getByRole('region', { name: /today/i }))
+}
+
 /**
  * Spec 08, criterion 11. The morning question is "what am I doing today, and does it fit", so the
- * surface answers that first and everything else after. The bands are fixed rows rather than one
- * reflowing grid, because a reading path that changes with the window width is not a reading path.
+ * surface answers that first. Issue #47 answers it in a left rail (what needs you, then the state
+ * of the machine) beside a main column (the verdict, the day bar, the agenda) rather than the
+ * three stacked bands this used to be; the reading order claim now is that the rail's headings
+ * come before the agenda's content, matching the columns' left-to-right, top-to-bottom order.
  */
-describe('the three bands', () => {
-  const bands = () => [...document.querySelectorAll('.band')]
-
-  it('reads today first, what wants a decision second, and the machine last', () => {
+describe('the dashboard’s layout', () => {
+  it('puts the left rail before the main column in document order', () => {
     renderDashboard({
       plan: aPlan({ entries: [aPlanEntry({ id: 'entry-1', title: 'Write the report' })] }),
       calendar: aCalendarDay(),
       projects: [aProject({ id: 'project-1', title: 'Ship it', stalled: true })],
-      health: nothingConfigured,
     })
 
-    // By the class that identifies each band rather than the whole attribute: what is asserted
-    // is the reading order, and a modifier class added later does not change it.
-    const names = ['band-today', 'band-decisions', 'state-strip']
-    expect(
-      bands().map((band) => names.find((name) => band.classList.contains(name)) ?? band.className),
-    ).toEqual(names)
-  })
-
-  it('leads with the plan and the calendar, and not with a count', () => {
-    renderDashboard({ plan: aPlan({ entries: [] }), calendar: aCalendarDay() })
-
-    const first = bands()[0] as HTMLElement
-    const headings = within(first)
-      .getAllByRole('heading')
+    const headings = screen
+      .getAllByRole('heading', { level: 2 })
       .map((heading) => heading.textContent)
 
-    expect(headings).toEqual(['Today’s plan', 'Today’s calendar'])
+    expect(headings.indexOf('Needs you')).toBeGreaterThanOrEqual(0)
+    expect(headings.indexOf('Where everything is')).toBeGreaterThan(headings.indexOf('Needs you'))
   })
 
-  /**
-   * The rule the previous version of this spec was missing, and the reason a count led a surface
-   * about work for three milestones. A count is not work.
-   */
-  it('gives nothing in the state of the machine the weight of a panel', () => {
-    renderDashboard({ health: nothingConfigured })
+  /** The rule the previous version of this spec was missing, and the reason a count led a
+   *  surface about work for three milestones. A count is not work: it is still not given the
+   *  weight of a bordered card the way the day's own agenda is not bordered either, but "Where
+   *  everything is" is explicitly a card per issue #47, so the old blanket rule against any panel
+   *  weight in the rail no longer holds; what still holds is that it is not the reading path. */
+  it('gives the needs-you list no panel weight of its own, unlike the bordered card beneath it', () => {
+    renderDashboard()
 
-    const strip = document.querySelector('.state-strip')
-    // Asserted rather than asserted-away: a missing strip should read as a missing strip, not as
-    // a null dereference on the next line.
-    expect(strip).not.toBeNull()
-    const sections = [...(strip as HTMLElement).querySelectorAll('section')]
-
-    expect(sections.length).toBeGreaterThan(0)
-    for (const section of sections) {
-      expect(section.classList.contains('panel')).toBe(false)
-    }
+    const needsYou = screen.getByText('Needs you').closest('section')
+    expect(needsYou).not.toBeNull()
+    expect(needsYou?.querySelector('.panel')).toBeNull()
   })
 })
 
@@ -108,14 +104,12 @@ describe('an empty Caroline', () => {
   it('shows an empty state for the plan, the calendar and the jobs', () => {
     renderDashboard()
 
+    expect(today().getByText(/No plan yet/)).toBeInTheDocument()
+    expect(today().getByText(/No calendar yet/)).toBeInTheDocument()
     expect(
-      within(screen.getByRole('region', { name: /plan/i })).getByText(/No plan yet/),
-    ).toBeInTheDocument()
-    expect(
-      within(screen.getByRole('region', { name: /calendar/i })).getByText(/No calendar yet/),
-    ).toBeInTheDocument()
-    expect(
-      within(screen.getByRole('region', { name: /jobs/i })).getByText(/Nothing has run yet/),
+      within(screen.getByRole('region', { name: /background jobs/i })).getByText(
+        /Nothing has run yet/,
+      ),
     ).toBeInTheDocument()
   })
 
@@ -132,21 +126,102 @@ describe('an empty Caroline', () => {
 
     expect(screen.getByText('GitHub')).toBeInTheDocument()
     expect(screen.getAllByText('not configured')).toHaveLength(3)
+    expect(screen.getByText(/nothing is configured yet/i)).toBeInTheDocument()
   })
 
-  it('says so rather than showing an empty list when nothing is waiting', () => {
+  it('says so rather than showing an empty list when nothing needs you', () => {
     renderDashboard()
 
     expect(screen.getByText('Nothing is waiting on anyone else.')).toBeInTheDocument()
   })
 })
 
-describe('today’s plan', () => {
-  function planPanel() {
-    return within(screen.getByRole('region', { name: /plan/i }))
-  }
+describe('the verdict', () => {
+  it('says today fits, with the numbers the day bar also shows', () => {
+    renderDashboard({
+      calendar: aCalendarDay({ capacity: { capacityMinutes: 285 } }),
+      plan: aPlan({ entries: [aPlanEntry({ estimateMinutes: 180 })] }),
+    })
 
-  it('lists the entries in rank order with their reasons and estimates', () => {
+    expect(
+      today().getByText(
+        /Today fits — 3 hours planned of 4 hours 45 min free, and 1 hour 45 min to spare/,
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('says today is tight when the plan runs over the free capacity', () => {
+    renderDashboard({
+      calendar: aCalendarDay({ capacity: { capacityMinutes: 60 } }),
+      plan: aPlan({ entries: [aPlanEntry({ estimateMinutes: 90 })] }),
+    })
+
+    expect(today().getByText(/Today’s tight/)).toBeInTheDocument()
+  })
+
+  it('says nothing when there is no calendar to verdict against', () => {
+    renderDashboard({ calendar: null, plan: aPlan({}) })
+
+    expect(today().queryByText(/Today fits/)).not.toBeInTheDocument()
+    expect(today().queryByText(/Today’s tight/)).not.toBeInTheDocument()
+  })
+})
+
+describe('the day bar', () => {
+  it('shows the meetings, planned, done, free and held-back minutes in words', () => {
+    renderDashboard({
+      calendar: aCalendarDay({
+        capacity: { busyMinutes: 60, reserveMinutes: 102, capacityMinutes: 348 },
+      }),
+      plan: aPlan({
+        entries: [
+          aPlanEntry({ id: 'entry-1', estimateMinutes: 90, done: false }),
+          aPlanEntry({ id: 'entry-2', estimateMinutes: 30, done: true }),
+        ],
+      }),
+    })
+
+    expect(today().getByText('meetings 1 hour')).toBeInTheDocument()
+    expect(today().getByText('planned 1 hour 30 min')).toBeInTheDocument()
+    expect(today().getByText('done 30 min')).toBeInTheDocument()
+    expect(today().getByText('free 3 hours 48 min')).toBeInTheDocument()
+    expect(today().getByText('held back 1 hour 42 min')).toBeInTheDocument()
+  })
+
+  it('says so on a day that is not a working day', () => {
+    renderDashboard({
+      calendar: aCalendarDay({ capacity: { workingDay: false, windowMinutes: 0 } }),
+    })
+
+    expect(today().getByText(/not a working day/i)).toBeInTheDocument()
+  })
+
+  it('says the capacity is unverified when no calendar is connected', () => {
+    renderDashboard({
+      calendar: aCalendarDay({
+        connected: false,
+        capacity: { verified: false, busyMinutes: 0 },
+      }),
+    })
+
+    expect(today().getByText(/unverified/i)).toBeInTheDocument()
+    expect(today().getByText(/assumes the whole working window is free/i)).toBeInTheDocument()
+  })
+
+  it('leaves the unverified notice off a day that is not a working day', () => {
+    renderDashboard({
+      calendar: aCalendarDay({
+        connected: false,
+        capacity: { workingDay: false, windowMinutes: 0, verified: false, busyMinutes: 0 },
+      }),
+    })
+
+    expect(today().queryByText(/unverified/i)).not.toBeInTheDocument()
+  })
+})
+
+describe('the agenda', () => {
+  it('lists the plan’s entries in rank order with their reasons and estimates', () => {
     renderDashboard({
       plan: aPlan({
         entries: [
@@ -168,20 +243,21 @@ describe('today’s plan', () => {
       }),
     })
 
-    const titles = planPanel()
+    const rows = today()
       .getAllByRole('listitem')
       .map((item) => item.textContent)
+      .filter((text) => text?.includes('Review the retry helper') || text?.includes('Hub numbers'))
 
-    expect(titles[0]).toContain('Review the retry helper')
-    expect(titles[0]).toContain('Somebody is blocked')
-    expect(titles[0]).toContain('30 min')
-    expect(titles[1]).toContain('Hub numbers')
+    expect(rows[0]).toContain('Review the retry helper')
+    expect(rows[0]).toContain('Somebody is blocked')
+    expect(rows[0]).toContain('30 min')
+    expect(rows[1]).toContain('Hub numbers')
   })
 
   it('shows the summary the planner wrote', () => {
     renderDashboard({ plan: aPlan({ summary: 'Two reviews and the hub numbers.' }) })
 
-    expect(planPanel().getByText('Two reviews and the hub numbers.')).toBeInTheDocument()
+    expect(today().getByText('Two reviews and the hub numbers.')).toBeInTheDocument()
   })
 
   /** Spec 05: the entry renders as done once the task is, rather than sitting there as work. */
@@ -192,7 +268,7 @@ describe('today’s plan', () => {
       }),
     })
 
-    expect(planPanel().getByText('Already finished').closest('li')).toHaveClass('plan-done')
+    expect(today().getByText('Already finished').closest('li')).toHaveClass('plan-done')
   })
 
   it('offers to complete an entry that is not done, and says which task', async () => {
@@ -202,7 +278,7 @@ describe('today’s plan', () => {
       onComplete,
     })
 
-    await userEvent.click(planPanel().getByRole('button', { name: /complete Hub numbers/i }))
+    await userEvent.click(today().getByRole('button', { name: /complete Hub numbers/i }))
 
     expect(onComplete).toHaveBeenCalledWith('task-a')
   })
@@ -212,7 +288,7 @@ describe('today’s plan', () => {
       plan: aPlan({ entries: [aPlanEntry({ taskId: null, title: 'Long gone' })] }),
     })
 
-    expect(planPanel().queryByRole('button', { name: /complete/i })).not.toBeInTheDocument()
+    expect(today().queryByRole('button', { name: /complete/i })).not.toBeInTheDocument()
   })
 
   /** Spec 05: excess is offered as "if there is time" rather than dropped. */
@@ -241,7 +317,7 @@ describe('today’s plan', () => {
       plan: aPlan({ warnings: ['No calendar is connected, so this is a guess.'] }),
     })
 
-    expect(planPanel().getByText(/No calendar is connected/)).toBeInTheDocument()
+    expect(today().getByText(/No calendar is connected/)).toBeInTheDocument()
   })
 
   it('says the day has no capacity rather than showing an empty list', () => {
@@ -255,13 +331,13 @@ describe('today’s plan', () => {
       }),
     })
 
-    expect(planPanel().getByText(/no free capacity/i)).toBeInTheDocument()
+    expect(today().getByText(/no free capacity/i)).toBeInTheDocument()
   })
 
   /**
    * Issue #22: `applyPlanRules` always warns about a day with no capacity, and that warning
-   * renders in the plan panel already. The empty state used to repeat "There is no free
-   * capacity today, so nothing is planned" verbatim underneath it, saying the same thing twice.
+   * renders in the agenda already. The empty state used to repeat "There is no free capacity
+   * today, so nothing is planned" verbatim underneath it, saying the same thing twice.
    */
   it('does not repeat the no-capacity message the domain warning already carries', () => {
     renderDashboard({
@@ -274,7 +350,7 @@ describe('today’s plan', () => {
       }),
     })
 
-    expect(planPanel().getAllByText(/no free capacity/i)).toHaveLength(1)
+    expect(today().getAllByText(/no free capacity/i)).toHaveLength(1)
   })
 
   /**
@@ -295,8 +371,8 @@ describe('today’s plan', () => {
       }),
     })
 
-    expect(planPanel().getByText(/no free capacity/i)).toBeInTheDocument()
-    expect(planPanel().queryByText(/nothing fitted/i)).not.toBeInTheDocument()
+    expect(today().getByText(/no free capacity/i)).toBeInTheDocument()
+    expect(today().queryByText(/nothing fitted/i)).not.toBeInTheDocument()
   })
 
   /**
@@ -314,9 +390,7 @@ describe('today’s plan', () => {
       }),
     })
 
-    expect(planPanel().getAllByText(/nothing (is|was) eligible for planning today/i)).toHaveLength(
-      1,
-    )
+    expect(today().getAllByText(/nothing (is|was) eligible for planning today/i)).toHaveLength(1)
   })
 
   /**
@@ -340,9 +414,9 @@ describe('today’s plan', () => {
     })
 
     expect(
-      planPanel().getByText(/Tried to plan two tasks, but neither was one of today’s\./),
+      today().getByText(/Tried to plan two tasks, but neither was one of today’s\./),
     ).toBeInTheDocument()
-    expect(planPanel().queryByText(/nothing was eligible/i)).not.toBeInTheDocument()
+    expect(today().queryByText(/nothing was eligible/i)).not.toBeInTheDocument()
   })
 
   /** The one case nothing else on the panel explains: capacity was positive, nothing overflowed,
@@ -352,7 +426,7 @@ describe('today’s plan', () => {
       plan: aPlan({ entries: [], overflow: [], capacityMinutes: 240, summary: null }),
     })
 
-    expect(planPanel().getByText(/nothing was placed into today’s plan/i)).toBeInTheDocument()
+    expect(today().getByText(/nothing was placed into today’s plan/i)).toBeInTheDocument()
   })
 
   /**
@@ -373,9 +447,9 @@ describe('today’s plan', () => {
       }),
     })
 
-    expect(planPanel().queryByText(/nothing was eligible/i)).not.toBeInTheDocument()
-    expect(planPanel().queryByText(/no free capacity/i)).not.toBeInTheDocument()
-    expect(planPanel().getByText(/nothing fitted into the free time left/i)).toBeInTheDocument()
+    expect(today().queryByText(/nothing was eligible/i)).not.toBeInTheDocument()
+    expect(today().queryByText(/no free capacity/i)).not.toBeInTheDocument()
+    expect(today().getByText(/nothing fitted into the free time left/i)).toBeInTheDocument()
   })
 
   it('regenerates on demand', async () => {
@@ -398,165 +472,6 @@ describe('today’s plan', () => {
     await userEvent.click(button)
     expect(onRegeneratePlan).not.toHaveBeenCalled()
   })
-})
-
-/** Criteria 11 and 12, on the dashboard. */
-describe('the plan’s chase nudges', () => {
-  it('names the item, who it is on and how long it has been', () => {
-    renderDashboard({
-      plan: aPlan({
-        nudges: [
-          aPlanEntry({
-            kind: 'nudge',
-            title: 'Signed contract',
-            waitingOn: 'Legal',
-            waitingSince: NOW - 30 * DAY,
-            estimateMinutes: null,
-          }),
-        ],
-      }),
-    })
-
-    const panel = within(screen.getByRole('region', { name: /chase/i }))
-
-    expect(panel.getByText('Signed contract')).toBeInTheDocument()
-    expect(panel.getByText('Legal')).toBeInTheDocument()
-    expect(panel.getByText('30 days')).toBeInTheDocument()
-  })
-
-  it('says whether the author has pushed since you reviewed', () => {
-    renderDashboard({
-      plan: aPlan({
-        nudges: [
-          aPlanEntry({
-            kind: 'nudge',
-            title: 'example-org/example-service#42',
-            waitingOn: 'author-one',
-            waitingSince: NOW - 10 * DAY,
-            pushedSinceReview: true,
-          }),
-        ],
-      }),
-    })
-
-    expect(screen.getByText(/pushed since/i)).toBeInTheDocument()
-  })
-})
-
-/** Criterion 6: the bar's numbers are the ones `GET /api/calendar` gave. */
-describe('the capacity bar', () => {
-  function capacityPanel() {
-    return within(screen.getByRole('region', { name: /calendar/i }))
-  }
-
-  it('shows planned against available in minutes', () => {
-    renderDashboard({
-      calendar: aCalendarDay({
-        capacity: {
-          windowMinutes: 510,
-          busyMinutes: 60,
-          reserveMinutes: 102,
-          capacityMinutes: 348,
-        },
-      }),
-      plan: aPlan({
-        capacityMinutes: 348,
-        entries: [aPlanEntry({ estimateMinutes: 90 })],
-      }),
-    })
-
-    const bar = capacityPanel().getByRole('meter', { name: /capacity/i })
-
-    expect(bar).toHaveAttribute('aria-valuenow', '90')
-    expect(bar).toHaveAttribute('aria-valuemax', '348')
-  })
-
-  it('spells the numbers out in text as well, so colour is not the only carrier', () => {
-    renderDashboard({
-      calendar: aCalendarDay({}),
-      plan: aPlan({ capacityMinutes: 348, entries: [aPlanEntry({ estimateMinutes: 90 })] }),
-    })
-
-    expect(
-      capacityPanel().getByText(/1 hour 30 min planned of 5 hours 48 min/i),
-    ).toBeInTheDocument()
-  })
-
-  /**
-   * A meter whose minimum and maximum are both zero is not a range, and assistive technology
-   * has nothing to announce for it. The text carries the answer on its own.
-   */
-  it('renders no meter at all on a day with no free capacity', () => {
-    renderDashboard({
-      calendar: aCalendarDay({ capacity: { capacityMinutes: 0, busyMinutes: 408 } }),
-      plan: aPlan({ capacityMinutes: 0 }),
-    })
-
-    expect(capacityPanel().queryByRole('meter')).not.toBeInTheDocument()
-    expect(capacityPanel().getByText(/0 min planned of 0 min free/i)).toBeInTheDocument()
-  })
-
-  it('says the capacity is unverified when no calendar is connected', () => {
-    renderDashboard({
-      calendar: aCalendarDay({
-        connected: false,
-        capacity: { verified: false, busyMinutes: 0 },
-      }),
-    })
-
-    expect(capacityPanel().getByText(/unverified/i)).toBeInTheDocument()
-    expect(
-      capacityPanel().getByText(/assumes the whole working window is free/i),
-    ).toBeInTheDocument()
-  })
-
-  /**
-   * A connection that has since dropped does not erase events already synced into the database:
-   * they are still deducted from the capacity bar's numbers, so the notice must not claim the
-   * whole day was assumed free when it plainly was not.
-   */
-  it('says the notice is drawn from a stale sync, not an assumed-free day, when events were deducted', () => {
-    renderDashboard({
-      calendar: aCalendarDay({
-        connected: false,
-        capacity: { verified: false, busyMinutes: 60 },
-      }),
-    })
-
-    expect(capacityPanel().getByText(/unverified/i)).toBeInTheDocument()
-    expect(capacityPanel().queryByText(/assumes the whole/i)).not.toBeInTheDocument()
-    expect(capacityPanel().getByText(/last synced/i)).toBeInTheDocument()
-  })
-
-  it('says so on a day that is not a working day', () => {
-    renderDashboard({
-      calendar: aCalendarDay({ capacity: { workingDay: false, windowMinutes: 0 } }),
-    })
-
-    expect(capacityPanel().getByText(/not a working day/i)).toBeInTheDocument()
-  })
-
-  /**
-   * A day with no working window has nothing that could have been assumed free and nothing drawn
-   * from a stale sync, so the unverified notice has no distinction left to draw and sits oddly
-   * beside "not a working day".
-   */
-  it('leaves the unverified notice off a day that is not a working day', () => {
-    renderDashboard({
-      calendar: aCalendarDay({
-        connected: false,
-        capacity: { workingDay: false, windowMinutes: 0, verified: false, busyMinutes: 0 },
-      }),
-    })
-
-    expect(capacityPanel().queryByText(/unverified/i)).not.toBeInTheDocument()
-  })
-})
-
-describe('the calendar column', () => {
-  function calendarPanel() {
-    return within(screen.getByRole('region', { name: /calendar/i }))
-  }
 
   it('lists the day’s events with their times', () => {
     renderDashboard({
@@ -580,10 +495,10 @@ describe('the calendar column', () => {
       }),
     })
 
-    expect(calendarPanel().getByText('Hub weekly')).toBeInTheDocument()
+    expect(today().getByText('Hub weekly')).toBeInTheDocument()
   })
 
-  /** A declined meeting is still on the diary, and the column should say why it costs nothing. */
+  /** A declined meeting is still on the diary, and the agenda should say why it costs nothing. */
   it('says when an event takes no time off the day', () => {
     renderDashboard({
       calendar: aCalendarDay({
@@ -606,13 +521,46 @@ describe('the calendar column', () => {
       }),
     })
 
-    expect(calendarPanel().getByText(/declined/i)).toBeInTheDocument()
+    expect(today().getByText(/declined/i)).toBeInTheDocument()
   })
 
   it('says the day is clear rather than showing an empty list', () => {
     renderDashboard({ calendar: aCalendarDay({ events: [] }) })
 
-    expect(calendarPanel().getByText(/nothing in the diary/i)).toBeInTheDocument()
+    expect(today().getByText(/nothing in the diary/i)).toBeInTheDocument()
+  })
+
+  /**
+   * Issue #47: a free gap in the schedule offers the first overflow entry that fits it, sourced
+   * from the plan's own overflow list.
+   */
+  it('offers a fitting overflow entry into a free gap it can be scheduled against', () => {
+    const windowStart = NOW
+    renderDashboard({
+      calendar: aCalendarDay({
+        capacity: {
+          windowStart,
+          windowEnd: windowStart + 120 * 60_000,
+          free: [{ start: windowStart, end: windowStart + 120 * 60_000 }],
+        },
+      }),
+      plan: aPlan({
+        entries: [aPlanEntry({ id: 'entry-1', estimateMinutes: 20 })],
+        overflow: [
+          aPlanEntry({
+            id: 'overflow-1',
+            kind: 'overflow',
+            title: 'Tidy the docs index',
+            estimateMinutes: 25,
+          }),
+        ],
+      }),
+    })
+
+    // Also listed under "If there is time" (every overflow entry is, regardless of whether it
+    // was also offered inline), so two matches rather than one.
+    expect(today().getAllByText(/Tidy the docs index/)).toHaveLength(2)
+    expect(today().getByText(/would fit/)).toBeInTheDocument()
   })
 })
 
@@ -658,7 +606,8 @@ describe('the counts', () => {
   })
 })
 
-describe('the quiet-waiting panel', () => {
+/** Issue #47: gone quiet, worth a chase and stalled, ranked together, oldest first. */
+describe('the needs-you rail', () => {
   const stale = aTask({
     id: 'stale',
     title: 'Signed contract',
@@ -674,32 +623,27 @@ describe('the quiet-waiting panel', () => {
     statusSetAt: NOW - DAY,
   })
 
+  function rail() {
+    return within(screen.getByText('Needs you').closest('section') as HTMLElement)
+  }
+
   /** Criterion 10, on the dashboard: past the threshold, it is listed here as well. */
-  it('lists a waiting item past the threshold, naming who and how long', () => {
+  it('lists a waiting item past the threshold, naming who and how long, tagged "Gone quiet"', () => {
     renderDashboard({ tasks: [stale, fresh] })
 
-    const panel = screen.getByRole('region', { name: /gone quiet/i })
-
-    expect(within(panel).getByText('Signed contract')).toBeInTheDocument()
-    expect(within(panel).getByText('Legal')).toBeInTheDocument()
-    expect(within(panel).getByText('30 days')).toBeInTheDocument()
+    expect(rail().getByText('Signed contract')).toBeInTheDocument()
+    expect(rail().getByText('Legal')).toBeInTheDocument()
+    expect(rail().getByText('30 days')).toBeInTheDocument()
+    expect(rail().getByText('Gone quiet')).toBeInTheDocument()
   })
 
   it('leaves out an item that is still within the threshold', () => {
     renderDashboard({ tasks: [stale, fresh] })
 
-    const panel = screen.getByRole('region', { name: /gone quiet/i })
-
-    expect(within(panel).queryByText('Invoice query')).not.toBeInTheDocument()
+    expect(rail().queryByText('Invoice query')).not.toBeInTheDocument()
   })
 
-  it('says how long the threshold is when everything is inside it', () => {
-    renderDashboard({ tasks: [fresh] })
-
-    expect(screen.getByText('Nothing has been waiting longer than 7 days.')).toBeInTheDocument()
-  })
-
-  it('orders the chase list oldest first', () => {
+  it('orders the list oldest first, across gone-quiet, worth-a-chase and stalled alike', () => {
     const older = aTask({
       id: 'older',
       title: 'Older still',
@@ -707,19 +651,58 @@ describe('the quiet-waiting panel', () => {
       waitingOn: 'Finance',
       statusSetAt: NOW - 60 * DAY,
     })
-    renderDashboard({ tasks: [stale, older] })
+    renderDashboard({
+      tasks: [stale, older],
+      projects: [aProject({ id: 'project-1', title: 'Onboarding rewrite', stalled: true })],
+      plan: aPlan({
+        nudges: [
+          aPlanEntry({
+            kind: 'nudge',
+            id: 'nudge-1',
+            title: 'Review: cache eviction (#398)',
+            waitingOn: 'Priya',
+            waitingSince: NOW - 4 * DAY,
+          }),
+        ],
+      }),
+    })
 
-    const panel = screen.getByRole('region', { name: /gone quiet/i })
-    const titles = within(panel)
-      .getAllByText(/Older still|Signed contract/)
+    const titles = rail()
+      .getAllByText(/Older still|Signed contract|Review: cache eviction|Onboarding rewrite/)
       .map((element) => element.textContent)
 
-    expect(titles).toEqual(['Older still', 'Signed contract'])
+    // Oldest first: 60 days, 30 days, 4 days, then the stalled project with no age at all.
+    expect(titles).toEqual([
+      'Older still',
+      'Signed contract',
+      'Review: cache eviction (#398)',
+      'Onboarding rewrite',
+    ])
   })
-})
 
-describe('stalled projects', () => {
-  it('names each stalled project and links to it', () => {
+  it('names a nudge, who it is on, how long, and whether the author has pushed since', () => {
+    renderDashboard({
+      plan: aPlan({
+        nudges: [
+          aPlanEntry({
+            kind: 'nudge',
+            title: 'example-org/example-service#42',
+            waitingOn: 'author-one',
+            waitingSince: NOW - 10 * DAY,
+            pushedSinceReview: true,
+          }),
+        ],
+      }),
+    })
+
+    expect(rail().getByText('example-org/example-service#42')).toBeInTheDocument()
+    expect(rail().getByText('author-one')).toBeInTheDocument()
+    expect(rail().getByText('10 days')).toBeInTheDocument()
+    expect(rail().getByText(/pushed since/i)).toBeInTheDocument()
+    expect(rail().getByText('Worth a chase')).toBeInTheDocument()
+  })
+
+  it('names each stalled project and links to it, tagged "Stalled"', () => {
     renderDashboard({
       projects: [
         aProject({ id: 'project-1', title: 'Ship it', stalled: true }),
@@ -727,19 +710,25 @@ describe('stalled projects', () => {
       ],
     })
 
-    const panel = screen.getByRole('region', { name: /stalled projects/i })
-
-    expect(within(panel).getByRole('link', { name: 'Ship it' })).toHaveAttribute(
+    expect(rail().getByRole('link', { name: 'Ship it' })).toHaveAttribute(
       'href',
       '#/projects/project-1',
     )
-    expect(within(panel).queryByText('Moving along')).not.toBeInTheDocument()
+    expect(rail().getByText('Stalled')).toBeInTheDocument()
+    expect(rail().queryByText('Moving along')).not.toBeInTheDocument()
   })
 
-  it('says every project has a next action when none are stalled', () => {
-    renderDashboard({ projects: [aProject({ id: 'project-1', title: 'Ship it', stalled: false })] })
+  /** Spec 08, criterion 32: the dashboard's stalled-project links carry the rail across too. */
+  it('carries the open conversation into the drill-in', () => {
+    renderDashboard({
+      projects: [aProject({ id: 'project-1', title: 'Ship it', stalled: true, nextAction: null })],
+      hash: '#/?conversation=abc',
+    })
 
-    expect(screen.getByText('Every active project has a next action.')).toBeInTheDocument()
+    expect(rail().getByRole('link', { name: 'Ship it' })).toHaveAttribute(
+      'href',
+      '#/projects/project-1?conversation=abc',
+    )
   })
 })
 
@@ -759,7 +748,7 @@ describe('the background jobs panel', () => {
   it('shows the last run of each job with how long ago it was', () => {
     renderDashboard({ jobRuns: [{ ...run, status: 'success' }] })
 
-    const panel = screen.getByRole('region', { name: /jobs/i })
+    const panel = screen.getByRole('region', { name: /background jobs/i })
 
     expect(within(panel).getByText('sync:github')).toBeInTheDocument()
     expect(within(panel).getByText('success')).toBeInTheDocument()
@@ -787,13 +776,12 @@ describe('the background jobs panel', () => {
       ],
     })
 
-    const rows = within(screen.getByRole('region', { name: /jobs/i })).getAllByRole('listitem')
+    const rows = within(screen.getByRole('region', { name: /background jobs/i })).getAllByRole(
+      'listitem',
+    )
     const columns = (row: HTMLElement) =>
       [...row.children].filter((child) => !child.classList.contains('job-error')).length
 
-    // Pinned to three rather than only to each other: two rows that had both lost their columns
-    // would be equal, and equal is not the claim. The claim is that the job, its status and its
-    // age are all still there whether or not an error follows them.
     expect(rows).toHaveLength(2)
     expect(columns(rows[0] as HTMLElement)).toBe(3)
     expect(columns(rows[1] as HTMLElement)).toBe(3)
@@ -808,7 +796,7 @@ describe('the background jobs panel', () => {
       ],
     })
 
-    const panel = screen.getByRole('region', { name: /jobs/i })
+    const panel = screen.getByRole('region', { name: /background jobs/i })
 
     expect(within(panel).getByText('failure')).toBeInTheDocument()
     expect(within(panel).queryByText('success')).not.toBeInTheDocument()
@@ -816,9 +804,9 @@ describe('the background jobs panel', () => {
 })
 
 /**
- * Spec 08, criterion 31. A plan entry is not a fourth kind of item: it names a task, and clicking it
- * opens that task. An entry whose task has been deleted is a record of what was proposed, and names
- * nothing to open.
+ * Spec 08, criterion 31. A plan entry is not a fourth kind of item: it names a task, and clicking
+ * it opens that task. An entry whose task has been deleted is a record of what was proposed and
+ * names nothing to open.
  */
 describe('opening a plan entry in the details rail', () => {
   it('opens the entry’s task', async () => {
@@ -828,7 +816,7 @@ describe('opening a plan entry in the details rail', () => {
       onSelect,
     })
 
-    await userEvent.click(screen.getByRole('button', { name: 'Hub numbers' }))
+    await userEvent.click(today().getByRole('button', { name: 'Hub numbers' }))
 
     expect(onSelect).toHaveBeenCalledWith({ kind: 'task', id: 'task-a' })
   })
@@ -839,7 +827,7 @@ describe('opening a plan entry in the details rail', () => {
       selected: { kind: 'task', id: 'task-a' },
     })
 
-    expect(screen.getByRole('button', { name: 'Hub numbers' })).toHaveAttribute(
+    expect(today().getByRole('button', { name: 'Hub numbers' })).toHaveAttribute(
       'aria-pressed',
       'true',
     )
@@ -850,22 +838,7 @@ describe('opening a plan entry in the details rail', () => {
       plan: aPlan({ entries: [aPlanEntry({ taskId: null, title: 'Something deleted' })] }),
     })
 
-    expect(screen.queryByRole('button', { name: 'Something deleted' })).not.toBeInTheDocument()
-    expect(screen.getByText('Something deleted')).toBeInTheDocument()
-  })
-})
-
-/** Spec 08, criterion 32: the dashboard's stalled-project links carry the rail across too. */
-describe('the dashboard’s drill-in links', () => {
-  it('carries the open conversation into the drill-in', () => {
-    renderDashboard({
-      projects: [aProject({ id: 'project-1', title: 'Ship it', stalled: true, nextAction: null })],
-      hash: '#/?conversation=abc',
-    })
-
-    expect(screen.getByRole('link', { name: 'Ship it' })).toHaveAttribute(
-      'href',
-      '#/projects/project-1?conversation=abc',
-    )
+    expect(today().queryByRole('button', { name: 'Something deleted' })).not.toBeInTheDocument()
+    expect(today().getByText('Something deleted')).toBeInTheDocument()
   })
 })
