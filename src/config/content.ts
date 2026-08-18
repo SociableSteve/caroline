@@ -85,7 +85,7 @@ export function textToSend(
  *
  * Every send boundary asks this one question rather than each answering it for itself, for the reason
  * `textToSend` is shared: a level that withholds a title from one path cannot hand it over from
- * another. The paths are the item context, all six of spec 07's read tools, its write tools and the
+ * another. The paths are the item context, every read tool in spec 07's registry, its write tools and the
  * descriptions and refusals they answer with, the turns of a conversation replayed as context, and the
  * day's context in the chat prompt. Spec 09, criterion 13.
  */
