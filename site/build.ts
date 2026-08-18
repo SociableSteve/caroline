@@ -771,10 +771,7 @@ function homePage(page: SitePage, markdown: string, context: BuildContext): stri
   const steps = setupSteps(context.sources.read('docs/setup.md'))
 
   return markdown
-    .replace(
-      '{{eyebrow}}',
-      () => '<p class="hero-eyebrow">Self-hosted, single-user, MIT-licensed.</p>',
-    )
+    .replace('{{eyebrow}}', () => '<p class="hero-eyebrow">Self-hosted · single user · MIT</p>')
     .replace('{{headline}}', () => `<p class="hero-headline">${readme(headline)}</p>`)
     .replace('{{subhead}}', () =>
       subhead === '' ? '' : `<p class="hero-subhead">${readme(subhead)}</p>`,
@@ -811,13 +808,13 @@ function landingFooter(context: BuildContext): string {
 }
 
 /**
- * One line of requirements, verbatim from `site/pages/index.md`'s own "What it needs" section: a
- * machine, Node 24, a browser, nothing to compile.
+ * One line of requirements, echoing `docs/setup.md`'s own opening claim: nothing here needs a
+ * compiler, a container or a server, and Caroline is a usable manual GTD board before any
+ * credentials are configured.
  */
 function requirements(context: BuildContext): string {
   return renderInline(
-    'A machine you use, with Node 24 or later on it, and a browser. There is nothing to compile and ' +
-      'no container to run.',
+    'Node 24, a browser, nothing to compile. A manual GTD board before you hand it any credentials.',
     'site/pages/index.md',
     'index.html',
     context,
@@ -1026,7 +1023,14 @@ ${rendered.html.trimEnd()}
         <a href="${escapeAttribute(`${context.repository}/blob/main/${page.source}`)}" rel="noopener" target="_blank"><code>${escapeText(page.source)}</code></a>
         in the repository, rendered. Corrections belong to the file rather than to the site.
       </p>
-      <p>Caroline is MIT-licensed, single-user, and runs on your own machine.</p>
+      ${
+        // The home page's own footer, inside the article, already carries this line: repeating it
+        // here would print it twice on the one page that has it. Every other page carries it once,
+        // here.
+        page.output === 'index.html'
+          ? ''
+          : '<p>Caroline is MIT-licensed, single-user, and runs on your own machine.</p>'
+      }
     </footer>
   </body>
 </html>
