@@ -231,6 +231,35 @@ describe('with mcp.enabled true', () => {
   })
 
   /**
+   * `setErrorHandler` recovers the real envelope with `readEnvelope(request.body)` once it knows
+   * this was not a parse failure (the check right above), but it used to discard that recovery
+   * and hardcode `id: null` on the response regardless. Per JSON-RPC 2.0, `id: null` is only
+   * correct when the id genuinely can't be known, which is the parse-failure case covered above;
+   * here the envelope, and the real id it carries, has already been recovered, so the response
+   * has to carry that id rather than `null`. A strict client's JSON-RPC union schema rejects a
+   * response with `id: null` outright when a real id was available, which is what turned every
+   * real `tools/call` exception into an incomprehensible client-side error rather than a readable
+   * `-32603` naming the real problem.
+   */
+  it("answers with the request's real id, not null, for an uncaught exception past the framing checks", async () => {
+    const { app, database } = await testServer({ config: mcpConfig() })
+    database.exec('drop table mcp_sessions')
+
+    const response = await post(
+      app,
+      database,
+      mcpConfig(),
+      rpc('tools/call', { name: 'search_tasks', arguments: {} }, 'a-real-request-id'),
+    )
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({
+      id: 'a-real-request-id',
+      error: { code: -32603 },
+    })
+  })
+
+  /**
    * The same "MUST NOT reply to a Notification" rule the general dispatch already follows
    * (see "sends no body for notifications/initialized" below) also has to hold in
    * `setErrorHandler`, which sits outside `handleMethod` and answers whatever this route's own
