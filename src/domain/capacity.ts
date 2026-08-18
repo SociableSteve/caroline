@@ -182,3 +182,19 @@ export function computeCapacity({
     free: freeIntervals(window, busy),
   }
 }
+
+/**
+ * The notice for an unverified capacity, or null when the calendar is connected and there is
+ * nothing to warn about. Two wordings, not one: a disconnected diary with nothing on record is a
+ * genuine guess that the day is free, but when events were still found and deducted (a stale sync
+ * from before the connection dropped, say) the day was not assumed free at all, and saying so
+ * would be false. Shared so the job and the dashboard can't say something different from the same
+ * numbers. Spec 05, criterion 10.
+ */
+export function unverifiedCapacityNotice(verified: boolean, busyMinutes: number): string | null {
+  if (verified) return null
+
+  return busyMinutes > 0
+    ? 'The calendar could not be read, so this capacity is unverified: it is drawn from events last synced rather than a live diary.'
+    : 'No calendar is connected, so this capacity is unverified: it assumes the whole working day is free.'
+}

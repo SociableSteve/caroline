@@ -22,7 +22,7 @@ import { getUserName } from '../db/repositories/settings.js'
 import { listTasks } from '../db/repositories/tasks.js'
 import { workingWindowForDate } from '../actions/capacity.js'
 import { waitingItemsFor } from '../actions/waiting.js'
-import { computeCapacity, type Capacity } from '../domain/capacity.js'
+import { computeCapacity, unverifiedCapacityNotice, type Capacity } from '../domain/capacity.js'
 import { noCounts, type JobCounts, type JobRunStatus } from '../domain/job.js'
 import {
   applyPlanRules,
@@ -127,11 +127,6 @@ function dayContext(
   const dueBy = (instantAt(date, 23 * 60 + 59, timeZone) ?? now()) + 59_999
 
   const verified = calendarConnected()
-  if (!verified) {
-    warnings.push(
-      'No calendar is connected, so this capacity is unverified: it assumes the whole working window is free.',
-    )
-  }
 
   const capacity =
     window === null
@@ -144,6 +139,14 @@ function dayContext(
           reservePercent,
           countAllDayEvents,
         })
+
+  // Judged against what was actually deducted, not just against the connection: a stale sync
+  // from before the connection dropped still counts as events found, and the notice must not
+  // claim the day was assumed free when it plainly was not.
+  const notice = unverifiedCapacityNotice(verified, capacity?.busyMinutes ?? 0)
+  if (notice !== null) {
+    warnings.push(notice)
+  }
 
   if (window === null) {
     warnings.push(

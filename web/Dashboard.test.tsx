@@ -369,9 +369,33 @@ describe('the capacity bar', () => {
   })
 
   it('says the capacity is unverified when no calendar is connected', () => {
-    renderDashboard({ calendar: aCalendarDay({ connected: false, capacity: { verified: false } }) })
+    renderDashboard({
+      calendar: aCalendarDay({
+        connected: false,
+        capacity: { verified: false, busyMinutes: 0 },
+      }),
+    })
 
     expect(capacityPanel().getByText(/unverified/i)).toBeInTheDocument()
+    expect(capacityPanel().getByText(/assumes the whole working day is free/i)).toBeInTheDocument()
+  })
+
+  /**
+   * A connection that has since dropped does not erase events already synced into the database:
+   * they are still deducted from the capacity bar's numbers, so the notice must not claim the
+   * whole day was assumed free when it plainly was not.
+   */
+  it('says the notice is drawn from a stale sync, not an assumed-free day, when events were deducted', () => {
+    renderDashboard({
+      calendar: aCalendarDay({
+        connected: false,
+        capacity: { verified: false, busyMinutes: 60 },
+      }),
+    })
+
+    expect(capacityPanel().getByText(/unverified/i)).toBeInTheDocument()
+    expect(capacityPanel().queryByText(/assumes the whole/i)).not.toBeInTheDocument()
+    expect(capacityPanel().getByText(/last synced/i)).toBeInTheDocument()
   })
 
   it('says so on a day that is not a working day', () => {
