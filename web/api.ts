@@ -393,6 +393,10 @@ export interface Health {
 /** Only the parts of the redacted config the UI reads. The route returns rather more. */
 export interface ClientConfig {
   readonly tasks: { readonly waitingStaleDays: number }
+  /** The zone `update_task` resolves a chat-given due or defer-until date in (spec 06). The
+   *  board's own date inputs resolve against the same zone, so the two paths cannot disagree
+   *  about what a calendar date means. */
+  readonly jobs: { readonly timezone: string }
 }
 
 /**

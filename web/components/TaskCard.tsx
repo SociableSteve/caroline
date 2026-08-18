@@ -2,11 +2,20 @@
  * One card. Everything that matters about a task is on it: nothing is behind a hover, per
  * spec 08, and every state that is carried by colour is also carried by text.
  */
-import { useState, type KeyboardEvent } from 'react'
-import { boardStatuses, type ItemRef, type TaskStatus, type TaskView } from '../api.js'
+import { useEffect, useState, type KeyboardEvent } from 'react'
+import {
+  boardStatuses,
+  type ItemRef,
+  type TaskInput,
+  type TaskStatus,
+  type TaskView,
+} from '../api.js'
 import { ActionRow, Badge, Fact, Facts, Field } from './primitives.js'
 import {
   canMarkReviewed,
+  dateInputValue,
+  deferUntilFromDateInput,
+  dueAtFromDateInput,
   formatAge,
   formatConfidence,
   formatDate,
@@ -27,10 +36,28 @@ export interface TaskCardProps {
   readonly task: TaskView
   readonly projectTitle?: string | undefined
   readonly staleDays: number
+  /** The zone `dueAtFromDateInput` and `deferUntilFromDateInput` resolve a typed date in, so a
+   *  date set here lands on the same instant it would from chat. Spec 06. */
+  readonly timezone: string
+  /** Whether `timezone` is the deployment's real configured zone yet, rather than the UTC
+   *  default it starts as while `GET /api/config` is still out. The board can already be
+   *  interactive at that point, since `loading` only gates on the task reload; without this,
+   *  a date set in that window would be silently resolved against UTC instead of the real zone.
+   *  The due and defer-until fields are disabled until this is true. */
+  readonly configLoaded: boolean
   readonly now: number
   readonly onStatusChange: (id: string, status: TaskStatus) => void
   readonly onComplete: (id: string) => void
   readonly onDelete: (id: string) => void
+  /**
+   * Setting, changing or clearing the due date or the defer-until date, from the card's "More"
+   * disclosure. Either field is `null` to clear it and absent to leave it alone, the same
+   * three-state contract `update_task` offers from chat.
+   */
+  readonly onDatesChange: (
+    id: string,
+    patch: Partial<Pick<TaskInput, 'dueAt' | 'deferUntil'>>,
+  ) => void
   /** Absent on surfaces that do not offer the action, such as a project drill-in. */
   readonly onMarkReviewed?: ((id: string) => void) | undefined
   /** The one-click accept spec 04 asks for. Absent where a proposal cannot be acted on. */
@@ -55,10 +82,13 @@ export function TaskCard({
   task,
   projectTitle,
   staleDays,
+  timezone,
+  configLoaded,
   now,
   onStatusChange,
   onComplete,
   onDelete,
+  onDatesChange,
   onMarkReviewed,
   onAcceptProposal,
   onDismissProposal,
@@ -85,6 +115,47 @@ export function TaskCard({
   // A proposal the classifier was not confident enough to apply. Shown with its reasoning and its
   // confidence, because accepting somebody else's guess unseen is not triage. Spec 04.
   const proposal = onAcceptProposal === undefined ? null : task.proposal
+
+  /**
+   * The due and defer-until inputs are buffered locally and only committed on blur, the same
+   * convention `QuickCapture` already uses for its own date fields. A native `<input
+   * type="date">` can report `.value === ''` for an instant while an already-filled control is
+   * mid-edit (clearing the year to retype it, for instance), and committing straight from
+   * `onChange` the way an earlier draft of this card did would send that transient empty
+   * reading on to the server as an unintended clear. Buffering means every keystroke is safe to
+   * see, and only the value standing when the field loses focus is ever sent.
+   */
+  const dueAtValue = task.dueAt === null ? '' : dateInputValue(task.dueAt, timezone)
+  const deferUntilValue = task.deferUntil === null ? '' : dateInputValue(task.deferUntil, timezone)
+  const [dueDateInput, setDueDateInput] = useState(dueAtValue)
+  const [deferDateInput, setDeferDateInput] = useState(deferUntilValue)
+
+  useEffect(() => setDueDateInput(dueAtValue), [dueAtValue])
+  useEffect(() => setDeferDateInput(deferUntilValue), [deferUntilValue])
+
+  const commitDueDate = () => {
+    if (dueDateInput === dueAtValue) return
+    if (dueDateInput === '') {
+      onDatesChange(task.id, { dueAt: null })
+      return
+    }
+    // Null here means the value could not be resolved in `timezone` at all, which real IANA
+    // zones do not do for a whole calendar day: left alone rather than guessed at.
+    const resolved = dueAtFromDateInput(dueDateInput, timezone)
+    if (resolved === null) return
+    onDatesChange(task.id, { dueAt: resolved })
+  }
+
+  const commitDeferDate = () => {
+    if (deferDateInput === deferUntilValue) return
+    if (deferDateInput === '') {
+      onDatesChange(task.id, { deferUntil: null })
+      return
+    }
+    const resolved = deferUntilFromDateInput(deferDateInput, timezone)
+    if (resolved === null) return
+    onDatesChange(task.id, { deferUntil: resolved })
+  }
 
   return (
     <li className="card-slot">
@@ -289,6 +360,47 @@ export function TaskCard({
                 Undo move
               </button>
             )}
+
+            {/* A native date input, empty for unset. Clearing it back to empty sends `null`
+                rather than leaving the field alone, so taking a date off a task is as direct as
+                setting one. Issue #44.
+
+                Typed and buffered locally rather than written on every `onChange`: a native date
+                input can read as empty for an instant mid-edit (retyping the year of an
+                already-set date, for instance), and committing that transient reading would
+                clear the date under the person typing it. Committed on blur instead, the same
+                convention `QuickCapture`'s own date fields use. */}
+            <Field label={`Due date of ${task.title}`} hiddenLabel>
+              <input
+                type="date"
+                name="dueAt"
+                value={dueDateInput}
+                onChange={(event) => setDueDateInput(event.target.value)}
+                onBlur={commitDueDate}
+                disabled={!configLoaded}
+                title={
+                  configLoaded
+                    ? undefined
+                    : 'Waiting for the deployment’s configured timezone to load'
+                }
+              />
+            </Field>
+
+            <Field label={`Defer-until date of ${task.title}`} hiddenLabel>
+              <input
+                type="date"
+                name="deferUntil"
+                value={deferDateInput}
+                onChange={(event) => setDeferDateInput(event.target.value)}
+                onBlur={commitDeferDate}
+                disabled={!configLoaded}
+                title={
+                  configLoaded
+                    ? undefined
+                    : 'Waiting for the deployment’s configured timezone to load'
+                }
+              />
+            </Field>
 
             {confirmingDelete ? (
               <>

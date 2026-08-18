@@ -4,7 +4,7 @@
  */
 import { useState } from 'react'
 import { projectStates } from '../../src/domain/project.js'
-import type { ItemRef, ProjectState, ProjectView, TaskStatus, TaskView } from '../api.js'
+import type { ItemRef, ProjectState, ProjectView, TaskInput, TaskStatus, TaskView } from '../api.js'
 import { statusLabel } from '../format.js'
 import { projectHref, surfaceHref } from '../router.js'
 import { TaskCard } from '../components/TaskCard.js'
@@ -203,10 +203,19 @@ export interface ProjectDetailProps {
   readonly project: ProjectView | undefined
   readonly tasks: readonly TaskView[]
   readonly staleDays: number
+  /** The zone a due or defer-until date typed into a card resolves in. Spec 06. */
+  readonly timezone: string
+  /** Whether `timezone` is the deployment's real configured zone yet, rather than the UTC
+   *  default it starts as. A card disables its date fields until this is true. */
+  readonly configLoaded: boolean
   readonly now: number
   readonly onStatusChange: (id: string, status: TaskStatus) => void
   readonly onComplete: (id: string) => void
   readonly onDelete: (id: string) => void
+  readonly onDatesChange: (
+    id: string,
+    patch: Partial<Pick<TaskInput, 'dueAt' | 'deferUntil'>>,
+  ) => void
   readonly onSelect: (item: ItemRef) => void
   readonly selected: ItemRef | null
   /** The hash the way back out is built from, so leaving the drill-in keeps the rail. Spec 08. */
@@ -217,10 +226,13 @@ export function ProjectDetail({
   project,
   tasks,
   staleDays,
+  timezone,
+  configLoaded,
   now,
   onStatusChange,
   onComplete,
   onDelete,
+  onDatesChange,
   onSelect,
   selected,
   hash,
@@ -278,10 +290,13 @@ export function ProjectDetail({
               key={task.id}
               task={task}
               staleDays={staleDays}
+              timezone={timezone}
+              configLoaded={configLoaded}
               now={now}
               onStatusChange={onStatusChange}
               onComplete={onComplete}
               onDelete={onDelete}
+              onDatesChange={onDatesChange}
               onSelect={onSelect}
               selected={selected?.kind === 'task' && selected.id === task.id}
             />

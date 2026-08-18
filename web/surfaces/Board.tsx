@@ -7,6 +7,7 @@ import {
   boardStatuses,
   type ItemRef,
   type ProjectView,
+  type TaskInput,
   type TaskStatus,
   type TaskView,
 } from '../api.js'
@@ -19,10 +20,21 @@ export interface BoardProps {
   readonly tasks: readonly TaskView[]
   readonly projects: readonly ProjectView[]
   readonly staleDays: number
+  /** The zone a due or defer-until date typed into a card resolves in. Spec 06. */
+  readonly timezone: string
+  /** Whether `timezone` is the deployment's real configured zone yet, rather than the UTC
+   *  default it starts as. A card disables its date fields until this is true, so a date cannot
+   *  be set and silently resolved against the wrong zone in the gap before the config read
+   *  answers. */
+  readonly configLoaded: boolean
   readonly now: number
   readonly onStatusChange: (id: string, status: TaskStatus) => void
   readonly onComplete: (id: string) => void
   readonly onDelete: (id: string) => void
+  readonly onDatesChange: (
+    id: string,
+    patch: Partial<Pick<TaskInput, 'dueAt' | 'deferUntil'>>,
+  ) => void
   readonly onMarkReviewed: (id: string) => void
   readonly onAcceptProposal: (id: string) => void
   readonly onDismissProposal: (id: string) => void
@@ -69,10 +81,13 @@ export function Board({
   tasks,
   projects,
   staleDays,
+  timezone,
+  configLoaded,
   now,
   onStatusChange,
   onComplete,
   onDelete,
+  onDatesChange,
   onMarkReviewed,
   onAcceptProposal,
   onDismissProposal,
@@ -313,10 +328,13 @@ export function Board({
                         ? { projectTitle: projectTitles.get(task.projectId) }
                         : {})}
                       staleDays={staleDays}
+                      timezone={timezone}
+                      configLoaded={configLoaded}
                       now={now}
                       onStatusChange={onStatusChange}
                       onComplete={onComplete}
                       onDelete={onDelete}
+                      onDatesChange={onDatesChange}
                       onMarkReviewed={onMarkReviewed}
                       onAcceptProposal={onAcceptProposal}
                       onDismissProposal={onDismissProposal}

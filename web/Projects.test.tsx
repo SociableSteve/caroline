@@ -161,6 +161,7 @@ function renderDetail(overrides: Partial<Parameters<typeof ProjectDetail>[0]> = 
     onStatusChange: vi.fn(),
     onComplete: vi.fn(),
     onDelete: vi.fn(),
+    onDatesChange: vi.fn(),
     onSelect: vi.fn(),
   }
 
@@ -169,6 +170,8 @@ function renderDetail(overrides: Partial<Parameters<typeof ProjectDetail>[0]> = 
       project={aProject({ id: 'project-1', title: 'Ship it' })}
       tasks={[]}
       staleDays={7}
+      timezone="UTC"
+      configLoaded={true}
       now={NOW}
       selected={null}
       hash="#/projects/project-1"

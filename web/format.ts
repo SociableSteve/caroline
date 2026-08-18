@@ -4,6 +4,7 @@
  * cannot disagree about how long something has been waiting.
  */
 import { hasNewCommitsSinceActing } from '../src/domain/review.js'
+import { instantAt, localDateAt, parseLocalDate } from '../src/domain/time.js'
 import {
   isStaleWait,
   waitingAge as waitingAgeOf,
@@ -221,6 +222,44 @@ export function hasOptedOutOfSync(task: Pick<TaskView, 'sources' | 'syncTracked'
 
 export function isDeferred(task: Pick<TaskView, 'deferUntil'>, now: number): boolean {
   return task.deferUntil !== null && task.deferUntil > now
+}
+
+/**
+ * The three conversions between an `<input type="date">` value and the instant the API wants,
+ * resolved in the deployment's configured `jobs.timezone` (spec 06) rather than the browser's
+ * own zone. `dateFrom` (`src/chat/tools/shared.ts`) resolves the same calendar date the same
+ * way for the chat tool's `update_task`, so setting a due date from the board and setting the
+ * same calendar date from chat land on the same instant regardless of where the browser
+ * happens to be relative to where the server is configured.
+ */
+
+/** The last local millisecond of the day named, in `timeZone`. A deadline is the end of that day. */
+export function dueAtFromDateInput(value: string, timeZone: string): number | null {
+  const date = parseLocalDate(value)
+  if (date === null) return null
+
+  const startOfDay = instantAt(date, 0, timeZone)
+  if (startOfDay === null) return null
+
+  return (instantAt(date, 23 * 60 + 59, timeZone) ?? startOfDay) + 59_999
+}
+
+/** The first local millisecond of the day named, in `timeZone`. A deferral lifts at the start of it. */
+export function deferUntilFromDateInput(value: string, timeZone: string): number | null {
+  const date = parseLocalDate(value)
+  if (date === null) return null
+
+  return instantAt(date, 0, timeZone)
+}
+
+/** The inverse of both: an instant as the `YYYY-MM-DD` a date input control wants, read in
+ *  `timeZone` so a date round-tripped back through either function above lands unchanged. */
+export function dateInputValue(epochMs: number, timeZone: string): string {
+  const date = localDateAt(epochMs, timeZone)
+  const year = String(date.year).padStart(4, '0')
+  const month = String(date.month).padStart(2, '0')
+  const day = String(date.day).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 /**

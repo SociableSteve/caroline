@@ -13,6 +13,7 @@ function renderBoard(overrides: Partial<Parameters<typeof Board>[0]> = {}) {
     onStatusChange: vi.fn(),
     onComplete: vi.fn(),
     onDelete: vi.fn(),
+    onDatesChange: vi.fn(),
     onMarkReviewed: vi.fn(),
     onAcceptProposal: vi.fn(),
     onDismissProposal: vi.fn(),
@@ -25,6 +26,8 @@ function renderBoard(overrides: Partial<Parameters<typeof Board>[0]> = {}) {
       tasks={[]}
       projects={[]}
       staleDays={7}
+      timezone="UTC"
+      configLoaded={true}
       now={NOW}
       selected={null}
       {...handlers}

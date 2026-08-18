@@ -204,7 +204,8 @@ function stubApi({
       if (url.startsWith('/api/privacy/preview')) return answer(preview)
       if (url.startsWith('/api/settings')) return answer({ userName: '' })
       if (url.startsWith('/api/health')) return answer(health)
-      if (url.startsWith('/api/config')) return answer({ tasks: { waitingStaleDays: 7 } })
+      if (url.startsWith('/api/config'))
+        return answer({ tasks: { waitingStaleDays: 7 }, jobs: { timezone: 'UTC' } })
       if (url.startsWith('/api/auth/status')) return answer(authStatus)
 
       throw new Error(`unstubbed request: ${method} ${url}`)

@@ -29,7 +29,7 @@ function deferredTaskFetch() {
       if (url.startsWith('/api/projects')) return answer({ projects: [] })
       if (url.startsWith('/api/health')) return answer({ integrations: {} })
 
-      return answer({ tasks: { waitingStaleDays: 7 } })
+      return answer({ tasks: { waitingStaleDays: 7 }, jobs: { timezone: 'UTC' } })
     }),
   )
 
@@ -53,6 +53,97 @@ function Probe() {
     </>
   )
 }
+
+/**
+ * `loading` and `configLoaded` are independent: `reload()` and `GET /api/config` are unordered
+ * fetches, and the board can already be interactive (`loading` false) while `timezone` is still
+ * the UTC default. A write path that resolves a typed date has to gate on `configLoaded`, not on
+ * `loading`, or a date set in that gap is silently resolved against the wrong zone. Issue found
+ * in review of the due/defer date controls.
+ */
+function ConfigProbe() {
+  const { loading, configLoaded, timezone } = useCarolineData()
+
+  return (
+    <>
+      <p data-testid="loading">{loading ? 'loading' : 'ready'}</p>
+      <p data-testid="config-loaded">{configLoaded ? 'loaded' : 'pending'}</p>
+      <p data-testid="timezone">{timezone}</p>
+    </>
+  )
+}
+
+/** Answers every request `reload` needs to clear `loading`, but leaves `/api/config` pending
+ *  until the test resolves or rejects it, so the board and the config read can be observed out
+ *  of step, the same as they can be in the real, unordered fetches. */
+function deferredConfigFetch() {
+  let settleConfig: (() => void) | null = null
+  let rejectConfig: (() => void) | null = null
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) => {
+      const answer = (body: unknown) =>
+        ({ ok: true, status: 200, json: async () => body }) as unknown as Response
+
+      if (url.startsWith('/api/tasks'))
+        return answer({ tasks: [], total: 0, limit: 500, offset: 0 })
+      if (url.startsWith('/api/projects')) return answer({ projects: [] })
+      if (url.startsWith('/api/health')) return answer({ integrations: {} })
+      if (url.startsWith('/api/jobs/status')) return answer({ jobs: [] })
+      if (url.startsWith('/api/jobs')) return answer({ runs: [] })
+      if (url.startsWith('/api/plan'))
+        return answer({ date: '2026-06-08', plan: null, history: [] })
+      if (url.startsWith('/api/calendar')) {
+        return answer({ date: '2026-06-08', connected: false, events: [], capacity: {} })
+      }
+      if (!url.startsWith('/api/config')) throw new Error(`unstubbed route: ${url}`)
+
+      // The config read: held open until the test says otherwise.
+      return new Promise<Response>((resolve, reject) => {
+        settleConfig = () =>
+          resolve(answer({ tasks: { waitingStaleDays: 3 }, jobs: { timezone: 'Europe/London' } }))
+        rejectConfig = () => reject(new Error('config unavailable'))
+      })
+    }),
+  )
+
+  return {
+    settleConfig: () => settleConfig?.(),
+    rejectConfig: () => rejectConfig?.(),
+  }
+}
+
+describe('the board becoming interactive ahead of the config read', () => {
+  it('does not report the config as loaded just because the board is', async () => {
+    const { settleConfig } = deferredConfigFetch()
+    render(<ConfigProbe />)
+
+    await waitFor(() => expect(screen.getByTestId('loading')).toHaveTextContent('ready'))
+    // The board is on screen, but the config read this hook also started is still out.
+    expect(screen.getByTestId('config-loaded')).toHaveTextContent('pending')
+    expect(screen.getByTestId('timezone')).toHaveTextContent('UTC')
+
+    settleConfig()
+    await waitFor(() => expect(screen.getByTestId('config-loaded')).toHaveTextContent('loaded'))
+    expect(screen.getByTestId('timezone')).toHaveTextContent('Europe/London')
+  })
+
+  it('reports the config as loaded once the read settles even when it fails', async () => {
+    const { rejectConfig } = deferredConfigFetch()
+    render(<ConfigProbe />)
+
+    await waitFor(() => expect(screen.getByTestId('loading')).toHaveTextContent('ready'))
+    expect(screen.getByTestId('config-loaded')).toHaveTextContent('pending')
+
+    rejectConfig()
+    await waitFor(() => expect(screen.getByTestId('config-loaded')).toHaveTextContent('loaded'))
+    // A refused read settles on the UTC default deliberately; the only thing this asserts is that
+    // the settling itself is recorded, so a caller relying on `configLoaded` is not left waiting
+    // forever behind a request that will never come back.
+    expect(screen.getByTestId('timezone')).toHaveTextContent('UTC')
+  })
+})
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -157,7 +248,7 @@ function stubDay({ planDate, calendarDate, failing = [] }: DayStubOptions) {
         return answer({ date: asked ?? calendarDate, connected: true, events: [], capacity: {} })
       }
 
-      return answer({ tasks: { waitingStaleDays: 7 } })
+      return answer({ tasks: { waitingStaleDays: 7 }, jobs: { timezone: 'UTC' } })
     }),
   )
 

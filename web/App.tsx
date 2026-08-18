@@ -110,6 +110,8 @@ export function App() {
     mcpClients,
     userName,
     staleDays,
+    timezone,
+    configLoaded,
     loading,
     failure,
     unfetchedTaskTotal,
@@ -186,6 +188,13 @@ export function App() {
 
   const onStatusChange = (id: string, status: TaskStatus) =>
     void write(() => api.patchTask(id, { status }))
+  /**
+   * Setting, changing or clearing a due date or a defer-until date from a card's "More"
+   * disclosure. The same three-state contract as `update_task` from chat: a field named `null`
+   * is cleared, and a field left out of the patch is left alone. Issue #44.
+   */
+  const onDatesChange = (id: string, patch: Partial<Pick<TaskInput, 'dueAt' | 'deferUntil'>>) =>
+    void write(() => api.patchTask(id, patch))
   const onComplete = (id: string) => void write(() => api.completeTask(id))
   const onDelete = (id: string) => void write(() => api.deleteTask(id))
   const onMarkReviewed = (id: string) => void write(() => api.markReviewed(id))
@@ -239,6 +248,7 @@ export function App() {
     onStatusChange,
     onComplete,
     onDelete,
+    onDatesChange,
     onSelect: onSelectItem,
     selected,
   }
@@ -455,6 +465,8 @@ export function App() {
                 tasks={tasks}
                 projects={projects}
                 staleDays={staleDays}
+                timezone={timezone}
+                configLoaded={configLoaded}
                 now={now}
                 onMarkReviewed={onMarkReviewed}
                 onAcceptProposal={onAcceptProposal}
@@ -477,6 +489,8 @@ export function App() {
                 project={projects.find((project) => project.id === route.id)}
                 tasks={tasks.filter((task) => task.projectId === route.id)}
                 staleDays={staleDays}
+                timezone={timezone}
+                configLoaded={configLoaded}
                 now={now}
                 hash={hash}
                 {...cardHandlers}
@@ -553,6 +567,8 @@ export function App() {
       <QuickCapture
         open={capturing}
         projects={projects}
+        timezone={timezone}
+        configLoaded={configLoaded}
         onClose={() => setCapturing(false)}
         onCreate={onCapture}
       />

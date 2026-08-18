@@ -22,6 +22,7 @@ const boardHandlers = {
   onStatusChange: vi.fn(),
   onComplete: vi.fn(),
   onDelete: vi.fn(),
+  onDatesChange: vi.fn(),
   onMarkReviewed: vi.fn(),
   onAcceptProposal: vi.fn(),
   onDismissProposal: vi.fn(),
@@ -59,7 +60,17 @@ const surfaces: ReadonlyArray<{ name: string; title: string; render: () => void 
     name: 'Board',
     title: 'Board',
     render: () =>
-      void render(<Board tasks={[]} projects={[]} staleDays={7} now={NOW} {...boardHandlers} />),
+      void render(
+        <Board
+          tasks={[]}
+          projects={[]}
+          staleDays={7}
+          timezone="UTC"
+          configLoaded={true}
+          now={NOW}
+          {...boardHandlers}
+        />,
+      ),
   },
   {
     name: 'Projects',
@@ -86,10 +97,13 @@ const surfaces: ReadonlyArray<{ name: string; title: string; render: () => void 
           project={aProject({ id: 'project-1', title: 'Ship the thing' })}
           tasks={[]}
           staleDays={7}
+          timezone="UTC"
+          configLoaded={true}
           now={NOW}
           onStatusChange={vi.fn()}
           onComplete={vi.fn()}
           onDelete={vi.fn()}
+          onDatesChange={vi.fn()}
           onSelect={vi.fn()}
           selected={null}
           hash="#/projects/project-1"
@@ -204,6 +218,8 @@ describe('one filled primary per context', () => {
         tasks={[aReviewTask(), aTask({ id: 'task-2', title: 'Captured', proposal: aProposal() })]}
         projects={[]}
         staleDays={7}
+        timezone="UTC"
+        configLoaded={true}
         now={NOW}
         {...boardHandlers}
       />,
