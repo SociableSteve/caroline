@@ -879,6 +879,33 @@ describe('opening a plan entry in the details rail', () => {
     )
   })
 
+  /**
+   * Issue #47's mockup draws the open row's own card with the accent border every other open card
+   * in the app gets, not only the title inside it with a pressed state: the same `card-open` class
+   * Board's task cards use for the rail's currently-open item.
+   */
+  it('borders the row’s own card, the way every other open card in the app is bordered', () => {
+    renderDashboard({
+      plan: aPlan({ entries: [aPlanEntry({ taskId: 'task-a', title: 'Hub numbers' })] }),
+      selected: { kind: 'task', id: 'task-a' },
+    })
+
+    expect(
+      today().getByRole('button', { name: 'Hub numbers' }).closest('.agenda-card'),
+    ).toHaveClass('card-open')
+  })
+
+  it('leaves every other row’s card unbordered', () => {
+    renderDashboard({
+      plan: aPlan({ entries: [aPlanEntry({ taskId: 'task-a', title: 'Hub numbers' })] }),
+      selected: { kind: 'task', id: 'task-b' },
+    })
+
+    expect(
+      today().getByRole('button', { name: 'Hub numbers' }).closest('.agenda-card'),
+    ).not.toHaveClass('card-open')
+  })
+
   it('leaves an entry whose task has been deleted as text', () => {
     renderDashboard({
       plan: aPlan({ entries: [aPlanEntry({ taskId: null, title: 'Something deleted' })] }),

@@ -374,10 +374,17 @@ describe('the chat rail', () => {
     )
   })
 
-  /** Without this a long transcript lengthens the surface it was supposed to sit beside. */
+  /**
+   * Without this a long transcript lengthens the surface it was supposed to sit beside. The rail
+   * is bounded by stretching to `.app-body`'s own row rather than by a `max-height`: `min-height:
+   * 0` is what lets that row (and the rail's `align-self: stretch` within it) actually shrink to
+   * fit `#root`'s flex column instead of growing to whatever the transcript's own content needs,
+   * which is what makes `overflow-y: auto` below actually take effect rather than never engaging.
+   */
   it('scrolls within the viewport instead of lengthening the surface beside it', () => {
     expect(value(base('.chat-rail'), 'overflow-y')).toBe('auto')
-    expect(value(base('.chat-rail'), 'max-height')).toBeDefined()
+    expect(value(base('.chat-rail'), 'align-self')).toBe('stretch')
+    expect(value(base('.app-body'), 'min-height')).toBe('0')
   })
 
   it('leaves the flow and sits above the surface below the breakpoint', () => {

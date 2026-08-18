@@ -320,6 +320,17 @@ function offersForGaps(
   })
 }
 
+/**
+ * Whether a plan entry is the item currently open in the chat rail: it names a task, and opening
+ * one opens that task, so this is true exactly when `selected` is that task. Issue #47's mockup
+ * draws the open row's card with the accent border every other open card in the app gets (Board's
+ * `card-open`, spec 10): shared here rather than left to `EntryTitle` alone so `AgendaEntryRow`
+ * can put the same border on the card around the title, not only on the title's own pressed state.
+ */
+function isEntryOpen(entry: PlanEntryView, selected: ItemRef | null): boolean {
+  return entry.taskId !== null && selected?.kind === 'task' && selected.id === entry.taskId
+}
+
 function EntryTitle({
   entry,
   onSelect,
@@ -335,7 +346,7 @@ function EntryTitle({
   const taskId = entry.taskId
   if (taskId === null) return <>{entry.title}</>
 
-  const open = selected?.kind === 'task' && selected.id === taskId
+  const open = isEntryOpen(entry, selected)
   return (
     <button
       type="button"
@@ -410,7 +421,7 @@ function AgendaEntryRow({
   return (
     <li className={entry.done ? 'agenda-row plan-entry plan-done' : 'agenda-row plan-entry'}>
       <span className="agenda-time">{startsAt === null ? null : formatTimeOfDay(startsAt)}</span>
-      <div className="agenda-card">
+      <div className={isEntryOpen(entry, selected) ? 'agenda-card card-open' : 'agenda-card'}>
         <PlanEntryLine
           entry={entry}
           onComplete={onComplete}

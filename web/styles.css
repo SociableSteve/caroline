@@ -503,13 +503,36 @@ button[disabled] {
 }
 
 /*
+ * The shell itself: header, alert band and body stacked in a column that is never shorter than the
+ * viewport, so the body below them always has the full remaining height to give the rail (see
+ * `.app-body` and `.chat-rail` below) rather than only whatever height its own content happens to
+ * reach. Grows past the viewport for a genuinely long surface instead of clipping it.
+ */
+#root {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/*
  * The surface, and the chat rail beside it. Spec 08: chat is a companion rather than a route, so it
  * takes a column of the shell rather than the whole of it.
+ *
+ * `flex: 1` claims whatever height `#root`'s column has left below the header and the alert band
+ * (present or not: a flex column simply reflows around it either way, nothing here is measured or
+ * hardcoded), and `align-content: stretch` hands that height to the grid's own single row rather
+ * than leaving it unclaimed beneath a row sized only to its content. `min-height: 0` is the usual
+ * flex-item correction: without it the row cannot shrink below the tallest thing inside it, which
+ * defeats the rail's own internal scrolling. `align-items: start` keeps the surface itself sized to
+ * its own content within that row rather than stretched full height, as before.
  */
 .app-body {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   align-items: start;
+  align-content: stretch;
+  flex: 1;
+  min-height: 0;
 }
 
 .app-body.with-rail {
@@ -531,15 +554,17 @@ button[disabled] {
   position: sticky;
   top: 0;
   /*
-   * A fixed viewport height, not one stretched to match the surface beside it: `align-self:
-   * stretch` alone only reaches the viewport on a surface whose own content is already at least
-   * one viewport tall, and falls back to that surface's own (shorter) height everywhere else,
-   * which is exactly why the rail used to change height from one surface to the next. `height`
-   * fixes it at one viewport regardless, and `max-height` stays alongside it as the belt to
-   * `height`'s braces, so a viewport that itself resizes can never leave the rail taller than it.
+   * Stretched to the height of `.app-body`'s own row, which `align-content: stretch` above now
+   * pins to the full height `#root`'s flex column has left below the header and the alert band,
+   * on every surface regardless of how little content that surface itself has. `align-self:
+   * stretch` used to fall short of this because `.app-body` had no height of its own to hand out:
+   * a grid row with no explicit height sizes to its tallest item's own content, so the row (and a
+   * `stretch`ed rail inside it) was only ever as tall as the surface beside it, which is exactly
+   * why the rail used to change height from one surface to the next, and why a fixed `100vh`
+   * fallback (this rule's previous fix) overshot on any surface shorter than the viewport instead.
+   * No `max-height` needed alongside it: a stretched item's height is already capped by its row.
    */
-  height: 100vh;
-  max-height: 100vh;
+  align-self: stretch;
   overflow-y: auto;
 }
 
@@ -660,8 +685,6 @@ button[disabled] {
     position: fixed;
     inset: 0;
     z-index: 1;
-    height: auto;
-    max-height: none;
     background: var(--surface-raised);
     border-left: none;
     box-shadow: var(--shadow-2);
