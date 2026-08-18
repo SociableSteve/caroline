@@ -170,6 +170,45 @@ describe.skipIf(!hasOpenssl)('fetchClientMetadata: guards over a real loopback c
     ).rejects.toThrow(/redirected/)
   })
 
+  /**
+   * Spec 12, criterion 28: `fetchClientMetadata` is the only outbound request builder in the MCP
+   * surface, so "no token presented to the MCP endpoint is ever forwarded outbound" is asserted
+   * here, by reading what the request actually carried at the far end rather than by reading the
+   * builder's source. Any header that could carry a credential fails it.
+   */
+  it('sends no credential-bearing header and no body on the one outbound request the MCP surface makes (criterion 28)', async () => {
+    let receivedHeaders: Record<string, string | string[] | undefined> = {}
+    let receivedBody = ''
+
+    const port = await startServer((request, response) => {
+      receivedHeaders = request.headers
+      request.on('data', (chunk: Buffer) => {
+        receivedBody += chunk.toString('utf8')
+      })
+      request.on('end', () => {
+        response.writeHead(200, { 'content-type': 'application/json' })
+        response.end(JSON.stringify({ redirect_uris: ['https://example.com/callback'] }))
+      })
+    })
+
+    await fetchClientMetadata(`https://localhost:${port}/client.json`, {
+      maxResponseBytes: 65_536,
+      timeoutMs: 2000,
+      ...allowLoopback,
+    })
+
+    for (const credentialHeader of [
+      'authorization',
+      'proxy-authorization',
+      'cookie',
+      'x-api-key',
+    ]) {
+      expect(receivedHeaders[credentialHeader], credentialHeader).toBeUndefined()
+    }
+    expect(Object.keys(receivedHeaders).sort()).toEqual(['accept', 'connection', 'host'])
+    expect(receivedBody).toBe('')
+  })
+
   it('parses a well-formed document from a real response', async () => {
     const port = await startServer((_request, response) => {
       response.writeHead(200, { 'content-type': 'application/json' })

@@ -797,9 +797,16 @@ is dropped for the same reason: it was never merged, so nothing cites it.
     authorisation code is redeemable once, and a second redemption is refused and invalidates
     nothing else.
 28. A token whose audience is not Caroline's canonical resource URI is refused with `401`, and a
-    token Caroline did not issue is refused. No token Caroline receives is ever forwarded to any
-    outbound destination, including the identity provider itself, asserted over the outbound
-    request builders.
+    token Caroline did not issue is refused. No token presented to Caroline's MCP endpoint is ever
+    forwarded to an outbound destination, the identity provider included. The subject is deliberately
+    narrow: a token Caroline obtained through one of its own OAuth flows is a different thing, and is
+    forwarded by design (`src/connectors/google/http.ts` sends its Google access token to
+    googleapis.com, which is what makes that connector work). What this criterion forbids is the
+    onward use of a client's bearer token. It is asserted over the one outbound request the MCP
+    surface builds, the client metadata document fetch, whose headers are read at the far end in
+    `test/mcp/oauth/client-metadata.test.ts` and carry no credential-bearing header and no body.
+    Spec 13's criterion 28 is an unrelated criterion that happens to share the number; nothing in
+    that spec's source-inspection test asserts this one.
 29. A refresh token exchanges for a new access token, a revoked or expired one does not, and both
     are registered as runtime secrets so that no issued token appears in any log line or
     response body, which is spec 09 criterion 6 extended to values arriving after startup.

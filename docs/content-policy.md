@@ -257,8 +257,11 @@ hosted provider, and again after changing a level.
 - **Caroline never writes to GitHub, Gmail or Calendar.** The scopes are read-only and the chat tool
   registry contains no tool that could, which is the enforcement rather than an instruction the model
   is asked to follow.
-- **Outbound traffic goes to the configured providers only**: GitHub, Google, and the LLM endpoint
-  you named. No telemetry, no analytics, no crash reporting, and no inbound webhooks.
+- **Outbound traffic goes to the destinations you named only**: GitHub, Google, the LLM endpoint you
+  named, and the identity provider whose issuer you put in the configuration file. One further
+  destination is reached only while you are approving an MCP client, and only because that client
+  chose it: the client's own metadata document. No telemetry, no analytics, no crash reporting, and
+  no inbound webhooks.
 - **Keys come from the environment only.** A key in the config file is a startup error. Secrets are
   redacted from logs, API responses and error messages, and no part of a request URL is logged,
   because every byte of one is chosen by the caller.
