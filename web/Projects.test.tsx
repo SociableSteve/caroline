@@ -171,6 +171,7 @@ function renderDetail(overrides: Partial<Parameters<typeof ProjectDetail>[0]> = 
       tasks={[]}
       staleDays={7}
       timezone="UTC"
+      configLoaded={true}
       now={NOW}
       selected={null}
       hash="#/projects/project-1"

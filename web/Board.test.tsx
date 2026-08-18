@@ -33,6 +33,7 @@ function renderBoard(overrides: Partial<Parameters<typeof Board>[0]> = {}) {
     projects: [],
     staleDays: 7,
     timezone: 'UTC',
+    configLoaded: true,
     now: NOW,
     selected: null,
     ...handlers,

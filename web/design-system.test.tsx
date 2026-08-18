@@ -66,6 +66,7 @@ const surfaces: ReadonlyArray<{ name: string; title: string; render: () => void 
           projects={[]}
           staleDays={7}
           timezone="UTC"
+          configLoaded={true}
           now={NOW}
           {...boardHandlers}
         />,
@@ -97,6 +98,7 @@ const surfaces: ReadonlyArray<{ name: string; title: string; render: () => void 
           tasks={[]}
           staleDays={7}
           timezone="UTC"
+          configLoaded={true}
           now={NOW}
           onStatusChange={vi.fn()}
           onComplete={vi.fn()}
@@ -217,6 +219,7 @@ describe('one filled primary per context', () => {
         projects={[]}
         staleDays={7}
         timezone="UTC"
+        configLoaded={true}
         now={NOW}
         {...boardHandlers}
       />,

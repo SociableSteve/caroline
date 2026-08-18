@@ -111,6 +111,7 @@ export function App() {
     userName,
     staleDays,
     timezone,
+    configLoaded,
     loading,
     failure,
     unfetchedTaskTotal,
@@ -465,6 +466,7 @@ export function App() {
                 projects={projects}
                 staleDays={staleDays}
                 timezone={timezone}
+                configLoaded={configLoaded}
                 now={now}
                 onMarkReviewed={onMarkReviewed}
                 onAcceptProposal={onAcceptProposal}
@@ -488,6 +490,7 @@ export function App() {
                 tasks={tasks.filter((task) => task.projectId === route.id)}
                 staleDays={staleDays}
                 timezone={timezone}
+                configLoaded={configLoaded}
                 now={now}
                 hash={hash}
                 {...cardHandlers}
@@ -565,6 +568,7 @@ export function App() {
         open={capturing}
         projects={projects}
         timezone={timezone}
+        configLoaded={configLoaded}
         onClose={() => setCapturing(false)}
         onCreate={onCapture}
       />

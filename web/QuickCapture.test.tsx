@@ -12,7 +12,15 @@ import { deferUntilFromDateInput, dueAtFromDateInput } from './format.js'
 import { aProject } from './test-fixtures.js'
 
 /** The dialog as the app uses it: something focusable outside it, and an opener button. */
-function Harness({ onCreate }: { onCreate: (input: unknown) => Promise<boolean> }) {
+function Harness({
+  onCreate,
+  configLoaded = true,
+}: {
+  onCreate: (input: unknown) => Promise<boolean>
+  /** Defaulted to true: most of this suite is about the dialog's own contract, not the
+   *  timezone race, and should see the fields as ready as they normally are. */
+  configLoaded?: boolean
+}) {
   const [open, setOpen] = useState(false)
 
   return (
@@ -25,6 +33,7 @@ function Harness({ onCreate }: { onCreate: (input: unknown) => Promise<boolean> 
         open={open}
         projects={[aProject({ id: 'project-1', title: 'Ship it' })]}
         timezone="UTC"
+        configLoaded={configLoaded}
         onClose={() => setOpen(false)}
         onCreate={onCreate}
       />
@@ -32,8 +41,8 @@ function Harness({ onCreate }: { onCreate: (input: unknown) => Promise<boolean> 
   )
 }
 
-async function openCapture(onCreate = vi.fn(async () => true)) {
-  render(<Harness onCreate={onCreate} />)
+async function openCapture(onCreate = vi.fn(async () => true), configLoaded = true) {
+  render(<Harness onCreate={onCreate} configLoaded={configLoaded} />)
   await userEvent.click(screen.getByRole('button', { name: 'Quick capture' }))
 
   return onCreate
@@ -122,6 +131,71 @@ describe('the focus trap', () => {
       expect(screen.getByRole('button', { name: 'Background control' })).not.toHaveFocus()
       expect(screen.getByRole('button', { name: 'Quick capture' })).not.toHaveFocus()
     }
+  })
+})
+
+/**
+ * Quick capture is reachable the moment the app is authenticated, from the header button or the
+ * `c` shortcut, independent of the board's own `loading` state. That means it can be open and
+ * typed into before `GET /api/config` has answered and `timezone` is still the UTC default, and
+ * a date set in that window must not be silently resolved against UTC instead of the deployment's
+ * real zone once it is known.
+ */
+describe('the gap before the deployment’s configured timezone has loaded', () => {
+  /** Flips from the unresolved default to a real, non-UTC zone on demand, the way `useCarolineData`
+   *  does once `GET /api/config` answers. */
+  function RaceHarness({ onCreate }: { onCreate: (input: unknown) => Promise<boolean> }) {
+    const [open, setOpen] = useState(false)
+    const [configLoaded, setConfigLoaded] = useState(false)
+    const [timezone, setTimezone] = useState('UTC')
+
+    return (
+      <>
+        <button type="button" onClick={() => setOpen(true)}>
+          Quick capture
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setTimezone('Europe/London')
+            setConfigLoaded(true)
+          }}
+        >
+          Resolve config
+        </button>
+        <QuickCapture
+          open={open}
+          projects={[]}
+          timezone={timezone}
+          configLoaded={configLoaded}
+          onClose={() => setOpen(false)}
+          onCreate={onCreate}
+        />
+      </>
+    )
+  }
+
+  it('disables the due and defer-until fields until config has loaded, then resolves a date typed afterwards against the real zone rather than the stale UTC default', async () => {
+    const onCreate = vi.fn(async () => true)
+    render(<RaceHarness onCreate={onCreate} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Quick capture' }))
+
+    // The race window: the dialog is open and interactive, but config has not answered yet.
+    expect(screen.getByLabelText('Due')).toBeDisabled()
+    expect(screen.getByLabelText('Defer until')).toBeDisabled()
+
+    // Config answers with the deployment's real, non-UTC zone.
+    await userEvent.click(screen.getByRole('button', { name: 'Resolve config' }))
+    expect(screen.getByLabelText('Due')).toBeEnabled()
+
+    await userEvent.type(screen.getByLabelText('What is it?'), 'Renew the domain')
+    fireEvent.change(screen.getByLabelText('Due'), { target: { value: '2026-07-01' } })
+    await userEvent.click(screen.getByRole('button', { name: 'Capture' }))
+
+    expect(onCreate).toHaveBeenCalledWith({
+      title: 'Renew the domain',
+      dueAt: dueAtFromDateInput('2026-07-01', 'Europe/London'),
+    })
   })
 })
 

@@ -39,6 +39,12 @@ export interface TaskCardProps {
   /** The zone `dueAtFromDateInput` and `deferUntilFromDateInput` resolve a typed date in, so a
    *  date set here lands on the same instant it would from chat. Spec 06. */
   readonly timezone: string
+  /** Whether `timezone` is the deployment's real configured zone yet, rather than the UTC
+   *  default it starts as while `GET /api/config` is still out. The board can already be
+   *  interactive at that point, since `loading` only gates on the task reload; without this,
+   *  a date set in that window would be silently resolved against UTC instead of the real zone.
+   *  The due and defer-until fields are disabled until this is true. */
+  readonly configLoaded: boolean
   readonly now: number
   readonly onStatusChange: (id: string, status: TaskStatus) => void
   readonly onComplete: (id: string) => void
@@ -77,6 +83,7 @@ export function TaskCard({
   projectTitle,
   staleDays,
   timezone,
+  configLoaded,
   now,
   onStatusChange,
   onComplete,
@@ -370,6 +377,12 @@ export function TaskCard({
                 value={dueDateInput}
                 onChange={(event) => setDueDateInput(event.target.value)}
                 onBlur={commitDueDate}
+                disabled={!configLoaded}
+                title={
+                  configLoaded
+                    ? undefined
+                    : 'Waiting for the deployment’s configured timezone to load'
+                }
               />
             </Field>
 
@@ -380,6 +393,12 @@ export function TaskCard({
                 value={deferDateInput}
                 onChange={(event) => setDeferDateInput(event.target.value)}
                 onBlur={commitDeferDate}
+                disabled={!configLoaded}
+                title={
+                  configLoaded
+                    ? undefined
+                    : 'Waiting for the deployment’s configured timezone to load'
+                }
               />
             </Field>
 

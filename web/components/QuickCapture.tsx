@@ -19,6 +19,12 @@ export interface QuickCaptureProps {
   /** The zone the due and defer-until fields resolve a typed date in, so a date set here lands
    *  on the same instant it would from chat. Spec 06. */
   readonly timezone: string
+  /** Whether `timezone` is the deployment's real configured zone yet, rather than the UTC
+   *  default it starts as. Quick capture is reachable from anywhere the moment the app is
+   *  authenticated, independent of the board's own `loading` state, so its due and defer-until
+   *  fields are disabled until this is true rather than risk a date silently resolved against
+   *  the wrong zone. */
+  readonly configLoaded: boolean
   readonly onClose: () => void
   /** Answers whether the task was created. The form holds what was typed until it was. */
   readonly onCreate: (input: TaskInput) => Promise<boolean>
@@ -26,7 +32,14 @@ export interface QuickCaptureProps {
 
 const FOCUSABLE = 'input, textarea, select, button:not([disabled]), [href]'
 
-export function QuickCapture({ open, projects, timezone, onClose, onCreate }: QuickCaptureProps) {
+export function QuickCapture({
+  open,
+  projects,
+  timezone,
+  configLoaded,
+  onClose,
+  onCreate,
+}: QuickCaptureProps) {
   const [title, setTitle] = useState('')
   const [notes, setNotes] = useState('')
   const [projectId, setProjectId] = useState('')
@@ -243,6 +256,12 @@ export function QuickCapture({ open, projects, timezone, onClose, onCreate }: Qu
               name="dueAt"
               value={dueDate}
               onChange={(event) => setDueDate(event.target.value)}
+              disabled={!configLoaded}
+              title={
+                configLoaded
+                  ? undefined
+                  : 'Waiting for the deployment’s configured timezone to load'
+              }
             />
           </Field>
 
@@ -252,6 +271,12 @@ export function QuickCapture({ open, projects, timezone, onClose, onCreate }: Qu
               name="deferUntil"
               value={deferDate}
               onChange={(event) => setDeferDate(event.target.value)}
+              disabled={!configLoaded}
+              title={
+                configLoaded
+                  ? undefined
+                  : 'Waiting for the deployment’s configured timezone to load'
+              }
             />
           </Field>
 
