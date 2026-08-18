@@ -35,7 +35,7 @@ const boardHandlers = {
 const surfaces: ReadonlyArray<{ name: string; title: string; render: () => void }> = [
   {
     name: 'Dashboard',
-    title: 'Dashboard',
+    title: 'Today',
     render: () =>
       void render(
         <Dashboard
@@ -44,7 +44,6 @@ const surfaces: ReadonlyArray<{ name: string; title: string; render: () => void 
           health={null}
           jobRuns={[]}
           plan={null}
-          history={[]}
           calendar={null}
           staleDays={7}
           now={NOW}

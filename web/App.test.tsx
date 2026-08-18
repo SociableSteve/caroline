@@ -261,7 +261,7 @@ describe('the shell', () => {
     render(<App />)
     await screen.findByRole('region', { name: /where everything is/i })
 
-    expect(screen.getByRole('link', { name: 'Dashboard' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('link', { name: 'Today' })).toHaveAttribute('aria-current', 'page')
   })
 
   it('shows the board when the hash asks for it', async () => {
@@ -1021,7 +1021,7 @@ describe('the login screen', () => {
     // Not a surface: nothing that assumes data has loaded is on screen, and the nav's own list of
     // surfaces is untouched.
     expect(screen.queryByRole('region', { name: /where everything is/i })).not.toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Dashboard' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Today' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Settings' })).toBeInTheDocument()
   })
 

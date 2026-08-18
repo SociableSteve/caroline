@@ -5,10 +5,11 @@
  * Issue #47 redesigned the surface: a verdict headline, a to-scale day bar and one merged agenda
  * (the plan's entries and the calendar's events interleaved) replace the separate plan and
  * calendar panels this file used to test; "gone quiet", "worth a chase" and "stalled projects"
- * are now one ranked "Needs you" list in the left rail rather than three panels. The background
- * jobs strip and the planned-against-completed history stay, in the rail, because the mockup's
- * silence on them is not the same claim as "remove this": nothing else on the page replaces
- * either.
+ * are now one ranked "Needs you" list in the left rail rather than three panels, capped to its
+ * three oldest with a link to the board for the rest. The background-jobs strip and the
+ * planned-against-completed history a previous pass kept as an "honest gap" have since been
+ * removed to match the mockup: Jobs already has its own surface, and nothing on the dashboard
+ * needs plan history repeated.
  */
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
@@ -16,7 +17,6 @@ import { userEvent } from '@testing-library/user-event'
 import { Dashboard } from './surfaces/Dashboard.js'
 import type { Health } from './api.js'
 import { aCalendarDay, aPlan, aPlanEntry, aProject, aTask, DAY, NOW } from './test-fixtures.js'
-import { noCounts } from '../src/domain/job.js'
 
 const nothingConfigured: Health = {
   status: 'ok',
@@ -37,7 +37,6 @@ function renderDashboard(overrides: Partial<Parameters<typeof Dashboard>[0]> = {
       health={nothingConfigured}
       jobRuns={[]}
       plan={null}
-      history={[]}
       calendar={null}
       staleDays={7}
       now={NOW}
@@ -101,16 +100,11 @@ describe('an empty Caroline', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
-  it('shows an empty state for the plan, the calendar and the jobs', () => {
+  it('shows an empty state for the plan and the calendar', () => {
     renderDashboard()
 
     expect(today().getByText(/No plan yet/)).toBeInTheDocument()
     expect(today().getByText(/No calendar yet/)).toBeInTheDocument()
-    expect(
-      within(screen.getByRole('region', { name: /background jobs/i })).getByText(
-        /Nothing has run yet/,
-      ),
-    ).toBeInTheDocument()
   })
 
   it('counts nothing as zero rather than leaving the panel blank', () => {
@@ -564,7 +558,10 @@ describe('the agenda', () => {
 
   /** A meeting's end time used to be dropped by the agenda merge: a start time on its own does not
    *  say how much of the day it takes. */
-  it('shows a timed event’s end time alongside its start', () => {
+  /** Issue #47's mockup carries a timed event's duration in the trailing label ("30 min,
+   *  meeting") rather than a start–end range, matching how a plan entry says its own estimate;
+   *  the fact a start time alone cannot give (how much of the day this takes) is still said. */
+  it('shows a timed event’s duration alongside its start', () => {
     renderDashboard({
       calendar: aCalendarDay({
         events: [
@@ -588,7 +585,8 @@ describe('the agenda', () => {
 
     const row = today().getByText('Hub weekly').closest('li')
     expect(row).not.toBeNull()
-    expect(row?.textContent).toMatch(/\d{1,2}:\d{2}\s?[AP]?M?–\d{1,2}:\d{2}\s?[AP]?M?/i)
+    expect(row?.textContent).toMatch(/\d{1,2}:\d{2}\s?[AP]?M?/i)
+    expect(row?.textContent).toMatch(/1 hour, meeting/)
   })
 
   /**
@@ -690,31 +688,6 @@ describe('the agenda', () => {
   })
 })
 
-describe('planned against completed', () => {
-  it('shows the fortnight', () => {
-    renderDashboard({
-      history: [
-        { planDate: '2026-06-09', planned: 4, completed: 3 },
-        { planDate: '2026-06-10', planned: 5, completed: 1 },
-      ],
-    })
-
-    const panel = within(screen.getByRole('region', { name: /planned against completed/i }))
-
-    expect(panel.getAllByRole('listitem')).toHaveLength(2)
-    expect(panel.getByText('3 of 4')).toBeInTheDocument()
-  })
-
-  /** Spec 05: Caroline records the gap and draws no conclusion from it. */
-  it('says nothing about a fortnight with no plans in it', () => {
-    renderDashboard({ history: [] })
-
-    expect(
-      screen.queryByRole('region', { name: /planned against completed/i }),
-    ).not.toBeInTheDocument()
-  })
-})
-
 describe('the counts', () => {
   it('counts tasks per status, done included', () => {
     renderDashboard({
@@ -769,16 +742,11 @@ describe('the needs-you rail', () => {
     expect(rail().queryByText('Invoice query')).not.toBeInTheDocument()
   })
 
+  /** Exactly three items, one of each kind, so the top-3 cap does not hide any of them: the
+   *  ordering claim is about the three kinds sorting together, not about how many fit. */
   it('orders the list oldest first, across gone-quiet, worth-a-chase and stalled alike', () => {
-    const older = aTask({
-      id: 'older',
-      title: 'Older still',
-      status: 'waiting',
-      waitingOn: 'Finance',
-      statusSetAt: NOW - 60 * DAY,
-    })
     renderDashboard({
-      tasks: [stale, older],
+      tasks: [stale],
       projects: [aProject({ id: 'project-1', title: 'Onboarding rewrite', stalled: true })],
       plan: aPlan({
         nudges: [
@@ -794,12 +762,11 @@ describe('the needs-you rail', () => {
     })
 
     const titles = rail()
-      .getAllByText(/Older still|Signed contract|Review: cache eviction|Onboarding rewrite/)
+      .getAllByText(/Signed contract|Review: cache eviction|Onboarding rewrite/)
       .map((element) => element.textContent)
 
-    // Oldest first: 60 days, 30 days, 4 days, then the stalled project with no age at all.
+    // Oldest first: 30 days, 4 days, then the stalled project with no age at all.
     expect(titles).toEqual([
-      'Older still',
       'Signed contract',
       'Review: cache eviction (#398)',
       'Onboarding rewrite',
@@ -878,76 +845,37 @@ describe('the needs-you rail', () => {
     expect(rail().getByText('Nothing is waiting on anyone else.')).toBeInTheDocument()
     expect(rail().getByText('No projects yet.')).toBeInTheDocument()
   })
-})
 
-/** Spec 02, criterion 5: a connector's failure is surfaced, not left in a log line. */
-describe('the background jobs panel', () => {
-  const run = {
-    id: 'run-1',
-    job: 'sync:github',
-    trigger: 'manual' as const,
-    startedAt: NOW - 2 * 60_000,
-    finishedAt: NOW - 60_000,
-    counts: { ...noCounts, itemsSeen: 3, sourcesCreated: 1, tasksCreated: 1 },
-    error: null,
-    errorStack: null,
-  }
-
-  it('shows the last run of each job with how long ago it was', () => {
-    renderDashboard({ jobRuns: [{ ...run, status: 'success' }] })
-
-    const panel = screen.getByRole('region', { name: /background jobs/i })
-
-    expect(within(panel).getByText('sync:github')).toBeInTheDocument()
-    expect(within(panel).getByText('success')).toBeInTheDocument()
-    expect(within(panel).getByText('1 minute ago')).toBeInTheDocument()
-  })
-
-  it('shows a failure with the error message the connector gave', () => {
-    renderDashboard({
-      jobRuns: [{ ...run, status: 'failure', error: 'GitHub answered 401 Unauthorized' }],
-    })
-
-    expect(screen.getByText('GitHub answered 401 Unauthorized')).toBeInTheDocument()
-  })
-
-  /**
-   * Criterion 19. The rows are a grid, so a row carrying an error keeps the same three columns as
-   * one that does not, and the error takes the width beneath them rather than squeezing the rest
-   * of the row into nothing.
-   */
-  it('lays a row out the same whether or not it carries an error', () => {
-    renderDashboard({
-      jobRuns: [
-        { ...run, id: 'run-1', job: 'classify', status: 'success' },
-        { ...run, id: 'run-2', job: 'sync', status: 'failure', error: 'GitHub answered 401' },
-      ],
-    })
-
-    const rows = within(screen.getByRole('region', { name: /background jobs/i })).getAllByRole(
-      'listitem',
+  /** The rail is a triage list, not the whole waiting-on-someone-else set: past three it points
+   *  at the board rather than growing without bound. */
+  it('shows only the three oldest, oldest first', () => {
+    const waitingTasks = ['a', 'b', 'c', 'd', 'e'].map((id, index) =>
+      aTask({
+        id,
+        title: `Waiting ${id}`,
+        status: 'waiting',
+        waitingOn: 'Someone',
+        statusSetAt: NOW - (index + 1) * 10 * DAY,
+      }),
     )
-    const columns = (row: HTMLElement) =>
-      [...row.children].filter((child) => !child.classList.contains('job-error')).length
+    renderDashboard({ tasks: waitingTasks })
 
-    expect(rows).toHaveLength(2)
-    expect(columns(rows[0] as HTMLElement)).toBe(3)
-    expect(columns(rows[1] as HTMLElement)).toBe(3)
-    expect(rows.some((row) => row.querySelector('.job-error') !== null)).toBe(true)
+    // Oldest first: e (50 days) is oldest, a (10 days) is youngest, so the cap keeps e, d and c.
+    expect(rail().getByText('Waiting e')).toBeInTheDocument()
+    expect(rail().getByText('Waiting d')).toBeInTheDocument()
+    expect(rail().getByText('Waiting c')).toBeInTheDocument()
+    expect(rail().queryByText('Waiting b')).not.toBeInTheDocument()
+    expect(rail().queryByText('Waiting a')).not.toBeInTheDocument()
   })
 
-  it('shows only the most recent run of a job, since the history has its own surface', () => {
-    renderDashboard({
-      jobRuns: [
-        { ...run, id: 'run-2', status: 'failure', error: 'the latest' },
-        { ...run, id: 'run-1', status: 'success' },
-      ],
-    })
+  /** Issue #47's exact caption text, now a link so the rest of what is waiting is a click away. */
+  it('links the caption to the board, for everything the cap left out', () => {
+    renderDashboard({ tasks: [stale, fresh] })
 
-    const panel = screen.getByRole('region', { name: /background jobs/i })
-
-    expect(within(panel).getByText('failure')).toBeInTheDocument()
-    expect(within(panel).queryByText('success')).not.toBeInTheDocument()
+    expect(rail().getByRole('link', { name: 'Everything waiting, oldest first.' })).toHaveAttribute(
+      'href',
+      '#/board',
+    )
   })
 })
 

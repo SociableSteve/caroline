@@ -153,6 +153,28 @@ describe('the schedule', () => {
 
     expect(within(panel(/background jobs/i)).getByText('Nothing is scheduled.')).toBeInTheDocument()
   })
+
+  /** Issue #47's mockup marks each card "ok" or "failing" beside its name; colour is never the
+   *  only carrier, so the word says it too. */
+  it('marks a healthy job "ok" and one whose last run failed "failing"', () => {
+    renderJobs({
+      jobs: [
+        aJob({ job: 'sync' }),
+        aJob({
+          job: 'plan',
+          consecutiveFailures: 2,
+          lastRun: aRun({ status: 'failure', error: 'the provider is down' }),
+        }),
+      ],
+    })
+
+    const jobs = panel(/background jobs/i)
+
+    expect(within(jobs.querySelector('li') as HTMLElement).getByText('ok')).toBeInTheDocument()
+    expect(
+      within(jobs.querySelectorAll('li')[1] as HTMLElement).getByText('failing'),
+    ).toBeInTheDocument()
+  })
 })
 
 describe('the run history', () => {

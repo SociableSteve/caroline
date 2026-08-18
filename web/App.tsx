@@ -103,7 +103,6 @@ export function App() {
     jobRuns,
     jobStatus,
     plan,
-    planHistory,
     planDate,
     calendar,
     google,
@@ -533,7 +532,6 @@ export function App() {
                   health={health}
                   jobRuns={jobRuns}
                   plan={plan}
-                  history={planHistory}
                   calendar={calendar}
                   staleDays={staleDays}
                   now={now}
