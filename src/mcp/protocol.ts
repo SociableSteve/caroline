@@ -11,6 +11,17 @@
 /** Asserted by a test, so an upgrade is noticed rather than discovered. */
 export const MCP_PROTOCOL_VERSION = '2026-07-28'
 
+/**
+ * The version `initialize` falls back to when the requesting client did not ask for
+ * `MCP_PROTOCOL_VERSION` by name. It is the `@modelcontextprotocol/sdk`'s own
+ * `LATEST_PROTOCOL_VERSION`, the newest entry in that SDK's `SUPPORTED_PROTOCOL_VERSIONS`
+ * allowlist as of the client-ecosystem snapshot named in "Version interoperability" in
+ * docs/specs/12-mcp-server.md, chosen because it is the one string the client that actually
+ * exists today is already prepared to accept, rather than a naive echo of whatever the client
+ * sent, which would assert a compatibility Caroline has not decided to hold.
+ */
+export const MCP_FALLBACK_PROTOCOL_VERSION = '2025-11-25'
+
 export const JSON_RPC_VERSION = '2.0'
 
 export const jsonRpcErrorCodes = {
@@ -124,4 +135,25 @@ export function readMeta(params: unknown): RequestMeta {
       : null
 
   return { protocolVersion, clientName }
+}
+
+/**
+ * The protocol version an `initialize` request actually asked for, read from wherever a real
+ * client puts it rather than only where revision `2026-07-28` says it now lives. Before that
+ * revision, `protocolVersion` was a top-level field of `initialize`'s `params`; the revision
+ * moved it to `params._meta.protocolVersion`, alongside the rest of the framing every other
+ * method now carries per-request. Claude Code's shipped MCP client (confirmed on 2.1.233,
+ * captured 2026-08-17) sends the legacy top-level shape, having been built before the move, so
+ * that field is read first; `_meta.protocolVersion` is read as the fallback for a hypothetical
+ * caller native to `2026-07-28` that uses the new shape. Neither present is "no version
+ * specified" rather than an error: see "Version interoperability" in
+ * docs/specs/12-mcp-server.md.
+ */
+export function readRequestedProtocolVersion(params: unknown): string | null {
+  if (params !== null && typeof params === 'object') {
+    const legacy = (params as { protocolVersion?: unknown }).protocolVersion
+    if (typeof legacy === 'string') return legacy
+  }
+
+  return readMeta(params).protocolVersion
 }

@@ -222,6 +222,67 @@ catches up to what the revision actually permits. When that day comes, the fix i
 `initialize` case from `handleMethod` in `src/mcp/route.ts` and let it fall back to
 `methodNotFound` again, which is exactly what a client built against `2026-07-28` should expect.
 
+### Version interoperability: `initialize` negotiates, it does not just echo
+
+Answering the handshake at all (above) is not the same question as what protocol version that
+answer names. The first version of the `initialize` case answered that question the easy, wrong
+way: it named `MCP_PROTOCOL_VERSION` unconditionally, never reading what the client had actually
+requested. That is correct by the letter of the revision, in the sense that Caroline genuinely
+runs `2026-07-28` and is not lying about what it supports, and it is useless against the client
+that actually exists today: Claude Code's MCP client (the `@modelcontextprotocol/sdk`-derived
+`StreamableHTTPClientTransport` named above) checks the server's answer against its own
+`SUPPORTED_PROTOCOL_VERSIONS` allowlist before doing anything else with the response, and
+`2026-07-28` is not on it. The reconnect fails at the transport, before Caroline's stateless
+handshake logic gets any credit for having answered at all.
+
+The specification's own version negotiation rule is not "echo whatever the client sent," and a
+server that did that would not be negotiating, it would be flattering the request. The rule is:
+the client states the version it wants, the server names `MCP_PROTOCOL_VERSION` back if the
+client asked for exactly that, and otherwise the server names a version *it* has decided to
+hold, which the client is then free to accept or disconnect over. So `initialize` now reads what
+the client requested and answers one of exactly two things: `MCP_PROTOCOL_VERSION` when the
+client asked for it by name, because that is the version Caroline actually runs; otherwise
+`MCP_FALLBACK_PROTOCOL_VERSION`, a specific value Caroline has chosen deliberately rather than a
+naive echo of whatever string arrived. Naively echoing the client's request back would make the
+`initialize` response assert a compatibility with that exact string that Caroline has not
+decided to hold, for versions Caroline has never tested against and may not behave correctly
+under; picking one fixed fallback is the honest alternative, because it is a claim Caroline can
+actually stand behind.
+
+`MCP_FALLBACK_PROTOCOL_VERSION` is `2025-11-25`: the current `LATEST_PROTOCOL_VERSION` in the
+`@modelcontextprotocol/sdk`'s `SUPPORTED_PROTOCOL_VERSIONS` allowlist (`src/mcp/protocol.ts`,
+alongside `types.ts` in that SDK), captured against the same client-ecosystem snapshot named
+above: Claude Code 2.1.233, confirmed 2026-08-17. It is not the newest string in the abstract; it
+is the newest string the SDK a real client is built on already knows how to accept, which is the
+entire point of picking a fallback rather than echoing one.
+
+Where the client's request is read from matters as much as what happens with it. Revision
+`2026-07-28` moved `protocolVersion` out of `initialize`'s top-level `params` and into
+`params._meta.protocolVersion`, alongside the rest of the per-request framing this revision
+requires (see the bullet on framing above). Claude Code's shipped client predates that move and
+still sends the legacy top-level field, so `readRequestedProtocolVersion`
+(`src/mcp/protocol.ts`) reads that field first and falls back to `params._meta.protocolVersion`
+only for a hypothetical caller native to `2026-07-28` that uses the new shape. Reading only the
+new location, which is what `readMeta` already does for the client name and the rest of the
+framing, would mean this negotiation never sees what the client that actually exists today
+requests at all, and would always fall through to the "no version specified" case below. A
+client naming neither the legacy field nor `_meta` is exactly that case, "no version specified,"
+and resolves the same way an unrecognised or absent version does: `MCP_FALLBACK_PROTOCOL_VERSION`,
+not `MCP_PROTOCOL_VERSION`, because a server does not get to read silence as agreement with the
+version it would prefer to be running.
+
+This changes nothing else that asserts `2026-07-28` as what Caroline actually runs.
+`server/discover`'s `protocolVersion`, the protected resource and authorisation server metadata
+documents, and criterion 40's assertion are all untouched: they say what Caroline runs, and that
+has not changed. Only `initialize`'s interop echo, the one response this spec already carved out
+as an accommodation rather than a fact about the server, gets the negotiated value.
+
+This is a temporary interoperability accommodation, not a retraction of criterion 40's assertion,
+and it should be revisited once client-ecosystem support for `2026-07-28` is no longer the
+exception. When that day comes, the fix is to delete the fallback branch in the `initialize` case
+in `src/mcp/route.ts` and answer `MCP_PROTOCOL_VERSION` unconditionally again, which is exactly
+what a client built against `2026-07-28` should expect from a server that runs it.
+
 ### What is deliberately not built
 
 **Dynamic client registration (RFC 7591).** This revision deprecates it, retaining it only for
@@ -786,8 +847,8 @@ is dropped for the same reason: it was never merged, so nothing cites it.
     than a drift somebody finds.
 
 The review of this spec added the following, appended rather than renumbered for the reason spec
-README's conventions give. Criteria 41, 43 and 44 belong to slice 2 and criterion 42 to slice 3, and
-each is asserted from that slice onwards like the rest.
+README's conventions give. Criteria 41, 43, 44 and 45 belong to slice 2 and criterion 42 to slice 3,
+and each is asserted from that slice onwards like the rest.
 
 41. `get_overview` is a tool `tools/list` carries, it answers with the day's context object chat's
     prompt assembles today and through the same code that assembles it, it is `readOnlyHint: true`
@@ -818,3 +879,11 @@ each is asserted from that slice onwards like the rest.
     counting `mcp_sessions` and the conversation list before and after, and a `tools/list` call
     on the same connection afterwards answers exactly as it does when no `initialize` call
     preceded it. Per "Handshake interoperability" above.
+45. The `protocolVersion` criterion 44 requires is negotiated, not a fixed echo: a request naming
+    `MCP_PROTOCOL_VERSION` (`2026-07-28`) exactly, in the legacy top-level
+    `params.protocolVersion` field or, absent that, in `params._meta.protocolVersion`, is
+    answered with `MCP_PROTOCOL_VERSION`; a request naming any other version, or none at all, in
+    either location, is answered with `MCP_FALLBACK_PROTOCOL_VERSION` (`2025-11-25`) instead,
+    never with the client's own string parroted back. The legacy top-level field is read first
+    because Claude Code's shipped client, built before revision `2026-07-28` moved the field,
+    sends only that one. Per "Version interoperability" above.

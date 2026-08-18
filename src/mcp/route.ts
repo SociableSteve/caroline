@@ -33,9 +33,11 @@ import {
   jsonRpcError,
   jsonRpcErrorCodes,
   jsonRpcResult,
+  MCP_FALLBACK_PROTOCOL_VERSION,
   MCP_PROTOCOL_VERSION,
   readEnvelope,
   readMeta,
+  readRequestedProtocolVersion,
   type JsonRpcErrorBody,
   type JsonRpcRequest,
   type JsonRpcSuccess,
@@ -332,13 +334,29 @@ async function handleMethod(
   // server supports, computed fresh on every call. No `Mcp-Session-Id` is issued, nothing is
   // stored, and a client that never calls this method loses nothing, because Caroline never
   // required it. See "Handshake interoperability" in docs/specs/12-mcp-server.md.
+  //
+  // What this echoes is negotiated, not a naive echo of whatever the client asked for.
+  // `readRequestedProtocolVersion` reads the legacy top-level `params.protocolVersion` field a
+  // client built before revision 2026-07-28 actually sends (Claude Code among them), falling
+  // back to `params._meta.protocolVersion` for a hypothetical caller native to the new
+  // revision. A client that asked for exactly `MCP_PROTOCOL_VERSION` gets it back, because
+  // Caroline genuinely runs it; any other request, including none at all, gets
+  // `MCP_FALLBACK_PROTOCOL_VERSION`, a specific version Caroline has decided the current client
+  // ecosystem actually accepts, rather than an arbitrary string parroted back that would assert
+  // a compatibility never decided. See "Version interoperability" in docs/specs/12-mcp-server.md.
   if (envelope.method === 'initialize') {
+    const requestedProtocolVersion = readRequestedProtocolVersion(envelope.params)
+    const negotiatedProtocolVersion =
+      requestedProtocolVersion === MCP_PROTOCOL_VERSION
+        ? MCP_PROTOCOL_VERSION
+        : MCP_FALLBACK_PROTOCOL_VERSION
+
     return sendJsonRpc(
       reply,
       isNotification,
       200,
       jsonRpcResult(id, {
-        protocolVersion: MCP_PROTOCOL_VERSION,
+        protocolVersion: negotiatedProtocolVersion,
         capabilities: { tools: {} },
         serverInfo: MCP_SERVER_INFO,
       }),
