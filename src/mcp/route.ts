@@ -173,13 +173,19 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteContext): 
       const envelope = isParseFailure ? null : readEnvelope(request.body)
       const notification = envelope !== null && isJsonRpcNotification(envelope)
 
+      // The real id, when one was actually recovered: `id: null` is only correct for a genuine
+      // parse failure, where the id truly can't be known. Once `readEnvelope` has recovered the
+      // envelope, its id (or lack of one, for a Notification, which `sendJsonRpc` above never
+      // answers anyway) is known and must be threaded through rather than discarded.
+      const id = envelope === null ? null : (envelope.id ?? null)
+
       sendJsonRpc(
         reply,
         notification,
         200,
         isParseFailure
-          ? jsonRpcError(null, jsonRpcErrorCodes.parseError, `Malformed request: ${error.message}`)
-          : jsonRpcError(null, jsonRpcErrorCodes.internalError, error.message),
+          ? jsonRpcError(id, jsonRpcErrorCodes.parseError, `Malformed request: ${error.message}`)
+          : jsonRpcError(id, jsonRpcErrorCodes.internalError, error.message),
       )
     })
 
