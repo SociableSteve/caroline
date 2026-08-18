@@ -323,10 +323,16 @@ export function Settings({
                   under the policy above. Fields sent: {preview.itemContext.fields.join(', ')}, at
                   content level {preview.itemContext.contentLevel}.
                 </p>
-                <pre className="payload-preview">{preview.itemContext.rendered}</pre>
-                <p className="policy-note">
-                  Content policy version {preview.itemContext.policyVersion}.
-                </p>
+                {/* Closed by default, the same disclosure the task card's own "More" uses: the
+                    raw payload is a proof to check when wanted, not a paragraph the panel should
+                    always be as tall as. */}
+                <details className="payload-disclosure">
+                  <summary>Show the payload</summary>
+                  <pre className="payload-preview">{preview.itemContext.rendered}</pre>
+                  <p className="policy-note">
+                    Content policy version {preview.itemContext.policyVersion}.
+                  </p>
+                </details>
               </>
             )}
           </Panel>
@@ -346,10 +352,13 @@ export function Settings({
                   {preview.item.provider === null ? '' : ` (${preview.item.provider})`}, under the
                   policy above, this is the whole payload:
                 </p>
-                <pre className="payload-preview">{JSON.stringify(preview.payload, null, 2)}</pre>
-                {preview.promptVersion !== undefined && (
-                  <p className="policy-note">Prompt version {preview.promptVersion}.</p>
-                )}
+                <details className="payload-disclosure">
+                  <summary>Show the payload</summary>
+                  <pre className="payload-preview">{JSON.stringify(preview.payload, null, 2)}</pre>
+                  {preview.promptVersion !== undefined && (
+                    <p className="policy-note">Prompt version {preview.promptVersion}.</p>
+                  )}
+                </details>
                 <button type="button" onClick={onRefreshPreview}>
                   Refresh
                 </button>

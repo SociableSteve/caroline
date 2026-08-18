@@ -142,9 +142,12 @@ describe('no surface restates the panel', () => {
     // A card, a chat turn, a confirmation, the capture dialog and the two notes are components in
     // their own right rather than panels written again, and issue #47 adds two more: the app-level
     // alert row, and the rail's details region once it became a bordered card of its own rather than
-    // a plain, unbounded region of the rail. Anything new belongs in `Panel`.
+    // a plain, unbounded region of the rail. `.agenda-card` is Steve's own fix for the agenda's items:
+    // a card of its own beside the clock time, not a panel, since the agenda sits directly on `--page`
+    // with no panel beneath it. Anything new belongs in `Panel`.
     expect(panelRadius.map((rule) => rule.selector).sort()).toEqual(
       [
+        '.agenda-card',
         '.alert-row',
         '.capture',
         '.card',

@@ -316,8 +316,13 @@ describe('the agenda', () => {
     expect(today().queryByRole('button', { name: /complete/i })).not.toBeInTheDocument()
   })
 
-  /** Spec 05: excess is offered as "if there is time" rather than dropped. */
-  it('lists the overflow separately, under its own heading', () => {
+  /**
+   * Steve asked for the "If there is time" panel removed outright, regardless of the mockup: an
+   * overflow entry is still offered inline into a fitting agenda gap (spec 05's "would fit" slack
+   * row, tested below under "the agenda"), but the panel that used to list the rest of the
+   * overflow underneath the agenda is gone, whether or not anything fitted.
+   */
+  it('does not show an "If there is time" panel for the plan overflow any more', () => {
     renderDashboard({
       plan: aPlan({
         entries: [aPlanEntry({ id: 'entry-1', title: 'Planned work' })],
@@ -325,43 +330,8 @@ describe('the agenda', () => {
       }),
     })
 
-    const overflow = within(screen.getByRole('region', { name: /if there is time/i }))
-
-    expect(overflow.getByText('Spare capacity work')).toBeInTheDocument()
-    expect(overflow.queryByText('Planned work')).not.toBeInTheDocument()
-  })
-
-  /** A task sitting in overflow is no less completable from here than one in the main agenda. */
-  it('offers to complete an overflow entry too, and says which task', async () => {
-    const onComplete = vi.fn()
-    renderDashboard({
-      plan: aPlan({
-        overflow: [
-          aPlanEntry({ id: 'entry-2', kind: 'overflow', taskId: 'task-b', title: 'Tidy the docs' }),
-        ],
-      }),
-      onComplete,
-    })
-
-    const overflow = within(screen.getByRole('region', { name: /if there is time/i }))
-    await userEvent.click(overflow.getByRole('button', { name: /complete tidy the docs/i }))
-
-    expect(onComplete).toHaveBeenCalledWith('task-b')
-  })
-
-  /** Done is said in text as well as in the styling in overflow too, not only in the main agenda. */
-  it('marks an overflow entry whose task is done, with the same text the main agenda uses', () => {
-    renderDashboard({
-      plan: aPlan({
-        overflow: [
-          aPlanEntry({ id: 'entry-2', kind: 'overflow', title: 'Already finished', done: true }),
-        ],
-      }),
-    })
-
-    const overflow = within(screen.getByRole('region', { name: /if there is time/i }))
-    expect(overflow.getByText('done')).toBeInTheDocument()
-    expect(overflow.getByText('Already finished').closest('li')).toHaveClass('plan-done')
+    expect(screen.queryByRole('region', { name: /if there is time/i })).not.toBeInTheDocument()
+    expect(screen.queryByText('Spare capacity work')).not.toBeInTheDocument()
   })
 
   it('says nothing about overflow when everything fitted', () => {
@@ -681,9 +651,9 @@ describe('the agenda', () => {
       }),
     })
 
-    // Also listed under "If there is time" (every overflow entry is, regardless of whether it
-    // was also offered inline), so two matches rather than one.
-    expect(today().getAllByText(/Tidy the docs index/)).toHaveLength(2)
+    // Offered exactly once, inline in the gap: there is no "If there is time" panel any more to
+    // list it a second time underneath.
+    expect(today().getAllByText(/Tidy the docs index/)).toHaveLength(1)
     expect(today().getByText(/would fit/)).toBeInTheDocument()
   })
 })

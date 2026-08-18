@@ -16,6 +16,12 @@
  *
  * Criterion 4: with no plan, no calendar and no integrations configured it shows empty states
  * rather than errors, because that is the state a clean checkout is in.
+ *
+ * There is no "If there is time" panel for the plan's overflow any more: issue #47's mockup drew
+ * one, but Steve asked for it gone outright, not merely hidden behind the mockup's say-so. An
+ * overflow entry that also fits a free gap in the agenda is still offered there, inline (spec
+ * 05's "would fit" slack row); the rest of the overflow list is simply not shown anywhere on this
+ * surface any more, since nothing here needs to replace what the panel used to say.
  */
 import { Fragment, type ReactNode } from 'react'
 import { taskStatuses } from '../api.js'
@@ -344,11 +350,12 @@ function EntryTitle({
 
 /**
  * A plan entry's rank, title, rationale, estimate and completion state: everything about the
- * entry itself, as opposed to where it sits (an agenda row carries a clock time beside this; an
- * overflow row does not). Shared between the two so a fix to one is a fix to both, the way a
- * single `PlanEntryLine` used to be shared between the plan panel and its overflow before issue
- * #47's agenda merge split the main list out into `AgendaEntryRow` and left the overflow list
- * with its own, incomplete copy that dropped the Complete button and the "done" text.
+ * entry itself, as opposed to where it sits (an agenda row carries a clock time beside this).
+ * Its own function rather than inlined into `AgendaEntryRow`, the way a single `PlanEntryLine`
+ * used to be shared between the main agenda and the now-removed "If there is time" overflow
+ * panel: Steve asked for that panel gone outright regardless of what it fitted into, not merely
+ * hidden, so this no longer has a second caller, but it still keeps the entry's own rendering out
+ * of the row that places it.
  */
 function PlanEntryLine({
   entry,
@@ -403,12 +410,14 @@ function AgendaEntryRow({
   return (
     <li className={entry.done ? 'agenda-row plan-entry plan-done' : 'agenda-row plan-entry'}>
       <span className="agenda-time">{startsAt === null ? null : formatTimeOfDay(startsAt)}</span>
-      <PlanEntryLine
-        entry={entry}
-        onComplete={onComplete}
-        onSelect={onSelect}
-        selected={selected}
-      />
+      <div className="agenda-card">
+        <PlanEntryLine
+          entry={entry}
+          onComplete={onComplete}
+          onSelect={onSelect}
+          selected={selected}
+        />
+      </div>
     </li>
   )
 }
@@ -429,13 +438,17 @@ function AgendaMeetingRow({ event }: { readonly event: CalendarEventView }) {
       <span className="agenda-time">
         {event.allDay ? 'all day' : formatTimeOfDay(event.startsAt)}
       </span>
-      <span className="event-summary">{event.summary ?? 'Busy'}</span>
-      {/* Why it costs nothing, rather than leaving a declined meeting looking like an hour that
-          has gone. */}
-      <span className="event-free-reason">
-        {durationMinutes !== null && durationMinutes > 0 && `${formatEstimate(durationMinutes)}, `}
-        {free ?? 'meeting'}
-      </span>
+      <div className="agenda-card">
+        <span className="event-summary">{event.summary ?? 'Busy'}</span>
+        {/* Why it costs nothing, rather than leaving a declined meeting looking like an hour that
+            has gone. */}
+        <span className="event-free-reason">
+          {durationMinutes !== null &&
+            durationMinutes > 0 &&
+            `${formatEstimate(durationMinutes)}, `}
+          {free ?? 'meeting'}
+        </span>
+      </div>
     </li>
   )
 }
@@ -454,13 +467,15 @@ function AgendaGapRow({
   return (
     <li className="agenda-row agenda-gap">
       <span className="agenda-time">{formatTimeOfDay(gap.startsAt)}</span>
-      <span className="gap-free">{formatEstimate(gap.minutes)} free</span>
-      {offer !== null && (
-        <span className="gap-offer">
-          <EntryTitle entry={offer} onSelect={onSelect} selected={selected} /> (
-          {formatEstimate(offer.estimateMinutes ?? 0)}) would fit
-        </span>
-      )}
+      <div className="agenda-card">
+        <span className="gap-free">{formatEstimate(gap.minutes)} free</span>
+        {offer !== null && (
+          <span className="gap-offer">
+            <EntryTitle entry={offer} onSelect={onSelect} selected={selected} /> (
+            {formatEstimate(offer.estimateMinutes ?? 0)}) would fit
+          </span>
+        )}
+      </div>
     </li>
   )
 }
@@ -890,27 +905,6 @@ export function Dashboard({
                 selected={selected}
               />
             )}
-
-          {/* Spec 05: excess is offered rather than dropped, and offered as what it is. One entry
-              may already have been offered inline as a fitting slack suggestion in the agenda
-              above; every one of them is still listed here regardless, so nothing the plan
-              ranked is only visible in passing. */}
-          {plan !== null && plan.overflow.length > 0 && (
-            <Panel headingLevel={2} heading="If there is time">
-              <ul className="plan-list">
-                {plan.overflow.map((entry) => (
-                  <li key={entry.id} className={entry.done ? 'plan-entry plan-done' : 'plan-entry'}>
-                    <PlanEntryLine
-                      entry={entry}
-                      onComplete={onComplete}
-                      onSelect={onSelect}
-                      selected={selected}
-                    />
-                  </li>
-                ))}
-              </ul>
-            </Panel>
-          )}
         </section>
       </div>
     </div>
