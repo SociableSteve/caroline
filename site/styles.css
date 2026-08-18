@@ -513,9 +513,11 @@ kbd {
  * own face, an application that is dark by default, rather than reading as prose that should follow
  * the reader's palette the way the rest of the page does. Rather than a second set of colours, it
  * re-pins the shared tokens themselves to their dark values for everything inside `.hero`: every
- * rule below still names only a token (spec 10's rule), and every one of those tokens is still one
- * `site/build.ts` extracts from the application, but within this one subtree it no longer answers to
- * `prefers-color-scheme`, which is the point.
+ * rule below still names only a token (spec 10's rule), and the pin itself is `site/build.ts`'s
+ * `heroPin`, generated into the stylesheet ahead of this file from web/styles.css's own `:root`
+ * block, not retyped here. Within this one subtree the tokens no longer answer to
+ * `prefers-color-scheme`, which is the point; the values they hold are still read from the
+ * application rather than copied.
  */
 .hero {
   max-width: 100%;
@@ -524,13 +526,6 @@ kbd {
   text-align: center;
   background: var(--page);
   border-radius: var(--radius-md);
-  --page: #0a0a0a;
-  --ink: #fafafa;
-  --ink-quiet: #b4b4b4;
-  --surface-raised: #1c1c1c;
-  --line: rgb(255 255 255 / 10%);
-  --primary: #fafafa;
-  --primary-ink: #0a0a0a;
 }
 
 .hero-eyebrow {

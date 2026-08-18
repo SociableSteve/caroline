@@ -1064,6 +1064,56 @@ ${blocks}
 }
 
 /**
+ * The seven tokens the hero pins itself to regardless of `prefers-color-scheme`: the page, the two
+ * ink tones, the raised surface, the hairline, and the one filled primary. Named here once, so
+ * `heroPin` and the values it emits cannot drift apart from each other, let alone from the
+ * application.
+ */
+const heroTokens = [
+  'page',
+  'ink',
+  'ink-quiet',
+  'surface-raised',
+  'line',
+  'primary',
+  'primary-ink',
+] as const
+
+/**
+ * The hero's pin to the application's dark palette, read by name from `web/styles.css`'s own
+ * `:root` block rather than retyped: `:root` is unconditioned dark (issue #47), so these are
+ * already the values a system with no light preference gets, and reading them here is what keeps
+ * the hero's "always dark" rule from silently drifting the moment that palette moves without this
+ * file moving with it. Same mechanism `icon` already uses to read `--accent`/`--primary-ink` by
+ * name, applied to the seven tokens `.hero` overrides.
+ */
+function heroPin(application: string): string {
+  const dark = withoutComments(block(application, ':root {'))
+  const token = (name: string) => new RegExp(`--${name}:\\s*([^;]+);`).exec(dark)?.[1]?.trim()
+
+  const declarations = heroTokens
+    .map((name) => {
+      const value = token(name)
+      if (value === undefined) {
+        throw new Error(`web/styles.css declares no --${name} for the hero to pin`)
+      }
+
+      return `  --${name}: ${value};`
+    })
+    .join('\n')
+
+  return `/*
+ * The hero's pin to the application's dark palette. Extracted from web/styles.css's own :root
+ * block by site/build.ts, the same way palette() and icon() read theirs, so these values cannot
+ * drift from the ones they name. Edit the palette in web/styles.css, not the values here.
+ */
+.hero {
+${declarations}
+}
+`
+}
+
+/**
  * From an opening brace to the one that closes it, counting the pairs between.
  *
  * Read from the blanked copy so that neither the opening nor a brace can be found inside a comment, and
@@ -1291,7 +1341,10 @@ export function buildSite(sources: SiteSources = repositorySources()): Map<strin
   }
 
   const application = sources.read('web/styles.css')
-  files.set('styles.css', `${palette(application)}\n${sources.read('site/styles.css')}`)
+  files.set(
+    'styles.css',
+    `${palette(application)}\n${heroPin(application)}\n${sources.read('site/styles.css')}`,
+  )
   files.set('icon.svg', icon(application))
 
   verify(files, new Set(assets.map((asset) => asset.output)))
