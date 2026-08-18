@@ -149,8 +149,10 @@ export function applyPlanRules({
   const seen = new Set<string>()
 
   for (const entry of ranked) {
-    // First mention wins, whether or not the id resolves to a real candidate: a duplicate
-    // invented id is still one invented id, and repeating it should not repeat the warning.
+    // First mention wins, and the check comes before the candidate lookup so it holds whether or
+    // not the id resolves. A task planned twice is one task, and the second entry would spend the
+    // same capacity again on work that is already in the list; a duplicate invented id is still
+    // one invented id, and repeating it should not repeat the warning about it.
     if (seen.has(entry.taskId)) continue
     seen.add(entry.taskId)
 

@@ -70,6 +70,11 @@ the prompt:
   saying so. A plan is acted on, and work nobody put in front of the model is work it invented.
 - An entry too large for the whole day goes to overflow without taking the rest of the list
   with it: fitting steps over it and carries on, so one outsized task does not empty the day.
+- Where the same task id is named more than once, the first mention wins and the rest are
+  dropped. A task planned twice is one task, and the second entry would spend the same capacity
+  again on work that is already in the list. The rule is about the id rather than about the task,
+  so it holds for an id that names no candidate too: a repeated invented id is still one invented
+  id, and it earns one warning rather than one per mention.
 
 ## Relationship to task state
 
@@ -123,3 +128,12 @@ code and the suite cite these by number.
 16. A plan that could not fit everything carries a warning saying so, as well as listing what was
     left over. The warning names no count and no number of minutes, so it cannot come to disagree
     with the list or the capacity drawn beside it.
+
+Issue #21 added the following, appended rather than renumbered for the same reason. The
+first-mention-wins rule was enforced in code from the start but written down nowhere, which is part
+of why nothing caught the warning being pushed ahead of the duplicate check.
+
+17. An answer naming the same task id more than once yields one entry, or where the id names no
+    candidate one warning, whichever mention count it was listed with. First mention wins, and the
+    warning that survives names that id, so a model that repeats itself cannot multiply either the
+    day's work or what the plan says about it.
