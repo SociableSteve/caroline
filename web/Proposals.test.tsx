@@ -26,6 +26,7 @@ function renderBoard(overrides: Partial<Parameters<typeof Board>[0]> = {}) {
       tasks={[]}
       projects={[]}
       staleDays={7}
+      timezone="UTC"
       now={NOW}
       selected={null}
       {...handlers}

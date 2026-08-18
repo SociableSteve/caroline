@@ -52,6 +52,10 @@ export interface CarolineData {
   readonly reloadSettings: () => Promise<void>
   /** The configured waiting staleness threshold, defaulted until the config arrives. */
   readonly staleDays: number
+  /** The zone a due or defer-until date typed into the board resolves in, defaulted to UTC
+   *  until the config arrives. Kept the same as `jobs.timezone` so the board and the chat
+   *  tool agree on what a calendar date means. */
+  readonly timezone: string
   readonly loading: boolean
   readonly failure: string | null
   /** How many tasks exist, when that is more than the client fetched. Null when it is not. */
@@ -61,6 +65,10 @@ export interface CarolineData {
 
 /** Spec 02's default, used until `GET /api/config` says otherwise. */
 const DEFAULT_STALE_DAYS = 7
+
+/** Used until `GET /api/config` says otherwise: a date typed before then resolves in UTC
+ *  rather than in whatever zone the deployment is actually configured for. */
+const DEFAULT_TIMEZONE = 'UTC'
 
 function describeFailure(error: unknown): string {
   if (error instanceof ApiFailure) return error.message
@@ -104,6 +112,7 @@ export function useCarolineData(enabled = true): CarolineData {
   const [mcpClients, setMcpClients] = useState<readonly McpClientView[] | null>(null)
   const [userName, setUserName] = useState('')
   const [staleDays, setStaleDays] = useState(DEFAULT_STALE_DAYS)
+  const [timezone, setTimezone] = useState(DEFAULT_TIMEZONE)
   const [loading, setLoading] = useState(true)
   const [failure, setFailure] = useState<string | null>(null)
   const [unfetchedTaskTotal, setUnfetchedTaskTotal] = useState<number | null>(null)
@@ -238,8 +247,14 @@ export function useCarolineData(enabled = true): CarolineData {
       .catch(() => setHealth(null))
     void api
       .getConfig()
-      .then((config) => setStaleDays(config.tasks.waitingStaleDays))
-      .catch(() => setStaleDays(DEFAULT_STALE_DAYS))
+      .then((config) => {
+        setStaleDays(config.tasks.waitingStaleDays)
+        setTimezone(config.jobs.timezone)
+      })
+      .catch(() => {
+        setStaleDays(DEFAULT_STALE_DAYS)
+        setTimezone(DEFAULT_TIMEZONE)
+      })
   }, [reload, enabled])
 
   useEffect(() => {
@@ -262,6 +277,7 @@ export function useCarolineData(enabled = true): CarolineData {
     mcpClients,
     userName,
     staleDays,
+    timezone,
     loading,
     failure,
     unfetchedTaskTotal,

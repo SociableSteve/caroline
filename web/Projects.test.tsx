@@ -170,6 +170,7 @@ function renderDetail(overrides: Partial<Parameters<typeof ProjectDetail>[0]> = 
       project={aProject({ id: 'project-1', title: 'Ship it' })}
       tasks={[]}
       staleDays={7}
+      timezone="UTC"
       now={NOW}
       selected={null}
       hash="#/projects/project-1"

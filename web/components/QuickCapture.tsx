@@ -16,6 +16,9 @@ import { ActionRow, Field } from './primitives.js'
 export interface QuickCaptureProps {
   readonly open: boolean
   readonly projects: readonly ProjectView[]
+  /** The zone the due and defer-until fields resolve a typed date in, so a date set here lands
+   *  on the same instant it would from chat. Spec 06. */
+  readonly timezone: string
   readonly onClose: () => void
   /** Answers whether the task was created. The form holds what was typed until it was. */
   readonly onCreate: (input: TaskInput) => Promise<boolean>
@@ -23,7 +26,7 @@ export interface QuickCaptureProps {
 
 const FOCUSABLE = 'input, textarea, select, button:not([disabled]), [href]'
 
-export function QuickCapture({ open, projects, onClose, onCreate }: QuickCaptureProps) {
+export function QuickCapture({ open, projects, timezone, onClose, onCreate }: QuickCaptureProps) {
   const [title, setTitle] = useState('')
   const [notes, setNotes] = useState('')
   const [projectId, setProjectId] = useState('')
@@ -117,6 +120,13 @@ export function QuickCapture({ open, projects, onClose, onCreate }: QuickCapture
     const trimmed = sent.title.trim()
     if (trimmed === '' || saving) return
 
+    // Null means the typed date could not be resolved to an instant in `timezone` at all, which
+    // no real IANA zone does for a whole calendar day: the field is left off rather than sent
+    // as a guess, the same as if nothing had been typed.
+    const dueAt = sent.dueDate === '' ? null : dueAtFromDateInput(sent.dueDate, timezone)
+    const deferUntil =
+      sent.deferDate === '' ? null : deferUntilFromDateInput(sent.deferDate, timezone)
+
     setSaving(true)
     let created = false
     try {
@@ -124,8 +134,8 @@ export function QuickCapture({ open, projects, onClose, onCreate }: QuickCapture
         title: trimmed,
         ...(sent.notes.trim() === '' ? {} : { notes: sent.notes.trim() }),
         ...(sent.projectId === '' ? {} : { projectId: sent.projectId }),
-        ...(sent.dueDate === '' ? {} : { dueAt: dueAtFromDateInput(sent.dueDate) }),
-        ...(sent.deferDate === '' ? {} : { deferUntil: deferUntilFromDateInput(sent.deferDate) }),
+        ...(dueAt === null ? {} : { dueAt }),
+        ...(deferUntil === null ? {} : { deferUntil }),
       })
     } catch {
       // A rejection is a capture that did not happen, which is what `false` already means, so

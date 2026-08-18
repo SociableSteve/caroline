@@ -32,6 +32,7 @@ function renderBoard(overrides: Partial<Parameters<typeof Board>[0]> = {}) {
     tasks: [],
     projects: [],
     staleDays: 7,
+    timezone: 'UTC',
     now: NOW,
     selected: null,
     ...handlers,
@@ -631,10 +632,10 @@ describe('editing a due date and a defer-until date', () => {
     await userEvent.click(within(card).getByText('More'))
 
     expect(within(card).getByLabelText('Due date of Renew the domain')).toHaveValue(
-      dateInputValue(NOW + 5 * DAY),
+      dateInputValue(NOW + 5 * DAY, 'UTC'),
     )
     expect(within(card).getByLabelText('Defer-until date of Renew the domain')).toHaveValue(
-      dateInputValue(NOW + 2 * DAY),
+      dateInputValue(NOW + 2 * DAY, 'UTC'),
     )
   })
 
@@ -643,12 +644,12 @@ describe('editing a due date and a defer-until date', () => {
 
     const card = screen.getByRole('article', { name: 'Renew the domain' })
     await userEvent.click(within(card).getByText('More'))
-    fireEvent.change(within(card).getByLabelText('Due date of Renew the domain'), {
-      target: { value: '2026-07-01' },
-    })
+    const dueInput = within(card).getByLabelText('Due date of Renew the domain')
+    fireEvent.change(dueInput, { target: { value: '2026-07-01' } })
+    fireEvent.blur(dueInput)
 
     expect(handlers.onDatesChange).toHaveBeenCalledWith('task-1', {
-      dueAt: dueAtFromDateInput('2026-07-01'),
+      dueAt: dueAtFromDateInput('2026-07-01', 'UTC'),
     })
   })
 
@@ -657,12 +658,12 @@ describe('editing a due date and a defer-until date', () => {
 
     const card = screen.getByRole('article', { name: 'Renew the domain' })
     await userEvent.click(within(card).getByText('More'))
-    fireEvent.change(within(card).getByLabelText('Defer-until date of Renew the domain'), {
-      target: { value: '2026-06-20' },
-    })
+    const deferInput = within(card).getByLabelText('Defer-until date of Renew the domain')
+    fireEvent.change(deferInput, { target: { value: '2026-06-20' } })
+    fireEvent.blur(deferInput)
 
     expect(handlers.onDatesChange).toHaveBeenCalledWith('task-1', {
-      deferUntil: deferUntilFromDateInput('2026-06-20'),
+      deferUntil: deferUntilFromDateInput('2026-06-20', 'UTC'),
     })
   })
 
@@ -673,9 +674,9 @@ describe('editing a due date and a defer-until date', () => {
 
     const card = screen.getByRole('article', { name: 'Renew the domain' })
     await userEvent.click(within(card).getByText('More'))
-    fireEvent.change(within(card).getByLabelText('Due date of Renew the domain'), {
-      target: { value: '' },
-    })
+    const dueInput = within(card).getByLabelText('Due date of Renew the domain')
+    fireEvent.change(dueInput, { target: { value: '' } })
+    fireEvent.blur(dueInput)
 
     expect(handlers.onDatesChange).toHaveBeenCalledWith('task-1', { dueAt: null })
   })
@@ -687,9 +688,9 @@ describe('editing a due date and a defer-until date', () => {
 
     const card = screen.getByRole('article', { name: 'Renew the domain' })
     await userEvent.click(within(card).getByText('More'))
-    fireEvent.change(within(card).getByLabelText('Defer-until date of Renew the domain'), {
-      target: { value: '' },
-    })
+    const deferInput = within(card).getByLabelText('Defer-until date of Renew the domain')
+    fireEvent.change(deferInput, { target: { value: '' } })
+    fireEvent.blur(deferInput)
 
     expect(handlers.onDatesChange).toHaveBeenCalledWith('task-1', { deferUntil: null })
   })

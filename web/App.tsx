@@ -110,6 +110,7 @@ export function App() {
     mcpClients,
     userName,
     staleDays,
+    timezone,
     loading,
     failure,
     unfetchedTaskTotal,
@@ -463,6 +464,7 @@ export function App() {
                 tasks={tasks}
                 projects={projects}
                 staleDays={staleDays}
+                timezone={timezone}
                 now={now}
                 onMarkReviewed={onMarkReviewed}
                 onAcceptProposal={onAcceptProposal}
@@ -485,6 +487,7 @@ export function App() {
                 project={projects.find((project) => project.id === route.id)}
                 tasks={tasks.filter((task) => task.projectId === route.id)}
                 staleDays={staleDays}
+                timezone={timezone}
                 now={now}
                 hash={hash}
                 {...cardHandlers}
@@ -561,6 +564,7 @@ export function App() {
       <QuickCapture
         open={capturing}
         projects={projects}
+        timezone={timezone}
         onClose={() => setCapturing(false)}
         onCreate={onCapture}
       />

@@ -29,7 +29,7 @@ function deferredTaskFetch() {
       if (url.startsWith('/api/projects')) return answer({ projects: [] })
       if (url.startsWith('/api/health')) return answer({ integrations: {} })
 
-      return answer({ tasks: { waitingStaleDays: 7 } })
+      return answer({ tasks: { waitingStaleDays: 7 }, jobs: { timezone: 'UTC' } })
     }),
   )
 
@@ -157,7 +157,7 @@ function stubDay({ planDate, calendarDate, failing = [] }: DayStubOptions) {
         return answer({ date: asked ?? calendarDate, connected: true, events: [], capacity: {} })
       }
 
-      return answer({ tasks: { waitingStaleDays: 7 } })
+      return answer({ tasks: { waitingStaleDays: 7 }, jobs: { timezone: 'UTC' } })
     }),
   )
 

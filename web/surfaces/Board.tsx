@@ -20,6 +20,8 @@ export interface BoardProps {
   readonly tasks: readonly TaskView[]
   readonly projects: readonly ProjectView[]
   readonly staleDays: number
+  /** The zone a due or defer-until date typed into a card resolves in. Spec 06. */
+  readonly timezone: string
   readonly now: number
   readonly onStatusChange: (id: string, status: TaskStatus) => void
   readonly onComplete: (id: string) => void
@@ -74,6 +76,7 @@ export function Board({
   tasks,
   projects,
   staleDays,
+  timezone,
   now,
   onStatusChange,
   onComplete,
@@ -319,6 +322,7 @@ export function Board({
                         ? { projectTitle: projectTitles.get(task.projectId) }
                         : {})}
                       staleDays={staleDays}
+                      timezone={timezone}
                       now={now}
                       onStatusChange={onStatusChange}
                       onComplete={onComplete}

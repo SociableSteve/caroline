@@ -24,6 +24,7 @@ function Harness({ onCreate }: { onCreate: (input: unknown) => Promise<boolean> 
       <QuickCapture
         open={open}
         projects={[aProject({ id: 'project-1', title: 'Ship it' })]}
+        timezone="UTC"
         onClose={() => setOpen(false)}
         onCreate={onCreate}
       />
@@ -155,8 +156,8 @@ describe('capturing', () => {
 
     expect(onCreate).toHaveBeenCalledWith({
       title: 'Renew the domain',
-      dueAt: dueAtFromDateInput('2026-07-01'),
-      deferUntil: deferUntilFromDateInput('2026-06-20'),
+      dueAt: dueAtFromDateInput('2026-07-01', 'UTC'),
+      deferUntil: deferUntilFromDateInput('2026-06-20', 'UTC'),
     })
   })
 

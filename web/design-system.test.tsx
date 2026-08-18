@@ -60,7 +60,16 @@ const surfaces: ReadonlyArray<{ name: string; title: string; render: () => void 
     name: 'Board',
     title: 'Board',
     render: () =>
-      void render(<Board tasks={[]} projects={[]} staleDays={7} now={NOW} {...boardHandlers} />),
+      void render(
+        <Board
+          tasks={[]}
+          projects={[]}
+          staleDays={7}
+          timezone="UTC"
+          now={NOW}
+          {...boardHandlers}
+        />,
+      ),
   },
   {
     name: 'Projects',
@@ -87,6 +96,7 @@ const surfaces: ReadonlyArray<{ name: string; title: string; render: () => void 
           project={aProject({ id: 'project-1', title: 'Ship the thing' })}
           tasks={[]}
           staleDays={7}
+          timezone="UTC"
           now={NOW}
           onStatusChange={vi.fn()}
           onComplete={vi.fn()}
@@ -206,6 +216,7 @@ describe('one filled primary per context', () => {
         tasks={[aReviewTask(), aTask({ id: 'task-2', title: 'Captured', proposal: aProposal() })]}
         projects={[]}
         staleDays={7}
+        timezone="UTC"
         now={NOW}
         {...boardHandlers}
       />,

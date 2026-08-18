@@ -2,7 +2,7 @@
  * One card. Everything that matters about a task is on it: nothing is behind a hover, per
  * spec 08, and every state that is carried by colour is also carried by text.
  */
-import { useState, type KeyboardEvent } from 'react'
+import { useEffect, useState, type KeyboardEvent } from 'react'
 import {
   boardStatuses,
   type ItemRef,
@@ -36,6 +36,9 @@ export interface TaskCardProps {
   readonly task: TaskView
   readonly projectTitle?: string | undefined
   readonly staleDays: number
+  /** The zone `dueAtFromDateInput` and `deferUntilFromDateInput` resolve a typed date in, so a
+   *  date set here lands on the same instant it would from chat. Spec 06. */
+  readonly timezone: string
   readonly now: number
   readonly onStatusChange: (id: string, status: TaskStatus) => void
   readonly onComplete: (id: string) => void
@@ -73,6 +76,7 @@ export function TaskCard({
   task,
   projectTitle,
   staleDays,
+  timezone,
   now,
   onStatusChange,
   onComplete,
@@ -104,6 +108,47 @@ export function TaskCard({
   // A proposal the classifier was not confident enough to apply. Shown with its reasoning and its
   // confidence, because accepting somebody else's guess unseen is not triage. Spec 04.
   const proposal = onAcceptProposal === undefined ? null : task.proposal
+
+  /**
+   * The due and defer-until inputs are buffered locally and only committed on blur, the same
+   * convention `QuickCapture` already uses for its own date fields. A native `<input
+   * type="date">` can report `.value === ''` for an instant while an already-filled control is
+   * mid-edit (clearing the year to retype it, for instance), and committing straight from
+   * `onChange` the way an earlier draft of this card did would send that transient empty
+   * reading on to the server as an unintended clear. Buffering means every keystroke is safe to
+   * see, and only the value standing when the field loses focus is ever sent.
+   */
+  const dueAtValue = task.dueAt === null ? '' : dateInputValue(task.dueAt, timezone)
+  const deferUntilValue = task.deferUntil === null ? '' : dateInputValue(task.deferUntil, timezone)
+  const [dueDateInput, setDueDateInput] = useState(dueAtValue)
+  const [deferDateInput, setDeferDateInput] = useState(deferUntilValue)
+
+  useEffect(() => setDueDateInput(dueAtValue), [dueAtValue])
+  useEffect(() => setDeferDateInput(deferUntilValue), [deferUntilValue])
+
+  const commitDueDate = () => {
+    if (dueDateInput === dueAtValue) return
+    if (dueDateInput === '') {
+      onDatesChange(task.id, { dueAt: null })
+      return
+    }
+    // Null here means the value could not be resolved in `timezone` at all, which real IANA
+    // zones do not do for a whole calendar day: left alone rather than guessed at.
+    const resolved = dueAtFromDateInput(dueDateInput, timezone)
+    if (resolved === null) return
+    onDatesChange(task.id, { dueAt: resolved })
+  }
+
+  const commitDeferDate = () => {
+    if (deferDateInput === deferUntilValue) return
+    if (deferDateInput === '') {
+      onDatesChange(task.id, { deferUntil: null })
+      return
+    }
+    const resolved = deferUntilFromDateInput(deferDateInput, timezone)
+    if (resolved === null) return
+    onDatesChange(task.id, { deferUntil: resolved })
+  }
 
   return (
     <li className="card-slot">
@@ -311,32 +356,30 @@ export function TaskCard({
 
             {/* A native date input, empty for unset. Clearing it back to empty sends `null`
                 rather than leaving the field alone, so taking a date off a task is as direct as
-                setting one. Issue #44. */}
+                setting one. Issue #44.
+
+                Typed and buffered locally rather than written on every `onChange`: a native date
+                input can read as empty for an instant mid-edit (retyping the year of an
+                already-set date, for instance), and committing that transient reading would
+                clear the date under the person typing it. Committed on blur instead, the same
+                convention `QuickCapture`'s own date fields use. */}
             <Field label={`Due date of ${task.title}`} hiddenLabel>
               <input
                 type="date"
-                value={task.dueAt === null ? '' : dateInputValue(task.dueAt)}
-                onChange={(event) =>
-                  onDatesChange(task.id, {
-                    dueAt:
-                      event.target.value === '' ? null : dueAtFromDateInput(event.target.value),
-                  })
-                }
+                name="dueAt"
+                value={dueDateInput}
+                onChange={(event) => setDueDateInput(event.target.value)}
+                onBlur={commitDueDate}
               />
             </Field>
 
             <Field label={`Defer-until date of ${task.title}`} hiddenLabel>
               <input
                 type="date"
-                value={task.deferUntil === null ? '' : dateInputValue(task.deferUntil)}
-                onChange={(event) =>
-                  onDatesChange(task.id, {
-                    deferUntil:
-                      event.target.value === ''
-                        ? null
-                        : deferUntilFromDateInput(event.target.value),
-                  })
-                }
+                name="deferUntil"
+                value={deferDateInput}
+                onChange={(event) => setDeferDateInput(event.target.value)}
+                onBlur={commitDeferDate}
               />
             </Field>
 
