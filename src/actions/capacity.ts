@@ -47,7 +47,11 @@ export interface DayCapacity {
   readonly reserveMinutes: number
   /** May be negative: a day with more meetings in it than working hours says so. Spec 05. */
   readonly capacityMinutes: number
-  /** False when no calendar is connected, so the window was assumed free. */
+  /**
+   * False when the calendar could not be read. Where nothing was ever synced the window is taken
+   * as free; where events are on record they are still deducted, from that last sync rather than
+   * a live diary.
+   */
   readonly verified: boolean
   readonly workingDay: boolean
   readonly windowStart: number | null
@@ -105,8 +109,12 @@ export function capacityFrom(
 
 /**
  * The capacity of a date, read from whatever is stored. With nothing ever connected there is
- * nothing to read and the window is taken as free; disconnecting clears the diary, so there is
- * no third case and nothing to filter out here.
+ * nothing to read and the window is taken as free. Disconnecting through the API clears the
+ * diary, but that is not the only way a calendar stops being readable: a capacity is verified
+ * only while the integration is still configured too, so clearing the client secret leaves every
+ * synced row in place under an unverified capacity. Still nothing to filter out here, because a
+ * stored event was a true reading of the diary when it was taken; it is the wording of the
+ * notice, not the arithmetic, that has to distinguish the two. See `unverifiedCapacityNotice`.
  */
 export function capacityForDate(
   database: Database,

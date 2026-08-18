@@ -39,7 +39,10 @@ export interface RecordDailyPlanInput {
   readonly busyMinutes: number
   readonly reserveMinutes: number
   readonly capacityMinutes: number
-  /** False when no calendar was available, so the window was assumed free. Criterion 10. */
+  /**
+   * False when no calendar could be read: the window was taken as free where nothing was ever
+   * synced, and drawn from the last sync where events were on record. Criterion 10.
+   */
   readonly capacityVerified: boolean
   readonly provider: string | null
   readonly model: string | null

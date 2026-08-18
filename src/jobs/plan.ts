@@ -22,7 +22,7 @@ import { getUserName } from '../db/repositories/settings.js'
 import { listTasks } from '../db/repositories/tasks.js'
 import { workingWindowForDate } from '../actions/capacity.js'
 import { waitingItemsFor } from '../actions/waiting.js'
-import { computeCapacity, type Capacity } from '../domain/capacity.js'
+import { computeCapacity, unverifiedCapacityNotice, type Capacity } from '../domain/capacity.js'
 import { noCounts, type JobCounts, type JobRunStatus } from '../domain/job.js'
 import {
   applyPlanRules,
@@ -127,11 +127,6 @@ function dayContext(
   const dueBy = (instantAt(date, 23 * 60 + 59, timeZone) ?? now()) + 59_999
 
   const verified = calendarConnected()
-  if (!verified) {
-    warnings.push(
-      'No calendar is connected, so this capacity is unverified: it assumes the whole working window is free.',
-    )
-  }
 
   const capacity =
     window === null
@@ -139,11 +134,29 @@ function dayContext(
       : computeCapacity({
           window,
           // Whatever is stored. With nothing ever connected there is nothing to read, and the
-          // window is taken as free; disconnecting clears the diary, so there is no third case.
+          // window is taken as free. Disconnecting through the API clears the diary, but that is
+          // not the only way a calendar stops being readable: `calendarConnected()` also asks
+          // whether the integration is still configured, so clearing GOOGLE_CLIENT_SECRET (or
+          // disabling it) reports the capacity as unverified with every synced row still in
+          // place. Events on an unverified day are a real case, and the notice below is what
+          // keeps the wording honest about which of the two the reader has.
           events: listCalendarEvents(database, { from: window.start, to: window.end }),
           reservePercent,
           countAllDayEvents,
         })
+
+  // Judged against what was actually deducted, not just against the connection: a sync taken
+  // before the calendar stopped being readable still counts as events found, and the notice must
+  // not claim the window was assumed free when it plainly was not. No capacity means no working
+  // window, and nothing was assumed about a window that does not exist.
+  const notice = unverifiedCapacityNotice({
+    verified,
+    workingDay: capacity !== null,
+    busyMinutes: capacity?.busyMinutes ?? 0,
+  })
+  if (notice !== null) {
+    warnings.push(notice)
+  }
 
   if (window === null) {
     warnings.push(

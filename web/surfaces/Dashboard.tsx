@@ -43,6 +43,7 @@ import {
   statusLabel,
   waitingAge,
 } from '../format.js'
+import { unverifiedCapacityNotice } from '../../src/domain/capacity.js'
 import { projectHref, surfaceHref } from '../router.js'
 import { Panel } from '../components/primitives.js'
 import { useSurfaceTitle } from '../title.js'
@@ -263,6 +264,7 @@ export function Dashboard({
   const quiet = waiting.filter((task) => isStale(task, now, staleDays))
   const stalled = projects.filter((project) => project.stalled)
   const planned = plannedMinutes(plan)
+  const capacityNotice = calendar === null ? null : unverifiedCapacityNotice(calendar.capacity)
 
   return (
     <div className="dashboard">
@@ -323,12 +325,7 @@ export function Dashboard({
             <>
               <CapacityBar capacity={calendar.capacity} planned={planned} />
 
-              {!calendar.capacity.verified && (
-                <p className="capacity-unverified">
-                  No calendar is connected, so this capacity is unverified: it assumes the whole
-                  working day is free.
-                </p>
-              )}
+              {capacityNotice !== null && <p className="capacity-unverified">{capacityNotice}</p>}
 
               {calendar.events.length === 0 ? (
                 <p className="empty">Nothing in the diary today.</p>

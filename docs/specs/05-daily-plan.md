@@ -110,8 +110,12 @@ for the last fourteen days.
 7. A non-empty review queue yields at least one review entry when capacity allows.
 8. Regenerating a plan for the same date creates a new plan and preserves the previous one.
 9. Generating a plan changes no task row.
-10. With no calendar configured, planning still runs using the full working window and says
-    that capacity is unverified.
+10. With no calendar that can be read, planning still runs and says that capacity is
+    unverified, in whichever of two cases applies: with no events on record it uses the full
+    working window and says the window was assumed free, and with events still on record from
+    an earlier sync it deducts them as usual and says the figures came from that sync rather
+    than claiming the window was assumed free. A day that is not a working day says only that
+    (criterion 13); there is no window there to have assumed anything about.
 11. An item in `waiting` past the staleness threshold appears as a nudge naming the person
     and the elapsed time, and does not consume capacity.
 12. A reviewed pull request whose author has not responded appears as a nudge rather than

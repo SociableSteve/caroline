@@ -169,6 +169,24 @@ describe('the capacity a plan is drawn against', () => {
     const { stored } = await planFor({ calendarConnected: false })
 
     expect(stored?.warnings.join(' ')).toMatch(/unverified/i)
+    expect(stored?.warnings.join(' ')).toMatch(/assumes the whole working window is free/i)
+  })
+
+  /**
+   * A connection that has since dropped does not erase what was synced while it was up: the
+   * events are still in the database and still get deducted (the two tests above establish that
+   * disconnected days plan and their capacity numbers are correct). The warning must not then
+   * claim the whole day was assumed free, which is what actually happened.
+   */
+  it('does not claim the day was assumed free when previously-synced events were deducted', async () => {
+    const database = migratedDatabase()
+    aMeeting(database, NINE + HOUR, NINE + 2 * HOUR)
+
+    const { stored } = await planFor({ database, calendarConnected: false })
+
+    expect(stored).toMatchObject({ capacityVerified: false, busyMinutes: 60 })
+    expect(stored?.warnings.join(' ')).toMatch(/unverified/i)
+    expect(stored?.warnings.join(' ')).not.toMatch(/assumes the whole/i)
   })
 })
 
@@ -187,6 +205,19 @@ describe('a day that is not a working day', () => {
     const { fake } = await planFor({ now: SUNDAY })
 
     expect(fake.requests).toHaveLength(0)
+  })
+
+  /**
+   * There is no window on a day that is not a working day, so nothing was taken as free and
+   * nothing was drawn from a stale sync. Saying the capacity is unverified next to "there is no
+   * capacity to plan into" offers the reader a distinction with nothing on either side of it.
+   */
+  it('does not add an unverified notice when there was no window to assume anything about', async () => {
+    const { database } = await planFor({ now: SUNDAY, calendarConnected: false })
+    const stored = latestDailyPlan(database, '2026-06-07')
+
+    expect(stored?.warnings.join(' ')).toMatch(/not a working day/i)
+    expect(stored?.warnings.join(' ')).not.toMatch(/unverified/i)
   })
 })
 

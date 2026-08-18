@@ -231,7 +231,11 @@ export interface CapacityView {
   readonly busyMinutes: number
   readonly reserveMinutes: number
   readonly capacityMinutes: number
-  /** False when no calendar is connected, so the window was assumed free. */
+  /**
+   * False when the calendar could not be read. Where nothing was ever synced the window is taken
+   * as free; where events are on record they are still deducted, from that last sync rather than
+   * a live diary.
+   */
   readonly verified: boolean
   readonly workingDay: boolean
   readonly windowStart: number | null

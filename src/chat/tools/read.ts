@@ -330,7 +330,7 @@ const getCapacity = defineTool<{ readonly date?: string }>({
   name: 'get_capacity',
   kind: 'read',
   description:
-    'How much free working time a day has, defaulting to today: the working window, the time the calendar has taken out of it, the reserve held back for interruptions, and what is left. Unverified means no calendar could be read, so the window was assumed free.',
+    'How much free working time a day has, defaulting to today: the working window, the time the calendar has taken out of it, the reserve held back for interruptions, and what is left. Unverified means the calendar could not be read: where no events are on record the window was assumed free, and where they are the figures come from the last sync rather than a live diary.',
   parameters: {
     type: 'object',
     additionalProperties: false,
