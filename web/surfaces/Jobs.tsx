@@ -5,7 +5,7 @@
  */
 import type { JobRun, JobStatus } from '../api.js'
 import { ago, formatAge } from '../format.js'
-import { Fact, Facts, Panel } from '../components/primitives.js'
+import { Badge, Fact, Facts, Panel } from '../components/primitives.js'
 import { useSurfaceTitle } from '../title.js'
 
 export interface JobsProps {
@@ -65,7 +65,10 @@ export function Jobs({ jobs, runs, now, onRun }: JobsProps) {
     <div className="jobs-surface">
       <h1>Jobs</h1>
 
-      <Panel headingLevel={2} heading="Background jobs">
+      {/* The heading is for structure, not for reading: issue #47's mockup goes straight from the
+          page's own "Jobs" heading into the four cards, with no second visible heading above
+          them. Kept for a11y as a labelled region, just not shown. */}
+      <Panel headingLevel={2} heading="Background jobs" headingClassName="visually-hidden">
         {jobs.length === 0 ? (
           <p className="empty">Nothing is scheduled.</p>
         ) : (
@@ -78,6 +81,16 @@ export function Jobs({ jobs, runs, now, onRun }: JobsProps) {
                   headingClassName="job-name"
                   className={job.lastRun?.status === 'failure' ? 'job-failed' : undefined}
                 >
+                  {/* "ok"/"failing" in words beside the name, matching Board's own stale and
+                      pushed pills: colour is never the only carrier. The same condition the
+                      card's own alarm tint reads, so the two never disagree. */}
+                  <Badge
+                    tone={job.lastRun?.status === 'failure' ? 'alarm' : 'quiet'}
+                    className="job-status-pill"
+                  >
+                    {job.lastRun?.status === 'failure' ? 'failing' : 'ok'}
+                  </Badge>
+
                   <p className="job-description">{descriptions[job.job] ?? ''}</p>
 
                   <Facts>

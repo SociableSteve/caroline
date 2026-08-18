@@ -344,12 +344,13 @@ describe('the appearance model', () => {
     expect(primary.find((rule) => rule.property === 'color')?.value).toBe('var(--primary-ink)')
   })
 
-  /** Depth, not outlines: what is raised says so with a shadow from the palette. */
-  it('raises a card with a shadow instead of drawing a box round it', () => {
+  /** Depth from a shadow, plus the same hairline border every bordered surface uses: issue #47's
+   *  mockup draws a visible edge round every card, not a shadow alone. */
+  it('raises a card with a shadow and the standard hairline border', () => {
     const card = rules.filter((rule) => rule.selector === '.card' && rule.context === '')
 
     expect(card.find((rule) => rule.property === 'box-shadow')?.value).toContain('var(--shadow-1)')
-    expect(card.find((rule) => rule.property === 'border')).toBeUndefined()
+    expect(card.find((rule) => rule.property === 'border')?.value).toContain('var(--line)')
   })
 })
 

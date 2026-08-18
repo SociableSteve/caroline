@@ -80,7 +80,10 @@ export function Projects({
     <div className="projects">
       <h1>Projects</h1>
 
-      <Panel headingLevel={2} heading="All projects">
+      {/* The heading is for structure, not for reading: issue #47's mockup goes straight from the
+          page's own "Projects" heading into the toolbar and table, with no second visible
+          heading above them. Kept for a11y as a labelled region, just not shown. */}
+      <Panel headingLevel={2} heading="All projects" headingClassName="visually-hidden">
         {/* Inline capture in the header row, per issue #47, rather than a form of its own above
             the table. */}
         <form
@@ -154,8 +157,13 @@ export function Projects({
                     </td>
 
                     <td>
+                      {/* A pill, not a dropdown: issue #47's mockup draws state as a plain badge
+                          like Board's own stale and pushed pills. The control underneath is
+                          still a real `<select>`, so changing state is still one control away;
+                          only its skin changes. */}
                       <Field label={`State of ${project.title}`} hiddenLabel>
                         <select
+                          className="pill-select"
                           value={project.state}
                           onChange={(event) =>
                             onStateChange(project.id, event.target.value as ProjectState)

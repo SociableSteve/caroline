@@ -57,7 +57,7 @@ export interface AppLocation {
 }
 
 export const routeLinks = [
-  { href: '#/', label: 'Dashboard', name: 'dashboard' },
+  { href: '#/', label: 'Today', name: 'dashboard' },
   { href: '#/board', label: 'Board', name: 'board' },
   { href: '#/projects', label: 'Projects', name: 'projects' },
   { href: '#/jobs', label: 'Jobs', name: 'jobs' },

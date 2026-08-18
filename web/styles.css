@@ -297,6 +297,27 @@ button[disabled] {
   color: var(--accent-text);
 }
 
+/*
+ * A `<select>` skinned as a badge: the same pill shape, border and colour Board's own stale and
+ * pushed pills use, per issue #47's Projects mockup, which draws state as a plain pill rather than
+ * a dropdown. The control is real, so changing a project's state is still one click away; only
+ * the browser's own dropdown affordance is suppressed, since the pill shape carries "this is a
+ * status" and the row's own "Details" action already carries "this is editable".
+ */
+.pill-select {
+  appearance: none;
+  display: inline-block;
+  background: transparent;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--ink-quiet);
+  cursor: pointer;
+}
+
 /* Field: a label above its control, wired together, so there is one answer to where a label sits. */
 .field {
   display: inline-flex;
@@ -598,15 +619,13 @@ button[disabled] {
 }
 
 /*
- * Which card the rail is showing. An accent edge inside the card's own shadow rather than an outline,
- * because an outline is what focus is: two rings of the same accent, one meaning focused and one
- * meaning open, would be one ring nobody could read. The state is carried in words too, by the
- * title's pressed state and by the panel naming the item. Spec 10.
+ * Which card the rail is showing: the same border every card has, in the accent colour, rather
+ * than an outline. An outline is what focus is: two rings of the same accent, one meaning focused
+ * and one meaning open, would be one ring nobody could read. The state is carried in words too, by
+ * the title's pressed state and by the panel naming the item. Spec 10.
  */
 .card-open {
-  box-shadow:
-    var(--shadow-1),
-    inset 3px 0 0 0 var(--accent);
+  border-color: var(--accent);
 }
 
 /* The record of what a turn sent about the open item, behind a disclosure. Spec 07. */
@@ -739,23 +758,23 @@ button[disabled] {
   overflow-y: auto;
 }
 
-/* A card is raised out of the panel rather than drawn around: `--surface-raised` ground, one soft
-   shadow, no outline. Spec 10's appearance model. */
+/* A card is raised out of the panel: `--surface-raised` ground, one soft shadow, and the same
+   hairline border every other bordered surface uses. Issue #47's mockup draws every card with a
+   visible edge, not a shadow alone. */
 .card {
   display: block;
   background: var(--surface-raised);
+  border: 1px solid var(--line);
   border-radius: var(--radius-md);
   padding: var(--space-2);
   box-shadow: var(--shadow-1);
   cursor: grab;
 }
 
-/* Stale is said in a badge as well; this is the edge that lets the column be scanned for it. An
-   inset shadow rather than a border, so a flagged card is not a pixel wider than a calm one. */
+/* Stale is said in a badge as well; this is the edge that lets the column be scanned for it, in
+   the same alarm colour the badge uses. */
 .card-stale {
-  box-shadow:
-    inset var(--space-1) 0 0 var(--alarm),
-    var(--shadow-1);
+  border-color: var(--alarm);
 }
 
 .card-title {
@@ -884,10 +903,7 @@ button[disabled] {
   min-width: 0;
 }
 
-/* A card of its own, per issue #47: "a bordered Where everything is card". The background-jobs
-   and planned-against-completed strips share its weight, being no less a record of the machine's
-   state; nothing in band 3's old rule about panel weight applied to the rail beside the agenda,
-   which is not the surface's main reading path the way band 3 sat below it once was. */
+/* A card of its own, per issue #47: "a bordered Where everything is card". */
 .rail-card {
   background: var(--surface-raised);
   box-shadow: var(--shadow-1);
@@ -948,10 +964,14 @@ button[disabled] {
   font-size: var(--text-sm);
 }
 
+/* A link now, to everything the rail's top-3 cap left out, so it earns the underline a plain
+   caption would not. */
 .needs-you-caption {
+  display: inline-block;
   margin: 0;
   color: var(--ink-quiet);
   font-size: var(--text-xs);
+  text-decoration: underline;
 }
 
 .rail-integrations {
@@ -1228,32 +1248,9 @@ button[disabled] {
   gap: var(--space-1) var(--space-3);
 }
 
-/*
- * A job row is a grid rather than a flex line, so its columns align whether or not the row carries
- * an error, and the error takes the full width beneath them rather than squeezing the rest of the
- * row into nothing. Spec 08, criterion 19.
- */
-.job-list li {
-  display: grid;
-  grid-template-columns: auto auto auto;
-  gap: 0 var(--space-2);
-  align-items: baseline;
-}
-
-.job-list .job-error {
-  grid-column: 1 / -1;
-}
-
-.job-when {
-  color: var(--ink-quiet);
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-}
-
 /* The daily plan (spec 05) */
 
 .plan-list,
-.plan-history,
 .plan-warnings {
   margin: 0;
   padding: 0;
@@ -1332,21 +1329,6 @@ button[disabled] {
   color: var(--ink-quiet);
   font-size: var(--text-sm);
   white-space: nowrap;
-}
-
-.plan-history li {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: var(--space-1) 0;
-  font-size: var(--text-sm);
-}
-
-.history-date,
-.history-count {
-  font-family: var(--font-mono);
-  color: var(--ink-quiet);
-  font-variant-numeric: tabular-nums;
 }
 
 /* A failed job is called out in the panel as well as in its own words. */
@@ -1501,19 +1483,45 @@ button[disabled] {
   gap: var(--space-5);
 }
 
+/* Four fixed-width cards a row, per issue #47's mockup: `sync`, `classify`, `plan` and `purge` sit
+   in one row at 1280px, not a flowing grid that wraps whichever will not fit. Below the width four
+   quarters are no longer usable, they still divide evenly rather than reflowing to a variable
+   count. */
 .job-status-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+  grid-template-columns: repeat(4, 1fr);
   gap: var(--space-3);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
+@media (max-width: 60rem) {
+  .job-status-list {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 30rem) {
+  .job-status-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+.job-status-list li {
+  height: 100%;
+}
+
 /* A job's own panel is raised out of the surface rather than sunk into it, and its name is a rank
    below a surface heading rather than at it. A failing job's card carries the alarm border as well
-   as the tint, matching the app-level alert row for the same job. */
+   as the tint, matching the app-level alert row for the same job. Every card is the same fixed
+   height regardless of how much its description or facts run to, so four cards read as one row
+   rather than a jagged one. */
 .job-status-list .panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
   background: var(--surface-raised);
   box-shadow: var(--shadow-1);
 }
@@ -1525,15 +1533,29 @@ button[disabled] {
 }
 
 .job-name {
-  margin: 0 0 var(--space-1);
+  margin: 0 var(--space-6) var(--space-1) 0;
   font-size: var(--text-base);
   font-family: var(--font-mono);
+}
+
+/* Top-right of the card, the way the mockup places "ok" / "failing" beside the job's name. */
+.job-status-pill {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
 }
 
 .job-description {
   margin: 0 0 var(--space-2);
   font-size: var(--text-sm);
   color: var(--ink-quiet);
+}
+
+/* Pins the run button to the card's own bottom, so a short description does not leave it floating
+   above empty space while a longer one pushes it to the fixed card's edge. */
+.job-status-list .panel > button {
+  margin-top: auto;
+  align-self: flex-start;
 }
 
 .run-history {

@@ -4,10 +4,12 @@
  *
  * 1. Today. A verdict headline, a to-scale day bar and one time-ordered agenda merging the plan's
  *    entries with the calendar's events, in the main column.
- * 2. A left rail: a ranked "Needs you" list (gone quiet, worth a chase, stalled, oldest first),
- *    then a bordered "Where everything is" card, and the background-jobs and planned-against-
- *    completed strips issue #47's mockup does not depict but which nothing else on the page
- *    replaces, so they stay rather than silently losing a feature no one asked to drop.
+ * 2. A left rail: a ranked "Needs you" list (gone quiet, worth a chase, stalled, oldest first,
+ *    capped to the top 3 and pointed at the board for the rest), then a bordered "Where
+ *    everything is" card. The background-jobs and planned-against-completed strips a previous
+ *    pass kept as an "honest gap" have been dropped: the mockup does not draw them and nothing on
+ *    the page needs them replaced. Jobs already has its own surface; plan history is not shown
+ *    here at all.
  *
  * Criterion 6: the day bar's numbers are the ones `GET /api/calendar` gave. They are not
  * recomputed here, so the two cannot disagree.
@@ -25,7 +27,6 @@ import type {
   ItemRef,
   JobRun,
   PlanEntryView,
-  PlanHistoryDay,
   PlanView,
   ProjectView,
   TaskView,
@@ -55,8 +56,6 @@ export interface DashboardProps {
   readonly jobRuns: readonly JobRun[]
   /** Today's plan, or null when none has been drawn. Spec 05. */
   readonly plan: PlanView | null
-  /** Planned against completed for the last fortnight. Spec 05. */
-  readonly history: readonly PlanHistoryDay[]
   readonly calendar: CalendarDay | null
   readonly staleDays: number
   readonly now: number
@@ -414,21 +413,29 @@ function AgendaEntryRow({
   )
 }
 
+/**
+ * A meeting's row: single start time in the gutter, like every other row in the spine, with its
+ * duration carried in the trailing label instead of a second clock time. Issue #47's mockup shows
+ * "30 min, meeting" rather than a start–end range; the duration is still said, just the way a plan
+ * entry's estimate is said, so the "how much of the day this takes" fact a start time alone cannot
+ * give is not lost, only moved to match the rest of the agenda's own convention.
+ */
 function AgendaMeetingRow({ event }: { readonly event: CalendarEventView }) {
   const free = whyFree(event)
+  const durationMinutes = event.allDay ? null : Math.round((event.endsAt - event.startsAt) / 60_000)
 
   return (
     <li className={free === null ? 'agenda-row event-busy' : 'agenda-row event-free'}>
       <span className="agenda-time">
-        {event.allDay
-          ? 'all day'
-          : `${formatTimeOfDay(event.startsAt)}–${formatTimeOfDay(event.endsAt)}`}
+        {event.allDay ? 'all day' : formatTimeOfDay(event.startsAt)}
       </span>
       <span className="event-summary">{event.summary ?? 'Busy'}</span>
       {/* Why it costs nothing, rather than leaving a declined meeting looking like an hour that
           has gone. */}
-      {free !== null && <span className="event-free-reason">{free}</span>}
-      {free === null && <span className="event-free-reason">meeting</span>}
+      <span className="event-free-reason">
+        {durationMinutes !== null && durationMinutes > 0 && `${formatEstimate(durationMinutes)}, `}
+        {free ?? 'meeting'}
+      </span>
     </li>
   )
 }
@@ -665,7 +672,6 @@ export function Dashboard({
   health,
   jobRuns,
   plan,
-  history,
   calendar,
   staleDays,
   now,
@@ -676,7 +682,7 @@ export function Dashboard({
   selected,
   hash,
 }: DashboardProps) {
-  useSurfaceTitle('Dashboard')
+  useSurfaceTitle('Today')
   const latestRuns = latestRunPerJob(jobRuns)
   const counts = new Map(
     taskStatuses.map((status) => [status, tasks.filter((task) => task.status === status).length]),
@@ -721,21 +727,25 @@ export function Dashboard({
     // Oldest first: an item with no age (a stalled project) sorts after every one that has one.
   ].sort((first, second) => (second.ageMs ?? -1) - (first.ageMs ?? -1))
 
+  // The rail is a triage list, not the whole waiting-on-someone-else set: only the three oldest
+  // earn a place in it, and everything past that is a click away on the board rather than a rail
+  // that grows without bound. Issue #47.
+  const needsYouTop = needsYou.slice(0, 3)
+
   return (
     <div className="dashboard">
-      <h1>Dashboard</h1>
+      <h1>Today</h1>
 
       <div className="dashboard-layout">
-        {/* The left rail. Issue #47: ranked "Needs you" first, then the bordered "Where
-            everything is" card, then the background-jobs and planned-against-completed strips
-            the mockup does not draw but nothing else on the page replaces. */}
+        {/* The left rail. Issue #47: ranked "Needs you" first, capped to three, then the bordered
+            "Where everything is" card. */}
         <div className="dashboard-rail">
           <section className="needs-you" aria-labelledby="needs-you-heading">
             <h2 id="needs-you-heading" className="rail-heading-plain">
               Needs you
             </h2>
 
-            {needsYou.length === 0 ? (
+            {needsYouTop.length === 0 ? (
               needsYouEmptyMessages(waiting, staleDays, projects).map((message) => (
                 <p className="empty" key={message}>
                   {message}
@@ -743,13 +753,17 @@ export function Dashboard({
               ))
             ) : (
               <ul className="needs-you-list">
-                {needsYou.map((item) => (
+                {needsYouTop.map((item) => (
                   <NeedsYouRow key={item.key} item={item} />
                 ))}
               </ul>
             )}
 
-            <p className="needs-you-caption">Everything waiting, oldest first.</p>
+            {/* The rail shows only the top 3; this is where the rest of what is waiting lives.
+                Issue #47's exact caption text, now a link rather than a plain caption. */}
+            <a className="needs-you-caption" href={surfaceHref('#/board', hash)}>
+              Everything waiting, oldest first.
+            </a>
           </section>
 
           <Panel headingLevel={2} heading="Where everything is" className="rail-card">
@@ -793,43 +807,6 @@ export function Dashboard({
                   ))}
             </ul>
           </Panel>
-
-          {/* Kept rather than dropped: issue #47's mockup does not depict this strip, but the
-              board and today's plan cover a job's failure, not its ordinary runs, and nothing
-              else on the page shows every job at a glance. Spec 02, criterion 5. */}
-          <Panel headingLevel={2} heading="Background jobs" className="rail-card">
-            {latestRuns.length === 0 ? (
-              <p className="empty">
-                Nothing has run yet. Sync runs every quarter of an hour; see Jobs for the schedule.
-              </p>
-            ) : (
-              <ul className="job-list">
-                {latestRuns.map((run) => (
-                  <li key={run.job} className={run.status === 'failure' ? 'job-failed' : undefined}>
-                    <span>{run.job}</span>
-                    <span>{run.status}</span>
-                    <span className="job-when">{ago(run.finishedAt, now)}</span>
-                    {run.error !== null && <span className="job-error">{run.error}</span>}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Panel>
-
-          {history.length > 0 && (
-            <Panel headingLevel={2} heading="Planned against completed" className="rail-card">
-              <ul className="plan-history">
-                {history.map((day) => (
-                  <li key={day.planDate}>
-                    <span className="history-date">{day.planDate}</span>
-                    <span className="history-count">
-                      {day.completed} of {day.planned}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </Panel>
-          )}
         </div>
 
         {/* The main column: the verdict, the day bar and the agenda. One region rather than the
