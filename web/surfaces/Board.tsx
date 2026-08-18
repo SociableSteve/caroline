@@ -2,7 +2,7 @@
  * The board: one column per status, drag between them to set a status, and the same moves
  * available from the keyboard alone. Spec 08 criteria 3 and 8.
  */
-import { useRef, type DragEvent, type KeyboardEvent } from 'react'
+import { useEffect, useRef, type DragEvent, type KeyboardEvent } from 'react'
 import {
   boardStatuses,
   type ItemRef,
@@ -90,6 +90,26 @@ export function Board({
     if (id !== undefined) cards.current.get(id)?.focus()
   }
 
+  // An action key can move or remove the focused card, and the browser has nothing sensible to
+  // fall back on when the element it was tracking leaves the DOM: focus drops to `<body>`, and
+  // the very next keypress reaches nothing. Each handler below records where focus should land
+  // once the re-render this action causes has happened; the effect then claims it, the same way
+  // `move` already focuses synchronously within a render that does not unmount anything.
+  const pendingFocusId = useRef<string | null>(null)
+
+  useEffect(() => {
+    const id = pendingFocusId.current
+    if (id === null) return
+    pendingFocusId.current = null
+    focus(id)
+  })
+
+  /** The card to land on once the focused one disappears from the board, such as on completion. */
+  const neighborId = (columnIndex: number, rowIndex: number): string | null => {
+    const column = columns[columnIndex] ?? []
+    return column[rowIndex + 1]?.id ?? column[rowIndex - 1]?.id ?? null
+  }
+
   /**
    * The keyboard grid. Moving across columns keeps the row where it can and lands on the
    * last card where it cannot, so a short column never swallows the focus.
@@ -130,19 +150,26 @@ export function Board({
         return move(Math.max(0, columnIndex - 1), rowIndex)
       case 'd':
         event.preventDefault()
+        pendingFocusId.current = neighborId(columnIndex, rowIndex)
         return onComplete(task.id)
       case 'r':
         // The board is fully operable by keyboard alone, including marking a review done.
         // Spec 08, criterion 8. The same predicate the card's button uses, so the two cannot
         // disagree about which tasks the action applies to.
         event.preventDefault()
-        if (canMarkReviewed(task)) onMarkReviewed(task.id)
+        if (canMarkReviewed(task)) {
+          pendingFocusId.current = task.id
+          onMarkReviewed(task.id)
+        }
         return
       case 'a':
         // Spec 04 asks for a one-click accept; from the keyboard it is one key. Silent on a task
         // with nothing suggested, rather than doing something else instead.
         event.preventDefault()
-        if (task.proposal !== null) onAcceptProposal(task.id)
+        if (task.proposal !== null) {
+          pendingFocusId.current = task.id
+          onAcceptProposal(task.id)
+        }
         return
       case 'Enter':
         // The card's own key, not the title button's: a key raised inside the card returns above.
@@ -153,7 +180,10 @@ export function Board({
         // A board move is one keypress, so putting one back is one too. Silent on a task that has
         // never been moved, where there is nothing to put back. Spec 08, criterion 17.
         event.preventDefault()
-        if (task.previousStatus !== null) onUndoStatus(task.id)
+        if (task.previousStatus !== null) {
+          pendingFocusId.current = task.id
+          onUndoStatus(task.id)
+        }
         return
       default:
         break
@@ -163,7 +193,10 @@ export function Board({
     if (Number.isInteger(digit) && digit >= 1 && digit <= boardStatuses.length) {
       const status = boardStatuses[digit - 1]
       event.preventDefault()
-      if (status !== undefined && status !== task.status) onStatusChange(task.id, status)
+      if (status !== undefined && status !== task.status) {
+        pendingFocusId.current = task.id
+        onStatusChange(task.id, status)
+      }
     }
   }
 

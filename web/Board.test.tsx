@@ -22,19 +22,24 @@ function renderBoard(overrides: Partial<Parameters<typeof Board>[0]> = {}) {
     onSelect: vi.fn(),
   }
 
-  render(
-    <Board
-      tasks={[]}
-      projects={[]}
-      staleDays={7}
-      now={NOW}
-      selected={null}
-      {...handlers}
-      {...overrides}
-    />,
-  )
+  const props = {
+    tasks: [],
+    projects: [],
+    staleDays: 7,
+    now: NOW,
+    selected: null,
+    ...handlers,
+    ...overrides,
+  }
 
-  return handlers
+  const view = render(<Board {...props} />)
+
+  // Stands in for the parent supplying new props after a handler updates its state, the way the
+  // real app does: the board itself never holds task data.
+  const rerender = (nextOverrides: Partial<Parameters<typeof Board>[0]> = {}) =>
+    view.rerender(<Board {...props} {...nextOverrides} />)
+
+  return { ...handlers, rerender }
 }
 
 // A named region, not a list item. Wrapping the columns in list roles would replace the region
@@ -270,6 +275,24 @@ describe('the keyboard', () => {
     await userEvent.keyboard('d')
 
     expect(handlers.onComplete).toHaveBeenCalledWith('first')
+  })
+
+  /**
+   * Issue 19: completing the focused task takes it off the board, and its card unmounts under
+   * the browser's own focus. Left alone the focus falls to `<body>`, which swallows the very
+   * next keypress rather than continuing the triage.
+   */
+  it('keeps the focus on the board once the completed card leaves it', async () => {
+    const { rerender } = renderBoard({ tasks })
+    screen.getByRole('article', { name: 'First inbox' }).focus()
+
+    await userEvent.keyboard('d')
+
+    // Stands in for the parent's response to onComplete: the task moves to `done`, which is not
+    // one of the board's columns, so its card disappears the same as a real completion would.
+    rerender({ tasks: tasks.filter((task) => task.id !== 'first') })
+
+    expect(document.body).not.toHaveFocus()
   })
 
   it('lists the shortcuts, so they are discoverable rather than folklore', () => {
