@@ -659,8 +659,15 @@ button[disabled] {
  * than an outline. An outline is what focus is: two rings of the same accent, one meaning focused
  * and one meaning open, would be one ring nobody could read. The state is carried in words too, by
  * the title's pressed state and by the panel naming the item. Spec 10.
+ *
+ * `.card-open` never stands alone: it always pairs with `.card` (Board) or `.agenda-card`
+ * (Today), and both of those set the full `border` shorthand. A bare `.card-open` has the
+ * same specificity as either, so which one wins would depend on source order rather than
+ * meaning anything. The compound selectors below give `.card-open` strictly higher
+ * specificity than the card rule it is overriding, the same device `.agenda-gap .agenda-card`
+ * already uses against the plain `.agenda-card` rule, so the accent border always wins.
  */
-.card-open {
+.card.card-open {
   border-color: var(--accent);
 }
 
@@ -1220,6 +1227,18 @@ button[disabled] {
   border: 1px solid var(--line-faint);
   border-radius: var(--radius-md);
   padding: var(--space-2) var(--space-3);
+}
+
+/*
+ * The open row: issue #47's Today mockup marks it with both an accent border and the accent's
+ * own tint behind it, not a border alone the way Board's mockup marks a selected card. The tint
+ * is the same `--accent-tint` the gap row already uses for its own state, rather than a new
+ * colour. `.agenda-card.card-open` is more specific than the plain `.agenda-card` rule above, so
+ * both the border colour and the background win over it regardless of source order.
+ */
+.agenda-card.card-open {
+  border-color: var(--accent);
+  background: var(--accent-tint);
 }
 
 /* The "now" rule: a coloured line across the spine rather than only a row, so it is found by
