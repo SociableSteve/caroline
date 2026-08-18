@@ -797,8 +797,9 @@ is dropped for the same reason: it was never merged, so nothing cites it.
     authorisation code is redeemable once, and a second redemption is refused and invalidates
     nothing else.
 28. A token whose audience is not Caroline's canonical resource URI is refused with `401`, and a
-    token Caroline did not issue is refused. No token Caroline receives is ever sent to GitHub,
-    Google or an LLM provider, asserted over the outbound request builders.
+    token Caroline did not issue is refused. No token Caroline receives is ever forwarded to any
+    outbound destination, including the identity provider itself, asserted over the outbound
+    request builders.
 29. A refresh token exchanges for a new access token, a revoked or expired one does not, and both
     are registered as runtime secrets so that no issued token appears in any log line or
     response body, which is spec 09 criterion 6 extended to values arriving after startup.
