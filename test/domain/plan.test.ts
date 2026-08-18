@@ -278,7 +278,13 @@ describe('fitting the day', () => {
       240,
     )
 
-    expect(result.warnings.join(' ')).toMatch(/did not fit/i)
+    const overflowWarning = result.warnings.find((warning) => /did not fit/i.test(warning))
+    expect(overflowWarning).toBeDefined()
+    // Criterion 16: no count and no number of minutes, so the warning cannot come to disagree
+    // with the overflow list or the capacity drawn beside it. Scoped to this specific warning
+    // rather than every warning in the scenario: a different warning (an invented task id, for
+    // example) interpolates the id verbatim and could legitimately contain digit-like characters.
+    expect(overflowWarning).not.toMatch(/\d/)
   })
 
   it('says nothing of the sort when the whole answer fitted', () => {

@@ -245,9 +245,137 @@ describe('today’s plan', () => {
   })
 
   it('says the day has no capacity rather than showing an empty list', () => {
-    renderDashboard({ plan: aPlan({ entries: [], capacityMinutes: 0 }) })
+    renderDashboard({
+      plan: aPlan({
+        entries: [],
+        capacityMinutes: 0,
+        warnings: [
+          'There is no free capacity today, so nothing is planned. Everything below is there if the day opens up.',
+        ],
+      }),
+    })
 
     expect(planPanel().getByText(/no free capacity/i)).toBeInTheDocument()
+  })
+
+  /**
+   * Issue #22: `applyPlanRules` always warns about a day with no capacity, and that warning
+   * renders in the plan panel already. The empty state used to repeat "There is no free
+   * capacity today, so nothing is planned" verbatim underneath it, saying the same thing twice.
+   */
+  it('does not repeat the no-capacity message the domain warning already carries', () => {
+    renderDashboard({
+      plan: aPlan({
+        entries: [],
+        capacityMinutes: 0,
+        warnings: [
+          'There is no free capacity today, so nothing is planned. Everything below is there if the day opens up.',
+        ],
+      }),
+    })
+
+    expect(planPanel().getAllByText(/no free capacity/i)).toHaveLength(1)
+  })
+
+  /**
+   * Issue #22: a zero-capacity day still ranks and returns everything as overflow (nothing can
+   * fit), so overflow being non-empty must not make the panel claim "nothing fitted" instead of
+   * the more fundamental "no free capacity" reason. This pins the branch order: the capacity
+   * check must run before the overflow check.
+   */
+  it('says there is no free capacity even when a zero-capacity day still has overflow', () => {
+    renderDashboard({
+      plan: aPlan({
+        entries: [],
+        capacityMinutes: 0,
+        overflow: [aPlanEntry({ id: 'entry-1', kind: 'overflow', title: 'Everything, really' })],
+        warnings: [
+          'There is no free capacity today, so nothing is planned. Everything below is there if the day opens up.',
+        ],
+      }),
+    })
+
+    expect(planPanel().getByText(/no free capacity/i)).toBeInTheDocument()
+    expect(planPanel().queryByText(/nothing fitted/i)).not.toBeInTheDocument()
+  })
+
+  /**
+   * Issue #22: when there was truly no eligible work, the job's own canned summary already says
+   * "Nothing is eligible for planning today." The empty state used to repeat essentially the
+   * same claim ("Nothing was eligible for planning today"), so the sentence appeared twice.
+   */
+  it('does not repeat the job summary when there was nothing eligible to plan', () => {
+    renderDashboard({
+      plan: aPlan({
+        entries: [],
+        overflow: [],
+        capacityMinutes: 240,
+        summary: 'Nothing is eligible for planning today.',
+      }),
+    })
+
+    expect(planPanel().getAllByText(/nothing (is|was) eligible for planning today/i)).toHaveLength(
+      1,
+    )
+  })
+
+  /**
+   * Issue #22: when the model invented task ids that resolved to nothing, real candidates did
+   * exist even though nothing was placed into the plan or its overflow. The empty state used to
+   * claim "Nothing was eligible for planning today" regardless, which is false in this case: the
+   * job's own summary is what actually explains the (possibly odd) result, and should be shown
+   * instead of the blanket claim.
+   */
+  it('defers to the job summary rather than claiming nothing was eligible, when nothing resolved', () => {
+    renderDashboard({
+      plan: aPlan({
+        entries: [],
+        overflow: [],
+        capacityMinutes: 240,
+        summary: 'Tried to plan two tasks, but neither was one of today’s.',
+        warnings: [
+          'The model planned "invented-1", which is not one of today\'s tasks, so it was left out.',
+        ],
+      }),
+    })
+
+    expect(
+      planPanel().getByText(/Tried to plan two tasks, but neither was one of today’s\./),
+    ).toBeInTheDocument()
+    expect(planPanel().queryByText(/nothing was eligible/i)).not.toBeInTheDocument()
+  })
+
+  /** The one case nothing else on the panel explains: capacity was positive, nothing overflowed,
+   * and the job set no summary at all. */
+  it('falls back to a neutral empty message when the job set no summary', () => {
+    renderDashboard({
+      plan: aPlan({ entries: [], overflow: [], capacityMinutes: 240, summary: null }),
+    })
+
+    expect(planPanel().getByText(/nothing was placed into today’s plan/i)).toBeInTheDocument()
+  })
+
+  /**
+   * Issue #22: capacity was positive and every candidate overflowed, so "Nothing was eligible for
+   * planning today" sat directly under the criterion-16 warning saying work did not fit. The
+   * items were eligible, ranked and listed as overflow, so the empty state must not claim
+   * otherwise.
+   */
+  it('says nothing fitted rather than nothing was eligible, when capacity is positive but everything overflowed', () => {
+    renderDashboard({
+      plan: aPlan({
+        entries: [],
+        capacityMinutes: 30,
+        overflow: [aPlanEntry({ id: 'entry-1', kind: 'overflow', title: 'Too big for today' })],
+        warnings: [
+          "Some of today's work did not fit into the free time left, so it is below rather than in the plan.",
+        ],
+      }),
+    })
+
+    expect(planPanel().queryByText(/nothing was eligible/i)).not.toBeInTheDocument()
+    expect(planPanel().queryByText(/no free capacity/i)).not.toBeInTheDocument()
+    expect(planPanel().getByText(/nothing fitted into the free time left/i)).toBeInTheDocument()
   })
 
   it('regenerates on demand', async () => {

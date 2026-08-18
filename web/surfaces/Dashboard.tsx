@@ -93,6 +93,28 @@ function plannedMinutes(plan: PlanView | null): number {
   return (plan?.entries ?? []).reduce((total, entry) => total + (entry.estimateMinutes ?? 0), 0)
 }
 
+/**
+ * Why the plan panel has no entries, when it has none. A day with no capacity or no eligible
+ * work already says so elsewhere on the dashboard (the domain warning above this panel, or
+ * `plan.summary` itself), so this only fills in the one case neither of those covers: capacity
+ * was positive, nothing overflowed, and the job never set a summary. Returning `null` means
+ * "something else on the page already explains this", not "nothing to show".
+ */
+function emptyPlanMessage(plan: PlanView): string | null {
+  // Criterion 16, issue #22: capacity <= 0 always carries its own domain warning (`plan.ts`'s
+  // "There is no free capacity..."), so repeating it here would be the same claim twice.
+  if (plan.capacityMinutes <= 0) return null
+
+  if (plan.overflow.length > 0) return 'Nothing fitted into the free time left today.'
+
+  // Nothing overflowed either. That is either because there was truly no eligible work (the
+  // job's own summary already says so verbatim), or because the model's picks were all invented
+  // ids that resolved to nothing (its summary explains what it tried, even if imperfectly). A
+  // blanket "nothing was eligible" would duplicate the first case and misstate the second, so
+  // defer to the summary whenever the job set one.
+  return plan.summary === null ? 'Nothing was placed into today’s plan.' : null
+}
+
 /** Why an event took no time off the day, in the words the calendar itself used. */
 function whyFree(event: CalendarEventView): string | null {
   if (event.consumesCapacity) return null
@@ -295,12 +317,13 @@ export function Dashboard({
                 </ul>
               )}
 
+              {/* A day with no capacity says so regardless of what else is true (the domain
+                  warning above this panel already carries that message): that is the reason
+                  nothing fitted. Only once capacity is positive does the overflow list below
+                  distinguish "nothing was eligible" from "nothing fitted": the items were
+                  eligible, ranked and listed there as overflow. Issue #22. */}
               {plan.entries.length === 0 ? (
-                <p className="empty">
-                  {plan.capacityMinutes <= 0
-                    ? 'There is no free capacity today, so nothing is planned.'
-                    : 'Nothing was eligible for planning today.'}
-                </p>
+                emptyPlanMessage(plan) !== null && <p className="empty">{emptyPlanMessage(plan)}</p>
               ) : (
                 <ul className="plan-list">
                   {plan.entries.map((entry) => (
