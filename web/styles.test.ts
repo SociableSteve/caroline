@@ -142,9 +142,12 @@ describe('no surface restates the panel', () => {
     // A card, a chat turn, a confirmation, the capture dialog and the two notes are components in
     // their own right rather than panels written again, and issue #47 adds two more: the app-level
     // alert row, and the rail's details region once it became a bordered card of its own rather than
-    // a plain, unbounded region of the rail. Anything new belongs in `Panel`.
+    // a plain, unbounded region of the rail. `.agenda-card` is Steve's own fix for the agenda's items:
+    // a card of its own beside the clock time, not a panel, since the agenda sits directly on `--page`
+    // with no panel beneath it. Anything new belongs in `Panel`.
     expect(panelRadius.map((rule) => rule.selector).sort()).toEqual(
       [
+        '.agenda-card',
         '.alert-row',
         '.capture',
         '.card',
@@ -371,10 +374,17 @@ describe('the chat rail', () => {
     )
   })
 
-  /** Without this a long transcript lengthens the surface it was supposed to sit beside. */
+  /**
+   * Without this a long transcript lengthens the surface it was supposed to sit beside. The rail
+   * is bounded by stretching to `.app-body`'s own row rather than by a `max-height`: `min-height:
+   * 0` is what lets that row (and the rail's `align-self: stretch` within it) actually shrink to
+   * fit `#root`'s flex column instead of growing to whatever the transcript's own content needs,
+   * which is what makes `overflow-y: auto` below actually take effect rather than never engaging.
+   */
   it('scrolls within the viewport instead of lengthening the surface beside it', () => {
     expect(value(base('.chat-rail'), 'overflow-y')).toBe('auto')
-    expect(value(base('.chat-rail'), 'max-height')).toBeDefined()
+    expect(value(base('.chat-rail'), 'align-self')).toBe('stretch')
+    expect(value(base('.app-body'), 'min-height')).toBe('0')
   })
 
   it('leaves the flow and sits above the surface below the breakpoint', () => {

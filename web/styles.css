@@ -308,7 +308,12 @@ button[disabled] {
   appearance: none;
   display: inline-block;
   background: transparent;
-  padding: 0 var(--space-2);
+  /* A `<select>` sizes its box to its widest `<option>` ("Someday" outsizes the current value in
+     every project's own pill), so a value shorter than that widest option needs its text
+     centred explicitly: left is where it would otherwise fall, not where a pill's text goes. */
+  text-align: center;
+  text-align-last: center;
+  padding: var(--space-2) var(--space-3);
   border: 1px solid var(--line);
   border-radius: var(--radius-pill);
   font: inherit;
@@ -498,13 +503,36 @@ button[disabled] {
 }
 
 /*
+ * The shell itself: header, alert band and body stacked in a column that is never shorter than the
+ * viewport, so the body below them always has the full remaining height to give the rail (see
+ * `.app-body` and `.chat-rail` below) rather than only whatever height its own content happens to
+ * reach. Grows past the viewport for a genuinely long surface instead of clipping it.
+ */
+#root {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/*
  * The surface, and the chat rail beside it. Spec 08: chat is a companion rather than a route, so it
  * takes a column of the shell rather than the whole of it.
+ *
+ * `flex: 1` claims whatever height `#root`'s column has left below the header and the alert band
+ * (present or not: a flex column simply reflows around it either way, nothing here is measured or
+ * hardcoded), and `align-content: stretch` hands that height to the grid's own single row rather
+ * than leaving it unclaimed beneath a row sized only to its content. `min-height: 0` is the usual
+ * flex-item correction: without it the row cannot shrink below the tallest thing inside it, which
+ * defeats the rail's own internal scrolling. `align-items: start` keeps the surface itself sized to
+ * its own content within that row rather than stretched full height, as before.
  */
 .app-body {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   align-items: start;
+  align-content: stretch;
+  flex: 1;
+  min-height: 0;
 }
 
 .app-body.with-rail {
@@ -525,10 +553,18 @@ button[disabled] {
   border-left: 1px solid var(--line-faint);
   position: sticky;
   top: 0;
-  /* Stretched to the height of the surface beside it and then capped at the viewport, so its ground
-     runs the full height of the screen rather than stopping under a short transcript. */
+  /*
+   * Stretched to the height of `.app-body`'s own row, which `align-content: stretch` above now
+   * pins to the full height `#root`'s flex column has left below the header and the alert band,
+   * on every surface regardless of how little content that surface itself has. `align-self:
+   * stretch` used to fall short of this because `.app-body` had no height of its own to hand out:
+   * a grid row with no explicit height sizes to its tallest item's own content, so the row (and a
+   * `stretch`ed rail inside it) was only ever as tall as the surface beside it, which is exactly
+   * why the rail used to change height from one surface to the next, and why a fixed `100vh`
+   * fallback (this rule's previous fix) overshot on any surface shorter than the viewport instead.
+   * No `max-height` needed alongside it: a stretched item's height is already capped by its row.
+   */
   align-self: stretch;
-  max-height: 100vh;
   overflow-y: auto;
 }
 
@@ -623,8 +659,15 @@ button[disabled] {
  * than an outline. An outline is what focus is: two rings of the same accent, one meaning focused
  * and one meaning open, would be one ring nobody could read. The state is carried in words too, by
  * the title's pressed state and by the panel naming the item. Spec 10.
+ *
+ * `.card-open` never stands alone: it always pairs with `.card` (Board) or `.agenda-card`
+ * (Today), and both of those set the full `border` shorthand. A bare `.card-open` has the
+ * same specificity as either, so which one wins would depend on source order rather than
+ * meaning anything. The compound selectors below give `.card-open` strictly higher
+ * specificity than the card rule it is overriding, the same device `.agenda-gap .agenda-card`
+ * already uses against the plain `.agenda-card` rule, so the accent border always wins.
  */
-.card-open {
+.card.card-open {
   border-color: var(--accent);
 }
 
@@ -649,7 +692,6 @@ button[disabled] {
     position: fixed;
     inset: 0;
     z-index: 1;
-    max-height: none;
     background: var(--surface-raised);
     border-left: none;
     box-shadow: var(--shadow-2);
@@ -825,12 +867,29 @@ button[disabled] {
   gap: var(--space-2);
 }
 
-/* A one-line footer rather than a boxed panel: the keyboard map is still every key and what it
-   does, read as a compact line instead of a bordered region. */
+/* The board's own surface leaves room at the bottom for the fixed keyboard footer below, so the
+   last row of a tall column is not the thing sitting behind it. */
+.board-surface {
+  padding-bottom: var(--space-7);
+}
+
+/*
+ * A one-line footer rather than a boxed panel: the keyboard map is still every key and what it
+ * does, read as a compact line instead of a bordered region. Pinned to the bottom of the viewport
+ * rather than scrolling away with the page, so the reference stays reachable regardless of how
+ * far a column has scrolled: the columns already scroll within their own bounded height (`.column`
+ * above), so the page itself rarely needs to move at all, and this is what stays visible either
+ * way rather than requiring it.
+ */
 .shortcuts {
-  margin-top: var(--space-5);
-  padding-top: var(--space-3);
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  padding: var(--space-2) var(--space-5);
   border-top: 1px solid var(--line-faint);
+  background: var(--chrome);
   font-size: var(--text-sm);
   color: var(--ink-quiet);
 }
@@ -875,12 +934,16 @@ button[disabled] {
  * The left rail and the main column. Issue #47's layout floor: the rail is 232 to 260px, the
  * main column takes what is left. Below the width where both are usable, the rail stacks above
  * the main column rather than beside it, so nothing needs a second, narrower rail of its own.
+ *
+ * Stretched (the grid default) rather than `align-items: start`, so the rail's own column is as
+ * tall as the main column beside it: `.rail-card`'s `margin-top: auto` below is what actually
+ * pins "Where everything is" to the bottom of that height, regardless of how short the "Needs
+ * you" list above it is now that it is capped to three rows.
  */
 .dashboard-layout {
   display: grid;
   grid-template-columns: minmax(14.5rem, 16.25rem) minmax(0, 1fr);
   gap: var(--space-5);
-  align-items: start;
 }
 
 @media (max-width: 60rem) {
@@ -903,8 +966,13 @@ button[disabled] {
   min-width: 0;
 }
 
-/* A card of its own, per issue #47: "a bordered Where everything is card". */
+/* A card of its own, per issue #47: "a bordered Where everything is card". Pinned to the bottom
+   of the rail's own column (see `.dashboard-layout` above) rather than following straight on from
+   "Needs you", so it stays in the same place whether that list holds three rows or none. Below
+   the stacking breakpoint the rail is no longer stretched to the main column's height, so this is
+   a no-op there and the card simply follows "Needs you" in normal flow. */
 .rail-card {
+  margin-top: auto;
   background: var(--surface-raised);
   box-shadow: var(--shadow-1);
 }
@@ -1114,9 +1182,13 @@ button[disabled] {
 /*
  * The agenda: one time-ordered spine, per issue #47. A 44px mono gutter for the clock times, the
  * same width whether a row is a meeting, a plan entry or a free gap, so the times themselves line
- * up down the page.
+ * up down the page; rows are spaced apart rather than touching, which is what a gap between cards
+ * needs instead of the hairline rule a plain list would use.
  */
 .agenda {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -1124,19 +1196,49 @@ button[disabled] {
 
 .agenda-row {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--space-1) var(--space-3);
-  padding: var(--space-2) 0;
-  border-bottom: 1px solid var(--line-faint);
+  align-items: flex-start;
+  gap: var(--space-3);
 }
 
 .agenda-time {
   flex: 0 0 2.75rem;
+  padding-top: var(--space-2);
   font-family: var(--font-mono);
   color: var(--ink-quiet);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/*
+ * The row's own card: a rounded rectangle, lighter than the page rather than only separated by a
+ * line beneath it. `--surface-raised` is the same "card, lighter than the panel it sits on" ground
+ * every other card in this design uses, and the agenda sits directly on `--page` with no panel of
+ * its own beneath it. The clock time above stays outside this box, in its own gutter, so the times
+ * still line up down the page the way the plain list used to.
+ */
+.agenda-card {
+  flex: 1 1 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  min-width: 0;
+  background: var(--surface-raised);
+  border: 1px solid var(--line-faint);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+}
+
+/*
+ * The open row: issue #47's Today mockup marks it with both an accent border and the accent's
+ * own tint behind it, not a border alone the way Board's mockup marks a selected card. The tint
+ * is the same `--accent-tint` the gap row already uses for its own state, rather than a new
+ * colour. `.agenda-card.card-open` is more specific than the plain `.agenda-card` rule above, so
+ * both the border colour and the background win over it regardless of source order.
+ */
+.agenda-card.card-open {
+  border-color: var(--accent);
+  background: var(--accent-tint);
 }
 
 /* The "now" rule: a coloured line across the spine rather than only a row, so it is found by
@@ -1158,9 +1260,13 @@ button[disabled] {
   background: var(--accent);
 }
 
-.agenda-gap {
+/* A gap is slack, not a fact about the day the way a meeting or a plan entry is, so its card gets
+   a dashed outline and the accent's own tint rather than the plain card ground. */
+.agenda-gap .agenda-card {
   color: var(--ink-quiet);
-  border-bottom-style: dashed;
+  background: var(--accent-tint);
+  border-style: dashed;
+  border-color: var(--accent);
 }
 
 .gap-free {
@@ -1652,6 +1758,19 @@ button[disabled] {
   background: var(--surface-sunk);
   font-size: var(--text-sm);
   white-space: pre-wrap;
+}
+
+/* Closed by default, the same convention the task card's own "More" disclosure uses: a raw
+   payload is long enough to make its panel visibly taller than every other panel on the page if
+   it is always open, and it is a proof to check rather than a paragraph to always be reading. */
+.payload-disclosure > summary {
+  font-size: var(--text-sm);
+  color: var(--ink-quiet);
+  cursor: pointer;
+}
+
+.payload-disclosure > .payload-preview {
+  margin-top: var(--space-2);
 }
 
 /* Chat: the transcript, what each turn changed, and what it is waiting to be told. Spec 07. */
