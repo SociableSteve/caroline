@@ -486,6 +486,29 @@ describe('the site and the application look like one thing', () => {
     }
   })
 
+  /**
+   * The `:root`-scoped check above is blind to a custom property redeclared under a narrower
+   * selector, and the "named only as a token" check below is blind to it too, because that one
+   * only inspects non-`--`-prefixed properties. A `.hero`-style pin that redefines a token for one
+   * subtree, in literal values that happen to match today, would slip past both. Reading every
+   * custom-property declaration in the built stylesheet, wherever it sits, and checking it against
+   * the value the application actually declares for that token is what a hand-copied pin fails and
+   * a generated one, such as `heroPin` in site/build.ts, passes.
+   */
+  it('redeclares no token under a narrower selector without the value still coming from the application', () => {
+    const dark = declared(application, '')
+    const scoped = declarations(stylesheet).filter(
+      (rule) => rule.selector !== ':root' && rule.property.startsWith('--'),
+    )
+
+    expect(scoped.length).toBeGreaterThan(0)
+    for (const rule of scoped) {
+      const token = dark.find((candidate) => candidate.property === rule.property)
+      expect(token, `${rule.property}, redeclared on ${rule.selector}`).toBeDefined()
+      expect(rule.value, `${rule.property}, redeclared on ${rule.selector}`).toBe(token?.value)
+    }
+  })
+
   // Spec 10's first two criteria, applied to the second stylesheet: the scales are only scales
   // while something fails on a value that is not on them.
   const own = declarations(source('site/styles.css')).filter(

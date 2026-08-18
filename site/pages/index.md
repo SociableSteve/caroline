@@ -30,6 +30,8 @@
 
 ## What it will not do
 
+<div class="refusals">
+
 {{refusals}}
 
 - **Write anything back.** It never writes to GitHub, Gmail or Calendar. The credentials it asks for
@@ -44,6 +46,8 @@
 - **Ask you to trust a service.** There is nothing hosted, no account to make, and no shared
   credential: your own API key, or a local model, and an OAuth client belonging to a Google Cloud
   project of yours.
+
+</div>
 
 ## Running in an afternoon, checked at every step
 

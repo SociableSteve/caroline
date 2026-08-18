@@ -771,10 +771,7 @@ function homePage(page: SitePage, markdown: string, context: BuildContext): stri
   const steps = setupSteps(context.sources.read('docs/setup.md'))
 
   return markdown
-    .replace(
-      '{{eyebrow}}',
-      () => '<p class="hero-eyebrow">Self-hosted, single-user, MIT-licensed.</p>',
-    )
+    .replace('{{eyebrow}}', () => '<p class="hero-eyebrow">Self-hosted · single user · MIT</p>')
     .replace('{{headline}}', () => `<p class="hero-headline">${readme(headline)}</p>`)
     .replace('{{subhead}}', () =>
       subhead === '' ? '' : `<p class="hero-subhead">${readme(subhead)}</p>`,
@@ -811,13 +808,13 @@ function landingFooter(context: BuildContext): string {
 }
 
 /**
- * One line of requirements, verbatim from `site/pages/index.md`'s own "What it needs" section: a
- * machine, Node 24, a browser, nothing to compile.
+ * One line of requirements, echoing `docs/setup.md`'s own opening claim: nothing here needs a
+ * compiler, a container or a server, and Caroline is a usable manual GTD board before any
+ * credentials are configured.
  */
 function requirements(context: BuildContext): string {
   return renderInline(
-    'A machine you use, with Node 24 or later on it, and a browser. There is nothing to compile and ' +
-      'no container to run.',
+    'Node 24, a browser, nothing to compile. A manual GTD board before you hand it any credentials.',
     'site/pages/index.md',
     'index.html',
     context,
@@ -1026,7 +1023,14 @@ ${rendered.html.trimEnd()}
         <a href="${escapeAttribute(`${context.repository}/blob/main/${page.source}`)}" rel="noopener" target="_blank"><code>${escapeText(page.source)}</code></a>
         in the repository, rendered. Corrections belong to the file rather than to the site.
       </p>
-      <p>Caroline is MIT-licensed, single-user, and runs on your own machine.</p>
+      ${
+        // The home page's own footer, inside the article, already carries this line: repeating it
+        // here would print it twice on the one page that has it. Every other page carries it once,
+        // here.
+        page.output === 'index.html'
+          ? ''
+          : '<p>Caroline is MIT-licensed, single-user, and runs on your own machine.</p>'
+      }
     </footer>
   </body>
 </html>
@@ -1056,6 +1060,56 @@ function palette(application: string): string {
  * application share them so that they read as one piece of work. Edit them there.
  */
 ${blocks}
+`
+}
+
+/**
+ * The seven tokens the hero pins itself to regardless of `prefers-color-scheme`: the page, the two
+ * ink tones, the raised surface, the hairline, and the one filled primary. Named here once, so
+ * `heroPin` and the values it emits cannot drift apart from each other, let alone from the
+ * application.
+ */
+const heroTokens = [
+  'page',
+  'ink',
+  'ink-quiet',
+  'surface-raised',
+  'line',
+  'primary',
+  'primary-ink',
+] as const
+
+/**
+ * The hero's pin to the application's dark palette, read by name from `web/styles.css`'s own
+ * `:root` block rather than retyped: `:root` is unconditioned dark (issue #47), so these are
+ * already the values a system with no light preference gets, and reading them here is what keeps
+ * the hero's "always dark" rule from silently drifting the moment that palette moves without this
+ * file moving with it. Same mechanism `icon` already uses to read `--accent`/`--primary-ink` by
+ * name, applied to the seven tokens `.hero` overrides.
+ */
+function heroPin(application: string): string {
+  const dark = withoutComments(block(application, ':root {'))
+  const token = (name: string) => new RegExp(`--${name}:\\s*([^;]+);`).exec(dark)?.[1]?.trim()
+
+  const declarations = heroTokens
+    .map((name) => {
+      const value = token(name)
+      if (value === undefined) {
+        throw new Error(`web/styles.css declares no --${name} for the hero to pin`)
+      }
+
+      return `  --${name}: ${value};`
+    })
+    .join('\n')
+
+  return `/*
+ * The hero's pin to the application's dark palette. Extracted from web/styles.css's own :root
+ * block by site/build.ts, the same way palette() and icon() read theirs, so these values cannot
+ * drift from the ones they name. Edit the palette in web/styles.css, not the values here.
+ */
+.hero {
+${declarations}
+}
 `
 }
 
@@ -1287,7 +1341,10 @@ export function buildSite(sources: SiteSources = repositorySources()): Map<strin
   }
 
   const application = sources.read('web/styles.css')
-  files.set('styles.css', `${palette(application)}\n${sources.read('site/styles.css')}`)
+  files.set(
+    'styles.css',
+    `${palette(application)}\n${heroPin(application)}\n${sources.read('site/styles.css')}`,
+  )
   files.set('icon.svg', icon(application))
 
   verify(files, new Set(assets.map((asset) => asset.output)))
