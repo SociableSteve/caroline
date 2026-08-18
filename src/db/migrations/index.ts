@@ -12,6 +12,7 @@ import { turnContext } from './0010-turn-context.js'
 import { sessions } from './0011-sessions.js'
 import { mcp } from './0012-mcp.js'
 import { mcpOauth } from './0013-mcp-oauth.js'
+import { mcpAccumulatorVersion } from './0014-mcp-accumulator-version.js'
 
 /**
  * Every migration, in order. Listed explicitly rather than discovered from the filesystem:
@@ -32,4 +33,5 @@ export const migrations: readonly Migration[] = [
   sessions,
   mcp,
   mcpOauth,
+  mcpAccumulatorVersion,
 ]

@@ -1,8 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { openDatabase } from '../../src/db/connection.js'
+import { openDatabase, type Database } from '../../src/db/connection.js'
 import { migrations } from '../../src/db/migrations/index.js'
+import { mcpAccumulatorVersion } from '../../src/db/migrations/0014-mcp-accumulator-version.js'
 import { appliedMigrationIds, runMigrations, type Migration } from '../../src/db/migrate.js'
 import { emptyDatabase, temporaryDatabasePath } from '../helpers/temp-database.js'
+
+function columnsOf(database: Database, table: string): string[] {
+  return database
+    .prepare('select name from pragma_table_info(?)')
+    .all(table)
+    .map((row) => String((row as { name: unknown }).name))
+}
 
 function countingMigration(id: number, table: string): Migration {
   return {
@@ -152,5 +160,105 @@ describe('the shipped migrations', () => {
     runMigrations(database)
 
     expect(runMigrations(database).applied).toEqual([])
+  })
+})
+
+/**
+ * Migration 12 was amended in review, after PR #28 round 3, to add `accumulator_version` to
+ * `mcp_sessions`. Anyone whose database ran the pre-amendment migration 12 has that id recorded
+ * in `schema_migrations` forever, since the runner tracks ids and never re-applies one, and is
+ * stuck without the column even though the migration's own file now includes it. Migration 14
+ * exists to backfill that gap, additively and without touching any row's data.
+ */
+describe('migration 14 (mcp accumulator version backfill)', () => {
+  /** The shape `mcp_sessions` had under the pre-amendment migration 12: no accumulator_version. */
+  function withPreAmendmentMcpSessions(): Database {
+    const database = emptyDatabase()
+    database.exec(`
+      create table mcp_sessions (
+        id text primary key,
+        client_key text not null,
+        last_seen_at integer not null,
+        created_at integer not null
+      )
+    `)
+    database
+      .prepare(
+        'insert into mcp_sessions (id, client_key, last_seen_at, created_at) values (?, ?, ?, ?)',
+      )
+      .run('session-1', 'unnamed', 100, 0)
+
+    return database
+  }
+
+  it("adds the column when it is missing, which is this user's real database", () => {
+    const database = withPreAmendmentMcpSessions()
+
+    expect(() => mcpAccumulatorVersion.up(database)).not.toThrow()
+
+    expect(columnsOf(database, 'mcp_sessions')).toContain('accumulator_version')
+  })
+
+  it("defaults the backfilled column to 0, matching migration 12's own default", () => {
+    const database = withPreAmendmentMcpSessions()
+
+    mcpAccumulatorVersion.up(database)
+
+    expect(
+      database
+        .prepare('select accumulator_version from mcp_sessions where id = ?')
+        .get('session-1'),
+    ).toMatchObject({ accumulator_version: 0 })
+  })
+
+  it('loses no existing row while backfilling the column', () => {
+    const database = withPreAmendmentMcpSessions()
+
+    mcpAccumulatorVersion.up(database)
+
+    expect(
+      database
+        .prepare('select client_key, last_seen_at from mcp_sessions where id = ?')
+        .get('session-1'),
+    ).toMatchObject({ client_key: 'unnamed', last_seen_at: 100 })
+  })
+
+  /**
+   * Any database that ran the amended migration 12, or that ran migration 12 for the first
+   * time after this fix shipped, already has the column: `alter table add column` fails
+   * outright on a column that exists, so this has to be a genuine no-op rather than a retry.
+   */
+  it('is a no-op against a database that already has the column', () => {
+    const database = emptyDatabase()
+    database.exec(`
+      create table mcp_sessions (
+        id text primary key,
+        client_key text not null,
+        last_seen_at integer not null,
+        accumulator_version integer not null default 0,
+        created_at integer not null
+      )
+    `)
+    database
+      .prepare(
+        `insert into mcp_sessions (id, client_key, last_seen_at, accumulator_version, created_at)
+         values (?, ?, ?, ?, ?)`,
+      )
+      .run('session-1', 'unnamed', 100, 5, 0)
+
+    expect(() => mcpAccumulatorVersion.up(database)).not.toThrow()
+    expect(
+      database
+        .prepare('select accumulator_version from mcp_sessions where id = ?')
+        .get('session-1'),
+    ).toMatchObject({ accumulator_version: 5 })
+  })
+
+  it('runs cleanly as part of the full shipped set, against a brand new database', () => {
+    const database = emptyDatabase()
+
+    runMigrations(database)
+
+    expect(columnsOf(database, 'mcp_sessions')).toContain('accumulator_version')
   })
 })
