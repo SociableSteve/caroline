@@ -90,24 +90,74 @@ export function Board({
     if (id !== undefined) cards.current.get(id)?.focus()
   }
 
-  // An action key can move or remove the focused card, and the browser has nothing sensible to
-  // fall back on when the element it was tracking leaves the DOM: focus drops to `<body>`, and
-  // the very next keypress reaches nothing. Each handler below records where focus should land
-  // once the re-render this action causes has happened; the effect then claims it, the same way
-  // `move` already focuses synchronously within a render that does not unmount anything.
-  const pendingFocusId = useRef<string | null>(null)
+  /**
+   * An action key can move or remove the focused card, and the browser has nothing sensible to
+   * fall back on when the element it was tracking leaves the DOM: focus drops to `<body>`, and
+   * the very next keypress reaches nothing. Each handler below arms this with the card it acted
+   * on and where to land if that card leaves the board, and the effect puts the focus back once
+   * the action has actually reached the DOM.
+   *
+   * The element is held alongside the id because it is what tells the action apart from the
+   * renders around it. The write behind an action is asynchronous, so the render that moves the
+   * card is not the next one: the clock ticking and a rejected write both come first. While the
+   * card is still the same element it was, nothing has happened yet and there is nothing to put
+   * back, which is also the answer for a write that failed: the card never moved, so the focus
+   * never left it, and a retry stays on the task the user is looking at.
+   */
+  const pendingFocus = useRef<{
+    readonly id: string
+    readonly element: HTMLElement | undefined
+    readonly fallbackId: string | null
+  } | null>(null)
 
+  // Deliberately without a dependency array: it is a render that moves the card, and any render
+  // can be the one that does it, so every render is a chance to claim the focus back.
   useEffect(() => {
-    const id = pendingFocusId.current
-    if (id === null) return
-    pendingFocusId.current = null
-    focus(id)
+    const pending = pendingFocus.current
+    if (pending === null) return
+
+    const live = cards.current.get(pending.id)
+    const active = document.activeElement
+
+    // Nothing has moved yet. Keep waiting while the focus is still on the card the action was
+    // asked for; give up once it is not, because then the focus is where the user has put it and
+    // a later render must not drag it back.
+    if (live === pending.element) {
+      if (active !== pending.element) pendingFocus.current = null
+      return
+    }
+
+    pendingFocus.current = null
+    // A focus that is on something real is the user's, not ours to move. Only the drop to
+    // `<body>` that unmounting the card causes is ours to answer.
+    if (active !== null && active !== document.body) return
+
+    // The card is still on the board in another column, so the focus follows it there; otherwise
+    // the task has left the board and the focus lands on the neighbour recorded with it.
+    focus(live !== undefined ? pending.id : (pending.fallbackId ?? undefined))
   })
 
-  /** The card to land on once the focused one disappears from the board, such as on completion. */
+  /**
+   * The card to land on once the focused one disappears from the board, such as on completion.
+   * The one below it, then the one above it, then the nearest card in the closest column that has
+   * one: completing the only card in a column empties it, and a column with nothing in it cannot
+   * hold the focus, so stopping there would strand it on `<body>`.
+   */
   const neighborId = (columnIndex: number, rowIndex: number): string | null => {
     const column = columns[columnIndex] ?? []
-    return column[rowIndex + 1]?.id ?? column[rowIndex - 1]?.id ?? null
+    const withinColumn = column[rowIndex + 1]?.id ?? column[rowIndex - 1]?.id
+    if (withinColumn !== undefined) return withinColumn
+
+    for (let distance = 1; distance < columns.length; distance += 1) {
+      for (const index of [columnIndex + distance, columnIndex - distance]) {
+        const other = columns[index]
+        if (other === undefined || other.length === 0) continue
+        return other[Math.min(rowIndex, other.length - 1)]?.id ?? null
+      }
+    }
+
+    // The board is down to this one card, so there is nowhere on it to land.
+    return null
   }
 
   /**
@@ -127,6 +177,19 @@ export function Board({
 
     const task = columns[columnIndex]?.[rowIndex]
     if (task === undefined) return
+
+    /**
+     * Every action arms the same way, the card first and the neighbour behind it, because an
+     * action that names a status can still take the task off the board: `u` puts the last change
+     * back, and a task moved out of `done` has `done` to go back to, which is not a column.
+     */
+    const armFocus = () => {
+      pendingFocus.current = {
+        id: task.id,
+        element: cards.current.get(task.id),
+        fallbackId: neighborId(columnIndex, rowIndex),
+      }
+    }
 
     const move = (nextColumn: number, nextRow: number) => {
       event.preventDefault()
@@ -150,7 +213,7 @@ export function Board({
         return move(Math.max(0, columnIndex - 1), rowIndex)
       case 'd':
         event.preventDefault()
-        pendingFocusId.current = neighborId(columnIndex, rowIndex)
+        armFocus()
         return onComplete(task.id)
       case 'r':
         // The board is fully operable by keyboard alone, including marking a review done.
@@ -158,7 +221,7 @@ export function Board({
         // disagree about which tasks the action applies to.
         event.preventDefault()
         if (canMarkReviewed(task)) {
-          pendingFocusId.current = task.id
+          armFocus()
           onMarkReviewed(task.id)
         }
         return
@@ -167,7 +230,7 @@ export function Board({
         // with nothing suggested, rather than doing something else instead.
         event.preventDefault()
         if (task.proposal !== null) {
-          pendingFocusId.current = task.id
+          armFocus()
           onAcceptProposal(task.id)
         }
         return
@@ -181,7 +244,7 @@ export function Board({
         // never been moved, where there is nothing to put back. Spec 08, criterion 17.
         event.preventDefault()
         if (task.previousStatus !== null) {
-          pendingFocusId.current = task.id
+          armFocus()
           onUndoStatus(task.id)
         }
         return
@@ -194,7 +257,7 @@ export function Board({
       const status = boardStatuses[digit - 1]
       event.preventDefault()
       if (status !== undefined && status !== task.status) {
-        pendingFocusId.current = task.id
+        armFocus()
         onStatusChange(task.id, status)
       }
     }

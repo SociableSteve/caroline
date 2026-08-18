@@ -282,7 +282,7 @@ describe('the keyboard', () => {
    * the browser's own focus. Left alone the focus falls to `<body>`, which swallows the very
    * next keypress rather than continuing the triage.
    */
-  it('keeps the focus on the board once the completed card leaves it', async () => {
+  it('lands on the next card down once the completed card leaves the board', async () => {
     const { rerender } = renderBoard({ tasks })
     screen.getByRole('article', { name: 'First inbox' }).focus()
 
@@ -292,7 +292,104 @@ describe('the keyboard', () => {
     // one of the board's columns, so its card disappears the same as a real completion would.
     rerender({ tasks: tasks.filter((task) => task.id !== 'first') })
 
-    expect(document.body).not.toHaveFocus()
+    expect(screen.getByRole('article', { name: 'Second inbox' })).toHaveFocus()
+  })
+
+  it('lands on the card above where the completed card was the last in its column', async () => {
+    const { rerender } = renderBoard({ tasks })
+    screen.getByRole('article', { name: 'Second inbox' }).focus()
+
+    await userEvent.keyboard('d')
+    rerender({ tasks: tasks.filter((task) => task.id !== 'second') })
+
+    expect(screen.getByRole('article', { name: 'First inbox' })).toHaveFocus()
+  })
+
+  /**
+   * Completing the only card in a column empties it, so there is no neighbour in it to land on.
+   * The nearest card in the closest column with one keeps the keyboard grid usable, where
+   * falling back to nothing puts the focus on `<body>`: the bug this is all here to prevent.
+   */
+  it('crosses to the nearest column when the completed card was the only one in its own', async () => {
+    const onlyCardPerColumn = [
+      aTask({ id: 'first', title: 'First inbox' }),
+      aTask({ id: 'next', title: 'A next action', status: 'next_action' }),
+    ]
+    const { rerender } = renderBoard({ tasks: onlyCardPerColumn })
+    screen.getByRole('article', { name: 'First inbox' }).focus()
+
+    await userEvent.keyboard('d')
+    rerender({ tasks: onlyCardPerColumn.filter((task) => task.id !== 'first') })
+
+    expect(screen.getByRole('article', { name: 'A next action' })).toHaveFocus()
+  })
+
+  /**
+   * The write behind a completion is asynchronous, so the render that takes the card off the
+   * board is not the next one: an unrelated render (the clock ticking, a rejected write putting
+   * a message on the screen) comes first, and must not be treated as the completion landing.
+   */
+  it('leaves the focus alone where an unrelated render follows the completion', async () => {
+    const { rerender } = renderBoard({ tasks })
+    screen.getByRole('article', { name: 'First inbox' }).focus()
+
+    await userEvent.keyboard('d')
+
+    // The write was rejected: the task is still on the board, and still under the focus. Moving
+    // it now would put a retry on a different task from the one the user is looking at.
+    rerender({ now: NOW + DAY })
+
+    expect(screen.getByRole('article', { name: 'First inbox' })).toHaveFocus()
+  })
+
+  it('leaves the focus where the user moved it after asking for the completion', async () => {
+    const { rerender } = renderBoard({ tasks })
+    screen.getByRole('article', { name: 'First inbox' }).focus()
+
+    await userEvent.keyboard('d')
+    // The board is still usable while the write is in flight, and where the user has moved on the
+    // completion landing must not drag the focus back across the board.
+    await userEvent.keyboard('l')
+    rerender({ tasks: tasks.filter((task) => task.id !== 'first'), now: NOW + DAY })
+
+    expect(screen.getByRole('article', { name: 'A next action' })).toHaveFocus()
+  })
+
+  /**
+   * `u` puts the last status change back, and a task that was moved out of `done` has `done` to
+   * go back to: the undo takes it off the board exactly as a completion does.
+   */
+  it('lands on a neighbour when an undo puts the focused task back to done', async () => {
+    const undoable = [
+      aTask({
+        id: 'first',
+        title: 'First next',
+        status: 'next_action',
+        previousStatus: 'done',
+        previousStatusSetBy: 'user',
+      }),
+      aTask({ id: 'second', title: 'Second next', status: 'next_action' }),
+    ]
+    const { rerender } = renderBoard({ tasks: undoable })
+    screen.getByRole('article', { name: 'First next' }).focus()
+
+    await userEvent.keyboard('u')
+    rerender({ tasks: undoable.filter((task) => task.id !== 'first') })
+
+    expect(screen.getByRole('article', { name: 'Second next' })).toHaveFocus()
+  })
+
+  it('follows the task to its new column when a digit moves it', async () => {
+    const { rerender } = renderBoard({ tasks })
+    screen.getByRole('article', { name: 'First inbox' }).focus()
+
+    await userEvent.keyboard('4')
+    rerender({
+      tasks: tasks.map((task) => (task.id === 'first' ? { ...task, status: 'waiting' } : task)),
+    })
+
+    const waiting = column(/Waiting for/)
+    expect(within(waiting).getByRole('article', { name: 'First inbox' })).toHaveFocus()
   })
 
   it('lists the shortcuts, so they are discoverable rather than folklore', () => {
