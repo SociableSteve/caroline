@@ -147,9 +147,9 @@ The dashboard is the morning screen. Reading it top to bottom:
   picture are both the planner's own, and are the two things it wants you to know before you read
   the list: it could not fit everything, and the capacity it was drawn against is unverified. At
   least one review is in there whenever something is waiting on you and the day has room for it,
-  whether the model thought of it or not. **Regenerate** redraws it against the tasks and the
-  calendar as they stand now. It is a proposal and not a commitment: complete things from it, or
-  ignore it.
+  whether the model thought of it or not, unless `planning.includeReviews` in the config file is
+  off. **Regenerate** redraws it against the tasks and the calendar as they stand now. It is a
+  proposal and not a commitment: complete things from it, or ignore it.
 - **Today's calendar** is the capacity arithmetic, spelled out: the working window, less the meetings
   you accepted, less the reserve held back for interruptions, and what is left. Declined meetings do
   not count against you. **Unverified** means no calendar is connected, which is not the same as no

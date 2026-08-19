@@ -76,13 +76,15 @@ describe('choosing the candidates', () => {
     const due = aTask({ id: 'today', deferUntil: NOW + 60_000 })
     const later = aTask({ id: 'later', deferUntil: END_OF_DAY + DAY })
 
-    const candidates = planCandidates([due, later], END_OF_DAY)
+    const candidates = planCandidates([due, later], END_OF_DAY, { includeReviews: true })
 
     expect(candidates.map((candidate) => candidate.taskId)).toEqual(['today'])
   })
 
   it('takes every review, since the review queue is the day job', () => {
-    const candidates = planCandidates([aTask({ id: 'pr', status: 'review' })], END_OF_DAY)
+    const candidates = planCandidates([aTask({ id: 'pr', status: 'review' })], END_OF_DAY, {
+      includeReviews: true,
+    })
 
     expect(candidates.map((candidate) => candidate.taskId)).toEqual(['pr'])
   })
@@ -91,7 +93,7 @@ describe('choosing the candidates', () => {
     const overdue = aTask({ id: 'overdue', status: 'inbox', dueAt: NOW - DAY })
     const undated = aTask({ id: 'undated', status: 'inbox' })
 
-    const candidates = planCandidates([overdue, undated], END_OF_DAY)
+    const candidates = planCandidates([overdue, undated], END_OF_DAY, { includeReviews: true })
 
     expect(candidates.map((candidate) => candidate.taskId)).toEqual(['overdue'])
   })
@@ -101,19 +103,57 @@ describe('choosing the candidates', () => {
     (status) => {
       const task = aTask({ id: 'excluded', status, dueAt: NOW })
 
-      expect(planCandidates([task], END_OF_DAY)).toEqual([])
+      expect(planCandidates([task], END_OF_DAY, { includeReviews: true })).toEqual([])
     },
   )
 
   it('carries the estimate and the due date the rules need', () => {
     const task = aTask({ id: 'a', estimateMinutes: 45, dueAt: NOW })
 
-    expect(planCandidates([task], END_OF_DAY)[0]).toMatchObject({
+    expect(planCandidates([task], END_OF_DAY, { includeReviews: true })[0]).toMatchObject({
       taskId: 'a',
       estimateMinutes: 45,
       dueAt: NOW,
       status: 'next_action',
     })
+  })
+})
+
+/**
+ * Criterion 18. `planning.includeReviews` is a config value, for somebody whose code review is
+ * handled elsewhere. Off means no review reaches the plan at all, and the deadline branch is the
+ * case worth naming: a review is taken on its status before its dates are looked at, so excluding
+ * reviews has to exclude an overdue one too rather than letting it back in as urgent.
+ */
+describe('choosing the candidates with reviews excluded', () => {
+  it('leaves out a review that has no deadline', () => {
+    const reviewWithoutDeadline = aTask({ id: 'pr', status: 'review' })
+
+    expect(planCandidates([reviewWithoutDeadline], END_OF_DAY, { includeReviews: false })).toEqual(
+      [],
+    )
+  })
+
+  it('leaves out a review that is due today or overdue', () => {
+    const reviewDueToday = aTask({ id: 'pr-due', status: 'review', dueAt: NOW })
+    const overdueReview = aTask({ id: 'pr-overdue', status: 'review', dueAt: NOW - DAY })
+
+    expect(
+      planCandidates([reviewDueToday, overdueReview], END_OF_DAY, { includeReviews: false }),
+    ).toEqual([])
+  })
+
+  it('leaves the rest of the candidates for the day exactly as they were', () => {
+    const nextAction = aTask({ id: 'next' })
+    const overdueInbox = aTask({ id: 'overdue', status: 'inbox', dueAt: NOW - DAY })
+    const review = aTask({ id: 'pr', status: 'review' })
+    const tasks = [nextAction, overdueInbox, review]
+
+    const excluded = planCandidates(tasks, END_OF_DAY, { includeReviews: false })
+    const included = planCandidates(tasks, END_OF_DAY, { includeReviews: true })
+
+    expect(excluded.map((candidate) => candidate.taskId)).toEqual(['next', 'overdue'])
+    expect(included.map((candidate) => candidate.taskId)).toEqual(['next', 'overdue', 'pr'])
   })
 })
 
@@ -370,6 +410,20 @@ describe('not starving the review queue', () => {
     )
 
     expect(result.entries.map((entry) => entry.taskId)).toEqual(['pr'])
+  })
+
+  /**
+   * Criterion 18. With reviews excluded the candidates carry none, and the never-starve rule has
+   * to stay quiet rather than be the thing that puts one back. It is asserted here as well as at
+   * the candidate list, because this is the rule that could resurrect a review nobody offered:
+   * excluding them upstream is only a guarantee if nothing downstream reaches past the list.
+   */
+  it('plans no review at all when the candidates carry none, whatever the model asked for', () => {
+    const result = applyTo([ranked('a', 30), ranked('pr', 30)], [aCandidate({ taskId: 'a' })], 240)
+
+    expect(result.entries.map((entry) => entry.taskId)).toEqual(['a'])
+    expect(result.overflow).toEqual([])
+    expect(result.warnings.join(' ')).toContain('"pr"')
   })
 })
 

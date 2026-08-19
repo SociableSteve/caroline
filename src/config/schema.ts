@@ -300,6 +300,13 @@ export const fileConfigSchema = z
          * and a week-long conference are both all-day events, and only one means you are busy.
          */
         countAllDayEvents: z.boolean().default(false),
+        /**
+         * Whether `review` tasks are candidates for the day at all. Spec 05, criteria 18 and 19:
+         * on by default, so a config file that never names it plans exactly as it always did.
+         * Somebody whose code review is handled elsewhere turns it off, and no review is then
+         * offered to the planner, not even one due today or overdue.
+         */
+        includeReviews: z.boolean().default(true),
       })
       .strict()
       .default({}),
@@ -493,6 +500,8 @@ export interface Config {
     readonly reservePercent: number
     readonly defaultEstimateMinutes: number
     readonly countAllDayEvents: boolean
+    /** Whether `review` tasks are candidates at all. Spec 05, criteria 18 and 19. */
+    readonly includeReviews: boolean
   }
   readonly privacy: {
     readonly llmContent: ContentLevel
