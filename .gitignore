@@ -6,8 +6,9 @@ data
 .DS_Store
 caroline.config.json
 .env
-# Everything Claude Code writes into .claude is local state: worktrees, lock files and
-# settings.local.json. The vendored skills are the exception, and they are the whole point of
-# the directory being tracked at all.
+# Most of what Claude Code writes into .claude is local state: worktrees, lock files and
+# settings.local.json. The vendored skills are the tracked exception, and they are the whole
+# point of the directory being tracked at all. Anything else under .claude that is meant to be
+# shared needs its own negation below.
 .claude/*
 !.claude/skills
