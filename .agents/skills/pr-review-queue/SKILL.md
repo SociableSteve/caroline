@@ -122,13 +122,29 @@ Review pull request <pr url> (repo <owner>/<repo>, PR #<n>).
    below from the step that promises to keep it. Run the project's tests in the clone from
    step 1: checking a claim beats asserting it.
 
-4. Do not re-raise a finding an earlier cycle settled, UNLESS the defect is still
-   present at the current head. A resolved thread is a claim that the fix landed, not
-   proof: if the code still shows the defect, raise it again and say the thread claimed
-   otherwise. Prior findings that are still open and still valid go in the report marked
-   PREVIOUSLY RAISED, each with its review comment id and thread URL, so the main agent can
-   answer on the existing thread instead of posting a duplicate inline comment. Also report
-   which prior findings you checked and found genuinely fixed.
+4. Past adjudications carry forward. Sort every prior finding into one of three outcomes and
+   report which bucket each landed in, because "is the defect still present at head" is the
+   right test for only one of them:
+
+   - **Settled by decision.** The author deferred it, declined it, or answered it and the
+     reviewer accepted. Do NOT report it as a finding, whatever the code shows. A deferred
+     defect is still present at head by definition, so presence proves nothing here: that is
+     the trap. Report it in the prior-feedback section as settled, with the comment id and
+     what was decided, and stop there.
+   - **Claimed fixed.** Check it at head. A resolved thread is a claim that the fix landed,
+     not proof: if the code still shows the defect, report it as PREVIOUSLY RAISED and say the
+     thread claimed otherwise. If it is genuinely fixed, say so.
+   - **Fixed as asked, but incompletely.** The author did exactly what the thread requested
+     while part of the original point went untouched. Report the remainder, quoting what the
+     thread asked for against what the reply covered so the gap is visible rather than
+     asserted. Do not present it as a fresh finding.
+
+   Every PREVIOUSLY RAISED item carries its review comment id and thread URL, so the main
+   agent can answer on the existing thread instead of posting a duplicate inline comment.
+
+   When you cannot tell which bucket applies, say so and give the main agent the evidence
+   rather than guessing. Guessing wrong in the direction of raising it is not the safe
+   default: it costs the author a round re-arguing a decision they already made.
 
 5. If this is a dependency bump, weigh the new version's breaking changes against this
    repo's actual call sites: the diff alone carries little to review.
@@ -144,11 +160,14 @@ directory behind once you are done with it.
 
 Report back:
 - One paragraph summarising what the PR does.
-- A section on prior review feedback: what was raised, what is fixed, what still stands.
-- A finding list. Per finding: file path and line, a one-line summary, the category,
-  confidence (CONFIRMED or PLAUSIBLE), a concrete failure scenario, NEW or
-  PREVIOUSLY RAISED (with the review comment id and thread URL when PREVIOUSLY RAISED),
-  and TRIVIAL or NON-TRIVIAL.
+- A section on prior review feedback, split by the three outcomes in step 4: settled by
+  decision (with what was decided), genuinely fixed, and still standing. Name the settled
+  ones explicitly rather than omitting them, so the main agent can see they were considered
+  and deliberately not raised.
+- A finding list, carrying nothing from the settled bucket. Per finding: file path and line,
+  a one-line summary, the category, confidence (CONFIRMED or PLAUSIBLE), a concrete failure
+  scenario, NEW or PREVIOUSLY RAISED (with the review comment id and thread URL when
+  PREVIOUSLY RAISED), and TRIVIAL or NON-TRIVIAL.
 ```
 
 ## Step 3: verify before posting
@@ -189,6 +208,30 @@ wrongly, claiming two config files both lacked a validation block when only one 
 Correct the framing, or drop the finding, rather than relaying it as received. Anything
 you cannot confirm gets downgraded or dropped, never posted as fact.
 
+Three things this step must confirm, not just the defect:
+
+- **The line number.** Reported anchors drift, and a wrong one becomes either a comment
+  pointing at unrelated code or a 422 in step 5. Findings have arrived quoting `server.mjs:118`
+  and `:199-207` for code that actually sat at `:61` and `:90-110`. Re-anchor from what you
+  read, and treat a line number well past the end of the file as a sign the whole finding was
+  written from a stale or wrong tree.
+- **Any quotation.** When a finding says a comment or doc "claims X", read the words and check
+  they say X. One pass reported a code comment claiming alias precedence; the comment claimed
+  only that the arriving form was preserved, which the code did correctly. The underlying
+  asymmetry was real, but the overclaim lived in the PR description instead, so the finding was
+  true of a different target. Locate the claim before repeating it.
+- **Whose evidence it is.** If a finding rests on an execution you did not run (a compiler
+  error, a fixture repro), either run it or say plainly in the review that the reproduction came
+  from the review pass and what you verified instead. Never present a sub-agent's execution as
+  your own.
+
+**Sub-agent reports can arrive partial, fragmented, or out of order.** A report that references
+findings you never received is not a report: ask for the whole thing with
+`SendMessage({to: "<agentId>", message: "..."})`, saying which sections are missing and telling
+it to restate rather than re-review. Reviewing off a fragment loses the PR summary and the
+prior-feedback section, which are the two parts that keep a round honest. A review may also be
+relayed by another session; that is still a draft and gets verified exactly like any other.
+
 ## Step 4: triage
 
 One verdict per PR.
@@ -213,6 +256,34 @@ One verdict per PR.
   step 6 report as not reviewed with the reason. A stated skip is worth far more than a silent
   one.
 
+**Adjudicated is settled, and this is the easiest rule in the skill to get wrong.** "Still
+present at head" is the test for an unfixed defect, never for a decision someone took
+deliberately. Before any PREVIOUSLY RAISED finding reaches a review body, sort it into one of
+three cases:
+
+- **The author explicitly deferred, declined, or answered it.** Settled. Do not raise it, do
+  not reply pressing it, and do not restate it as a blocker because you find the reasoning
+  thin. At most note in passing that it is deferred and known. Re-raising asks the author to
+  re-litigate a decision they already took, and it makes the review read as not having read
+  the history.
+- **The author claimed a fix and the defect is still there at head.** Raise it again, saying
+  the thread claimed otherwise. This is the case the pass exists for.
+- **The author fixed exactly what was asked, but part of the original point is untouched.**
+  That remainder is fair, framed as the unfixed half rather than as a fresh finding. Quote what
+  the original thread asked for and what the reply covered, so the gap is visible rather than
+  asserted.
+
+A point the user settled somewhere you cannot see (a Slack call, a conversation in a meeting)
+is adjudicated too. If an author pushes back saying something was already agreed, treat that as
+probably true: concede it, and take it back to the user rather than defending the finding.
+
+**Withdrawing a finding you should not have posted.** Do it properly rather than quietly. Edit
+the review body to say what was withdrawn and why
+(`gh api repos/<owner>/<repo>/pulls/<n>/reviews/<reviewId> --method PUT --input <file>`, which
+keeps the review's `state`), and delete any thread reply that pressed the point
+(`gh api repos/<owner>/<repo>/pulls/comments/<commentId> --method DELETE`). A withdrawn blocker
+left standing in the body keeps blocking the PR in the author's eyes.
+
 **Calibration behind the call.**
 
 - A PREVIOUSLY RAISED finding that still stands never becomes a fresh inline comment, whatever
@@ -220,6 +291,12 @@ One verdict per PR.
   round reads as complete without the author reading the same point twice. Only when the
   sub-agent could not supply a thread reference does it become a new inline comment, and then
   the comment says it was raised before.
+- **A red check is not automatically a blocker.** Before writing that a PR "cannot merge as
+  is", read the branch's actual protection:
+  `gh api repos/<owner>/<repo>/branches/<base>/protection --jq '.required_status_checks.contexts'`.
+  A failing check that is not in that list blocks nothing, and claiming otherwise is a factual
+  error the author will correct. Worth checking `gh pr view <n> --json mergeable,mergeStateStatus,reviewDecision`
+  too: a `BLOCKED` state is often your own prior `CHANGES_REQUESTED` rather than anything in CI.
 - Trivial means wording, naming, style, a missing optional field. Non-trivial means it
   changes behaviour, correctness, security, or maintainability in a way that warrants a
   change before merge.
@@ -281,8 +358,14 @@ Inline anchoring rules, learned the hard way:
 
   ```bash
   gh api repos/<owner>/<repo>/pulls/<n>/comments/<commentId>/replies --method POST \
-    -f body='Still present at <headSha>: ...'
+    --input "$REPLY_JSON"
   ```
+
+  Write the reply body to a JSON file the same way as the review payload, rather than passing it
+  as `-f body='...'`. Review prose is full of backticks, quotes and apostrophes, and a shell-quoted
+  body containing them comes back as `HTTP 400 malformed request` after the review has already
+  posted, which is the worst moment to be debugging quoting. The same applies to the review POST
+  itself: build the JSON with a file write, never a heredoc.
 
 - The review body should lead with what is good, then name the blockers in priority order,
   and note anything structural (a stacked PR whose base is another feature branch, for
@@ -362,9 +445,16 @@ takes it off the board permanently, even when the author pushes and re-requests 
 
 ## Gotchas
 
-- A resolved thread is a claim, not proof.
+- A resolved thread is a claim, not proof. An explicit deferral, though, is a decision: settled,
+  and not yours to reopen.
 - Approving an open PR is still `mark_reviewed`, never `complete_task`.
-- Sub-agent findings can be right about the defect and wrong about its scope, so verify.
+- Sub-agent findings can be right about the defect and wrong about its scope, its line number,
+  or which file the overclaim lives in, so verify all four.
+- A failing check blocks nothing unless it is in the base branch's
+  `required_status_checks.contexts`. Check before writing "cannot merge".
+- The environment may not be able to run the language's own toolchain (no Linux `node`, an `npx`
+  that resolves to a Windows install). When a claim needs execution you cannot do, say whose
+  execution it was rather than borrowing it.
 - Stacked PRs: check `baseRefName`, since a PR based on another feature branch cannot
   merge until its parent does, and that belongs in the review body.
 - `gh pr checks` reporting no checks is not the same as checks passing.
