@@ -33,9 +33,17 @@ Call `mcp__caroline__list_reviews`. It answers with `{ review: [...] }`, one row
 `review` status that has a GitHub source. Rows with no GitHub source are filtered out, so a
 queue that looks short can still sit alongside non-PR work this tool does not speak for. Each
 row carries `id`, `title`, `status`, `url`, `repository`, `number`, `estimateMinutes`,
-`reviewRequestedAt`, `lifecycleState` and `waitingOn`. Passing `includeWaiting: true` adds a
-second `waiting` array, the PRs you have already reviewed and are waiting on the author for:
-that is a chase pass, not a review pass, so leave it off here.
+`reviewRequestedAt` and `lifecycleState`. A `waitingOn` field is on the row too, but it is
+populated only for a task in `waiting` status, so on a review row it is always null: read the
+author off the PR itself rather than from here. Passing `includeWaiting: true` adds a second
+`waiting` array, the PRs you have already reviewed and are waiting on the author for: that is a
+chase pass, not a review pass, so leave it off here.
+
+At `privacy.llmContent: none` the tool withholds item text, and every row comes back as
+`{ kind: 'task', id, withheld }` with no `url`, `repository` or `number`. There is no PR to hand
+a sub-agent, so do not guess one: report that the queue is withheld under the current privacy
+setting, say that raising `privacy.llmContent` above `none` is what would make this pass
+possible, and stop rather than running a review against nothing.
 
 The `id` is what Caroline is updated by in step 6, so keep each id paired with its PR for the
 whole pass. If `review` is empty, say so and stop.
@@ -43,7 +51,12 @@ whole pass. If `review` is empty, say so and stop.
 ## Step 2: one sub-agent per PR, in parallel
 
 Spawn a general-purpose sub-agent per PR, all in a single message so they run
-concurrently. Adapt this prompt:
+concurrently. They need the full toolset: worktree checkouts, running the project's tests, and
+running commands to check a claim rather than assert it. Read-only is therefore a rule the
+prompt states, not a capability the agent lacks, so state it plainly and check the report for
+signs it was crossed.
+
+Adapt this prompt:
 
 ```
 Review pull request <pr url> (repo <owner>/<repo>, PR #<n>).
@@ -94,10 +107,16 @@ at the PR head before it reaches GitHub. Quote the head SHA from
 `gh pr view <n> --repo <owner>/<repo> --json headRefOid -q .headRefOid`, then:
 
 ```bash
-gh api "repos/<owner>/<repo>/contents/<path>" -f ref=<headSha> \
+gh api "repos/<owner>/<repo>/contents/<path>" --method GET -f ref=<headSha> \
   -H "Accept: application/vnd.github.raw" \
   | cat -n | sed -n '<range>p'
 ```
+
+`--method GET` is not optional here. `gh api` switches to POST the moment any `-f` parameter is
+present, so without it every call comes back `Not Found` and, since this step drops what it
+cannot confirm, every finding in every pass would be dropped for a reason that has nothing to do
+with the code. If the command returns `Not Found` for a path you know exists, that is the first
+thing to check.
 
 Ask for the raw media type rather than reading `.content` out of the JSON body: for a file over
 1 MB that field comes back empty, which reads as "the code is not there" and drops a real
@@ -199,7 +218,35 @@ Inline anchoring rules, learned the hard way:
 - Write comments to be actionable: the failure scenario, then the suggested fix, with a
   code block where a snippet says it faster than prose.
 
+### When the POST fails
+
+GitHub validates the review as a unit. One comment anchored outside a diff hunk and the whole
+call comes back `422 Unprocessable Entity`, so nothing at all reaches the PR. Treat a 422 as
+work still to do, never as a posted review:
+
+1. Read the error body. It names the offending comment, usually as
+   `pull_request_review_thread.path` or `.line` on a given index into the `comments` array.
+2. Re-anchor that comment to the nearest changed line in the same file and name the real line
+   in the comment text. If nothing in that file is inside a hunk, drop the comment from the
+   array and move its point into the review body instead: the finding still gets reported,
+   just not inline.
+3. Re-POST the whole payload. Repeat if a second comment is rejected. GitHub reports one
+   problem at a time, so a fixed payload can fail again on the next bad anchor.
+4. If it still will not post after the anchors are exhausted, post the review with an empty
+   `comments` array and the findings written out in the body. A review in the body is worth
+   far more than no review.
+
+A review has posted only when the call returns the review's `state` and `html_url`. Nothing in
+step 6 happens for a PR until it has. If a PR's review genuinely cannot be posted, leave its
+Caroline task untouched and carry it into the step 6 report as not posted with the reason,
+exactly as for a sub-agent that failed.
+
 ## Step 6: update Caroline, then report
+
+Only for a PR whose review actually posted in step 5, confirmed by the `state` and `html_url`
+the POST returned. A PR whose review did not post is left exactly as it was in Caroline and
+reported as not reviewed: discharging the task without a review on the PR loses the round in
+both places at once.
 
 Caroline tracks your review, not the merge. Spec 02 is explicit that an open PR is never
 invisible: it sits in `review` while it needs you and `waiting` while it needs the author, and
@@ -233,6 +280,8 @@ takes it off the board permanently, even when the author pushes and re-requests 
 - Stacked PRs: check `baseRefName`, since a PR based on another feature branch cannot
   merge until its parent does, and that belongs in the review body.
 - `gh pr checks` reporting no checks is not the same as checks passing.
+- `gh api` needs `--method GET` alongside any `-f` parameter, or it POSTs and 404s.
+- A 422 on the review POST means nothing posted, not that some of it did. Caroline waits.
 - Precision in review prose: "out of date" is not "wrong", and a workflow condition
   admitting `cancelled` is a different defect from one admitting `failure`.
 - No em-dashes in review bodies or inline comments.
