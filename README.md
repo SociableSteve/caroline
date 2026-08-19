@@ -82,7 +82,9 @@ into, 09:00 to 17:30 on weekdays by default, and `planning.reservePercent` is ho
 window is held back for interruptions, a fifth of it. `planning.defaultEstimateMinutes` is what a
 task with no estimate is fitted at, and `planning.countAllDayEvents` decides whether an all-day
 event takes the day: off, because a public holiday and a week-long conference are both all-day
-events and only one of them means you are busy.
+events and only one of them means you are busy. `planning.includeReviews` decides whether pull
+request reviews are planned at all: on, and somebody whose code review is handled elsewhere turns
+it off.
 
 `integrations.google.calendarIds` adds calendars beyond your primary one, and
 `calendarLookbackDays` and `calendarLookaheadDays` bound the window read: a day back and a

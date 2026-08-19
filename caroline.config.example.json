@@ -37,7 +37,8 @@
     "workingDays": [1, 2, 3, 4, 5],
     "reservePercent": 20,
     "defaultEstimateMinutes": 30,
-    "countAllDayEvents": false
+    "countAllDayEvents": false,
+    "includeReviews": true
   },
   "privacy": {
     "llmContent": "snippet",

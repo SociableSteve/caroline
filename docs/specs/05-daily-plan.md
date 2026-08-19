@@ -31,7 +31,10 @@ A day whose capacity is zero or negative produces a plan with no work items and 
 
 - All `next_action` tasks not deferred past today. A deferral to later the same day is not a
   deferral past today, so the task is a candidate.
-- All `review` tasks.
+- All `review` tasks, where reviews are included in planning. Whether they are is the configurable
+  `planning.includeReviews`, and it defaults to including them. Somebody whose code review is
+  handled elsewhere turns it off, and no review is then a candidate: not even one due today or
+  overdue, because a review is judged on its status before its dates are looked at.
 - Anything else due today or overdue, which in practice means `inbox`: something with a
   deadline that has arrived is work whether or not it has been triaged yet.
 - Stalled active projects, as a prompt to define a next action.
@@ -63,7 +66,9 @@ the prompt:
   plan that is only part of the day from reading as the whole of it.
 - Overdue and due-today tasks appear before discretionary work.
 - Review items are not starved: at least one review appears in the plan whenever the review
-  queue is non-empty and capacity allows.
+  queue is non-empty and capacity allows. The queue is the day's own review candidates, so with
+  reviews excluded from planning there is nothing for this rule to find and it does nothing. It is
+  not a second place the decision is taken.
 - Tasks with no estimate use a configurable default (30 minutes) so they can still be
   fitted.
 - An entry naming a task that was never a candidate is dropped, and the plan carries a warning
@@ -107,7 +112,8 @@ for the last fourteen days.
 5. The sum of planned entry estimates is never greater than capacity; excess goes to
    overflow.
 6. An overdue task always outranks a discretionary next action.
-7. A non-empty review queue yields at least one review entry when capacity allows.
+7. A non-empty review queue yields at least one review entry when capacity allows, when reviews are
+   included in planning.
 8. Regenerating a plan for the same date creates a new plan and preserves the previous one.
 9. Generating a plan changes no task row.
 10. With no calendar that can be read, planning still runs and says that capacity is
@@ -141,3 +147,16 @@ of why nothing caught the warning being pushed ahead of the duplicate check.
     candidate one warning, whichever mention count it was listed with. First mention wins, and the
     warning that survives names that id, so a model that repeats itself cannot multiply either the
     day's work or what the plan says about it.
+
+The setting for whether reviews are planned added the following, appended rather than renumbered for
+the same reason. It exists for somebody whose code review is handled elsewhere, and it is
+`planning.includeReviews` in `caroline.config.json`, beside the other planner settings, because it
+configures what the planner counts in the same way they do. It takes a restart, like every other
+value in that file.
+
+18. With reviews excluded from planning, no review task reaches the plan or the overflow list, even
+    with a non-empty review queue and capacity to spare. The exclusion holds at the candidate list,
+    so it covers a review that is due today or overdue, and the never-starve rule above cannot put
+    one back.
+19. The setting defaults to including reviews, so an install where nobody has named it plans exactly
+    as it did before the setting existed.

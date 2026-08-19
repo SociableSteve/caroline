@@ -170,7 +170,14 @@ function dayContext(
     capacity,
     capacityVerified: verified,
     // A day with no window has no work in it, so nothing is offered to the model either.
-    candidates: window === null ? [] : planCandidates(tasks, dueBy),
+    //
+    // Whether reviews are among the candidates is `planning.includeReviews`, beside the other
+    // planner settings. Spec 05, criteria 18 and 19: it defaults to including them, and turning it
+    // off takes a restart like every other value in that file.
+    candidates:
+      window === null
+        ? []
+        : planCandidates(tasks, dueBy, { includeReviews: config.planning.includeReviews }),
     nudges: chaseNudges(waitingItemsFor(database, tasks), now(), config.tasks.waitingStaleDays),
     projectTitles: new Map(listProjects(database).map((project) => [project.id, project.title])),
     dueBy,

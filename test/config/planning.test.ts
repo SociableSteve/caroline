@@ -40,6 +40,17 @@ describe('the defaults spec 05 names', () => {
     expect(config.planning.countAllDayEvents).toBe(false)
   })
 
+  /** Spec 05, criterion 19: an install that never names the key plans as it always did. */
+  it('includes pull request reviews in the plan', () => {
+    expect(config.planning.includeReviews).toBe(true)
+  })
+
+  it('includes them with a planning block that names other keys and not this one', () => {
+    const namingOtherPlanningKeys = withFile(planningFile({ reservePercent: 25 }))
+
+    expect(namingOtherPlanningKeys.planning.includeReviews).toBe(true)
+  })
+
   /** Spec 02's rolling window: a day back, a fortnight forward. */
   it('reads a day back and a fortnight forward of calendar', () => {
     expect(config.integrations.google.calendarLookbackDays).toBe(1)
@@ -67,6 +78,13 @@ describe('changing them', () => {
     const config = withFile(planningFile({ workingDays: [1, 2, 3, 4, 5, 6] }))
 
     expect(config.planning.workingDays).toEqual([1, 2, 3, 4, 5, 6])
+  })
+
+  /** Spec 05, criterion 18: for somebody whose code review is handled elsewhere. */
+  it('takes reviews out of the plan altogether', () => {
+    const config = withFile(planningFile({ includeReviews: false }))
+
+    expect(config.planning.includeReviews).toBe(false)
   })
 
   it('takes additional calendars to read', () => {

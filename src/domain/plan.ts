@@ -38,17 +38,36 @@ export interface PlanCandidate {
 const neverPlanned: readonly TaskStatus[] = ['someday', 'reference', 'waiting', 'done']
 
 /**
- * The tasks eligible for a plan for the day ending at `dueBy`. Spec 05's Candidates section:
- * next actions not deferred past today, every review, and anything else due today or overdue.
- * A deferral to later the same day is not a deferral past today, so the task is a candidate.
+ * Whether reviews are among the day's candidates at all. Spec 05, criterion 18: the decision is
+ * `planning.includeReviews` in `caroline.config.json`, for somebody whose code review is handled
+ * elsewhere. It is asked for rather than defaulted, so every caller says which it means.
  */
-export function planCandidates(tasks: readonly Task[], dueBy: number): PlanCandidate[] {
-  return tasks.filter((task) => isCandidate(task, dueBy)).map(toCandidate)
+export interface PlanCandidateOptions {
+  readonly includeReviews: boolean
 }
 
-function isCandidate(task: Task, dueBy: number): boolean {
+/**
+ * The tasks eligible for a plan for the day ending at `dueBy`. Spec 05's Candidates section:
+ * next actions not deferred past today, every review where reviews are included, and anything else
+ * due today or overdue. A deferral to later the same day is not a deferral past today, so the task
+ * is a candidate.
+ */
+export function planCandidates(
+  tasks: readonly Task[],
+  dueBy: number,
+  { includeReviews }: PlanCandidateOptions,
+): PlanCandidate[] {
+  return tasks.filter((task) => isCandidate(task, dueBy, includeReviews)).map(toCandidate)
+}
+
+function isCandidate(task: Task, dueBy: number, includeReviews: boolean): boolean {
   if (neverPlanned.includes(task.status)) return false
-  if (task.status === 'review') return true
+
+  // A review is answered on its status alone, either way, before any deadline is looked at. Included,
+  // that is what makes the review queue the day job whatever its dates say. Excluded, it is what
+  // makes the exclusion complete: a review due today would otherwise come back through the deadline
+  // branch below, and criterion 18 is that none of them reaches the plan.
+  if (task.status === 'review') return includeReviews
 
   if (task.status === 'next_action') {
     return task.deferUntil === null || task.deferUntil <= dueBy
@@ -132,7 +151,9 @@ function rank(entries: readonly Considered[], from = 1): PlannedEntry[] {
  * 3. Urgent work moves in front of discretionary work, keeping the model's own order within
  *    each group: the ordering rule is the constraint, and the ranking within it is the
  *    judgement the model was asked for.
- * 4. A review is planned whenever the queue is not empty and there is room for one.
+ * 4. A review is planned whenever the queue is not empty and there is room for one. The queue is
+ *    the candidates' own reviews, so a day whose candidates carry none (criterion 18) has none to
+ *    plan and this step does nothing.
  * 5. Entries are fitted until the capacity runs out; the rest become overflow, and a plan that
  *    had to leave something out says so.
  */
@@ -232,6 +253,11 @@ function estimateFor(
  * allows. The review is moved to the head of the discretionary group rather than the head of
  * the plan, so the urgent work stays in front of it; one the model left out entirely is added
  * there with a rationale saying why it is present.
+ *
+ * The queue is the candidate list's own reviews, so criterion 18 needs no branch here: with reviews
+ * excluded there are none to find, and this returns the order it was handed. That is deliberate.
+ * This is the one rule that could put back a review nobody offered, and excluding them upstream is
+ * only a guarantee because this reaches no further than the list.
  */
 function ensureReview(
   ordered: readonly Considered[],
@@ -244,7 +270,8 @@ function ensureReview(
   if (reviewQueue.length === 0) return [...ordered]
 
   // Already planned means already in the part of the list that will fit. Anything past the
-  // capacity line is not in the plan, which is the case criterion 7 is about.
+  // capacity line is not in the plan, which is the case criterion 7 is about where reviews are
+  // included at all.
   const { fitted } = fit(ordered, capacityMinutes)
   if (fitted.some((entry) => entry.candidate.status === 'review')) return [...ordered]
 

@@ -412,6 +412,56 @@ describe('the rules, applied to real rows', () => {
 
     expect(stored?.entries.map((entry) => entry.taskId)).toContain('task-pr')
   })
+
+  /**
+   * Criterion 18, through the job: `planning.includeReviews` is read here rather than passed in, so
+   * this is where the reading is asserted. The model is offered the review and asks for it, and the
+   * planner has to refuse: an overdue review is the case that would otherwise come back as urgent.
+   */
+  it('offers the model no review, and plans none, with includeReviews off', async () => {
+    const database = migratedDatabase()
+    aNextAction(database, 'task-a')
+    createTask(
+      database,
+      {
+        id: 'task-pr',
+        title: 'Review the retry helper',
+        status: 'review',
+        statusSetBy: 'sync',
+        dueAt: NOW - DAY,
+      },
+      NOW - DAY,
+    )
+
+    const { stored, fake } = await planFor({
+      database,
+      config: config({ planning: { includeReviews: false } }),
+      answers: [
+        plan([
+          { taskId: 'task-a', rationale: 'x', estimateMinutes: 30 },
+          { taskId: 'task-pr', rationale: 'somebody is waiting', estimateMinutes: 30 },
+        ]),
+      ],
+    })
+
+    expect(stored?.entries.map((entry) => entry.taskId)).toEqual(['task-a'])
+    expect(stored?.overflow.map((entry) => entry.taskId)).toEqual([])
+    expect(JSON.stringify(fake.requests)).not.toContain('task-pr')
+  })
+
+  /** Criterion 19: a config file that never names the key plans as it always did. */
+  it('plans the review with includeReviews left at its default', async () => {
+    const database = migratedDatabase()
+    createTask(
+      database,
+      { id: 'task-pr', title: 'Review the retry helper', status: 'review', statusSetBy: 'sync' },
+      NOW - DAY,
+    )
+
+    const { stored } = await planFor({ database, answers: [plan([])] })
+
+    expect(stored?.entries.map((entry) => entry.taskId)).toEqual(['task-pr'])
+  })
 })
 
 /** Criteria 11 and 12. */
