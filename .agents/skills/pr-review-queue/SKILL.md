@@ -63,7 +63,29 @@ Adapt this prompt:
 ```
 Review pull request <pr url> (repo <owner>/<repo>, PR #<n>).
 
-1. Read the PR's prior history BEFORE you review anything:
+1. Get a local copy at the PR head and do the rest of your work inside it. Your working
+   directory starts somewhere unrelated, so without this you would be reviewing whatever
+   checkout you happen to be sitting in. Clone shallowly into a fresh temporary directory
+   outside every existing checkout, then fetch the PR head into it:
+
+     d="$(mktemp -d)"
+     git clone --depth 50 <base repo clone url> "$d/repo"
+     cd "$d/repo"
+     git fetch --depth 50 origin pull/<n>/head
+     git checkout FETCH_HEAD
+
+   The fetch is not redundant. `git clone --depth 50` implies `--single-branch`, so the clone
+   carries the default branch and nothing else: `git cat-file -t <headSha>` in it fails with
+   "could not get object info", and every claim you then check gets checked against the base
+   branch instead of the PR. `refs/pull/<n>/head` is also what makes a fork PR work, since the
+   base repo's clone URL never carries a fork's head branch, and it is served by the base repo
+   all the same.
+
+   Step 2 fetches `headRefOid`. Check that `git rev-parse HEAD` in the clone equals it before
+   you review anything, so a review that ran against the wrong tree fails loudly rather than
+   quietly.
+
+2. Read the PR's prior history BEFORE you review anything:
    - gh pr view <n> --repo <owner>/<repo> --json reviews,comments,body,title,headRefOid,baseRefName,state,mergedAt
    - gh api --paginate repos/<owner>/<repo>/pulls/<n>/comments   (inline comment threads)
    - gh api --paginate repos/<owner>/<repo>/pulls/<n>/reviews    (prior review bodies)
@@ -74,10 +96,12 @@ Review pull request <pr url> (repo <owner>/<repo>, PR #<n>).
    The GraphQL call is not a nicety. The REST review-comments payload carries no resolution
    field and no thread grouping whatsoever: its keys stop at path, line, body, id and the rest
    of the per-comment metadata, so with REST alone you cannot tell a resolved thread from an
-   open one, and rule 3 below becomes unfollowable. Do not simplify it back out.
+   open one, and the PREVIOUSLY RAISED rule below becomes unfollowable. Do not simplify it back
+   out.
 
    `isOutdated` on a thread says its anchor no longer exists at head. That is evidence the code
-   around it moved, never evidence the defect was fixed, so it changes nothing about rule 3.
+   around it moved, never evidence the defect was fixed, so it changes nothing about the
+   PREVIOUSLY RAISED rule.
 
    Join the two by id: a comment's REST `id` is the same number as its GraphQL `databaseId`,
    and every comment in a thread inherits that thread's `isResolved`. Asking for
@@ -86,15 +110,19 @@ Review pull request <pr url> (repo <owner>/<repo>, PR #<n>).
    without it you see the first 30 items only, and a PR with a long history hands you a
    truncated view of what has already been settled. If `pageInfo.hasNextPage` comes back true
    the PR has more than 100 threads, and the query needs a second pass with
-   `after: "<endCursor>"`; `totalCount` tells you upfront whether that applies.
+   `after: "<endCursor>"`; `totalCount` tells you upfront whether that applies. The nested
+   comments(first:50) has no such guard: on a thread with more than 50 comments the later
+   replies are simply absent from the result, so they carry no `databaseId` to join on. Treat a
+   thread that busy as partially seen and read it on the PR itself.
 
-2. Review the PR with the built-in code-review skill, as a Skill tool call:
+3. Review the PR with the built-in code-review skill, as a Skill tool call:
    Skill(skill: "code-review", args: "<pr url> medium"). Make the tool call. Do not write a
    literal /code-review line as text, and do not use the code-review:code-review plugin: it
    posts a top-level comment to the PR unconditionally, which would break the read-only rule
-   below from the step that promises to keep it.
+   below from the step that promises to keep it. Run the project's tests in the clone from
+   step 1: checking a claim beats asserting it.
 
-3. Do not re-raise a finding an earlier cycle settled, UNLESS the defect is still
+4. Do not re-raise a finding an earlier cycle settled, UNLESS the defect is still
    present at the current head. A resolved thread is a claim that the fix landed, not
    proof: if the code still shows the defect, raise it again and say the thread claimed
    otherwise. Prior findings that are still open and still valid go in the report marked
@@ -102,21 +130,17 @@ Review pull request <pr url> (repo <owner>/<repo>, PR #<n>).
    answer on the existing thread instead of posting a duplicate inline comment. Also report
    which prior findings you checked and found genuinely fixed.
 
-4. If this is a dependency bump, weigh the new version's breaking changes against this
+5. If this is a dependency bump, weigh the new version's breaking changes against this
    repo's actual call sites: the diff alone carries little to review.
 
 You are READ-ONLY with respect to everything that already exists. Use the built-in
 code-review skill, never the code-review:code-review plugin, and never pass --comment or --fix.
 Never post anything to GitHub, and never push to any remote. The main agent owns all posting.
 
-Getting a local copy is the one thing you are allowed to write, because it is how a claim gets
-verified instead of asserted: clone the repo shallowly into a fresh temporary directory that
-sits outside every existing checkout, and run the project's tests there.
-
-  d="$(mktemp -d)"; git clone --depth 50 <repo clone url> "$d/repo"
-
-Nothing else. Do not touch the PR's own working tree, do not modify anything under a checkout
-the user already has, and do not leave the scratch directory behind once you are done with it.
+The scratch clone from step 1 is the one thing you are allowed to write, because it is how a
+claim gets verified instead of asserted. Nothing else. Do not touch the PR's own working tree,
+do not modify anything under a checkout the user already has, and do not leave the scratch
+directory behind once you are done with it.
 
 Report back:
 - One paragraph summarising what the PR does.
@@ -131,8 +155,17 @@ Report back:
 
 Non-negotiable, and the step that earns this skill its keep. A sub-agent's findings are a
 draft, not a verdict. For every finding you intend to post, confirm it against the files
-at the PR head before it reaches GitHub. Quote the head SHA from
-`gh pr view <n> --repo <owner>/<repo> --json headRefOid -q .headRefOid`, then:
+at the PR head before it reaches GitHub. Fetch the PR's own facts first, yourself:
+
+```bash
+gh pr view <n> --repo <owner>/<repo> --json headRefOid,state,mergedAt,baseRefName
+```
+
+Fetch these in your own hands rather than reading them out of a sub-agent's report. The
+sub-agent reads the same fields for its own use, but its report was written minutes ago and the
+PR may have moved since. `headRefOid` is the head SHA the rest of this step quotes, `state` and
+`mergedAt` are what steps 4 and 6 decide on, and `baseRefName` is the stacked-PR check step 5
+puts in the review body. Then:
 
 ```bash
 gh api "repos/<owner>/<repo>/contents/<path>" --method GET -f ref=<headSha> \
@@ -158,8 +191,9 @@ you cannot confirm gets downgraded or dropped, never posted as fact.
 
 ## Step 4: triage
 
-One verdict per PR. The first three bullets set the verdict; the two after them are exceptions
-that override it, and the rest are the calibration behind the call.
+One verdict per PR.
+
+**The verdict.**
 
 - Any non-trivial finding: post a `REQUEST_CHANGES` review carrying inline comments for
   **all** NEW findings, trivial ones included. Trivial findings do not get filtered out of a
@@ -168,20 +202,24 @@ that override it, and the rest are the calibration behind the call.
   explicitly non-blocking notes.
 - No findings at all: `APPROVE`, with a body that says what you looked at and what you checked
   against the prior rounds. An approval that shows its work is evidence, not a rubber stamp.
+
+**Post nothing at all, whatever the findings say.** Both of these skip step 5 entirely.
+
+- A pull request that is no longer open. Re-read the `state` you fetched in step 3 before
+  posting, particularly when the pass has run long, and carry the PR straight into step 6,
+  which owns what happens next.
+- A sub-agent that failed to review its PR, whether it errored, returned nothing, or returned
+  something you cannot make sense of: leave its Caroline task untouched, and carry it into the
+  step 6 report as not reviewed with the reason. A stated skip is worth far more than a silent
+  one.
+
+**Calibration behind the call.**
+
 - A PREVIOUSLY RAISED finding that still stands never becomes a fresh inline comment, whatever
   the verdict. It is answered on its own thread and named in the review body (step 5), so the
   round reads as complete without the author reading the same point twice. Only when the
   sub-agent could not supply a thread reference does it become a new inline comment, and then
   the comment says it was raised before.
-- A pull request that merged or closed while the pass was running: post nothing. A review
-  round on a PR that is no longer open changes nothing and asks the author to re-read a
-  decision already taken. Re-read `state` (step 2's `gh pr view --json` list carries it) before
-  posting whenever the pass has run long, and carry the PR straight into step 6, which routes a
-  merged or closed PR to `complete_task` without a posted review.
-- A sub-agent that failed to review its PR, whether it errored, returned nothing, or returned
-  something you cannot make sense of: post nothing for that PR, leave its Caroline task
-  untouched, and carry it into the step 6 report as not reviewed with the reason. A stated skip
-  is worth far more than a silent one.
 - Trivial means wording, naming, style, a missing optional field. Non-trivial means it
   changes behaviour, correctness, security, or maintainability in a way that warrants a
   change before merge.
@@ -274,26 +312,29 @@ work still to do, never as a posted review:
    far more than no review.
 
 A review has posted only when the call returns the review's `state` and `html_url`. Nothing in
-step 6 happens for an **open** PR until it has; a merged or closed PR never reaches this step at
-all, so step 6 handles it on its GitHub state instead. If a PR's review genuinely cannot be posted, leave its
+step 6 happens for an **open** PR until it has. A PR that is no longer open never reaches this
+step at all; step 6 owns that case. If a PR's review genuinely cannot be posted, leave its
 Caroline task untouched and carry it into the step 6 report as not posted with the reason,
 exactly as for a sub-agent that failed.
 
 ## Step 6: update Caroline, then report
 
-Read the PR's GitHub state first, because it decides which branch below applies: `state`, and
-`mergedAt` when you want the date, come from step 2's `gh pr view --json` list, and are worth
-re-fetching if the pass has run long enough for the PR to have moved. `state` is GitHub's own
-(`OPEN`, `MERGED` or `CLOSED`). It is not the `lifecycleState` on the Caroline row from step 1,
-which is the connector's lifecycle for the task and says nothing about whether GitHub still has
-the pull request open.
+This step owns the rule for a PR that is no longer open, and steps 4 and 5 defer to it. A pull
+request that merged or closed while the pass was running gets no review posted: a round on a PR
+that is no longer open changes nothing and asks the author to re-read a decision already taken.
+It is completed here on the strength of its GitHub state, with no review to have posted.
 
-An **open** PR reaches Caroline only once its review actually posted in step 5, confirmed by the
-`state` and `html_url` the POST returned. A PR whose review did not post is left exactly as it
-was in Caroline and reported as not reviewed: discharging the task without a review on the PR
-loses the round in both places at once. A **merged or closed** PR is outside that precondition
-entirely, since step 4 sends it past posting on purpose: it is completed on the strength of its
-GitHub state, with no review to have posted.
+The `state` and `mergedAt` that decide this are the ones you fetched yourself in step 3, not
+anything a sub-agent reported. Re-fetch them with the same command if the pass has run long
+enough for the PR to have moved since. `state` is GitHub's own (`OPEN`, `MERGED` or `CLOSED`).
+It is not the `lifecycleState` on the Caroline row from step 1, which is the connector's
+lifecycle for the task and says nothing about whether GitHub still has the pull request open.
+
+An **open** PR reaches Caroline only once its review actually posted in step 5, confirmed by
+the review's own `state` and `html_url` in the POST response. That `state` is the review's
+(`CHANGES_REQUESTED`, `APPROVED`), not the PR's. A PR whose review did not post is left exactly
+as it was in Caroline and reported as not reviewed: discharging the task without a review on
+the PR loses the round in both places at once.
 
 Caroline tracks your review, not the merge. Spec 02 is explicit that an open PR is never
 invisible: it sits in `review` while it needs you and `waiting` while it needs the author, and
@@ -301,10 +342,10 @@ completion is proposed only on close, or on being dropped as a reviewer. `done` 
 GitHub connector's tracked statuses and sync bails on a `done` task, so completing an open PR
 takes it off the board permanently, even when the author pushes and re-requests your review.
 
-- Any verdict on an **open** pull request, an approval included: `mcp__caroline__mark_reviewed(id)`.
-  The task moves to `waiting`, named on the author. What separates an approval from a
-  needs-changes review is the `event` posted to GitHub in step 5, not which Caroline tool you
-  call. Do not reach for `complete_task` because you approved.
+- Any verdict on an **open** pull request, an approval included:
+  `mcp__caroline__mark_reviewed(id)`. The task moves to `waiting`, named on the author. What
+  separates an approval from a needs-changes review is the `event` posted to GitHub in step 5,
+  not which Caroline tool you call. Do not reach for `complete_task` because you approved.
 - A pull request that is **already merged or closed**: `mcp__caroline__complete_task(id)`. That
   is the only case for it in this pass, and sync would propose the same completion on its next
   run anyway.
@@ -327,9 +368,10 @@ takes it off the board permanently, even when the author pushes and re-requests 
 - Stacked PRs: check `baseRefName`, since a PR based on another feature branch cannot
   merge until its parent does, and that belongs in the review body.
 - `gh pr checks` reporting no checks is not the same as checks passing.
-- A `-f` parameter switches `gh api` to POST, so a call that is meant to be a GET needs an
-  explicit `--method GET` (the contents read in step 3). A call that is meant to POST is right
-  to pass `-f` without it: the review POST and the thread reply in step 5 both do.
+- A `-f` parameter switches `gh api` to POST. Any call that is meant to be a GET therefore
+  needs an explicit `--method GET` alongside it; a call that is meant to POST does not, and
+  `--method POST` is only ever redundant, never wrong. Read each call's own flags rather than
+  assuming.
 - A 422 on the review POST means nothing posted, not that some of it did. Caroline waits.
 - Precision in review prose: "out of date" is not "wrong", and a workflow condition
   admitting `cancelled` is a different defect from one admitting `failure`.
