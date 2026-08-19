@@ -139,6 +139,14 @@ Review pull request <pr url> (repo <owner>/<repo>, PR #<n>).
      thread asked for against what the reply covered so the gap is visible rather than
      asserted. Do not present it as a fresh finding.
 
+   - **Settled, but the deferral's stated grounds no longer hold.** A deferral rests on a
+     reason ("the columns are nullable, so nothing crashes"). When a later change in the same
+     PR falsifies that reason, the functional consequence is reportable even though the
+     deferral itself stands. Quote the stated grounds against the change that broke them, and
+     be explicit that the deferral is not being reopened. Do not use this to smuggle back a
+     deferral you simply disagree with: the grounds must be falsified by the code, not by your
+     judgement of how thin they were.
+
    Every PREVIOUSLY RAISED item carries its review comment id and thread URL, so the main
    agent can answer on the existing thread instead of posting a duplicate inline comment.
 
@@ -202,6 +210,26 @@ Ask for the raw media type rather than reading `.content` out of the JSON body: 
 1 MB that field comes back empty, which reads as "the code is not there" and drops a real
 finding for a mechanical reason. Passing `ref` as a `-f` parameter leaves the encoding to `gh`.
 A path containing a space or a `#` still needs its own percent-encoding in the URL.
+
+Check that each fetch actually succeeded before reading anything into it. A redirected `2>&1`
+writes the failure into the same file the code was meant to land in, so a transient
+`net/http: TLS handshake timeout` becomes a one-line file that looks exactly like a short or
+absent source file, and this step then drops a real finding for a reason that has nothing to do
+with the code. Same failure class as the two traps above, and it has fired: two files in one
+pass came back as a single line of error text. Retry a failed fetch two or three times before
+concluding anything about the file, and treat a suspiciously short result as a fetch to
+re-check rather than as evidence:
+
+```bash
+for i in 1 2 3; do
+  gh api "repos/<owner>/<repo>/contents/<path>" --method GET -f ref=<headSha> \
+    -H "Accept: application/vnd.github.raw" > "$out" 2>&1 && break
+  sleep 2
+done
+```
+
+If a path genuinely cannot be fetched after retries, the finding resting on it is unverified:
+downgrade or drop it and say so, rather than posting it on the sub-agent's word.
 
 In practice this has caught a sub-agent describing a defect accurately but framing it
 wrongly, claiming two config files both lacked a validation block when only one did.
@@ -268,6 +296,17 @@ three cases:
   the history.
 - **The author claimed a fix and the defect is still there at head.** Raise it again, saying
   the thread claimed otherwise. This is the case the pass exists for.
+- **The deferral stands but its stated grounds no longer hold.** A later change in the same
+  PR can falsify the reason a deferral rested on, and the consequence is then fair to raise.
+  On nearform/techbase#2912 the writer-role `created_by` gap was deferred on the express
+  grounds that "Columns are nullable, so there is no crash"; the same PR then added an IDE
+  update filter requiring `created_by`, which made a Platform-created row report
+  "Update target row was not found" for a row that exists. Quote the grounds against the
+  change that broke them, say plainly the deferral is not being reopened, invite the author to
+  push back if they read it as still in scope, and surface it to the user as a judgement call
+  rather than settling it silently. The grounds must be falsified by the code, not by your
+  view of how thin they were.
+
 - **The author fixed exactly what was asked, but part of the original point is untouched.**
   That remainder is fair, framed as the unfixed half rather than as a fresh finding. Quote what
   the original thread asked for and what the reply covered, so the gap is visible rather than
@@ -291,6 +330,14 @@ left standing in the body keeps blocking the PR in the author's eyes.
   round reads as complete without the author reading the same point twice. Only when the
   sub-agent could not supply a thread reference does it become a new inline comment, and then
   the comment says it was raised before.
+  Where the author has not replied on that thread at all, because the whole round went
+  unanswered, a reply repeating the point adds nothing they have not already had a chance to
+  read. Name those findings in the review body with their thread links, say in the body that
+  you are deliberately not re-posting on unanswered threads, and confirm they are still
+  present at the new head rather than assuming. Reply on the thread only where you have
+  something genuinely new to add: the point moved, its cause changed, or a later commit
+  altered what it depends on. A whole PR of unanswered rounds is a signal to keep the round
+  compact, not to restate every prior finding at length.
 - **A red check is not automatically a blocker.** Before writing that a PR "cannot merge as
   is", read the branch's actual protection:
   `gh api repos/<owner>/<repo>/branches/<base>/protection --jq '.required_status_checks.contexts'`.
@@ -446,7 +493,8 @@ takes it off the board permanently, even when the author pushes and re-requests 
 ## Gotchas
 
 - A resolved thread is a claim, not proof. An explicit deferral, though, is a decision: settled,
-  and not yours to reopen.
+  and not yours to reopen. The one exception is a deferral whose stated grounds a later change
+  in the same PR falsified: that consequence is reportable, the deferral still is not.
 - Approving an open PR is still `mark_reviewed`, never `complete_task`.
 - Sub-agent findings can be right about the defect and wrong about its scope, its line number,
   or which file the overclaim lives in, so verify all four.
@@ -463,6 +511,10 @@ takes it off the board permanently, even when the author pushes and re-requests 
   `--method POST` is only ever redundant, never wrong. Read each call's own flags rather than
   assuming.
 - A 422 on the review POST means nothing posted, not that some of it did. Caroline waits.
+- A verification fetch that fails into its own output file reads as a short or missing source
+  file. Retry before believing it, or a network blip silently drops real findings.
+- An unanswered prior round wants its findings named in the body with links, not restated at
+  length on threads the author has not read yet.
 - Precision in review prose: "out of date" is not "wrong", and a workflow condition
   admitting `cancelled` is a different defect from one admitting `failure`.
 - No em-dashes in review bodies or inline comments.
