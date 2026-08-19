@@ -6,3 +6,5 @@ data
 .DS_Store
 caroline.config.json
 .env
+.claude/worktrees
+.claude/scheduled_tasks.lock
