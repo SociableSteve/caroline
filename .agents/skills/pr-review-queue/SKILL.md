@@ -29,10 +29,16 @@ inline comments.
 
 ## Step 1: fetch the queue
 
-Call `mcp__caroline__list_reviews`. Each row carries the task id, the PR URL, the
-repository, the PR number and an estimate. The task id is what Caroline is updated by in
-step 6, so keep each id paired with its PR for the whole pass. If the queue is empty, say
-so and stop.
+Call `mcp__caroline__list_reviews`. It answers with `{ review: [...] }`, one row per task in
+`review` status that has a GitHub source. Rows with no GitHub source are filtered out, so a
+queue that looks short can still sit alongside non-PR work this tool does not speak for. Each
+row carries `id`, `title`, `status`, `url`, `repository`, `number`, `estimateMinutes`,
+`reviewRequestedAt`, `lifecycleState` and `waitingOn`. Passing `includeWaiting: true` adds a
+second `waiting` array, the PRs you have already reviewed and are waiting on the author for:
+that is a chase pass, not a review pass, so leave it off here.
+
+The `id` is what Caroline is updated by in step 6, so keep each id paired with its PR for the
+whole pass. If `review` is empty, say so and stop.
 
 ## Step 2: one sub-agent per PR, in parallel
 
@@ -44,30 +50,40 @@ Review pull request <pr url> (repo <owner>/<repo>, PR #<n>).
 
 1. Read the PR's prior history BEFORE you review anything:
    - gh pr view <n> --repo <owner>/<repo> --json reviews,comments,body,title,headRefOid,baseRefName
-   - gh api repos/<owner>/<repo>/pulls/<n>/comments   (inline comment threads)
-   - gh api repos/<owner>/<repo>/pulls/<n>/reviews    (prior review bodies)
+   - gh api --paginate repos/<owner>/<repo>/pulls/<n>/comments   (inline comment threads)
+   - gh api --paginate repos/<owner>/<repo>/pulls/<n>/reviews    (prior review bodies)
 
-2. Run /code-review <pr url> medium.
+   --paginate is not optional. Without it you see the first 30 items only, and a PR with a
+   long history hands you a truncated view of what has already been settled.
+
+2. Review the PR with the built-in code-review skill, as a Skill tool call:
+   Skill(skill: "code-review", args: "<pr url> medium"). Make the tool call. Do not write a
+   literal /code-review line as text, and do not use the code-review:code-review plugin: it
+   posts a top-level comment to the PR unconditionally, which would break the read-only rule
+   below from the step that promises to keep it.
 
 3. Do not re-raise a finding an earlier cycle settled, UNLESS the defect is still
    present at the current head. A resolved thread is a claim that the fix landed, not
    proof: if the code still shows the defect, raise it again and say the thread claimed
    otherwise. Prior findings that are still open and still valid go in the report marked
-   PREVIOUSLY RAISED with the thread reference, so the main agent does not post a
-   duplicate. Also report which prior findings you checked and found genuinely fixed.
+   PREVIOUSLY RAISED, each with its review comment id and thread URL, so the main agent can
+   answer on the existing thread instead of posting a duplicate inline comment. Also report
+   which prior findings you checked and found genuinely fixed.
 
 4. If this is a dependency bump, weigh the new version's breaking changes against this
    repo's actual call sites: the diff alone carries little to review.
 
-You are READ-ONLY. Never pass --comment or --fix to /code-review, never post anything to
-GitHub, never modify or push files. The main agent owns all posting.
+You are READ-ONLY. Use the built-in code-review skill, never the code-review:code-review
+plugin, and never pass --comment or --fix. Never post anything to GitHub, never modify or
+push files. The main agent owns all posting.
 
 Report back:
 - One paragraph summarising what the PR does.
 - A section on prior review feedback: what was raised, what is fixed, what still stands.
 - A finding list. Per finding: file path and line, a one-line summary, the category,
   confidence (CONFIRMED or PLAUSIBLE), a concrete failure scenario, NEW or
-  PREVIOUSLY RAISED, and TRIVIAL or NON-TRIVIAL.
+  PREVIOUSLY RAISED (with the review comment id and thread URL when PREVIOUSLY RAISED),
+  and TRIVIAL or NON-TRIVIAL.
 ```
 
 ## Step 3: verify before posting
@@ -75,12 +91,18 @@ Report back:
 Non-negotiable, and the step that earns this skill its keep. A sub-agent's findings are a
 draft, not a verdict. For every finding you intend to post, confirm it against the files
 at the PR head before it reaches GitHub. Quote the head SHA from
-`gh pr view <n> --repo <owner>/<repo> --json headRefOid`, then:
+`gh pr view <n> --repo <owner>/<repo> --json headRefOid -q .headRefOid`, then:
 
 ```bash
-gh api "repos/<owner>/<repo>/contents/<path>?ref=<headSha>" -q '.content' \
-  | base64 -d | cat -n | sed -n '<range>p'
+gh api "repos/<owner>/<repo>/contents/<path>" -f ref=<headSha> \
+  -H "Accept: application/vnd.github.raw" \
+  | cat -n | sed -n '<range>p'
 ```
+
+Ask for the raw media type rather than reading `.content` out of the JSON body: for a file over
+1 MB that field comes back empty, which reads as "the code is not there" and drops a real
+finding for a mechanical reason. Passing `ref` as a `-f` parameter leaves the encoding to `gh`.
+A path containing a space or a `#` still needs its own percent-encoding in the URL.
 
 In practice this has caught a sub-agent describing a defect accurately but framing it
 wrongly, claiming two config files both lacked a validation block when only one did.
@@ -89,11 +111,24 @@ you cannot confirm gets downgraded or dropped, never posted as fact.
 
 ## Step 4: triage
 
+One verdict per PR:
+
 - Any non-trivial finding: post a `REQUEST_CHANGES` review carrying inline comments for
-  **all** findings, trivial ones included. Trivial findings do not get filtered out of a
+  **all** NEW findings, trivial ones included. Trivial findings do not get filtered out of a
   round that is happening anyway.
 - Only trivial findings: `APPROVE`, with the trivial points recorded in the review body as
   explicitly non-blocking notes.
+- No findings at all: `APPROVE`, with a body that says what you looked at and what you checked
+  against the prior rounds. An approval that shows its work is evidence, not a rubber stamp.
+- A PREVIOUSLY RAISED finding that still stands never becomes a fresh inline comment, whatever
+  the verdict. It is answered on its own thread and named in the review body (step 5), so the
+  round reads as complete without the author reading the same point twice. Only when the
+  sub-agent could not supply a thread reference does it become a new inline comment, and then
+  the comment says it was raised before.
+- A sub-agent that failed to review its PR, whether it errored, returned nothing, or returned
+  something you cannot make sense of: post nothing for that PR, leave its Caroline task
+  untouched, and carry it into the step 6 report as not reviewed with the reason. A stated skip
+  is worth far more than a silent one.
 - Trivial means wording, naming, style, a missing optional field. Non-trivial means it
   changes behaviour, correctness, security, or maintainability in a way that warrants a
   change before merge.
@@ -106,14 +141,17 @@ you cannot confirm gets downgraded or dropped, never posted as fact.
 
 ## Step 5: post one review per PR
 
-Post a single review per PR through the API, not a scatter of loose comments:
+Post a single review per PR through the API, not a scatter of loose comments. Write the payload
+to a scratch file outside every checkout, so nothing lands in the working tree of the PR under
+review: `REVIEW_JSON="$(mktemp -t caroline-review-XXXXXX.json)"`. This skill modifies no files
+in any repository.
 
 ```bash
-gh api repos/<owner>/<repo>/pulls/<n>/reviews --method POST --input review.json \
+gh api repos/<owner>/<repo>/pulls/<n>/reviews --method POST --input "$REVIEW_JSON" \
   -q '.state, .html_url'
 ```
 
-`review.json`:
+`$REVIEW_JSON`:
 
 ```json
 {
@@ -146,6 +184,15 @@ Inline anchoring rules, learned the hard way:
   changed line in the same file and name the real line in the comment text, or put the
   point in the review body instead.
 - Two comments may share a line where two distinct findings genuinely sit there.
+- A PREVIOUSLY RAISED finding that still stands is answered on its existing thread rather than
+  duplicated, and summarised in the review body among the blockers. Post the review first, then
+  the replies, so each reply sits under a round that already exists:
+
+  ```bash
+  gh api repos/<owner>/<repo>/pulls/<n>/comments/<commentId>/replies --method POST \
+    -f body='Still present at <headSha>: ...'
+  ```
+
 - The review body should lead with what is good, then name the blockers in priority order,
   and note anything structural (a stacked PR whose base is another feature branch, for
   instance) that affects merge order.
@@ -154,9 +201,25 @@ Inline anchoring rules, learned the hard way:
 
 ## Step 6: update Caroline, then report
 
-- Needs changes: `mcp__caroline__mark_reviewed(id)`. The task moves to waiting, named on
-  the author.
-- Approved: `mcp__caroline__complete_task(id)`. The task leaves the board.
+Caroline tracks your review, not the merge. Spec 02 is explicit that an open PR is never
+invisible: it sits in `review` while it needs you and `waiting` while it needs the author, and
+completion is proposed only on close, or on being dropped as a reviewer. `done` is inside the
+GitHub connector's tracked statuses and sync bails on a `done` task, so completing an open PR
+takes it off the board permanently, even when the author pushes and re-requests your review.
+
+- Any verdict on an **open** pull request, an approval included: `mcp__caroline__mark_reviewed(id)`.
+  The task moves to `waiting`, named on the author. What separates an approval from a
+  needs-changes review is the `event` posted to GitHub in step 5, not which Caroline tool you
+  call. Do not reach for `complete_task` because you approved.
+- A pull request that is **already merged or closed**: `mcp__caroline__complete_task(id)`. That
+  is the only case for it in this pass, and sync would propose the same completion on its next
+  run anyway.
+- `mark_reviewed` can refuse, with a reason. `already-reviewed` is not a failure: the review was
+  discharged before, so note it and move on. `not-a-review` (the task carries no GitHub pull
+  request source), `not-tracked` (the task is not sync tracked) and `unsynced` (the source has no
+  head SHA yet, so no sync has seen the PR) each mean the task is not in the state this pass
+  assumed. Leave it where it is, report the reason, and never substitute `complete_task` to
+  force the row off the board.
 - Report back a table of PR, verdict, comment count and Caroline status, then the blockers
   in priority order across the whole pass. Say plainly where you corrected or dropped a
   sub-agent's finding, and surface anything that is the maintainer's call rather than
@@ -165,6 +228,7 @@ Inline anchoring rules, learned the hard way:
 ## Gotchas
 
 - A resolved thread is a claim, not proof.
+- Approving an open PR is still `mark_reviewed`, never `complete_task`.
 - Sub-agent findings can be right about the defect and wrong about its scope, so verify.
 - Stacked PRs: check `baseRefName`, since a PR based on another feature branch cannot
   merge until its parent does, and that belongs in the review body.

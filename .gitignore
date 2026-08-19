@@ -6,5 +6,8 @@ data
 .DS_Store
 caroline.config.json
 .env
-.claude/worktrees
-.claude/scheduled_tasks.lock
+# Everything Claude Code writes into .claude is local state: worktrees, lock files and
+# settings.local.json. The vendored skills are the exception, and they are the whole point of
+# the directory being tracked at all.
+.claude/*
+!.claude/skills
