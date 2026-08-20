@@ -10,14 +10,14 @@
  */
 import { copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { buildSite, siteAssets } from './build.js'
+import { buildSite, fontAssets, siteAssets } from './build.js'
 
 const directory = 'dist/site'
 const files = buildSite()
 // The screenshots, which are copied rather than written: `buildSite` returns text, and a PNG carried
 // through a string is a PNG with its bytes rewritten. It has already refused to publish a page
 // referencing one that is not here.
-const assets = siteAssets()
+const assets = [...siteAssets(), ...fontAssets()]
 
 rmSync(directory, { recursive: true, force: true })
 for (const [path, contents] of files) {
