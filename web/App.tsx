@@ -124,6 +124,11 @@ export function App() {
   const { route, chatOpen: chatInUrl, conversationId, selected, hash } = useLocation()
   const [capturing, setCapturing] = useState(false)
   const [writeFailure, setWriteFailure] = useState<string | null>(null)
+  // Quick Capture's own failure, kept separate from `writeFailure`: that state is shared by
+  // every other write path, and a capture dialog that read it would show an unrelated failure
+  // (completing a task, say) as though the capture itself had just failed. Reset whenever the
+  // dialog opens or closes, so a previous attempt's failure never leaks into a fresh one.
+  const [captureFailure, setCaptureFailure] = useState<string | null>(null)
   /**
    * Whether the rail is open. Open by default: chat is the thing Caroline is for, and a rail that has
    * to be opened again on every surface you land on is one that ends up unused. Held here as well as
@@ -148,6 +153,7 @@ export function App() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'c' && !isTyping(event.target) && !event.metaKey && !event.ctrlKey) {
         event.preventDefault()
+        setCaptureFailure(null)
         setCapturing(true)
       }
     }
@@ -157,20 +163,24 @@ export function App() {
   }, [])
 
   /**
-   * Every write goes through here: do it, refresh, and say so if it failed. It reports whether
-   * the write landed, because a form that clears itself on a rejected request has thrown away
-   * what the user typed, and the message alone does not give it back.
+   * Every write goes through here: do it, refresh, and say so if it failed, into whichever
+   * failure state the caller names. It reports whether the write landed, because a form that
+   * clears itself on a rejected request has thrown away what the user typed, and the message
+   * alone does not give it back.
    */
-  const write = useCallback(
-    async (work: () => Promise<unknown>): Promise<boolean> => {
+  const runWrite = useCallback(
+    async (
+      work: () => Promise<unknown>,
+      setFailure: (message: string | null) => void,
+    ): Promise<boolean> => {
       try {
         await work()
       } catch (error) {
-        setWriteFailure(error instanceof Error ? error.message : 'That did not work')
+        setFailure(error instanceof Error ? error.message : 'That did not work')
         return false
       }
 
-      setWriteFailure(null)
+      setFailure(null)
       setNow(Date.now())
 
       // The refresh is deliberately outside the result. It happened after the write landed, so
@@ -187,6 +197,12 @@ export function App() {
       return true
     },
     [reload],
+  )
+
+  // The shared write path, for every write except Quick Capture: see `captureFailure` above.
+  const write = useCallback(
+    (work: () => Promise<unknown>) => runWrite(work, setWriteFailure),
+    [runWrite],
   )
 
   const onStatusChange = (id: string, status: TaskStatus) =>
@@ -223,7 +239,7 @@ export function App() {
   }
   const onRunJob = (job: string) => void write(() => api.runJob(job))
   // These two answer their forms, which keep what was typed until the write lands.
-  const onCapture = (input: TaskInput) => write(() => api.createTask(input))
+  const onCapture = (input: TaskInput) => runWrite(() => api.createTask(input), setCaptureFailure)
   const onCreateProject = (title: string) => write(() => api.createProject({ title }))
   const onProjectState = (id: string, state: ProjectState) =>
     void write(() => api.patchProject(id, { state }))
@@ -414,7 +430,10 @@ export function App() {
                 variant="outline"
                 size="sm"
                 className="h-7 px-2.5 text-xs"
-                onClick={() => setCapturing(true)}
+                onClick={() => {
+                  setCaptureFailure(null)
+                  setCapturing(true)
+                }}
               >
                 Quick capture
               </Button>
@@ -614,8 +633,11 @@ export function App() {
         projects={projects}
         timezone={timezone}
         configLoaded={configLoaded}
-        failure={writeFailure}
-        onClose={() => setCapturing(false)}
+        failure={captureFailure}
+        onClose={() => {
+          setCapturing(false)
+          setCaptureFailure(null)
+        }}
         onCreate={onCapture}
       />
     </>
