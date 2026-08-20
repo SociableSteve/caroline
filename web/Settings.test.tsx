@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { Settings } from './surfaces/Settings.js'
-import type { GoogleStatus, PrivacyPreview } from './api.js'
+import type { GoogleStatus, Health, PrivacyPreview } from './api.js'
 import { NOW } from './test-fixtures.js'
 
 const REDIRECT = 'http://127.0.0.1:5123/api/integrations/google/callback'
@@ -19,6 +19,19 @@ function google(overrides: Partial<GoogleStatus> = {}): GoogleStatus {
     scopes: [],
     redirectUri: REDIRECT,
     ...overrides,
+  }
+}
+
+function health(overrides: Partial<Health['integrations']> = {}): Health {
+  return {
+    status: 'ok',
+    version: '1.0.0',
+    uptimeSeconds: 3,
+    integrations: {
+      github: { configured: true, status: 'configured' },
+      llm: { configured: true, status: 'configured' },
+      ...overrides,
+    },
   }
 }
 
@@ -67,6 +80,7 @@ function renderSettings(overrides: Partial<Parameters<typeof Settings>[0]> = {})
   render(
     <Settings
       google={google()}
+      health={health()}
       preview={preview()}
       userName=""
       googleOutcome={null}
@@ -154,6 +168,30 @@ describe('the Google account', () => {
   })
 })
 
+describe('GitHub and LLM provider', () => {
+  it('shows each as configured or not', () => {
+    renderSettings({
+      health: health({
+        github: { configured: true, status: 'configured' },
+        llm: { configured: false, status: 'not configured' },
+      }),
+    })
+
+    const section = panel(/github and llm provider/i)
+
+    expect(within(section).getByText('configured')).toBeInTheDocument()
+    expect(within(section).getByText('not configured')).toBeInTheDocument()
+  })
+
+  it('waits for the server rather than showing a status it does not have yet', () => {
+    renderSettings({ health: null })
+
+    expect(
+      within(panel(/github and llm provider/i)).getByText('Waiting for the server.'),
+    ).toBeInTheDocument()
+  })
+})
+
 describe('the content policy', () => {
   it('states each level with its consequence in plain language', () => {
     renderSettings()
@@ -205,12 +243,12 @@ describe('the payload preview', () => {
   })
 
   it('waits for the server rather than showing an empty policy', () => {
-    renderSettings({ preview: null, google: null })
+    renderSettings({ preview: null, google: null, health: null })
 
-    // One per panel that has nothing to show yet: the account, the policy, the preamble, the item
-    // context and the payload. Counted rather than named, so a panel added without an empty state is
-    // noticed.
-    expect(screen.getAllByText('Waiting for the server.')).toHaveLength(5)
+    // One per panel that has nothing to show yet: the account, GitHub and LLM status, the policy,
+    // the preamble, the item context and the payload. Counted rather than named, so a panel added
+    // without an empty state is noticed.
+    expect(screen.getAllByText('Waiting for the server.')).toHaveLength(6)
   })
 })
 

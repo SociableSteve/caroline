@@ -7,11 +7,12 @@
  * the page. Spec 09, criterion 9.
  */
 import { useEffect, useState } from 'react'
-import type { GoogleStatus, McpClientView, McpConsentView, PrivacyPreview } from '../api.js'
+import type { GoogleStatus, Health, McpClientView, McpConsentView, PrivacyPreview } from '../api.js'
 import { cn } from '../lib/utils.js'
 import { formatDate } from '../format.js'
 import {
   ActionRow,
+  Badge,
   changeNoteClassName,
   emptyClassName,
   Fact,
@@ -27,6 +28,10 @@ import { useSurfaceTitle } from '../title.js'
 
 export interface SettingsProps {
   readonly google: GoogleStatus | null
+  /** GitHub's and the LLM provider's own connection status, from `GET /api/health`. Read once
+   *  rather than on opening Settings, the same as the rest of the shell's data: neither changes
+   *  without a restart. Null until that first read answers. */
+  readonly health: Health | null
   readonly preview: PrivacyPreview | null
   /** What Caroline calls the person using it. Empty is a supported answer. Spec 09. */
   readonly userName: string
@@ -62,6 +67,7 @@ const outcomes: Record<string, string> = {
 
 export function Settings({
   google,
+  health,
   preview,
   userName,
   googleOutcome,
@@ -155,6 +161,30 @@ export function Settings({
             )}
           </Panel>
 
+          {/* GitHub and the LLM provider are configuration Caroline reads at startup, not
+          accounts a person connects from here, so this panel is a status report rather than a
+          control: what the deployment found configured, next to the Google panel that is one. */}
+          <Panel headingLevel={2} heading="GitHub and LLM provider">
+            {health === null ? (
+              <p className={emptyClassName}>Waiting for the server.</p>
+            ) : (
+              <Facts>
+                <Fact label="GitHub">
+                  <Badge
+                    tone={health.integrations.github?.configured === true ? 'accent' : 'quiet'}
+                  >
+                    {health.integrations.github?.status ?? 'not configured'}
+                  </Badge>
+                </Fact>
+                <Fact label="LLM provider">
+                  <Badge tone={health.integrations.llm?.configured === true ? 'accent' : 'quiet'}>
+                    {health.integrations.llm?.status ?? 'not configured'}
+                  </Badge>
+                </Fact>
+              </Facts>
+            )}
+          </Panel>
+
           {/*
         The consent screen the authorisation flow lands on (spec 12, criterion 31). Shown only
         while the URL names a pending request: it is not a state of the panel below it, because
@@ -226,8 +256,8 @@ export function Settings({
                       <Button
                         type="button"
                         variant="outline"
-                        size="sm"
-                        className="h-6 px-2.5 text-[11px] text-muted-foreground"
+                        size="xs"
+                        className="px-2.5 text-muted-foreground"
                         onClick={() => onRevokeMcpClient(client.clientId)}
                       >
                         Revoke
@@ -418,8 +448,8 @@ export function Settings({
                 <Button
                   type="button"
                   variant="outline"
-                  size="sm"
-                  className="h-6 px-2.5 text-[11px]"
+                  size="xs"
+                  className="px-2.5"
                   onClick={onRefreshPreview}
                 >
                   Refresh

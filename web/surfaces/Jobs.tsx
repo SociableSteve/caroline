@@ -6,7 +6,14 @@
 import type { JobRun, JobStatus } from '../api.js'
 import { ago, formatAge } from '../format.js'
 import { cn } from '../lib/utils.js'
-import { Badge, emptyClassName, Fact, Facts, Panel } from '../components/primitives.js'
+import {
+  Badge,
+  emptyClassName,
+  Fact,
+  Facts,
+  Panel,
+  tableHeaderClassName,
+} from '../components/primitives.js'
 import { Button } from '../components/ui/button.js'
 import { useSurfaceTitle } from '../title.js'
 
@@ -160,34 +167,19 @@ export function Jobs({ jobs, runs, now, onRun }: JobsProps) {
           <table className="w-full border-collapse overflow-hidden rounded-xl border text-xs">
             <thead>
               <tr>
-                <th
-                  scope="col"
-                  className="border-b p-2 text-left text-[10px] font-medium uppercase tracking-[0.05em] text-muted-foreground"
-                >
+                <th scope="col" className={tableHeaderClassName}>
                   Job
                 </th>
-                <th
-                  scope="col"
-                  className="border-b p-2 text-left text-[10px] font-medium uppercase tracking-[0.05em] text-muted-foreground"
-                >
+                <th scope="col" className={tableHeaderClassName}>
                   Trigger
                 </th>
-                <th
-                  scope="col"
-                  className="border-b p-2 text-left text-[10px] font-medium uppercase tracking-[0.05em] text-muted-foreground"
-                >
+                <th scope="col" className={tableHeaderClassName}>
                   When
                 </th>
-                <th
-                  scope="col"
-                  className="border-b p-2 text-left text-[10px] font-medium uppercase tracking-[0.05em] text-muted-foreground"
-                >
+                <th scope="col" className={tableHeaderClassName}>
                   Status
                 </th>
-                <th
-                  scope="col"
-                  className="border-b p-2 text-left text-[10px] font-medium uppercase tracking-[0.05em] text-muted-foreground"
-                >
+                <th scope="col" className={tableHeaderClassName}>
                   What it did
                 </th>
               </tr>

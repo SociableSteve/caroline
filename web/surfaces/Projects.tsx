@@ -16,6 +16,7 @@ import {
   Field,
   Panel,
   policyNoteClassName,
+  tableHeaderClassName,
 } from '../components/primitives.js'
 import { Button } from '../components/ui/button.js'
 import { Input } from '../components/ui/input.js'
@@ -138,28 +139,16 @@ export function Projects({
             <table className="w-full border-collapse overflow-hidden rounded-xl border">
               <thead>
                 <tr>
-                  <th
-                    scope="col"
-                    className="border-b p-2 text-left text-[10px] font-medium uppercase tracking-[0.05em] text-muted-foreground"
-                  >
+                  <th scope="col" className={tableHeaderClassName}>
                     Project
                   </th>
-                  <th
-                    scope="col"
-                    className="border-b p-2 text-left text-[10px] font-medium uppercase tracking-[0.05em] text-muted-foreground"
-                  >
+                  <th scope="col" className={tableHeaderClassName}>
                     Next action
                   </th>
-                  <th
-                    scope="col"
-                    className="border-b p-2 text-left text-[10px] font-medium uppercase tracking-[0.05em] text-muted-foreground"
-                  >
+                  <th scope="col" className={tableHeaderClassName}>
                     State
                   </th>
-                  <th
-                    scope="col"
-                    className="border-b p-2 text-left text-[10px] font-medium uppercase tracking-[0.05em] text-muted-foreground"
-                  >
+                  <th scope="col" className={tableHeaderClassName}>
                     <span className="sr-only">Actions</span>
                   </th>
                 </tr>
@@ -231,8 +220,8 @@ export function Projects({
                         <Button
                           type="button"
                           variant="outline"
-                          size="sm"
-                          className="h-6 px-2.5 text-[11px]"
+                          size="xs"
+                          className="px-2.5"
                           aria-pressed={selected?.kind === 'project' && selected.id === project.id}
                           onClick={() => onSelect({ kind: 'project', id: project.id })}
                         >
@@ -244,8 +233,8 @@ export function Projects({
                             <Button
                               type="button"
                               variant="outline"
-                              size="sm"
-                              className="h-6 px-2.5 text-[11px] text-muted-foreground"
+                              size="xs"
+                              className="px-2.5 text-muted-foreground"
                               onClick={() => {
                                 setConfirming(null)
                                 onDelete(project.id)
@@ -256,8 +245,8 @@ export function Projects({
                             <Button
                               type="button"
                               variant="outline"
-                              size="sm"
-                              className="h-6 px-2.5 text-[11px] text-muted-foreground"
+                              size="xs"
+                              className="px-2.5 text-muted-foreground"
                               onClick={() => setConfirming(null)}
                             >
                               Keep
@@ -267,8 +256,8 @@ export function Projects({
                           <Button
                             type="button"
                             variant="outline"
-                            size="sm"
-                            className="h-6 px-2.5 text-[11px] text-muted-foreground"
+                            size="xs"
+                            className="px-2.5 text-muted-foreground"
                             onClick={() => setConfirming(project.id)}
                           >
                             Delete

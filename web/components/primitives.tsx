@@ -47,6 +47,12 @@ export const payloadPreviewClassName =
 export const itemOpenClassName =
   'cursor-pointer border-0 bg-transparent p-0 text-left text-inherit [font:inherit] hover:underline'
 
+/** A plain `<th>`'s own appearance in the run-history and projects tables: small, quiet, uppercase
+ *  column labels above a rule. Shared as a class string, since these are plain header cells with
+ *  no behaviour of their own to justify a component. */
+export const tableHeaderClassName =
+  'border-b p-2 text-left text-[10px] font-medium uppercase tracking-[0.05em] text-muted-foreground'
+
 export interface PanelProps {
   readonly heading: ReactNode
   /**

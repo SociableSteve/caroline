@@ -119,6 +119,7 @@ const surfaces: ReadonlyArray<{ name: string; title: string; render: () => void 
       void render(
         <Settings
           google={null}
+          health={null}
           preview={null}
           userName=""
           googleOutcome={null}

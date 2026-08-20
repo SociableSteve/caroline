@@ -318,8 +318,7 @@ export function TaskCard({
               <Button
                 type="button"
                 variant="default"
-                size="sm"
-                className="h-6 px-2 text-[11px]"
+                size="xs"
                 onClick={() => onAcceptProposal?.(task.id)}
               >
                 Accept
@@ -327,8 +326,8 @@ export function TaskCard({
               <Button
                 type="button"
                 variant="outline"
-                size="sm"
-                className="h-6 px-2 text-[11px] text-muted-foreground"
+                size="xs"
+                className="text-muted-foreground"
                 onClick={() => onDismissProposal?.(task.id)}
               >
                 Dismiss
@@ -349,8 +348,7 @@ export function TaskCard({
             <Button
               type="button"
               variant="default"
-              size="sm"
-              className="h-6 px-2 text-[11px]"
+              size="xs"
               onClick={() => onMarkReviewed?.(task.id)}
             >
               Mark reviewed
@@ -360,8 +358,8 @@ export function TaskCard({
           <Button
             type="button"
             variant="outline"
-            size="sm"
-            className="h-6 px-2 text-[11px] text-muted-foreground"
+            size="xs"
+            className="text-muted-foreground"
             onClick={() => onComplete(task.id)}
           >
             Complete
@@ -405,8 +403,8 @@ export function TaskCard({
               <Button
                 type="button"
                 variant="outline"
-                size="sm"
-                className="h-6 px-2 text-[11px] text-muted-foreground"
+                size="xs"
+                className="text-muted-foreground"
                 onClick={() => onUndoStatus(task.id)}
               >
                 Undo move
@@ -469,8 +467,8 @@ export function TaskCard({
                 <Button
                   type="button"
                   variant="outline"
-                  size="sm"
-                  className="h-6 px-2 text-[11px] text-muted-foreground"
+                  size="xs"
+                  className="text-muted-foreground"
                   onClick={() => onDelete(task.id)}
                 >
                   Confirm delete
@@ -478,8 +476,8 @@ export function TaskCard({
                 <Button
                   type="button"
                   variant="outline"
-                  size="sm"
-                  className="h-6 px-2 text-[11px] text-muted-foreground"
+                  size="xs"
+                  className="text-muted-foreground"
                   onClick={() => setConfirmingDelete(false)}
                 >
                   Keep
@@ -489,8 +487,8 @@ export function TaskCard({
               <Button
                 type="button"
                 variant="outline"
-                size="sm"
-                className="h-6 px-2 text-[11px] text-muted-foreground"
+                size="xs"
+                className="text-muted-foreground"
                 onClick={() => setConfirmingDelete(true)}
               >
                 Delete

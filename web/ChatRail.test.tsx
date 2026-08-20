@@ -587,6 +587,35 @@ describe('the transcript’s auto-scroll', () => {
 
     expect(scrollable.scrollTop).toBe(900)
   })
+
+  /**
+   * The composer's `typed` state lives in this same component and changes on every keystroke.
+   * Depending on it would force a scroll recomputation on every character typed, which is wasted
+   * work the transcript's own content never asked for.
+   */
+  it('does not recompute the scroll position on a keystroke alone', async () => {
+    const user = userEvent.setup()
+    drawWithRerender({
+      messages: [aMessage({ id: 'message-1', content: 'First.' })],
+    })
+    const scrollable = log()
+    stub(scrollable, { scrollHeight: 600, clientHeight: 200 })
+
+    let scrollTopSets = 0
+    let currentScrollTop = 0
+    Object.defineProperty(scrollable, 'scrollTop', {
+      configurable: true,
+      get: () => currentScrollTop,
+      set: (value: number) => {
+        scrollTopSets += 1
+        currentScrollTop = value
+      },
+    })
+
+    await user.type(screen.getByLabelText('Message'), 'One more thing')
+
+    expect(scrollTopSets).toBe(0)
+  })
 })
 
 /**

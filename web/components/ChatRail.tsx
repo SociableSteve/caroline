@@ -116,8 +116,8 @@ function Confirmation({
           <Button
             type="button"
             variant="default"
-            size="sm"
-            className="h-6 px-2.5 text-[11px]"
+            size="xs"
+            className="px-2.5"
             onClick={() => onConfirm(confirmation.id, true)}
           >
             Confirm
@@ -125,8 +125,8 @@ function Confirmation({
           <Button
             type="button"
             variant="outline"
-            size="sm"
-            className="h-6 px-2.5 text-[11px] text-muted-foreground"
+            size="xs"
+            className="px-2.5 text-muted-foreground"
             onClick={() => onConfirm(confirmation.id, false)}
           >
             Discard
@@ -178,8 +178,8 @@ function Turn({
           {undoable && (
             <Button
               type="button"
-              size="sm"
-              className="h-6 px-2.5 text-[11px]"
+              size="xs"
+              className="px-2.5"
               aria-label="Undo the changes this turn made"
               onClick={() => onUndo(message.id)}
             >
@@ -253,8 +253,8 @@ export function ChatRail({
   // Whether the log should follow new content. Starts true (a rail that opens mid-conversation
   // opens at the bottom, not wherever the browser happened to land), goes false the moment the
   // user scrolls up to read something earlier, and comes back true once they scroll back down to
-  // the bottom themselves — never on its own, or reading an old message while an answer streams
-  // in would be interrupted by the log yanking itself back down.
+  // the bottom themselves, never on its own: reading an old message while an answer streams in
+  // would otherwise be interrupted by the log yanking itself back down.
   const stickToBottom = useRef(true)
 
   const onScroll = () => {
@@ -264,15 +264,17 @@ export function ChatRail({
     stickToBottom.current = distanceFromBottom < 16
   }
 
-  // Deliberately without a dependency array: a message arriving, a draft growing by one chunk and
-  // a confirmation appearing are all reasons to follow, and there is no single value that changes
-  // on every one of them to depend on instead.
+  // A message arriving, a draft growing by one chunk and a confirmation appearing are all reasons
+  // to follow, so the dependency list covers everything that changes the transcript's rendered
+  // height or content. Deliberately not `typed`, which lives in this same component: a keystroke
+  // in the composer changes that state on every character and must not force a scroll
+  // recomputation.
   useEffect(() => {
     if (!stickToBottom.current) return
     const el = scrollRef.current
     if (el === null) return
     el.scrollTop = el.scrollHeight
-  })
+  }, [messages, draft, failure, status, conversation, conversations])
 
   const submit = () => {
     const message = typed.trim()
@@ -300,8 +302,8 @@ export function ChatRail({
         <Button
           type="button"
           variant="outline"
-          size="sm"
-          className="h-6 whitespace-nowrap px-2 text-[11px] text-muted-foreground"
+          size="xs"
+          className="whitespace-nowrap text-muted-foreground"
           onClick={onClose}
         >
           Close chat

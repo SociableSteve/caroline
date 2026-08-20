@@ -52,11 +52,6 @@ export function QuickCapture({
   const [deferDate, setDeferDate] = useState('')
   const [saving, setSaving] = useState(false)
   /**
-   * Which opening of the dialog this is. A capture can still be in flight when the dialog is
-   * closed, and its result then belongs to a session that is over: acting on it would close the
-   * next one out from under whoever is typing into it.
-   */
-  /**
    * Which opening of the dialog this is. A `ref` and not `useState`: a request in flight reads
    * this again after `await`ing, to find out whether it is still the session that started it, and
    * a value closed over at render time could never tell it that a later render moved on.
@@ -277,7 +272,10 @@ export function QuickCapture({
               variant="outline"
               size="sm"
               className="h-8 px-3.5 text-xs text-muted-foreground"
-              onClick={onClose}
+              onClick={() => {
+                reset()
+                onClose()
+              }}
             >
               Cancel
             </Button>

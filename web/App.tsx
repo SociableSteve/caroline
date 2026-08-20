@@ -108,6 +108,7 @@ export function App() {
     planDate,
     calendar,
     google,
+    health,
     preview,
     mcpClients,
     userName,
@@ -545,6 +546,7 @@ export function App() {
               ) : route.name === 'settings' ? (
                 <Settings
                   google={google}
+                  health={health}
                   preview={preview}
                   userName={userName}
                   googleOutcome={route.outcome}

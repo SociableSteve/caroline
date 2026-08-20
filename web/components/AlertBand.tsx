@@ -148,12 +148,7 @@ export function AlertBand({
           {alert.detail !== null && (
             <span className="font-mono text-[11px] text-muted-foreground">{alert.detail}</span>
           )}
-          <Button
-            type="button"
-            size="sm"
-            className="ml-auto h-6 px-2.5 text-[11px]"
-            onClick={alert.onAction}
-          >
+          <Button type="button" size="xs" className="ml-auto px-2.5" onClick={alert.onAction}>
             {alert.actionLabel}
           </Button>
         </div>
