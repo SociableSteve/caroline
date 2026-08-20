@@ -173,7 +173,7 @@ describe('the site renders the documentation rather than restating it', () => {
   it.each([
     '/* A rule reads `a { b: c }` */',
     '/* The palette begins at :root { and ends at the brace that closes it. */',
-    '/* Never write --accent: #ff0000 in a comment. */',
+    '/* Never write --chart-2: #ff0000 in a comment. */',
   ])('extracts the palette and the icon past %s', (comment) => {
     const original = source('web/styles.css')
     const commented = override('web/styles.css', original.replace(':root {', `${comment}\n:root {`))
@@ -184,14 +184,16 @@ describe('the site renders the documentation rather than restating it', () => {
     // ahead of `:root {` does not confuse the extraction, not what shade of the theme this
     // application currently declares. `styles.test.ts` and the tests below already hold those
     // values to their own rules.
-    const darkAccent = /:root \{([^]*?)\n\}/.exec(original)?.[1]?.match(/--accent:\s*([^;]+);/)?.[1]
+    const darkAccent = /:root \{([^]*?)\n\}/
+      .exec(original)?.[1]
+      ?.match(/--chart-2:\s*([^;]+);/)?.[1]
     const lightAccent = /@media \(prefers-color-scheme: light\) \{\s*:root \{([^]*?)\n {2}\}/
       .exec(original)?.[1]
-      ?.match(/--accent:\s*([^;]+);/)?.[1]
+      ?.match(/--chart-2:\s*([^;]+);/)?.[1]
 
     expect(darkAccent).toBeDefined()
     expect(lightAccent).toBeDefined()
-    expect(stylesheet).toContain(`--accent: ${darkAccent}`)
+    expect(stylesheet).toContain(`--chart-2: ${darkAccent}`)
     expect(stylesheet.split('{').length).toBe(stylesheet.split('}').length)
     expect(built.get('icon.svg')).toContain(String(lightAccent))
   })
@@ -593,11 +595,13 @@ describe('the site and the application look like one thing', () => {
     expect(offsets.map((rule) => rule.selector)).toContain('h1, h2, h3')
   })
 
-  it('draws the icon in the accent colour the application uses, rather than a fourth blue', () => {
+  it('draws the icon in the chart accent colour the application uses, rather than a fourth blue', () => {
     // The icon takes the light pair (see `icon` in site/build.ts), so this compares against the
-    // light override rather than the dark default `--accent` now is.
+    // light override. `--chart-2` rather than `--accent`: the shadcn migration repointed
+    // `--accent` at a muted hover-state background, and the app's one chromatic brand blue now
+    // lives in the chart ramp instead.
     const accent = declared(application, '@media (prefers-color-scheme: light)').find(
-      (rule) => rule.property === '--accent',
+      (rule) => rule.property === '--chart-2',
     )?.value
 
     expect(accent).toBeDefined()
@@ -617,7 +621,7 @@ describe('the site and the application look like one thing', () => {
       ''
     const reordered = override('web/styles.css', `${light}\n${application.replace(light, '')}`)
     const lightAccent = declared(application, '@media (prefers-color-scheme: light)').find(
-      (rule) => rule.property === '--accent',
+      (rule) => rule.property === '--chart-2',
     )?.value
 
     expect(light).not.toBe('')

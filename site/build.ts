@@ -107,6 +107,88 @@ export function siteAssets(
     .map((name) => ({ source: `${imageDirectory}/${name}`, output: `images/${name}` }))
 }
 
+/**
+ * The four font files the site actually needs: Latin and Latin Extended, normal weight only, for
+ * both faces. The full `@fontsource-variable` packages carry a dozen more (Cyrillic, Vietnamese,
+ * italics, …) that this English-only, upright site never selects; copying only these keeps the
+ * site's own "nothing fetched from another host" guarantee (criterion 7) true without shipping
+ * glyphs nothing here renders. The application, built with Vite, pulls in the whole package
+ * instead: a bundler earns its keep exactly here, deciding what a page actually uses is its job,
+ * not this hand-written list's.
+ */
+export function fontAssets(): readonly { readonly source: string; readonly output: string }[] {
+  const geist = 'node_modules/@fontsource-variable/geist/files'
+  const geistMono = 'node_modules/@fontsource-variable/geist-mono/files'
+
+  return [
+    { source: `${geist}/geist-latin-wght-normal.woff2`, output: 'fonts/geist-latin.woff2' },
+    {
+      source: `${geist}/geist-latin-ext-wght-normal.woff2`,
+      output: 'fonts/geist-latin-ext.woff2',
+    },
+    {
+      source: `${geistMono}/geist-mono-latin-wght-normal.woff2`,
+      output: 'fonts/geist-mono-latin.woff2',
+    },
+    {
+      source: `${geistMono}/geist-mono-latin-ext-wght-normal.woff2`,
+      output: 'fonts/geist-mono-latin-ext.woff2',
+    },
+  ]
+}
+
+/**
+ * Self-hosted, so the one guarantee this whole file exists to keep (criterion 7: nothing fetched
+ * from another host) holds for the type as much as for everything else. `--font-sans`/`--font-mono`
+ * in the extracted palette already name these families exactly ('Geist Variable', 'Geist Mono
+ * Variable'); this is what makes that name resolve to an actual face instead of silently falling
+ * back to whatever system font shares the rest of the stack. `url()` is written relative to
+ * `styles.css` itself, which `buildSite` always writes at the site root, so it resolves the same
+ * way regardless of which page's `<link>` loads the stylesheet.
+ */
+const fontFaces = `/*
+ * The type, self-hosted rather than linked from Google Fonts or similar: criterion 7 is that this
+ * site fetches nothing from another host, and a font is exactly the kind of asset that guarantee
+ * is usually the one left out of. Latin and Latin Extended only, normal weight, upright: the whole
+ * of what an English-language document set on this palette actually asks the browser to shape.
+ */
+@font-face {
+  font-family: 'Geist Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url(fonts/geist-latin.woff2) format('woff2-variations');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+@font-face {
+  font-family: 'Geist Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url(fonts/geist-latin-ext.woff2) format('woff2-variations');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'Geist Mono Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url(fonts/geist-mono-latin.woff2) format('woff2-variations');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+@font-face {
+  font-family: 'Geist Mono Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url(fonts/geist-mono-latin-ext.woff2) format('woff2-variations');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+`
+
 function manifest(sources: SiteSources): readonly SitePage[] {
   const specs = sources
     .list('docs/specs')
@@ -1155,16 +1237,28 @@ function block(css: string, opening: string): string {
  * the application's unconditioned default, so "the light pair" is now the override rather than the
  * block written first, and reading it by name rather than by position is what keeps this correct
  * regardless of which palette a future edit writes first.
+ *
+ * `--chart-2` rather than `--accent`: the shadcn migration repointed `--accent` at a muted
+ * hover-state background, not a colour, and the application's one chromatic brand blue now lives in
+ * the chart ramp instead (`--chart-1`..`--chart-5`). `--chart-2` is the one already carrying that job
+ * everywhere else the app draws a single accent fill (the dashboard's "planned" bar, its "now"
+ * marker, the card-open border) rather than a quieter chart-1 text tint or chart-3's label tone, so
+ * it is the rung that reads best as a small filled square.
  */
 function icon(application: string): string {
   const light = withoutComments(block(application, '@media (prefers-color-scheme: light) {'))
   const token = (name: string) => new RegExp(`--${name}:\\s*([^;]+);`).exec(light)?.[1]?.trim()
-  // `--primary-ink` rather than a dedicated "accent-ink": the redesign's one filled primary is
-  // neutral, not chromatic, and this is the one place outside the application itself that still
-  // wants a colour proven to read against a filled accent square.
-  const [accent, ink] = [token('accent'), token('primary-ink')]
+  // `--primary-foreground` directly, not `--primary-ink`: the latter is only an alias
+  // (`--primary-ink: var(--primary-foreground);`) kept for callers inside a stylesheet, where a
+  // browser resolves the chain. `icon.svg` is written as its own standalone file with no `:root`
+  // of its own for a `var()` to resolve against, so reading the alias would put the literal text
+  // "var(--primary-foreground)" in a `stroke` attribute and paint no stroke at all. Checked by eye
+  // against the light chart-2 fill (oklch(0.546 0.245 262.881), a mid-lightness blue): it is
+  // near-white and reads cleanly, the same pairing the app itself uses wherever a chart fill needs
+  // a foreground colour on top of it.
+  const [accent, ink] = [token('chart-2'), token('primary-foreground')]
   if (accent === undefined || ink === undefined) {
-    throw new Error('web/styles.css declares no accent/primary-ink pair for the icon')
+    throw new Error('web/styles.css declares no chart-2/primary-foreground pair for the icon')
   }
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
@@ -1343,7 +1437,7 @@ export function buildSite(sources: SiteSources = repositorySources()): Map<strin
   const application = sources.read('web/styles.css')
   files.set(
     'styles.css',
-    `${palette(application)}\n${heroPin(application)}\n${sources.read('site/styles.css')}`,
+    `${palette(application)}\n${heroPin(application)}\n${fontFaces}\n${sources.read('site/styles.css')}`,
   )
   files.set('icon.svg', icon(application))
 
