@@ -8,6 +8,9 @@
  * so. There is nothing else to press: any 401 puts the client here rather than retrying, and this
  * is the whole of what it can do about it.
  */
+import { failureClassName } from './primitives.js'
+import { Button } from './ui/button.js'
+
 export interface LoginScreenProps {
   readonly providerLabel: string
   readonly failure: string | null
@@ -16,17 +19,17 @@ export interface LoginScreenProps {
 
 export function LoginScreen({ providerLabel, failure, onLogin }: LoginScreenProps) {
   return (
-    <div className="login-screen">
-      <p className="wordmark">Caroline</p>
+    <div className="mx-auto my-12 flex max-w-[76ch] flex-col items-center gap-3 text-center">
+      <p className="m-0 text-lg font-medium tracking-tight">Caroline</p>
       <p>Sign in to continue.</p>
       {failure !== null && (
-        <p role="alert" className="failure">
+        <p role="alert" className={failureClassName}>
           {failure}
         </p>
       )}
-      <button type="button" className="primary" onClick={onLogin}>
+      <Button type="button" variant="default" onClick={onLogin}>
         Sign in with {providerLabel}
-      </button>
+      </Button>
     </div>
   )
 }

@@ -2,16 +2,19 @@
  * Quick capture: reachable from anywhere, creates an inbox task, and gets out of the way.
  * Spec 08, interaction rules.
  *
- * Not a `<dialog>`: `showModal` brings behaviour that has to be worked around as often as it
- * is used, and jsdom does not implement it, so the modal contract would go untested. Taking
- * that route means owning the contract instead of borrowing it, which is what the focus trap
- * and the focus restoration below are: `aria-modal="true"` tells a screen reader the rest of
- * the page is inert, and Tab has to agree with it.
+ * Built on shadcn/ui's `Dialog` (Radix underneath), which owns the focus trap, the Escape
+ * handling and the focus restoration this component used to hand-roll: Radix's contract is the
+ * one being borrowed now rather than one this file owns itself.
  */
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ProjectView, TaskInput } from '../api.js'
 import { deferUntilFromDateInput, dueAtFromDateInput } from '../format.js'
-import { ActionRow, Field } from './primitives.js'
+import { ActionRow, Field, failureClassName } from './primitives.js'
+import { Button } from './ui/button.js'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog.js'
+import { Input } from './ui/input.js'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select.js'
+import { Textarea } from './ui/textarea.js'
 
 export interface QuickCaptureProps {
   readonly open: boolean
@@ -25,18 +28,26 @@ export interface QuickCaptureProps {
    *  fields are disabled until this is true rather than risk a date silently resolved against
    *  the wrong zone. */
   readonly configLoaded: boolean
+  /**
+   * Why the most recent write failed, or null. Rendered inside the dialog rather than relying
+   * solely on `App.tsx`'s own `<main>`-level rendering: Radix marks everything outside an open
+   * dialog `aria-hidden`, so a failure caused by this dialog's own submit would otherwise be
+   * unreachable to a screen reader user still inside it.
+   */
+  readonly failure: string | null
   readonly onClose: () => void
   /** Answers whether the task was created. The form holds what was typed until it was. */
   readonly onCreate: (input: TaskInput) => Promise<boolean>
 }
 
-const FOCUSABLE = 'input, textarea, select, button:not([disabled]), [href]'
+const NO_PROJECT = 'none'
 
 export function QuickCapture({
   open,
   projects,
   timezone,
   configLoaded,
+  failure,
   onClose,
   onCreate,
 }: QuickCaptureProps) {
@@ -48,44 +59,24 @@ export function QuickCapture({
   const [dueDate, setDueDate] = useState('')
   const [deferDate, setDeferDate] = useState('')
   const [saving, setSaving] = useState(false)
-  const dialog = useRef<HTMLElement>(null)
-  const titleField = useRef<HTMLInputElement>(null)
-  /** Whatever had the focus when this opened, so closing can give it back. */
-  const opener = useRef<HTMLElement | null>(null)
   /**
-   * Which opening of the dialog this is. A capture can still be in flight when the dialog is
-   * closed, and its result then belongs to a session that is over: acting on it would close the
-   * next one out from under whoever is typing into it.
+   * Which opening of the dialog this is. A `ref` and not `useState`: a request in flight reads
+   * this again after `await`ing, to find out whether it is still the session that started it, and
+   * a value closed over at render time could never tell it that a later render moved on.
    */
   const session = useRef(0)
+  /** Whatever had the focus when this opened, so closing can give it back. Radix's own default
+   *  restores focus to a `Dialog.Trigger`, and this dialog is reachable from more than one place
+   *  (the header button, the `c` shortcut), so there is no single trigger to wire one to. */
+  const opener = useRef<HTMLElement | null>(null)
 
-  const close = useCallback(() => {
+  const reset = () => {
     setTitle('')
     setNotes('')
     setProjectId('')
     setDueDate('')
     setDeferDate('')
-    onClose()
-  }, [onClose])
-
-  /**
-   * Escape is handled on the document rather than on the backdrop. A modal has to close on
-   * Escape whatever inside it holds the focus, and the focus can be nowhere at all: submitting
-   * disables the Capture button, which drops the focus to the body, and a handler on the
-   * backdrop then never sees the key.
-   */
-  useEffect(() => {
-    if (!open) return
-
-    const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      event.preventDefault()
-      close()
-    }
-
-    document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
-  }, [open, close])
+  }
 
   useEffect(() => {
     if (!open) return
@@ -96,17 +87,16 @@ export function QuickCapture({
     // explanation for it.
     setSaving(false)
     opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    // Opening puts the caret in the title, which is the only reason to have opened it.
-    titleField.current?.focus()
 
+    // On close, so a request left in flight when the dialog was dismissed is recognized as stale
+    // by the `mine === session.current` guards in `submit()` rather than applying its result
+    // (clearing fields, closing a dialog reopened for a new capture) after the fact. Focus
+    // restoration itself is Radix's, via `onCloseAutoFocus` below; this only restores the other
+    // half of what the pre-migration cleanup used to do.
     return () => {
       session.current += 1
-      // The opener can have gone away while the dialog was up, hence the guard.
-      if (opener.current?.isConnected === true) opener.current.focus()
     }
   }, [open])
-
-  if (!open) return null
 
   /**
    * Clears only what was actually sent. The fields stay editable while the request is out, and
@@ -169,7 +159,7 @@ export function QuickCapture({
     if (!created) return
 
     // A result from a session that is over changes nothing here. Closing it would take away the
-    // capture being typed now, and clearing it would be no safer: `close` empties the fields on
+    // capture being typed now, and clearing it would be no safer: `reset` empties the fields on
     // the way out, so whatever is in them belongs to the session that is open, even when it
     // happens to read the same as what was sent.
     if (mine !== session.current) return
@@ -178,56 +168,56 @@ export function QuickCapture({
     onClose()
   }
 
-  /**
-   * Tab cycles within the dialog rather than walking off into content that `aria-modal` has
-   * just declared inert.
-   */
-  const trapFocus = (event: KeyboardEvent<HTMLElement>) => {
-    if (event.key !== 'Tab') return
-
-    const focusable = Array.from(dialog.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])
-    const first = focusable[0]
-    const last = focusable[focusable.length - 1]
-    if (first === undefined || last === undefined) return
-
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault()
-      last.focus()
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault()
-      first.focus()
-    }
-  }
-
   return (
-    <div className="capture-backdrop" onKeyDown={trapFocus}>
-      <section
-        className="capture"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="capture-heading"
-        ref={dialog}
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) {
+          reset()
+          onClose()
+        }
+      }}
+    >
+      <DialogContent
+        aria-describedby={undefined}
+        onCloseAutoFocus={(event) => {
+          // Radix's own default only knows how to return focus to a `Dialog.Trigger`; this
+          // dialog has no single one, so it takes over with the opener it recorded itself.
+          event.preventDefault()
+          if (opener.current?.isConnected === true) opener.current.focus()
+        }}
       >
-        <h2 id="capture-heading">Quick capture</h2>
+        <DialogHeader>
+          <DialogTitle className="text-sm font-semibold">Quick capture</DialogTitle>
+        </DialogHeader>
+
+        {open && failure !== null && (
+          <p role="alert" className={failureClassName}>
+            {failure}
+          </p>
+        )}
 
         <form
+          className="flex flex-col gap-3"
           onSubmit={(event) => {
             event.preventDefault()
             void submit()
           }}
         >
-          <Field label="What is it?">
-            <input
-              ref={titleField}
+          <Field label="What is it?" className="text-[11px] text-muted-foreground">
+            <Input
+              className="w-full text-[13px]"
               name="title"
               value={title}
               onChange={(event) => setTitle(event.target.value)}
               autoComplete="off"
+              autoFocus
             />
           </Field>
 
-          <Field label="Notes">
-            <textarea
+          <Field label="Notes" className="text-[11px] text-muted-foreground">
+            <Textarea
+              className="w-full resize-none text-[13px]"
               name="notes"
               value={notes}
               onChange={(event) => setNotes(event.target.value)}
@@ -235,23 +225,28 @@ export function QuickCapture({
             />
           </Field>
 
-          <Field label="Project">
-            <select
-              name="projectId"
-              value={projectId}
-              onChange={(event) => setProjectId(event.target.value)}
+          <Field label="Project" className="text-[11px] text-muted-foreground">
+            <Select
+              value={projectId === '' ? NO_PROJECT : projectId}
+              onValueChange={(value) => setProjectId(value === NO_PROJECT ? '' : value)}
             >
-              <option value="">No project</option>
-              {projects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.title}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger className="w-full text-[13px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_PROJECT}>No project</SelectItem>
+                {projects.map((project) => (
+                  <SelectItem key={project.id} value={project.id}>
+                    {project.title}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </Field>
 
-          <Field label="Due">
-            <input
+          <Field label="Due" className="text-[11px] text-muted-foreground">
+            <Input
+              className="w-full text-[13px]"
               type="date"
               name="dueAt"
               value={dueDate}
@@ -265,8 +260,9 @@ export function QuickCapture({
             />
           </Field>
 
-          <Field label="Defer until">
-            <input
+          <Field label="Defer until" className="text-[11px] text-muted-foreground">
+            <Input
+              className="w-full text-[13px]"
               type="date"
               name="deferUntil"
               value={deferDate}
@@ -280,18 +276,35 @@ export function QuickCapture({
             />
           </Field>
 
-          <p className="capture-hint">It lands in the inbox, to be triaged later.</p>
+          <p className="m-0 text-[11px] text-muted-foreground">
+            It lands in the inbox, to be triaged later.
+          </p>
 
           <ActionRow>
-            <button type="submit" className="primary" disabled={title.trim() === '' || saving}>
+            <Button
+              type="submit"
+              variant="default"
+              size="sm"
+              className="h-8 px-3.5 text-xs"
+              disabled={title.trim() === '' || saving}
+            >
               Capture
-            </button>
-            <button type="button" onClick={close}>
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 px-3.5 text-xs text-muted-foreground"
+              onClick={() => {
+                reset()
+                onClose()
+              }}
+            >
               Cancel
-            </button>
+            </Button>
           </ActionRow>
         </form>
-      </section>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }

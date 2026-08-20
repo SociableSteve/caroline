@@ -13,7 +13,8 @@ import {
 } from '../api.js'
 import { byOldestFirst, canMarkReviewed, statusLabel } from '../format.js'
 import { TaskCard } from '../components/TaskCard.js'
-import { Fact, Facts, Panel } from '../components/primitives.js'
+import { emptyClassName, Panel } from '../components/primitives.js'
+import { Kbd } from '../components/ui/kbd.js'
 import { useSurfaceTitle } from '../title.js'
 
 export interface BoardProps {
@@ -285,41 +286,46 @@ export function Board({
   }
 
   return (
-    <div className="board-surface">
-      <h1>Board</h1>
+    <div className="flex h-full min-h-0 flex-col gap-5">
+      <h1 className="shrink-0">Board</h1>
 
       {/* No list role over the columns. Each is a region with an accessible name, which is
           already navigable; wrapping them in list semantics replaces that and costs the headings
           their place in the outline. Spec 08, accessibility. */}
-      <div className="board">
+      <div className="grid min-h-0 flex-1 auto-cols-[minmax(15rem,1fr)] grid-flow-col items-stretch gap-3 overflow-x-auto pb-2 md:grid-flow-row md:grid-cols-6 md:overflow-x-visible">
         {boardStatuses.map((status, columnIndex) => {
           const column = columns[columnIndex] ?? []
 
           return (
             <Panel
               key={status}
-              className="column"
-              headingClassName="column-heading"
+              className="flex h-full min-h-24 flex-col overflow-hidden"
+              headingClassName="m-0 mb-2 flex items-center gap-2 text-sm text-muted-foreground"
               headingLevel={2}
               label={`${statusLabel(status)}, ${column.length} ${
                 column.length === 1 ? 'task' : 'tasks'
               }`}
               heading={
                 <>
-                  <span className="column-number" aria-hidden="true">
+                  <span
+                    className="rounded-full border border-border px-2 font-mono text-xs text-muted-foreground [font-variant-numeric:tabular-nums]"
+                    aria-hidden="true"
+                  >
                     {columnIndex + 1}
                   </span>
                   {statusLabel(status)}
-                  <span className="column-count">{column.length}</span>
+                  <span className="ml-auto rounded-full border border-border px-2 font-mono text-xs text-muted-foreground [font-variant-numeric:tabular-nums]">
+                    {column.length}
+                  </span>
                 </>
               }
               onDragOver={(event) => event.preventDefault()}
               onDrop={(event) => onDrop(event, status)}
             >
               {column.length === 0 ? (
-                <p className="empty">Nothing here.</p>
+                <p className={emptyClassName}>Nothing here.</p>
               ) : (
-                <ul className="column-cards">
+                <ul className="m-0 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-0 [list-style:none]">
                   {column.map((task, rowIndex) => (
                     <TaskCard
                       key={task.id}
@@ -355,17 +361,23 @@ export function Board({
         })}
       </div>
 
-      <section className="shortcuts" aria-labelledby="shortcuts-heading">
-        <h2 id="shortcuts-heading">Keyboard</h2>
-        {/* A key and what it does is the same label-and-value pair the cards and the job panels
-            show, so it is the same primitive. Spec 10. */}
-        <Facts className="shortcut-facts">
+      <section
+        className="shrink-0 border-t border-border bg-card px-5 py-2 text-sm text-muted-foreground"
+        aria-labelledby="shortcuts-heading"
+      >
+        <h2 id="shortcuts-heading" className="m-0 mb-1 text-xs">
+          Keyboard
+        </h2>
+        {/* A row rather than the label-and-value grid `Facts` gives every other pair on the app:
+            nine of these across the full width of the board reads better than nine stacked lines,
+            and a shortcut key with what it does is still said in one place, together. */}
+        <ul className="m-0 flex flex-wrap gap-x-5 gap-y-1 p-0 [list-style:none]">
           {shortcuts.map((shortcut) => (
-            <Fact key={shortcut.keys} label={shortcut.keys}>
-              {shortcut.does}
-            </Fact>
+            <li key={shortcut.keys} className="whitespace-nowrap">
+              <Kbd>{shortcut.keys}</Kbd> {shortcut.does}
+            </li>
           ))}
-        </Facts>
+        </ul>
       </section>
     </div>
   )

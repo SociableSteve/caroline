@@ -4,7 +4,7 @@
  * whatever opened it. Not borrowed from `<dialog>`, therefore tested here.
  */
 import { describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { useState } from 'react'
 import { QuickCapture } from './components/QuickCapture.js'
@@ -15,11 +15,13 @@ import { aProject } from './test-fixtures.js'
 function Harness({
   onCreate,
   configLoaded = true,
+  failure = null,
 }: {
   onCreate: (input: unknown) => Promise<boolean>
   /** Defaulted to true: most of this suite is about the dialog's own contract, not the
    *  timezone race, and should see the fields as ready as they normally are. */
   configLoaded?: boolean
+  failure?: string | null
 }) {
   const [open, setOpen] = useState(false)
 
@@ -34,6 +36,7 @@ function Harness({
         projects={[aProject({ id: 'project-1', title: 'Ship it' })]}
         timezone="UTC"
         configLoaded={configLoaded}
+        failure={failure}
         onClose={() => setOpen(false)}
         onCreate={onCreate}
       />
@@ -87,6 +90,27 @@ describe('opening and closing', () => {
   })
 })
 
+describe('a write failure', () => {
+  /**
+   * Radix marks everything outside an open dialog `aria-hidden`, so a failure caused by this
+   * dialog's own submit has to be rendered inside the dialog to be reachable to a screen reader
+   * user still inside it, not only at the page level.
+   */
+  it('is shown inside the open dialog', async () => {
+    render(<Harness onCreate={vi.fn(async () => false)} failure="That did not work" />)
+    await userEvent.click(screen.getByRole('button', { name: 'Quick capture' }))
+
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('That did not work')
+  })
+
+  it('says nothing when there is no failure', async () => {
+    await openCapture()
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+})
+
 describe('the focus trap', () => {
   it('cycles from the last control back to the first rather than leaving the dialog', async () => {
     await openCapture()
@@ -126,10 +150,16 @@ describe('the focus trap', () => {
   it('never lands on a control behind the dialog', async () => {
     await openCapture()
 
+    // `{ hidden: true }`, because Radix marks every sibling of the dialog `aria-hidden` while it
+    // is open (real inertness, not only a focus trap), and the default role query excludes what
+    // the accessibility tree hides. The point of the test is that Tab never reaches either
+    // control, not that the query can still see them the ordinary way.
     for (let presses = 0; presses < 12; presses += 1) {
       await userEvent.tab()
-      expect(screen.getByRole('button', { name: 'Background control' })).not.toHaveFocus()
-      expect(screen.getByRole('button', { name: 'Quick capture' })).not.toHaveFocus()
+      expect(
+        screen.getByRole('button', { name: 'Background control', hidden: true }),
+      ).not.toHaveFocus()
+      expect(screen.getByRole('button', { name: 'Quick capture', hidden: true })).not.toHaveFocus()
     }
   })
 })
@@ -168,6 +198,7 @@ describe('the gap before the deployment’s configured timezone has loaded', () 
           projects={[]}
           timezone={timezone}
           configLoaded={configLoaded}
+          failure={null}
           onClose={() => setOpen(false)}
           onCreate={onCreate}
         />
@@ -184,8 +215,12 @@ describe('the gap before the deployment’s configured timezone has loaded', () 
     expect(screen.getByLabelText('Due')).toBeDisabled()
     expect(screen.getByLabelText('Defer until')).toBeDisabled()
 
-    // Config answers with the deployment's real, non-UTC zone.
-    await userEvent.click(screen.getByRole('button', { name: 'Resolve config' }))
+    // Config answers with the deployment's real, non-UTC zone: a `fireEvent`, not a `userEvent`
+    // click. This button stands in for an async prop update from outside, not something a user
+    // actually clicks while the dialog is open, and Radix's real modal both `aria-hides` every
+    // sibling and sets `pointer-events: none` on them, which `userEvent` (correctly) refuses to
+    // click through.
+    fireEvent.click(screen.getByRole('button', { name: 'Resolve config', hidden: true }))
     expect(screen.getByLabelText('Due')).toBeEnabled()
 
     await userEvent.type(screen.getByLabelText('What is it?'), 'Renew the domain')
@@ -205,7 +240,8 @@ describe('capturing', () => {
 
     await userEvent.type(screen.getByLabelText('What is it?'), '  Renew the domain  ')
     await userEvent.type(screen.getByLabelText('Notes'), 'Before it lapses')
-    await userEvent.selectOptions(screen.getByLabelText('Project'), 'project-1')
+    await userEvent.click(screen.getByLabelText('Project'))
+    await userEvent.click(await screen.findByRole('option', { name: 'Ship it' }))
     await userEvent.click(screen.getByRole('button', { name: 'Capture' }))
 
     expect(onCreate).toHaveBeenCalledWith({
@@ -368,6 +404,46 @@ describe('capturing', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Quick capture' }))
     expect(screen.getByLabelText('What is it?')).toHaveValue('')
+  })
+
+  /**
+   * The session is invalidated on close as well as on open, so a request left in flight when
+   * the dialog is cancelled by its own button (rather than Escape) is caught by the same
+   * `mine === session.current` guard the moment it closes, not only once something reopens it.
+   */
+  it('does not close a reopened dialog when a capture cancelled by its own button resolves', async () => {
+    let release: (created: boolean) => void = () => {}
+    const onCreate = vi.fn(() => new Promise<boolean>((resolve) => (release = resolve)))
+    await openCapture(onCreate)
+
+    await userEvent.type(screen.getByLabelText('What is it?'), 'First thing')
+    await userEvent.click(screen.getByRole('button', { name: 'Capture' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Quick capture' }))
+    await userEvent.type(screen.getByLabelText('What is it?'), 'Second thing')
+
+    release(true)
+    await act(async () => {})
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByLabelText('What is it?')).toHaveValue('Second thing')
+  })
+
+  /** Closing invalidates the session immediately: a stale result resolving while the dialog is
+   *  still closed, with nothing reopened yet, must not throw or reopen it. */
+  it('does nothing when a cancelled capture resolves while the dialog is still closed', async () => {
+    let release: (created: boolean) => void = () => {}
+    const onCreate = vi.fn(() => new Promise<boolean>((resolve) => (release = resolve)))
+    await openCapture(onCreate)
+
+    await userEvent.type(screen.getByLabelText('What is it?'), 'First thing')
+    await userEvent.click(screen.getByRole('button', { name: 'Capture' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    release(true)
+    await act(async () => {})
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
   /**

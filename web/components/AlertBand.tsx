@@ -13,6 +13,7 @@ import type { JobStatus, TaskView } from '../api.js'
 import { ago, dueState, formatDate } from '../format.js'
 import { surfaceHref } from '../router.js'
 import { Badge } from './primitives.js'
+import { Button } from './ui/button.js'
 
 export interface AlertItem {
   readonly key: string
@@ -110,28 +111,46 @@ export function AlertBand({
 
   if (!expanded) {
     return (
-      <div className="alert-band" role="region" aria-label="Alerts">
-        <p className="alert-strip">
-          <Badge tone="alarm">
-            {alerts.length} {alerts.length === 1 ? 'alert' : 'alerts'}
-          </Badge>
-          <span>{alerts.map((alert) => alert.summary).join(' ')}</span>
-          <a href={surfaceHref('#/', hash)}>Open Today</a>
-        </p>
+      <div
+        className="flex shrink-0 items-center gap-2.5 border-b border-destructive/25 bg-destructive/5 px-5 py-1.5"
+        role="region"
+        aria-label="Alerts"
+      >
+        <Badge tone="alarm">
+          {alerts.length} {alerts.length === 1 ? 'alert' : 'alerts'}
+        </Badge>
+        <span className="min-w-0 truncate text-xs">
+          {alerts.map((alert) => alert.summary).join(' ')}
+        </span>
+        <a
+          className="ml-auto shrink-0 text-[11px] text-muted-foreground underline underline-offset-[3px]"
+          href={surfaceHref('#/', hash)}
+        >
+          Open Today
+        </a>
       </div>
     )
   }
 
   return (
-    <div className="alert-band" role="region" aria-label="Alerts">
+    <div className="flex shrink-0 flex-col" role="region" aria-label="Alerts">
       {alerts.map((alert) => (
-        <div key={alert.key} className="alert-row">
+        <div
+          key={alert.key}
+          className={
+            alert.tone === 'alarm'
+              ? 'flex flex-wrap items-center gap-x-2.5 gap-y-1 border-b border-destructive/25 bg-destructive/5 px-5 py-2'
+              : 'flex flex-wrap items-center gap-x-2.5 gap-y-1 border-b border-border bg-muted/30 px-5 py-2'
+          }
+        >
           <Badge tone={alert.tone}>{alert.pill}</Badge>
-          <span className="alert-reason">{alert.reason}</span>
-          {alert.detail !== null && <span className="alert-detail">{alert.detail}</span>}
-          <button type="button" className="alert-action" onClick={alert.onAction}>
+          <span className="min-w-0 text-xs [overflow-wrap:anywhere]">{alert.reason}</span>
+          {alert.detail !== null && (
+            <span className="font-mono text-[11px] text-muted-foreground">{alert.detail}</span>
+          )}
+          <Button type="button" size="xs" className="ml-auto px-2.5" onClick={alert.onAction}>
             {alert.actionLabel}
-          </button>
+          </Button>
         </div>
       ))}
     </div>

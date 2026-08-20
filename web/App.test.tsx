@@ -344,9 +344,39 @@ describe('failures', () => {
     await userEvent.type(screen.getByLabelText('What is it?'), 'Renew the domain')
     await userEvent.click(screen.getByRole('button', { name: 'Capture' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('The server said no')
-    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    // The dialog carries its own copy of the failure, since Radix marks the rest of the page
+    // `aria-hidden` while it is open, and a screen reader user inside the dialog cannot reach
+    // outside it.
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('The server said no')
     expect(screen.getByLabelText('What is it?')).toHaveValue('Renew the domain')
+
+    // A capture's failure is its own: it does not also land in `<main>`'s shared alert, which
+    // every other write path uses. Duplicating it there would be one thing going wrong reported
+    // twice, and would leak into `<main>` once the dialog closes.
+    expect(screen.getAllByRole('alert', { hidden: true })).toHaveLength(1)
+  })
+
+  /**
+   * `writeFailure` is shared by every write path except capture; `captureFailure` is not. A
+   * failure from something unrelated (completing a task) must not resurface as though a
+   * not-yet-submitted capture had already failed when the dialog is opened afterward.
+   */
+  it('does not show an unrelated write failure when quick capture is opened afterward', async () => {
+    const calls = stubApi({ tasks: [aTask({ id: 'task-1', title: 'Captured' })], failWrites: true })
+    window.location.hash = '#/board'
+
+    render(<App />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Complete' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('The server said no')
+
+    await userEvent.keyboard('c')
+
+    const dialog = await screen.findByRole('dialog', { name: 'Quick capture' })
+    expect(within(dialog).queryByRole('alert')).not.toBeInTheDocument()
+    // `<main>`'s own alert is unaffected: opening the dialog does not clear it either.
+    expect(screen.getByRole('alert', { hidden: true })).toHaveTextContent('The server said no')
+    expect(calls.some((call) => call.url === '/api/tasks/task-1/complete')).toBe(true)
   })
 
   it('reports what the server said about a refused write', async () => {
@@ -420,7 +450,8 @@ describe('quick capture', () => {
     await screen.findByRole('region', { name: /where everything is/i })
     await userEvent.keyboard('c')
     await userEvent.type(screen.getByLabelText('What is it?'), 'Write the notes')
-    await userEvent.selectOptions(screen.getByLabelText('Project'), 'project-1')
+    await userEvent.click(screen.getByLabelText('Project'))
+    await userEvent.click(await screen.findByRole('option', { name: 'Ship it' }))
     await userEvent.click(screen.getByRole('button', { name: 'Capture' }))
 
     await waitFor(() =>
@@ -440,10 +471,8 @@ describe('writes from the board', () => {
     window.location.hash = '#/board'
 
     render(<App />)
-    await userEvent.selectOptions(
-      await screen.findByRole('combobox', { name: 'Status of Captured' }),
-      'next_action',
-    )
+    await userEvent.click(await screen.findByRole('combobox', { name: 'Status of Captured' }))
+    await userEvent.click(await screen.findByRole('option', { name: 'Next actions' }))
 
     await waitFor(() =>
       expect(calls).toContainEqual({
@@ -592,19 +621,6 @@ describe('more tasks than the client will fetch', () => {
     await screen.findByRole('region', { name: /where everything is/i })
 
     expect(within(screen.getByRole('main')).queryByRole('status')).not.toBeInTheDocument()
-  })
-})
-
-describe('the dashboard through the shell', () => {
-  /** Issue #47: integrations moved into the "Where everything is" card, beside the counts. */
-  it('shows the integrations the server reported', async () => {
-    stubApi()
-
-    render(<App />)
-    const panel = await screen.findByRole('region', { name: /where everything is/i })
-
-    expect(within(panel).getByText('GitHub')).toBeInTheDocument()
-    expect(within(panel).getAllByText('not configured')).toHaveLength(3)
   })
 })
 

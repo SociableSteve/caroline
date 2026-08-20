@@ -182,10 +182,8 @@ describe('changing a status', () => {
   it('offers the same change from a select on the card', async () => {
     const handlers = renderBoard({ tasks: [aTask({ id: 'task-1', title: 'Captured' })] })
 
-    await userEvent.selectOptions(
-      screen.getByRole('combobox', { name: 'Status of Captured' }),
-      'review',
-    )
+    await userEvent.click(screen.getByRole('combobox', { name: 'Status of Captured' }))
+    await userEvent.click(await screen.findByRole('option', { name: 'Review' }))
 
     expect(handlers.onStatusChange).toHaveBeenCalledWith('task-1', 'review')
   })
@@ -428,8 +426,15 @@ describe('the keyboard inside a card control', () => {
 
     await userEvent.keyboard('{ArrowDown}')
 
-    expect(select).toHaveFocus()
-    expect(screen.getByRole('article', { name: 'Second inbox' })).not.toHaveFocus()
+    // shadcn's `Select` (Radix underneath) opens on an arrow key and moves the roving focus to
+    // the highlighted option rather than keeping it on the trigger the way a native `<select>`
+    // does; the contract this checks is that the board's own card-to-card arrow navigation never
+    // gets the key, not that focus stays on one particular element inside the control that owns it.
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+    // `{ hidden: true }`: the open popup marks the rest of the page `aria-hidden`, same as
+    // shadcn's `Dialog`.
+    expect(screen.getByRole('article', { name: 'First inbox', hidden: true })).not.toHaveFocus()
+    expect(screen.getByRole('article', { name: 'Second inbox', hidden: true })).not.toHaveFocus()
   })
 
   it('does not complete a task when d is typed into the select', async () => {

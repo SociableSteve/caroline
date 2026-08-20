@@ -4,6 +4,7 @@
  * take data and callbacks, so they can be driven in a test without a server.
  */
 import { useCallback, useEffect, useState } from 'react'
+import { cn } from './lib/utils.js'
 import { sameItem } from '../src/domain/selection.js'
 import {
   api,
@@ -36,6 +37,8 @@ import { ChatRail } from './components/ChatRail.js'
 import { DetailsPanel, type DetailsSubject } from './components/DetailsPanel.js'
 import { LoginScreen } from './components/LoginScreen.js'
 import { QuickCapture } from './components/QuickCapture.js'
+import { failureClassName } from './components/primitives.js'
+import { Button } from './components/ui/button.js'
 import { productName } from './title.js'
 
 /**
@@ -99,13 +102,13 @@ export function App() {
   const {
     tasks,
     projects,
-    health,
     jobRuns,
     jobStatus,
     plan,
     planDate,
     calendar,
     google,
+    health,
     preview,
     mcpClients,
     userName,
@@ -121,6 +124,11 @@ export function App() {
   const { route, chatOpen: chatInUrl, conversationId, selected, hash } = useLocation()
   const [capturing, setCapturing] = useState(false)
   const [writeFailure, setWriteFailure] = useState<string | null>(null)
+  // Quick Capture's own failure, kept separate from `writeFailure`: that state is shared by
+  // every other write path, and a capture dialog that read it would show an unrelated failure
+  // (completing a task, say) as though the capture itself had just failed. Reset whenever the
+  // dialog opens or closes, so a previous attempt's failure never leaks into a fresh one.
+  const [captureFailure, setCaptureFailure] = useState<string | null>(null)
   /**
    * Whether the rail is open. Open by default: chat is the thing Caroline is for, and a rail that has
    * to be opened again on every surface you land on is one that ends up unused. Held here as well as
@@ -145,6 +153,7 @@ export function App() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'c' && !isTyping(event.target) && !event.metaKey && !event.ctrlKey) {
         event.preventDefault()
+        setCaptureFailure(null)
         setCapturing(true)
       }
     }
@@ -154,20 +163,24 @@ export function App() {
   }, [])
 
   /**
-   * Every write goes through here: do it, refresh, and say so if it failed. It reports whether
-   * the write landed, because a form that clears itself on a rejected request has thrown away
-   * what the user typed, and the message alone does not give it back.
+   * Every write goes through here: do it, refresh, and say so if it failed, into whichever
+   * failure state the caller names. It reports whether the write landed, because a form that
+   * clears itself on a rejected request has thrown away what the user typed, and the message
+   * alone does not give it back.
    */
-  const write = useCallback(
-    async (work: () => Promise<unknown>): Promise<boolean> => {
+  const runWrite = useCallback(
+    async (
+      work: () => Promise<unknown>,
+      setFailure: (message: string | null) => void,
+    ): Promise<boolean> => {
       try {
         await work()
       } catch (error) {
-        setWriteFailure(error instanceof Error ? error.message : 'That did not work')
+        setFailure(error instanceof Error ? error.message : 'That did not work')
         return false
       }
 
-      setWriteFailure(null)
+      setFailure(null)
       setNow(Date.now())
 
       // The refresh is deliberately outside the result. It happened after the write landed, so
@@ -184,6 +197,12 @@ export function App() {
       return true
     },
     [reload],
+  )
+
+  // The shared write path, for every write except Quick Capture: see `captureFailure` above.
+  const write = useCallback(
+    (work: () => Promise<unknown>) => runWrite(work, setWriteFailure),
+    [runWrite],
   )
 
   const onStatusChange = (id: string, status: TaskStatus) =>
@@ -220,7 +239,7 @@ export function App() {
   }
   const onRunJob = (job: string) => void write(() => api.runJob(job))
   // These two answer their forms, which keep what was typed until the write lands.
-  const onCapture = (input: TaskInput) => write(() => api.createTask(input))
+  const onCapture = (input: TaskInput) => runWrite(() => api.createTask(input), setCaptureFailure)
   const onCreateProject = (title: string) => write(() => api.createProject({ title }))
   const onProjectState = (id: string, state: ProjectState) =>
     void write(() => api.patchProject(id, { state }))
@@ -371,12 +390,12 @@ export function App() {
 
   return (
     <>
-      <header className="app-header">
+      <header className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-sidebar-border bg-sidebar px-4 py-2">
         {/* Not a heading. The one `h1` on the page belongs to the surface and names it, so that
             every surface has an outline and every entry in history is distinguishable. Spec 10. */}
-        <p className="wordmark">{productName}</p>
+        <p className="m-0 text-sm font-semibold tracking-tight">{productName}</p>
         <nav aria-label="Surfaces">
-          <ul>
+          <ul className="m-0 flex flex-wrap gap-0.5 p-0">
             {routeLinks.map((link) => (
               <li key={link.name}>
                 {/* The rail travels with the link: changing surface is not closing the companion
@@ -384,6 +403,7 @@ export function App() {
                 <a
                   href={surfaceHref(link.href, hash)}
                   aria-current={route.name === link.name ? 'page' : undefined}
+                  className="inline-block rounded-md px-2.5 py-1.5 text-[13px] text-muted-foreground no-underline hover:bg-sidebar-accent aria-[current=page]:bg-sidebar-accent aria-[current=page]:font-medium aria-[current=page]:text-sidebar-accent-foreground"
                 >
                   {link.label}
                 </a>
@@ -391,31 +411,58 @@ export function App() {
             ))}
           </ul>
         </nav>
-        <div className="header-actions">
+        <div className="ml-auto flex flex-wrap gap-2">
           {authenticated && (
             <>
               {/* The scheduler runs sync on its own; this is the manual trigger spec 06 asks be
                   first-class, for when you know something has just landed. */}
-              <button type="button" onClick={onSync}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 px-2.5 text-xs"
+                onClick={onSync}
+              >
                 Sync now
-              </button>
-              <button type="button" onClick={() => setCapturing(true)}>
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 px-2.5 text-xs"
+                onClick={() => {
+                  setCaptureFailure(null)
+                  setCapturing(true)
+                }}
+              >
                 Quick capture
-              </button>
+              </Button>
               {/* Chat is a companion to the surface rather than a place to go, so it is a control
                   here rather than a link in the navigation. Spec 08. */}
-              <button type="button" aria-expanded={chatOpen} onClick={() => setChat(!chatOpen)}>
+              <Button
+                type="button"
+                size="sm"
+                className="h-7 px-2.5 text-xs"
+                aria-expanded={chatOpen}
+                onClick={() => setChat(!chatOpen)}
+              >
                 Chat
-              </button>
+              </Button>
             </>
           )}
           {/* Invisible, and nothing else here changes, where a login is not required: spec 13's
               loopback shape. Where one is, this is the fourth of the flow's four routes and the
               only one this shell offers a control for. */}
           {auth.authRequired && authenticated && (
-            <button type="button" onClick={() => void auth.logout()}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 px-2.5 text-xs"
+              onClick={() => void auth.logout()}
+            >
               Sign out
-            </button>
+            </Button>
           )}
         </div>
       </header>
@@ -442,22 +489,27 @@ export function App() {
             hash={hash}
           />
 
-          <div className={chatOpen ? 'app-body with-rail' : 'app-body'}>
-            <main>
+          <div
+            className={cn(
+              'grid min-h-0 flex-1 items-stretch self-stretch',
+              chatOpen ? 'grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]' : 'grid-cols-1',
+            )}
+          >
+            <main className="min-w-0 overflow-y-auto px-4 py-4 md:px-5 md:pb-12">
               {/* The message carries its own context, because the two cases read differently: the
               whole board being unreachable, and one panel of it that could not be read while the
               rest of the screen is current. */}
               {failure !== null && (
-                <p role="alert" className="failure">
+                <p role="alert" className={failureClassName}>
                   {failure}{' '}
-                  <button type="button" onClick={() => void reload()}>
+                  <Button type="button" onClick={() => void reload()}>
                     Try again
-                  </button>
+                  </Button>
                 </p>
               )}
 
               {writeFailure !== null && (
-                <p role="alert" className="failure">
+                <p role="alert" className={failureClassName}>
                   {writeFailure}
                 </p>
               )}
@@ -465,7 +517,7 @@ export function App() {
               {/* Said out loud rather than left to be noticed: a screen showing a subset of the
               tasks and not saying so is worse than one that admits it. */}
               {unfetchedTaskTotal !== null && (
-                <p role="status" className="failure">
+                <p role="status" className={failureClassName}>
                   Showing {tasks.length} of {unfetchedTaskTotal} tasks. Complete or delete some, or
                   narrow what you are looking at.
                 </p>
@@ -513,6 +565,7 @@ export function App() {
               ) : route.name === 'settings' ? (
                 <Settings
                   google={google}
+                  health={health}
                   preview={preview}
                   userName={userName}
                   googleOutcome={route.outcome}
@@ -529,8 +582,6 @@ export function App() {
                 <Dashboard
                   tasks={tasks}
                   projects={projects}
-                  health={health}
-                  jobRuns={jobRuns}
                   plan={plan}
                   calendar={calendar}
                   staleDays={staleDays}
@@ -582,7 +633,11 @@ export function App() {
         projects={projects}
         timezone={timezone}
         configLoaded={configLoaded}
-        onClose={() => setCapturing(false)}
+        failure={captureFailure}
+        onClose={() => {
+          setCapturing(false)
+          setCaptureFailure(null)
+        }}
         onCreate={onCapture}
       />
     </>

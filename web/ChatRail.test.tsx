@@ -9,7 +9,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { ChatRail } from './components/ChatRail.js'
 import type {
@@ -104,27 +104,20 @@ interface Handlers {
   onClose: ReturnType<typeof vi.fn>
 }
 
-function draw(
-  overrides: {
-    status?: ChatStatus | null
-    conversations?: readonly ConversationView[]
-    conversation?: ConversationView | null
-    messages?: readonly ChatMessageView[]
-    draft?: DraftTurn | null
-    sending?: boolean
-    failure?: string | null
-    hash?: string
-    details?: ReactNode
-  } = {},
-): Handlers {
-  const handlers: Handlers = {
-    onSend: vi.fn(),
-    onConfirm: vi.fn(),
-    onUndo: vi.fn(),
-    onClose: vi.fn(),
-  }
+interface RailOverrides {
+  status?: ChatStatus | null
+  conversations?: readonly ConversationView[]
+  conversation?: ConversationView | null
+  messages?: readonly ChatMessageView[]
+  draft?: DraftTurn | null
+  sending?: boolean
+  failure?: string | null
+  hash?: string
+  details?: ReactNode
+}
 
-  render(
+function rail(overrides: RailOverrides, handlers: Handlers) {
+  return (
     <ChatRail
       status={overrides.status === undefined ? aStatus() : overrides.status}
       conversations={overrides.conversations ?? []}
@@ -137,10 +130,38 @@ function draw(
       hash={overrides.hash ?? '#/board'}
       details={overrides.details ?? null}
       {...handlers}
-    />,
+    />
   )
+}
+
+function draw(overrides: RailOverrides = {}): Handlers {
+  const handlers: Handlers = {
+    onSend: vi.fn(),
+    onConfirm: vi.fn(),
+    onUndo: vi.fn(),
+    onClose: vi.fn(),
+  }
+
+  render(rail(overrides, handlers))
 
   return handlers
+}
+
+/** For the tests that need to change props on an already-rendered rail. */
+function drawWithRerender(overrides: RailOverrides = {}) {
+  const handlers: Handlers = {
+    onSend: vi.fn(),
+    onConfirm: vi.fn(),
+    onUndo: vi.fn(),
+    onClose: vi.fn(),
+  }
+
+  const result = render(rail(overrides, handlers))
+
+  return {
+    ...handlers,
+    rerender: (next: RailOverrides) => result.rerender(rail(next, handlers)),
+  }
 }
 
 describe('the chat rail', () => {
@@ -447,6 +468,153 @@ describe('the things a person would otherwise have to guess at', () => {
     draw({ failure: 'Cannot reach the server' })
 
     expect(screen.getByRole('alert')).toHaveTextContent('Cannot reach the server')
+  })
+})
+
+/**
+ * The log follows new content until the user scrolls up to read something earlier, and only
+ * comes back once they scroll back down themselves: it must never yank a message being read back
+ * to the bottom on its own. jsdom lays nothing out, so `scrollHeight`/`clientHeight` are stubbed
+ * directly on the log rather than produced by real layout.
+ */
+describe('the transcript’s auto-scroll', () => {
+  function log(): HTMLElement {
+    // The one `<ul>` on screen once a message exists and the conversations list is empty; its
+    // parent is the div the component actually scrolls.
+    const list = screen.getByRole('list')
+    const scrollable = list.parentElement
+    if (scrollable === null) throw new Error('the message list has no scrolling parent')
+    return scrollable
+  }
+
+  function stub(el: HTMLElement, values: { scrollHeight: number; clientHeight: number }) {
+    Object.defineProperty(el, 'scrollHeight', { value: values.scrollHeight, configurable: true })
+    Object.defineProperty(el, 'clientHeight', { value: values.clientHeight, configurable: true })
+  }
+
+  it('follows a growing conversation to the bottom by default', () => {
+    const { rerender } = drawWithRerender({
+      messages: [aMessage({ id: 'message-1', content: 'First.' })],
+    })
+    stub(log(), { scrollHeight: 400, clientHeight: 200 })
+
+    rerender({
+      messages: [
+        aMessage({ id: 'message-1', content: 'First.' }),
+        aMessage({ id: 'message-2', content: 'Second.', seq: 2 }),
+      ],
+    })
+    stub(log(), { scrollHeight: 600, clientHeight: 200 })
+    rerender({
+      messages: [
+        aMessage({ id: 'message-1', content: 'First.' }),
+        aMessage({ id: 'message-2', content: 'Second.', seq: 2 }),
+        aMessage({ id: 'message-3', content: 'Third.', seq: 3 }),
+      ],
+    })
+
+    expect(log().scrollTop).toBe(600)
+  })
+
+  it('stops following once the user scrolls away from the bottom', () => {
+    const { rerender } = drawWithRerender({
+      messages: [aMessage({ id: 'message-1', content: 'First.' })],
+    })
+    const scrollable = log()
+    stub(scrollable, { scrollHeight: 600, clientHeight: 200 })
+    scrollable.scrollTop = 0
+    fireEvent.scroll(scrollable)
+
+    stub(scrollable, { scrollHeight: 900, clientHeight: 200 })
+    rerender({
+      messages: [
+        aMessage({ id: 'message-1', content: 'First.' }),
+        aMessage({ id: 'message-2', content: 'Second.', seq: 2 }),
+      ],
+    })
+
+    expect(scrollable.scrollTop).toBe(0)
+  })
+
+  it('resumes following once the user scrolls back to the bottom', () => {
+    const { rerender } = drawWithRerender({
+      messages: [aMessage({ id: 'message-1', content: 'First.' })],
+    })
+    const scrollable = log()
+    stub(scrollable, { scrollHeight: 600, clientHeight: 200 })
+    scrollable.scrollTop = 0
+    fireEvent.scroll(scrollable)
+
+    // Back to the bottom, by hand.
+    scrollable.scrollTop = 400
+    fireEvent.scroll(scrollable)
+
+    stub(scrollable, { scrollHeight: 900, clientHeight: 200 })
+    rerender({
+      messages: [
+        aMessage({ id: 'message-1', content: 'First.' }),
+        aMessage({ id: 'message-2', content: 'Second.', seq: 2 }),
+      ],
+    })
+
+    expect(scrollable.scrollTop).toBe(900)
+  })
+
+  /**
+   * Sending is the reader rejoining, not something that happens behind their back: it puts the
+   * log back at the bottom for the message just sent and the answer coming in, even though
+   * nothing has scrolled it there yet at the moment they press Send.
+   */
+  it('jumps back to the bottom when the user sends a message while scrolled away from it', async () => {
+    const user = userEvent.setup()
+    const { rerender } = drawWithRerender({
+      messages: [aMessage({ id: 'message-1', content: 'First.' })],
+    })
+    const scrollable = log()
+    stub(scrollable, { scrollHeight: 600, clientHeight: 200 })
+    scrollable.scrollTop = 0
+    fireEvent.scroll(scrollable)
+
+    await user.type(screen.getByLabelText('Message'), 'One more thing')
+    stub(scrollable, { scrollHeight: 900, clientHeight: 200 })
+    await user.click(screen.getByRole('button', { name: 'Send' }))
+    rerender({
+      messages: [
+        aMessage({ id: 'message-1', content: 'First.' }),
+        aMessage({ id: 'message-2', content: 'One more thing', role: 'user', seq: 2 }),
+      ],
+    })
+
+    expect(scrollable.scrollTop).toBe(900)
+  })
+
+  /**
+   * The composer's `typed` state lives in this same component and changes on every keystroke.
+   * Depending on it would force a scroll recomputation on every character typed, which is wasted
+   * work the transcript's own content never asked for.
+   */
+  it('does not recompute the scroll position on a keystroke alone', async () => {
+    const user = userEvent.setup()
+    drawWithRerender({
+      messages: [aMessage({ id: 'message-1', content: 'First.' })],
+    })
+    const scrollable = log()
+    stub(scrollable, { scrollHeight: 600, clientHeight: 200 })
+
+    let scrollTopSets = 0
+    let currentScrollTop = 0
+    Object.defineProperty(scrollable, 'scrollTop', {
+      configurable: true,
+      get: () => currentScrollTop,
+      set: (value: number) => {
+        scrollTopSets += 1
+        currentScrollTop = value
+      },
+    })
+
+    await user.type(screen.getByLabelText('Message'), 'One more thing')
+
+    expect(scrollTopSets).toBe(0)
   })
 })
 

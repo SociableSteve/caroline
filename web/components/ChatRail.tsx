@@ -12,7 +12,8 @@
  * is read-only when the model cannot use tools, that a turn stopped because it ran out of tool calls
  * rather than because it had finished, and how many items a confirmation would affect.
  */
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { cn } from '../lib/utils.js'
 import type {
   ChatChangeView,
   ChatConfirmationView,
@@ -23,7 +24,15 @@ import type {
 import type { DraftTurn } from '../chat.js'
 import { ago } from '../format.js'
 import { conversationHref } from '../router.js'
-import { Field } from './primitives.js'
+import {
+  changeNoteClassName,
+  emptyClassName,
+  Field,
+  failureClassName,
+  payloadPreviewClassName,
+} from './primitives.js'
+import { Button } from './ui/button.js'
+import { Textarea } from './ui/textarea.js'
 
 export interface ChatRailProps {
   /**
@@ -63,10 +72,13 @@ function undoableTurnId(messages: readonly ChatMessageView[]): string | null {
 }
 
 function ChangeRecord({ change }: { readonly change: ChatChangeView }) {
+  const undone = change.undoneAt !== null
   return (
-    <li className={change.undoneAt === null ? undefined : 'change-undone'}>
-      <span className="change-summary">{change.summary}</span>{' '}
-      {change.undoneAt === null ? null : <span className="change-note">undone</span>}
+    <li>
+      <span className={undone ? 'text-muted-foreground line-through' : undefined}>
+        {change.summary}
+      </span>{' '}
+      {undone && <span className={changeNoteClassName}>undone</span>}
     </li>
   )
 }
@@ -81,32 +93,44 @@ function Confirmation({
   const decided = confirmation.decidedAt !== null
 
   return (
-    <div className="chat-confirmation" role="group" aria-label="Confirmation needed">
-      <p>
+    <div
+      className="mt-2 rounded-md border border-destructive bg-destructive/5 px-3 py-2 text-xs"
+      role="group"
+      aria-label="Confirmation needed"
+    >
+      <p className="m-0 mb-2">
         <strong>{confirmation.reason === 'delete' ? 'Delete' : 'Bulk change'}:</strong>{' '}
         {confirmation.summary}
       </p>
-      <p className="change-note">
+      <p className={changeNoteClassName}>
         {confirmation.affectedCount} {confirmation.affectedCount === 1 ? 'item' : 'items'} affected.
         Nothing has happened yet.
       </p>
 
       {decided ? (
-        <p className="change-note">
+        <p className={changeNoteClassName}>
           {confirmation.decision === 'confirmed' ? 'Confirmed and applied.' : 'Discarded.'}
         </p>
       ) : (
-        <div className="action-row">
-          <button
+        <div className="action-row flex flex-wrap items-end gap-1.5">
+          <Button
             type="button"
-            className="primary"
+            variant="default"
+            size="xs"
+            className="px-2.5"
             onClick={() => onConfirm(confirmation.id, true)}
           >
             Confirm
-          </button>
-          <button type="button" onClick={() => onConfirm(confirmation.id, false)}>
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="xs"
+            className="px-2.5 text-muted-foreground"
+            onClick={() => onConfirm(confirmation.id, false)}
+          >
             Discard
-          </button>
+          </Button>
         </div>
       )}
     </div>
@@ -125,33 +149,42 @@ function Turn({
   readonly onUndo: (messageId: string) => void
 }) {
   return (
-    <li className={`chat-turn chat-${message.role}`}>
-      <p className="chat-role">{message.role === 'user' ? 'You' : 'Caroline'}</p>
+    <li
+      className={cn(
+        'rounded-xl bg-card p-2.5 text-xs leading-relaxed shadow-sm',
+        message.role === 'user' && 'bg-secondary shadow-none',
+      )}
+    >
+      <p className="m-0 mb-1 font-mono text-[9px] uppercase tracking-[0.05em] text-muted-foreground">
+        {message.role === 'user' ? 'You' : 'Caroline'}
+      </p>
       {message.content === '' ? (
-        <p className="empty">Nothing was said.</p>
+        <p className={emptyClassName}>Nothing was said.</p>
       ) : (
         message.content.split('\n\n').map((paragraph, index) => (
-          <p key={index} className="chat-text">
+          <p key={index} className="m-0 mb-2 whitespace-pre-wrap">
             {paragraph}
           </p>
         ))
       )}
 
       {message.changes.length > 0 && (
-        <div className="chat-changes">
-          <ul>
+        <div className="mt-2 border-l-2 border-chart-2/50 py-1 pl-3">
+          <ul className="mb-2 pl-4 text-sm">
             {message.changes.map((change) => (
               <ChangeRecord key={change.id} change={change} />
             ))}
           </ul>
           {undoable && (
-            <button
+            <Button
               type="button"
+              size="xs"
+              className="px-2.5"
               aria-label="Undo the changes this turn made"
               onClick={() => onUndo(message.id)}
             >
               Undo
-            </button>
+            </Button>
           )}
         </div>
       )}
@@ -167,28 +200,30 @@ function Turn({
           rendered from a payload that happened not to carry it must not blank the page. That is the
           class of defect the SSE contract fix removed, and one guard is cheaper than another. */}
       {message.context != null && (
-        <details className="turn-context">
-          <summary>What was sent about the open {message.context.kind}</summary>
-          <p className="change-note">
+        <details>
+          <summary className="cursor-pointer text-sm text-muted-foreground">
+            What was sent about the open {message.context.kind}
+          </summary>
+          <p className={changeNoteClassName}>
             {message.context.found
               ? `Fields sent: ${message.context.fields.join(', ')}.`
               : 'It had gone by the time this was sent, and the model was told so.'}{' '}
             Content level {message.context.contentLevel}, policy {message.context.policyVersion}.
           </p>
-          <pre className="payload-preview">{message.context.rendered}</pre>
+          <pre className={payloadPreviewClassName}>{message.context.rendered}</pre>
         </details>
       )}
 
       {/* Spec 07, criterion 6: a turn that ran out of tool calls says so, and what it did stands. */}
       {message.toolCallLimitReached && (
-        <p role="status" className="chat-note">
+        <p role="status" className="max-w-[76ch] rounded-md bg-muted px-3 py-2 text-sm">
           This turn reached its tool-call limit. The changes above were made; ask it to carry on for
           the rest.
         </p>
       )}
 
       {message.error !== null && (
-        <p role="alert" className="failure">
+        <p role="alert" className={failureClassName}>
           {message.error}
         </p>
       )}
@@ -214,32 +249,71 @@ export function ChatRail({
 }: ChatRailProps) {
   const [typed, setTyped] = useState('')
   const undoable = undoableTurnId(messages)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  // Whether the log should follow new content. Starts true (a rail that opens mid-conversation
+  // opens at the bottom, not wherever the browser happened to land), goes false the moment the
+  // user scrolls up to read something earlier, and comes back true once they scroll back down to
+  // the bottom themselves, never on its own: reading an old message while an answer streams in
+  // would otherwise be interrupted by the log yanking itself back down.
+  const stickToBottom = useRef(true)
+
+  const onScroll = () => {
+    const el = scrollRef.current
+    if (el === null) return
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    stickToBottom.current = distanceFromBottom < 16
+  }
+
+  // A message arriving, a draft growing by one chunk and a confirmation appearing are all reasons
+  // to follow, so the dependency list covers everything that changes the transcript's rendered
+  // height or content. Deliberately not `typed`, which lives in this same component: a keystroke
+  // in the composer changes that state on every character and must not force a scroll
+  // recomputation.
+  useEffect(() => {
+    if (!stickToBottom.current) return
+    const el = scrollRef.current
+    if (el === null) return
+    el.scrollTop = el.scrollHeight
+  }, [messages, draft, failure, status, conversation, conversations])
 
   const submit = () => {
     const message = typed.trim()
     if (message === '' || sending) return
 
+    // Sending is what a scrolled-up reader does to rejoin, not something that happens to them:
+    // it puts the log back at the bottom for the message just sent and the answer coming in,
+    // the same as opening the rail on a conversation already in progress does.
+    stickToBottom.current = true
     onSend(message)
     setTyped('')
   }
 
   return (
-    <aside className="chat-rail" aria-label="Chat">
+    <aside
+      className="fixed inset-0 z-10 flex h-full flex-col gap-3 self-stretch overflow-hidden bg-sidebar p-4 shadow-lg md:static md:inset-auto md:z-auto md:border-l md:border-sidebar-border md:shadow-none"
+      aria-label="Chat"
+    >
       {details}
 
-      <div className="rail-head">
-        <h2 className="rail-heading">
+      <div className="flex shrink-0 items-baseline justify-between gap-2">
+        <h2 className="m-0 text-xs font-semibold">
           {conversation === null ? 'New conversation' : conversation.title}
         </h2>
-        <button type="button" onClick={onClose}>
+        <Button
+          type="button"
+          variant="outline"
+          size="xs"
+          className="whitespace-nowrap text-muted-foreground"
+          onClick={onClose}
+        >
           Close chat
-        </button>
+        </Button>
       </div>
 
       {/* A disclosure rather than a column: a rail is not wide enough for two, and the list is read
           when an earlier conversation is wanted rather than while one is being had. */}
-      <details className="rail-conversations">
-        <summary>Conversations</summary>
+      <details className="shrink-0">
+        <summary className="cursor-pointer text-sm text-muted-foreground">Conversations</summary>
         <p>
           {/* No conversation rather than the rail closed: the rail is open by default, so a hash
               naming none is the rail open on one nobody has started yet. */}
@@ -247,18 +321,18 @@ export function ChatRail({
         </p>
 
         {conversations.length === 0 ? (
-          <p className="empty">Nothing yet.</p>
+          <p className={emptyClassName}>Nothing yet.</p>
         ) : (
-          <ul className="conversation-list">
+          <ul className="m-0 p-0 [list-style:none]">
             {conversations.map((entry) => (
-              <li key={entry.id}>
+              <li key={entry.id} className="border-b border-border py-1 text-sm">
                 <a
                   href={conversationHref(entry.id, hash)}
                   aria-current={entry.id === conversation?.id ? 'page' : undefined}
                 >
                   {entry.title}
                 </a>
-                <span className="change-note"> {ago(entry.updatedAt, now)}</span>
+                <span className={changeNoteClassName}> {ago(entry.updatedAt, now)}</span>
               </li>
             ))}
           </ul>
@@ -267,7 +341,7 @@ export function ChatRail({
 
       {/* Criterion 7: said plainly, before anything is typed, rather than discovered afterwards. */}
       {status !== null && status.readOnly && (
-        <p role="status" className="chat-readonly">
+        <p role="status" className="max-w-[76ch] shrink-0 rounded-md bg-muted px-3 py-2 text-xs">
           {status.configured
             ? `Read-only: ${status.model ?? 'the configured model'} cannot use tools, so chat can answer questions but cannot change anything.`
             : 'Read-only: no language model is configured, so chat cannot answer or change anything yet.'}
@@ -275,88 +349,95 @@ export function ChatRail({
       )}
 
       {failure !== null && (
-        <p role="alert" className="failure">
+        <p role="alert" className={cn(failureClassName, 'shrink-0')}>
           {failure}
         </p>
       )}
 
-      {messages.length === 0 && draft === null ? (
-        <p className="empty">
-          Ask about the inbox, a project, or what today looks like. Changes you ask for happen at
-          once and can be undone.
-        </p>
-      ) : (
-        <ul className="chat-transcript">
-          {messages.map((message) => (
-            <Turn
-              key={message.id}
-              message={message}
-              undoable={message.id === undoable}
-              onConfirm={onConfirm}
-              onUndo={onUndo}
-            />
-          ))}
+      {/* The one scrolling region in the rail: everything above stays put, and this follows the
+          bottom on its own until the user scrolls up out of it. */}
+      <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">
+        {messages.length === 0 && draft === null ? (
+          <p className={emptyClassName}>
+            Ask about the inbox, a project, or what today looks like. Changes you ask for happen at
+            once and can be undone.
+          </p>
+        ) : (
+          <ul className="m-0 flex max-w-[76ch] flex-col gap-3 p-0 [list-style:none]">
+            {messages.map((message) => (
+              <Turn
+                key={message.id}
+                message={message}
+                undoable={message.id === undoable}
+                onConfirm={onConfirm}
+                onUndo={onUndo}
+              />
+            ))}
 
-          {/* Deliberately not a live region as a whole: a screen reader would read the answer
-              again from the top on every chunk that arrived. The progress line below is live
-              instead, and the finished turn is read in the ordinary way. */}
-          {draft !== null && (
-            <li className="chat-turn chat-assistant">
-              <p className="chat-role">Caroline</p>
-              {draft.text === '' ? (
-                <p className="chat-text">Thinking.</p>
-              ) : (
-                draft.text.split('\n\n').map((paragraph, index) => (
-                  <p key={index} className="chat-text">
-                    {paragraph}
+            {/* Deliberately not a live region as a whole: a screen reader would read the answer
+                again from the top on every chunk that arrived. The progress line below is live
+                instead, and the finished turn is read in the ordinary way. */}
+            {draft !== null && (
+              <li className="rounded-xl bg-card p-2.5 text-xs leading-relaxed shadow-sm">
+                <p className="m-0 mb-1 font-mono text-[9px] uppercase tracking-[0.05em] text-muted-foreground">
+                  Caroline
+                </p>
+                {draft.text === '' ? (
+                  <p className="m-0 mb-2 whitespace-pre-wrap">Thinking.</p>
+                ) : (
+                  draft.text.split('\n\n').map((paragraph, index) => (
+                    <p key={index} className="m-0 mb-2 whitespace-pre-wrap">
+                      {paragraph}
+                    </p>
+                  ))
+                )}
+
+                {draft.tools.length > 0 && (
+                  <p className={changeNoteClassName} role="status">
+                    Looked at: {draft.tools.join(', ')}
                   </p>
-                ))
-              )}
+                )}
 
-              {draft.tools.length > 0 && (
-                <p className="change-note" role="status">
-                  Looked at: {draft.tools.join(', ')}
-                </p>
-              )}
+                {draft.changes.length > 0 && (
+                  <div className="mt-2 border-l-2 border-chart-2/50 py-1 pl-3">
+                    <ul className="pl-4 text-sm">
+                      {draft.changes.map((change) => (
+                        <ChangeRecord key={change.id} change={change} />
+                      ))}
+                    </ul>
+                  </div>
+                )}
 
-              {draft.changes.length > 0 && (
-                <div className="chat-changes">
-                  <ul>
-                    {draft.changes.map((change) => (
-                      <ChangeRecord key={change.id} change={change} />
-                    ))}
-                  </ul>
-                </div>
-              )}
+                {draft.confirmations.map((confirmation) => (
+                  <Confirmation
+                    key={confirmation.id}
+                    confirmation={confirmation}
+                    onConfirm={onConfirm}
+                  />
+                ))}
 
-              {draft.confirmations.map((confirmation) => (
-                <Confirmation
-                  key={confirmation.id}
-                  confirmation={confirmation}
-                  onConfirm={onConfirm}
-                />
-              ))}
-
-              {draft.error !== null && (
-                <p role="alert" className="failure">
-                  {draft.error}
-                </p>
-              )}
-            </li>
-          )}
-        </ul>
-      )}
+                {draft.error !== null && (
+                  <p role="alert" className={failureClassName}>
+                    {draft.error}
+                  </p>
+                )}
+              </li>
+            )}
+          </ul>
+        )}
+      </div>
 
       <form
-        className="chat-composer"
+        className="flex max-w-[76ch] shrink-0 flex-col gap-1.5"
         onSubmit={(event) => {
           event.preventDefault()
           submit()
         }}
       >
         <Field label="Message">
-          <textarea
-            rows={3}
+          <Textarea
+            rows={2}
+            className="resize-none text-xs"
             value={typed}
             onChange={(event) => setTyped(event.target.value)}
             onKeyDown={(event) => {
@@ -368,13 +449,21 @@ export function ChatRail({
             }}
           />
         </Field>
-        <button type="submit" className="primary" disabled={sending || typed.trim() === ''}>
-          {sending ? 'Answering' : 'Send'}
-        </button>
+        <div className="flex justify-end">
+          <Button
+            type="submit"
+            variant="default"
+            size="sm"
+            className="h-7 px-3 text-xs"
+            disabled={sending || typed.trim() === ''}
+          >
+            {sending ? 'Answering' : 'Send'}
+          </Button>
+        </div>
       </form>
 
       {conversation !== null && (
-        <p className="change-note">
+        <p className={cn(changeNoteClassName, 'shrink-0')}>
           {conversation.inputTokens + conversation.outputTokens} tokens in this conversation (
           {conversation.inputTokens} in, {conversation.outputTokens} out).
         </p>

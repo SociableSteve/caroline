@@ -10,7 +10,11 @@ import {
   type TaskStatus,
   type TaskView,
 } from '../api.js'
-import { ActionRow, Badge, Fact, Facts, Field } from './primitives.js'
+import { cn } from '../lib/utils.js'
+import { ActionRow, Badge, Fact, Facts, Field, itemOpenClassName } from './primitives.js'
+import { Button } from './ui/button.js'
+import { Input } from './ui/input.js'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select.js'
 import {
   canMarkReviewed,
   dateInputValue,
@@ -158,9 +162,13 @@ export function TaskCard({
   }
 
   return (
-    <li className="card-slot">
+    <li>
       <article
-        className={`card${stale ? ' card-stale' : ''}${selected ? ' card-open' : ''}`}
+        className={cn(
+          'card block cursor-grab rounded-md border border-border bg-card p-2',
+          stale && 'card-stale border-destructive/40',
+          selected && 'card-open border-chart-2/50',
+        )}
         aria-label={task.title}
         tabIndex={0}
         draggable
@@ -174,13 +182,13 @@ export function TaskCard({
         {/* The title is the control that opens the task in the rail, so the thing being pointed at is
             the thing that responds, and the action row keeps the width it has. It stays a heading, so
             the outline is unchanged. Spec 08, criterion 27. */}
-        <h3 className="card-title">
+        <h3 className="m-0 mb-1 text-xs font-medium leading-snug">
           {onSelect === undefined ? (
             task.title
           ) : (
             <button
               type="button"
-              className="item-open"
+              className={itemOpenClassName}
               aria-pressed={selected}
               onClick={() => onSelect({ kind: 'task', id: task.id })}
             >
@@ -251,7 +259,7 @@ export function TaskCard({
         {/* Every state carried by a badge is carried by its words too, so none of it depends
             on colour alone. Spec 08, accessibility. */}
         {(pushedSince || optedOut || completionProposed) && (
-          <ul className="card-flags">
+          <ul className="m-0 mb-2 flex flex-wrap gap-1 p-0 [list-style:none]">
             {pushedSince && (
               <li>
                 <Badge tone="accent">The author has pushed since you reviewed</Badge>
@@ -271,28 +279,35 @@ export function TaskCard({
         )}
 
         {proposal !== null && (
-          <section className="card-proposal" aria-label={`Suggestion for ${task.title}`}>
-            <p className="proposal-headline">
+          <section
+            className="mb-2 rounded-sm border border-dashed border-ring p-2 text-sm"
+            aria-label={`Suggestion for ${task.title}`}
+          >
+            <p className="m-0 mb-1">
               Caroline suggests <strong>{statusLabel(proposal.status)}</strong>
               {proposal.status === 'waiting' && proposal.waitingOn !== null && (
                 <span>, waiting on {proposal.waitingOn}</span>
               )}
               {/* Said as a number as well as a word: "not confident" is the reason it is a
                   suggestion rather than a decision, and how unconfident is the useful part. */}
-              <span className="proposal-confidence">
+              <span className="text-muted-foreground">
                 {' '}
                 ({formatConfidence(proposal.confidence)} confident)
               </span>
             </p>
 
-            {proposal.reasoning !== null && <p className="proposal-reason">{proposal.reasoning}</p>}
+            {proposal.reasoning !== null && (
+              <p className="m-0 mb-1 text-muted-foreground">{proposal.reasoning}</p>
+            )}
 
             {proposal.suggestedTitle !== null && (
-              <p className="proposal-retitle">Would retitle it “{proposal.suggestedTitle}”</p>
+              <p className="m-0 mb-1 text-muted-foreground">
+                Would retitle it “{proposal.suggestedTitle}”
+              </p>
             )}
 
             {proposal.projectSuggestion?.newProjectTitle != null && (
-              <p className="proposal-project">
+              <p className="m-0 mb-1 text-muted-foreground">
                 Thinks this belongs to a project called “
                 {proposal.projectSuggestion.newProjectTitle}
                 ”. Creating one is your call.
@@ -300,12 +315,23 @@ export function TaskCard({
             )}
 
             <ActionRow>
-              <button type="button" className="primary" onClick={() => onAcceptProposal?.(task.id)}>
+              <Button
+                type="button"
+                variant="default"
+                size="xs"
+                onClick={() => onAcceptProposal?.(task.id)}
+              >
                 Accept
-              </button>
-              <button type="button" onClick={() => onDismissProposal?.(task.id)}>
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                className="text-muted-foreground"
+                onClick={() => onDismissProposal?.(task.id)}
+              >
                 Dismiss
-              </button>
+              </Button>
             </ActionRow>
           </section>
         )}
@@ -317,19 +343,30 @@ export function TaskCard({
          * controls abreast do not fit a column, and a card whose controls are taller than its
          * content has the emphasis backwards. Criteria 14 and 15.
          */}
-        <ActionRow className="card-actions">
+        <ActionRow className="text-sm">
           {offerMarkReviewed && (
-            <button type="button" className="primary" onClick={() => onMarkReviewed?.(task.id)}>
+            <Button
+              type="button"
+              variant="default"
+              size="xs"
+              onClick={() => onMarkReviewed?.(task.id)}
+            >
               Mark reviewed
-            </button>
+            </Button>
           )}
 
-          <button type="button" onClick={() => onComplete(task.id)}>
+          <Button
+            type="button"
+            variant="outline"
+            size="xs"
+            className="text-muted-foreground"
+            onClick={() => onComplete(task.id)}
+          >
             Complete
-          </button>
+          </Button>
         </ActionRow>
 
-        <details className="card-more">
+        <details className="mt-2">
           {/*
            * The summary takes the board's own key handler. Without it the disclosure would be a
            * dead end for the keyboard: the board reads its shortcuts from the card and ignores
@@ -337,28 +374,41 @@ export function TaskCard({
            * for a summary, where a digit or a `d` is still a board command and not typing.
            * Criterion 15.
            */}
-          <summary onKeyDown={onKeyDown}>More</summary>
+          <summary className="cursor-pointer text-sm text-muted-foreground" onKeyDown={onKeyDown}>
+            More
+          </summary>
 
-          <ActionRow className="card-actions">
+          <ActionRow className="mt-2 text-sm">
             <Field label={`Status of ${task.title}`} hiddenLabel>
-              <select
+              <Select
                 value={task.status}
-                onChange={(event) => onStatusChange(task.id, event.target.value as TaskStatus)}
+                onValueChange={(value) => onStatusChange(task.id, value as TaskStatus)}
               >
-                {boardStatuses.map((status) => (
-                  <option key={status} value={status}>
-                    {statusLabel(status)}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger size="sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {boardStatuses.map((status) => (
+                    <SelectItem key={status} value={status}>
+                      {statusLabel(status)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </Field>
 
             {/* Undoing restores the previous actor as well as the previous status, which is the
                 part that matters: a board move locks the classifier out for good. Spec 08. */}
             {onUndoStatus !== undefined && task.previousStatus !== null && (
-              <button type="button" onClick={() => onUndoStatus(task.id)}>
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                className="text-muted-foreground"
+                onClick={() => onUndoStatus(task.id)}
+              >
                 Undo move
-              </button>
+              </Button>
             )}
           </ActionRow>
 
@@ -368,7 +418,7 @@ export function TaskCard({
            * already gives, such as a card's status column, and a bare date picker has no such
            * context. A sighted user was seeing two unlabelled date pickers here before this fix.
            */}
-          <div className="card-dates">
+          <div className="mt-2 flex flex-wrap gap-2">
             {/* A native date input, empty for unset. Clearing it back to empty sends `null`
                 rather than leaving the field alone, so taking a date off a task is as direct as
                 setting one. Issue #44.
@@ -379,7 +429,7 @@ export function TaskCard({
                 clear the date under the person typing it. Committed on blur instead, the same
                 convention `QuickCapture`'s own date fields use. */}
             <Field label="Due">
-              <input
+              <Input
                 type="date"
                 name="dueAt"
                 value={dueDateInput}
@@ -395,7 +445,7 @@ export function TaskCard({
             </Field>
 
             <Field label="Defer until">
-              <input
+              <Input
                 type="date"
                 name="deferUntil"
                 value={deferDateInput}
@@ -411,20 +461,38 @@ export function TaskCard({
             </Field>
           </div>
 
-          <ActionRow className="card-actions">
+          <ActionRow className="mt-2 text-sm">
             {confirmingDelete ? (
               <>
-                <button type="button" onClick={() => onDelete(task.id)}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  className="text-muted-foreground"
+                  onClick={() => onDelete(task.id)}
+                >
                   Confirm delete
-                </button>
-                <button type="button" onClick={() => setConfirmingDelete(false)}>
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  className="text-muted-foreground"
+                  onClick={() => setConfirmingDelete(false)}
+                >
                   Keep
-                </button>
+                </Button>
               </>
             ) : (
-              <button type="button" onClick={() => setConfirmingDelete(true)}>
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                className="text-muted-foreground"
+                onClick={() => setConfirmingDelete(true)}
+              >
                 Delete
-              </button>
+              </Button>
             )}
           </ActionRow>
         </details>

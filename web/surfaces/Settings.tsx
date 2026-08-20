@@ -7,13 +7,31 @@
  * the page. Spec 09, criterion 9.
  */
 import { useEffect, useState } from 'react'
-import type { GoogleStatus, McpClientView, McpConsentView, PrivacyPreview } from '../api.js'
+import type { GoogleStatus, Health, McpClientView, McpConsentView, PrivacyPreview } from '../api.js'
+import { cn } from '../lib/utils.js'
 import { formatDate } from '../format.js'
-import { ActionRow, Fact, Facts, Field, Panel } from '../components/primitives.js'
+import {
+  ActionRow,
+  Badge,
+  changeNoteClassName,
+  emptyClassName,
+  Fact,
+  Facts,
+  Field,
+  Panel,
+  payloadPreviewClassName,
+  policyNoteClassName,
+} from '../components/primitives.js'
+import { Button } from '../components/ui/button.js'
+import { Input } from '../components/ui/input.js'
 import { useSurfaceTitle } from '../title.js'
 
 export interface SettingsProps {
   readonly google: GoogleStatus | null
+  /** GitHub's and the LLM provider's own connection status, from `GET /api/health`. Read once
+   *  rather than on opening Settings, the same as the rest of the shell's data: neither changes
+   *  without a restart. Null until that first read answers. */
+  readonly health: Health | null
   readonly preview: PrivacyPreview | null
   /** What Caroline calls the person using it. Empty is a supported answer. Spec 09. */
   readonly userName: string
@@ -49,6 +67,7 @@ const outcomes: Record<string, string> = {
 
 export function Settings({
   google,
+  health,
   preview,
   userName,
   googleOutcome,
@@ -73,23 +92,23 @@ export function Settings({
   }, [userName])
 
   return (
-    <div className="settings-surface">
+    <div className="flex flex-col gap-5">
       <h1>Settings</h1>
 
-      <div className="settings-columns">
-        <div className="settings-column">
+      <div className="grid grid-cols-1 items-start gap-5 [grid-template-columns:repeat(auto-fit,minmax(20rem,1fr))]">
+        <div className="flex min-w-0 flex-col gap-5">
           <Panel headingLevel={2} heading="Google account">
             {googleOutcome !== null && (
-              <p role="status" className="settings-outcome">
+              <p role="status" className="mt-2 rounded-sm border border-ring p-2">
                 {outcomes[googleOutcome] ?? 'Something happened while connecting to Google.'}
               </p>
             )}
 
             {google === null ? (
-              <p className="empty">Waiting for the server.</p>
+              <p className={emptyClassName}>Waiting for the server.</p>
             ) : !google.configured ? (
               <div>
-                <p className="empty">
+                <p className={emptyClassName}>
                   No Google client is configured, so there is nothing to connect yet. Create a
                   Google Cloud OAuth client, put its id in <code>integrations.google.clientId</code>{' '}
                   and its secret in the <code>GOOGLE_CLIENT_SECRET</code> environment variable, then
@@ -106,16 +125,22 @@ export function Settings({
                   {google.connectedAt === null ? '' : ` on ${formatDate(google.connectedAt)}`}.
                   Read-only, and only these scopes:
                 </p>
-                <ul className="scope-list">
+                <ul className="mb-3 flex flex-col gap-1 pl-0 text-[11px] [list-style:none]">
                   {google.scopes.map((scope) => (
                     <li key={scope}>
-                      <code>{scope}</code>
+                      <code className="rounded-sm bg-muted px-2 py-1 font-mono">{scope}</code>
                     </li>
                   ))}
                 </ul>
-                <button type="button" onClick={onDisconnectGoogle}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-6.5 self-start px-2.5 text-[11px] text-muted-foreground"
+                  onClick={onDisconnectGoogle}
+                >
                   Disconnect
-                </button>
+                </Button>
               </div>
             ) : (
               <div>
@@ -123,10 +148,40 @@ export function Settings({
                   Not connected. Connecting opens Google in this browser and asks for read-only
                   access to Gmail and Calendar. Caroline never writes to either.
                 </p>
-                <button type="button" className="primary" onClick={onConnectGoogle}>
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  className="h-6.5 self-start px-2.5 text-[11px]"
+                  onClick={onConnectGoogle}
+                >
                   Connect Google
-                </button>
+                </Button>
               </div>
+            )}
+          </Panel>
+
+          {/* GitHub and the LLM provider are configuration Caroline reads at startup, not
+          accounts a person connects from here, so this panel is a status report rather than a
+          control: what the deployment found configured, next to the Google panel that is one. */}
+          <Panel headingLevel={2} heading="GitHub and LLM provider">
+            {health === null ? (
+              <p className={emptyClassName}>Waiting for the server.</p>
+            ) : (
+              <Facts>
+                <Fact label="GitHub">
+                  <Badge
+                    tone={health.integrations.github?.configured === true ? 'accent' : 'quiet'}
+                  >
+                    {health.integrations.github?.status ?? 'not configured'}
+                  </Badge>
+                </Fact>
+                <Fact label="LLM provider">
+                  <Badge tone={health.integrations.llm?.configured === true ? 'accent' : 'quiet'}>
+                    {health.integrations.llm?.status ?? 'not configured'}
+                  </Badge>
+                </Fact>
+              </Facts>
             )}
           </Panel>
 
@@ -139,7 +194,7 @@ export function Settings({
           {mcpConsent !== undefined && (
             <Panel headingLevel={2} heading="An assistant is asking to connect">
               {mcpConsent === null ? (
-                <p className="empty">
+                <p className={emptyClassName}>
                   That request has expired, was already decided, or does not exist. Ask the
                   assistant to try connecting again.
                 </p>
@@ -156,16 +211,24 @@ export function Settings({
                     <Fact label="Redirects to">{mcpConsent.redirectUri}</Fact>
                   </Facts>
                   <ActionRow>
-                    <button
+                    <Button
                       type="button"
-                      className="primary"
+                      variant="default"
+                      size="sm"
+                      className="h-6.5 px-2.5 text-[11px]"
                       onClick={() => onDecideMcpConsent(true)}
                     >
                       Approve
-                    </button>
-                    <button type="button" onClick={() => onDecideMcpConsent(false)}>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-6.5 px-2.5 text-[11px] text-muted-foreground"
+                      onClick={() => onDecideMcpConsent(false)}
+                    >
                       Deny
-                    </button>
+                    </Button>
                   </ActionRow>
                 </div>
               )}
@@ -178,21 +241,27 @@ export function Settings({
           {mcpClients !== null && (
             <Panel headingLevel={2} heading="Assistants connected over MCP">
               {mcpClients.length === 0 ? (
-                <p className="empty">No assistant has been approved yet.</p>
+                <p className={emptyClassName}>No assistant has been approved yet.</p>
               ) : (
-                <ul className="mcp-client-list">
+                <ul className="m-0 flex flex-col gap-2 p-0 [list-style:none]">
                   {mcpClients.map((client) => (
-                    <li key={client.clientId}>
-                      <span>{client.clientName ?? client.clientId}</span>
+                    <li key={client.clientId} className="flex items-baseline gap-2">
+                      <span className="flex-1">{client.clientName ?? client.clientId}</span>
                       {client.approvedAt !== null && (
-                        <span className="policy-note">
+                        <span className={policyNoteClassName}>
                           {' '}
                           Approved {formatDate(client.approvedAt)}.
                         </span>
                       )}
-                      <button type="button" onClick={() => onRevokeMcpClient(client.clientId)}>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="xs"
+                        className="px-2.5 text-muted-foreground"
+                        onClick={() => onRevokeMcpClient(client.clientId)}
+                      >
                         Revoke
-                      </button>
+                      </Button>
                     </li>
                   ))}
                 </ul>
@@ -209,7 +278,7 @@ export function Settings({
             </p>
 
             <form
-              className="inline-form"
+              className="flex flex-wrap items-end gap-2"
               onSubmit={(event) => {
                 event.preventDefault()
                 setSaving(true)
@@ -224,7 +293,7 @@ export function Settings({
               }}
             >
               <Field label="Your name">
-                <input
+                <Input
                   name="userName"
                   value={typed}
                   autoComplete="off"
@@ -235,42 +304,51 @@ export function Settings({
                 />
               </Field>
               <ActionRow>
-                <button type="submit" className="primary" disabled={saving}>
+                <Button
+                  type="submit"
+                  variant="default"
+                  size="sm"
+                  className="h-8 px-3 text-xs"
+                  disabled={saving}
+                >
                   {saving ? 'Saving' : 'Save'}
-                </button>
+                </Button>
               </ActionRow>
             </form>
 
-            <p className="policy-note">
+            <p className={policyNoteClassName}>
               Leave it empty and Caroline will not address you by name, and will not send one.
             </p>
 
             {saved && (
-              <p role="status" className="settings-outcome">
+              <p role="status" className="mt-2 rounded-sm border border-ring p-2">
                 Saved. The next turn and the next plan will use it.
               </p>
             )}
           </Panel>
         </div>
 
-        <div className="settings-column">
+        <div className="flex min-w-0 flex-col gap-5">
           <Panel headingLevel={2} heading="What leaves this machine">
             {preview === null ? (
-              <p className="empty">Waiting for the server.</p>
+              <p className={emptyClassName}>Waiting for the server.</p>
             ) : (
               <>
                 <Facts>
                   <Fact label="Sent to the model">
                     <strong>{preview.policy.llmContent}</strong>
                     {preview.policy.llmConsequence !== undefined && (
-                      <span className="policy-consequence"> {preview.policy.llmConsequence}</span>
+                      <span className={changeNoteClassName}> {preview.policy.llmConsequence}</span>
                     )}
                   </Fact>
 
                   <Fact label="Stored on disk">
                     <strong>{preview.policy.storeContent}</strong>
                     {preview.policy.storeConsequence !== undefined && (
-                      <span className="policy-consequence"> {preview.policy.storeConsequence}</span>
+                      <span className={changeNoteClassName}>
+                        {' '}
+                        {preview.policy.storeConsequence}
+                      </span>
                     )}
                   </Fact>
 
@@ -280,7 +358,7 @@ export function Settings({
                 {/* Editing these is a restart away: they live in the config file, and the two questions
                 they answer are the sort a person should decide deliberately rather than by dragging
                 a slider. Spec 09 keeps them in `privacy`. */}
-                <p className="policy-note">
+                <p className={policyNoteClassName}>
                   Change these in <code>caroline.config.json</code> under <code>privacy</code>, then
                   restart Caroline.
                 </p>
@@ -292,14 +370,14 @@ export function Settings({
           than inside the classification payload, which does not carry it. Spec 09. */}
           <Panel headingLevel={2} heading="What every chat and planning call says about you">
             {preview?.preamble === undefined ? (
-              <p className="empty">Waiting for the server.</p>
+              <p className={emptyClassName}>Waiting for the server.</p>
             ) : (
               <>
                 <p>
                   This is the preamble, word for word, as it will be sent. It is built from the same
                   function the model is handed, so it cannot drift from what leaves the machine.
                 </p>
-                <pre className="payload-preview">{preview.preamble}</pre>
+                <pre className={payloadPreviewClassName}>{preview.preamble}</pre>
               </>
             )}
           </Panel>
@@ -310,9 +388,9 @@ export function Settings({
             {preview === null ? (
               // A preview that has not arrived is not a preview saying nothing is captured, which is the
               // distinction every other panel here draws.
-              <p className="empty">Waiting for the server.</p>
+              <p className={emptyClassName}>Waiting for the server.</p>
             ) : preview.itemContext == null ? (
-              <p className="empty">
+              <p className={emptyClassName}>
                 Nothing is captured yet, so there is no real item to show. Open one in the rail and
                 this is what a message about it would carry.
               </p>
@@ -326,10 +404,14 @@ export function Settings({
                 {/* Closed by default, the same disclosure the task card's own "More" uses: the
                     raw payload is a proof to check when wanted, not a paragraph the panel should
                     always be as tall as. */}
-                <details className="payload-disclosure">
-                  <summary>Show the payload</summary>
-                  <pre className="payload-preview">{preview.itemContext.rendered}</pre>
-                  <p className="policy-note">
+                <details>
+                  <summary className="cursor-pointer text-sm text-muted-foreground">
+                    Show the payload
+                  </summary>
+                  <pre className={cn(payloadPreviewClassName, 'mt-2')}>
+                    {preview.itemContext.rendered}
+                  </pre>
+                  <p className={policyNoteClassName}>
                     Content policy version {preview.itemContext.policyVersion}.
                   </p>
                 </details>
@@ -339,9 +421,9 @@ export function Settings({
 
           <Panel headingLevel={2} heading="What a classification call would send">
             {preview === null ? (
-              <p className="empty">Waiting for the server.</p>
+              <p className={emptyClassName}>Waiting for the server.</p>
             ) : preview.item === null ? (
-              <p className="empty">
+              <p className={emptyClassName}>
                 Nothing is in the inbox, so there is no real item to preview. Once something
                 arrives, exactly what would be sent about it appears here.
               </p>
@@ -352,16 +434,26 @@ export function Settings({
                   {preview.item.provider === null ? '' : ` (${preview.item.provider})`}, under the
                   policy above, this is the whole payload:
                 </p>
-                <details className="payload-disclosure">
-                  <summary>Show the payload</summary>
-                  <pre className="payload-preview">{JSON.stringify(preview.payload, null, 2)}</pre>
+                <details>
+                  <summary className="cursor-pointer text-sm text-muted-foreground">
+                    Show the payload
+                  </summary>
+                  <pre className={cn(payloadPreviewClassName, 'mt-2')}>
+                    {JSON.stringify(preview.payload, null, 2)}
+                  </pre>
                   {preview.promptVersion !== undefined && (
-                    <p className="policy-note">Prompt version {preview.promptVersion}.</p>
+                    <p className={policyNoteClassName}>Prompt version {preview.promptVersion}.</p>
                   )}
                 </details>
-                <button type="button" onClick={onRefreshPreview}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  className="px-2.5"
+                  onClick={onRefreshPreview}
+                >
                   Refresh
-                </button>
+                </Button>
               </>
             )}
           </Panel>

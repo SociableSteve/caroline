@@ -132,10 +132,8 @@ describe('the projects list', () => {
       projects: [aProject({ id: 'project-1', title: 'Ship it' })],
     })
 
-    await userEvent.selectOptions(
-      screen.getByRole('combobox', { name: 'State of Ship it' }),
-      'someday',
-    )
+    await userEvent.click(screen.getByRole('combobox', { name: 'State of Ship it' }))
+    await userEvent.click(await screen.findByRole('option', { name: 'Someday' }))
 
     expect(handlers.onStateChange).toHaveBeenCalledWith('project-1', 'someday')
   })
@@ -199,10 +197,8 @@ describe('a project on its own', () => {
   it('changes the status of one of its tasks', async () => {
     const handlers = renderDetail({ tasks: [aTask({ id: 'task-1', title: 'Do the thing' })] })
 
-    await userEvent.selectOptions(
-      screen.getByRole('combobox', { name: 'Status of Do the thing' }),
-      'next_action',
-    )
+    await userEvent.click(screen.getByRole('combobox', { name: 'Status of Do the thing' }))
+    await userEvent.click(await screen.findByRole('option', { name: 'Next actions' }))
 
     expect(handlers.onStatusChange).toHaveBeenCalledWith('task-1', 'next_action')
   })

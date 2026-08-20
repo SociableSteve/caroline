@@ -29,16 +29,13 @@ import type {
   CalendarDay,
   CalendarEventView,
   CapacityView,
-  Health,
   ItemRef,
-  JobRun,
   PlanEntryView,
   PlanView,
   ProjectView,
   TaskView,
 } from '../api.js'
 import {
-  ago,
   byOldestFirst,
   formatAge,
   formatEstimate,
@@ -50,16 +47,15 @@ import {
 } from '../format.js'
 import { unverifiedCapacityNotice } from '../../src/domain/capacity.js'
 import type { Interval } from '../../src/domain/capacity.js'
+import { cn } from '../lib/utils.js'
 import { projectHref, surfaceHref } from '../router.js'
-import { Badge, Panel } from '../components/primitives.js'
+import { Badge, emptyClassName, itemOpenClassName, Panel } from '../components/primitives.js'
+import { Button } from '../components/ui/button.js'
 import { useSurfaceTitle } from '../title.js'
 
 export interface DashboardProps {
   readonly tasks: readonly TaskView[]
   readonly projects: readonly ProjectView[]
-  readonly health: Health | null
-  /** Recent runs, most recent first. Only the latest of each job is shown. */
-  readonly jobRuns: readonly JobRun[]
   /** Today's plan, or null when none has been drawn. Spec 05. */
   readonly plan: PlanView | null
   readonly calendar: CalendarDay | null
@@ -74,22 +70,6 @@ export interface DashboardProps {
   readonly selected: ItemRef | null
   /** The hash the stalled-project links are built from, so a drill-in keeps the rail. Spec 08. */
   readonly hash: string
-}
-
-/** One row per job: the history is long, and what the dashboard answers is "is it working". */
-function latestRunPerJob(runs: readonly JobRun[]): JobRun[] {
-  const latest = new Map<string, JobRun>()
-  for (const run of runs) {
-    if (!latest.has(run.job)) latest.set(run.job, run)
-  }
-
-  return [...latest.values()].sort((first, second) => (first.job < second.job ? -1 : 1))
-}
-
-const integrationNames: Record<string, string> = {
-  github: 'GitHub',
-  google: 'Google',
-  llm: 'LLM provider',
 }
 
 /** What the plan has committed to, done and not done alike. The verdict compares it against the
@@ -191,7 +171,9 @@ function DayBar({
   readonly now: number
 }) {
   if (!capacity.workingDay) {
-    return <p className="empty">Today is not a working day, so there is no capacity to plan.</p>
+    return (
+      <p className={emptyClassName}>Today is not a working day, so there is no capacity to plan.</p>
+    )
   }
 
   const meetings = capacity.busyMinutes
@@ -202,21 +184,29 @@ function DayBar({
   const free = Math.max(0, capacityFree - doneWidth - plannedWidth)
 
   const segments = [
-    { key: 'meetings', minutes: meetings, className: 'daybar-meetings' },
-    { key: 'planned', minutes: plannedWidth, className: 'daybar-planned' },
-    { key: 'done', minutes: doneWidth, className: 'daybar-done' },
-    { key: 'free', minutes: free, className: 'daybar-free' },
-    { key: 'reserve', minutes: reserve, className: 'daybar-reserve' },
+    { key: 'meetings', minutes: meetings, className: 'bg-accent' },
+    { key: 'planned', minutes: plannedWidth, className: 'bg-chart-2' },
+    { key: 'done', minutes: doneWidth, className: 'bg-chart-2/35' },
+    {
+      key: 'free',
+      minutes: free,
+      className: 'border-x border-dashed border-foreground/20',
+    },
+    {
+      key: 'reserve',
+      minutes: reserve,
+      className: 'bg-foreground/[0.06]',
+    },
   ].filter((segment) => segment.minutes > 0)
 
   const total = segments.reduce((sum, segment) => sum + segment.minutes, 0)
 
   return (
-    <div className="day-bar">
+    <div className="my-1 mb-3 flex flex-col gap-1.5">
       {/* A decoration of the legend below, which is what actually carries the numbers in words:
           colour is never the only carrier of meaning. Spec 08. */}
       {total > 0 && (
-        <div className="day-bar-track" aria-hidden="true">
+        <div className="flex h-6.5 overflow-hidden rounded-md border" aria-hidden="true">
           {segments.map((segment) => (
             <span
               key={segment.key}
@@ -227,15 +217,13 @@ function DayBar({
         </div>
       )}
 
-      <ul className="day-bar-legend">
-        <li className="legend-meetings">meetings {formatEstimate(meetings)}</li>
-        <li className="legend-planned">planned {formatEstimate(plannedWidth)}</li>
-        <li className="legend-done">done {formatEstimate(doneWidth)}</li>
-        <li className="legend-free">free {formatEstimate(free)}</li>
-        {reserve > 0 && <li className="legend-reserve">held back {formatEstimate(reserve)}</li>}
-        <li className="legend-now">
-          now <span className="legend-now-time">{formatTimeOfDay(now)}</span>
-        </li>
+      <ul className="m-0 flex flex-wrap items-baseline gap-x-4 gap-y-1 p-0 text-[11px] text-muted-foreground [list-style:none]">
+        <li>meetings {formatEstimate(meetings)}</li>
+        <li>planned {formatEstimate(plannedWidth)}</li>
+        <li>done {formatEstimate(doneWidth)}</li>
+        <li>free {formatEstimate(free)}</li>
+        {reserve > 0 && <li>held back {formatEstimate(reserve)}</li>}
+        <li className="ml-auto font-mono font-medium text-chart-2">now {formatTimeOfDay(now)}</li>
       </ul>
     </div>
   )
@@ -350,7 +338,7 @@ function EntryTitle({
   return (
     <button
       type="button"
-      className="item-open"
+      className={itemOpenClassName}
       aria-pressed={open}
       onClick={() => onSelect({ kind: 'task', id: taskId })}
     >
@@ -381,25 +369,37 @@ function PlanEntryLine({
 }) {
   return (
     <>
-      <span className="plan-rank">{entry.rank}</span>
-      <span className="plan-title">
+      <span className="font-mono text-muted-foreground [font-variant-numeric:tabular-nums]">
+        {entry.rank}
+      </span>
+      <span
+        className={cn(
+          'font-medium [overflow-wrap:anywhere]',
+          entry.done && 'text-muted-foreground line-through',
+        )}
+      >
         <EntryTitle entry={entry} onSelect={onSelect} selected={selected} />
       </span>
-      {entry.rationale !== null && <span className="plan-why">{entry.rationale}</span>}
+      {entry.rationale !== null && (
+        <span className="text-sm text-muted-foreground">{entry.rationale}</span>
+      )}
       {entry.estimateMinutes !== null && (
-        <span className="plan-estimate">{formatEstimate(entry.estimateMinutes)}</span>
+        <span className="ml-auto whitespace-nowrap font-mono text-sm text-muted-foreground">
+          {formatEstimate(entry.estimateMinutes)}
+        </span>
       )}
       {/* Done is said in text as well as in the styling: colour is never the only carrier of
           meaning. Spec 08. */}
-      {entry.done && <span className="plan-state">done</span>}
+      {entry.done && <span className="text-sm text-muted-foreground">done</span>}
       {!entry.done && entry.taskId !== null && (
-        <button
+        <Button
           type="button"
+          size="xs"
           aria-label={`Complete ${entry.title}`}
           onClick={() => onComplete(entry.taskId as string)}
         >
           Complete
-        </button>
+        </Button>
       )}
     </>
   )
@@ -417,11 +417,24 @@ function AgendaEntryRow({
   readonly selected: ItemRef | null
 }) {
   const { entry, startsAt } = scheduled
+  const open = isEntryOpen(entry, selected)
 
   return (
-    <li className={entry.done ? 'agenda-row plan-entry plan-done' : 'agenda-row plan-entry'}>
-      <span className="agenda-time">{startsAt === null ? null : formatTimeOfDay(startsAt)}</span>
-      <div className={isEntryOpen(entry, selected) ? 'agenda-card card-open' : 'agenda-card'}>
+    <li
+      className={cn(
+        'grid grid-cols-[44px_minmax(0,1fr)] items-start gap-x-3',
+        entry.done && 'plan-done',
+      )}
+    >
+      <span className="justify-self-center bg-background py-1.5 font-mono text-[11px] text-muted-foreground [font-variant-numeric:tabular-nums]">
+        {startsAt === null ? null : formatTimeOfDay(startsAt)}
+      </span>
+      <div
+        className={cn(
+          'agenda-card flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-1 rounded-lg border border-border bg-card px-3 py-2',
+          open && 'card-open border-chart-2/50 bg-chart-2/[0.08]',
+        )}
+      >
         <PlanEntryLine
           entry={entry}
           onComplete={onComplete}
@@ -445,15 +458,17 @@ function AgendaMeetingRow({ event }: { readonly event: CalendarEventView }) {
   const durationMinutes = event.allDay ? null : Math.round((event.endsAt - event.startsAt) / 60_000)
 
   return (
-    <li className={free === null ? 'agenda-row event-busy' : 'agenda-row event-free'}>
-      <span className="agenda-time">
+    <li className="grid grid-cols-[44px_minmax(0,1fr)] items-start gap-x-3">
+      <span className="justify-self-center bg-background py-1.5 font-mono text-[11px] text-muted-foreground [font-variant-numeric:tabular-nums]">
         {event.allDay ? 'all day' : formatTimeOfDay(event.startsAt)}
       </span>
-      <div className="agenda-card">
-        <span className="event-summary">{event.summary ?? 'Busy'}</span>
+      <div className="agenda-card flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-1 rounded-lg border border-border bg-card px-3 py-2">
+        <span className={free === null ? undefined : 'text-muted-foreground'}>
+          {event.summary ?? 'Busy'}
+        </span>
         {/* Why it costs nothing, rather than leaving a declined meeting looking like an hour that
             has gone. */}
-        <span className="event-free-reason">
+        <span className="ml-auto whitespace-nowrap text-sm text-muted-foreground">
           {durationMinutes !== null &&
             durationMinutes > 0 &&
             `${formatEstimate(durationMinutes)}, `}
@@ -476,12 +491,14 @@ function AgendaGapRow({
   readonly selected: ItemRef | null
 }) {
   return (
-    <li className="agenda-row agenda-gap">
-      <span className="agenda-time">{formatTimeOfDay(gap.startsAt)}</span>
-      <div className="agenda-card">
-        <span className="gap-free">{formatEstimate(gap.minutes)} free</span>
+    <li className="grid grid-cols-[44px_minmax(0,1fr)] items-start gap-x-3">
+      <span className="justify-self-center bg-background py-1.5 font-mono text-[11px] text-muted-foreground [font-variant-numeric:tabular-nums]">
+        {formatTimeOfDay(gap.startsAt)}
+      </span>
+      <div className="agenda-card flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-1 rounded-lg border border-dashed border-chart-2/30 bg-chart-2/[0.04] px-3 py-2 text-muted-foreground">
+        <span className="font-medium text-chart-1">{formatEstimate(gap.minutes)} free</span>
         {offer !== null && (
-          <span className="gap-offer">
+          <span className="text-foreground">
             <EntryTitle entry={offer} onSelect={onSelect} selected={selected} /> (
             {formatEstimate(offer.estimateMinutes ?? 0)}) would fit
           </span>
@@ -616,28 +633,47 @@ function Agenda({
   }
 
   const nowRow = (
-    <li key="now" className="agenda-now" aria-hidden="true">
-      <span className="agenda-time">{formatTimeOfDay(now)}</span>
-      <span className="agenda-now-line" />
-      now
+    <li
+      key="now"
+      className="agenda-now grid grid-cols-[44px_minmax(0,1fr)] items-center gap-x-3 py-1 text-xs font-medium text-chart-2"
+      aria-hidden="true"
+    >
+      <span className="justify-self-center font-mono text-[11px] [font-variant-numeric:tabular-nums]">
+        {formatTimeOfDay(now)}
+      </span>
+      <span className="flex items-center gap-2">
+        <span className="h-0.5 flex-1 rounded-full bg-chart-2" />
+        now
+      </span>
     </li>
   )
 
   if (timed.length === 0 && untimed.length === 0) {
-    return <p className="empty">Nothing on the agenda yet.</p>
+    return <p className={emptyClassName}>Nothing on the agenda yet.</p>
   }
 
+  // A continuous vertical line down the time gutter, per the mockup: an absolutely positioned
+  // overlay behind the list rather than a grid spanning every row, so the list stays a plain
+  // `<ol>`/`<li>` structure (real list semantics, and the classes `Dashboard.test.tsx` already
+  // asserts on) with each row free to lay out its own two columns. The line sits at the gutter's
+  // centre (half of the 44px column, plus the row gap before it).
   return (
-    <ol className="agenda">
-      {timed.map((row, index) => (
-        <Fragment key={row.key}>
-          {index === nowAt && nowRow}
-          {renderRow(row)}
-        </Fragment>
-      ))}
-      {nowAt === -1 && timed.length > 0 && nowRow}
-      {untimed.map((row) => renderRow(row))}
-    </ol>
+    <div className="relative">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-y-1 left-[21px] w-px bg-border"
+      />
+      <ol className="relative m-0 flex flex-col gap-2 p-0 [list-style:none]">
+        {timed.map((row, index) => (
+          <Fragment key={row.key}>
+            {index === nowAt && nowRow}
+            {renderRow(row)}
+          </Fragment>
+        ))}
+        {nowAt === -1 && timed.length > 0 && nowRow}
+        {untimed.map((row) => renderRow(row))}
+      </ol>
+    </div>
   )
 }
 
@@ -680,14 +716,18 @@ function needsYouEmptyMessages(
 
 function NeedsYouRow({ item }: { readonly item: NeedsYouItem }) {
   return (
-    <li className="needs-you-row">
-      <div className="needs-you-meta">
+    <li className="border-b border-sidebar-border pb-2">
+      <div className="mb-1 flex items-baseline justify-between gap-2">
         <Badge tone={item.tone}>{item.pill}</Badge>
-        {item.ageMs !== null && <span className="needs-you-age">{formatAge(item.ageMs)}</span>}
+        {item.ageMs !== null && (
+          <span className="font-mono text-[11px] text-muted-foreground [font-variant-numeric:tabular-nums]">
+            {formatAge(item.ageMs)}
+          </span>
+        )}
       </div>
-      <p className="needs-you-title">{item.title}</p>
-      <p className="needs-you-subtitle">{item.subtitle}</p>
-      {item.note !== null && <p className="needs-you-note">{item.note}</p>}
+      <p className="m-0 text-[13px] font-medium [overflow-wrap:anywhere]">{item.title}</p>
+      <p className="m-0 text-[11px] text-muted-foreground">{item.subtitle}</p>
+      {item.note !== null && <p className="m-0 text-[11px] text-chart-1">{item.note}</p>}
     </li>
   )
 }
@@ -695,8 +735,6 @@ function NeedsYouRow({ item }: { readonly item: NeedsYouItem }) {
 export function Dashboard({
   tasks,
   projects,
-  health,
-  jobRuns,
   plan,
   calendar,
   staleDays,
@@ -709,7 +747,6 @@ export function Dashboard({
   hash,
 }: DashboardProps) {
   useSurfaceTitle('Today')
-  const latestRuns = latestRunPerJob(jobRuns)
   const counts = new Map(
     taskStatuses.map((status) => [status, tasks.filter((task) => task.status === status).length]),
   )
@@ -720,7 +757,6 @@ export function Dashboard({
   const { planned, done } = splitPlannedMinutes(plan)
   const capacityNotice = calendar === null ? null : unverifiedCapacityNotice(calendar.capacity)
   const todaysVerdict = verdict(calendar, totalPlanned)
-  const lastSync = latestRuns.find((run) => run.job === 'sync')
 
   const needsYou: NeedsYouItem[] = [
     ...quiet.map((task): NeedsYouItem => ({
@@ -759,26 +795,29 @@ export function Dashboard({
   const needsYouTop = needsYou.slice(0, 3)
 
   return (
-    <div className="dashboard">
-      <h1>Today</h1>
+    <div className="flex h-full min-h-0 flex-col gap-5">
+      <h1 className="shrink-0">Today</h1>
 
-      <div className="dashboard-layout">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-5 md:grid-cols-[minmax(14.5rem,16.25rem)_minmax(0,1fr)]">
         {/* The left rail. Issue #47: ranked "Needs you" first, capped to three, then the bordered
             "Where everything is" card. */}
-        <div className="dashboard-rail">
-          <section className="needs-you" aria-labelledby="needs-you-heading">
-            <h2 id="needs-you-heading" className="rail-heading-plain">
+        <div className="flex min-w-0 flex-col gap-3.5 rounded-lg border border-sidebar-border bg-sidebar p-3.5">
+          <section aria-labelledby="needs-you-heading">
+            <h2
+              id="needs-you-heading"
+              className="m-0 mb-2 text-xs font-semibold uppercase tracking-[0.05em] text-muted-foreground"
+            >
               Needs you
             </h2>
 
             {needsYouTop.length === 0 ? (
               needsYouEmptyMessages(waiting, staleDays, projects).map((message) => (
-                <p className="empty" key={message}>
+                <p className={emptyClassName} key={message}>
                   {message}
                 </p>
               ))
             ) : (
-              <ul className="needs-you-list">
+              <ul className="m-0 mb-2 flex flex-col gap-3 p-0 [list-style:none]">
                 {needsYouTop.map((item) => (
                   <NeedsYouRow key={item.key} item={item} />
                 ))}
@@ -787,122 +826,114 @@ export function Dashboard({
 
             {/* The rail shows only the top 3; this is where the rest of what is waiting lives.
                 Issue #47's exact caption text, now a link rather than a plain caption. */}
-            <a className="needs-you-caption" href={surfaceHref('#/board', hash)}>
+            <a
+              className="inline-block text-xs text-muted-foreground underline underline-offset-[3px]"
+              href={surfaceHref('#/board', hash)}
+            >
               Everything waiting, oldest first.
             </a>
           </section>
 
-          <Panel headingLevel={2} heading="Where everything is" className="rail-card">
-            <ul className="counts">
-              {taskStatuses.map((status) => (
-                <li key={status}>
-                  <span className="count">{counts.get(status) ?? 0}</span>
-                  <span className="count-label">{statusLabel(status)}</span>
-                </li>
-              ))}
-            </ul>
-
-            {health !== null &&
-              (() => {
-                const configuredNames = Object.entries(health.integrations)
-                  .filter(([, integration]) => integration.configured)
-                  .map(([key]) => integrationNames[key] ?? key)
-
-                return (
-                  <p className="rail-integrations">
-                    {configuredNames.length === 0
-                      ? 'Nothing is configured yet.'
-                      : `${configuredNames.join(', ')} ${configuredNames.length === 1 ? 'is' : 'are'} configured.`}
-                    {lastSync !== undefined && configuredNames.length > 0 && (
-                      <> Synced {ago(lastSync.finishedAt, now)}.</>
-                    )}
-                  </p>
-                )
-              })()}
-
-            {/* Named per integration too, so a reader after the specific status of one does not
-                have to parse the sentence above. */}
-            <ul className="integration-list">
-              {health === null
-                ? null
-                : Object.entries(health.integrations).map(([key, integration]) => (
-                    <li key={key}>
-                      <span>{integrationNames[key] ?? key}</span>
-                      <span>{integration.status}</span>
-                    </li>
-                  ))}
-            </ul>
+          {/* Where everything is: a task-status breakdown, and nothing else. Which providers are
+              configured and when they last synced is Settings' own subject, not this one's. */}
+          <Panel
+            headingLevel={2}
+            heading="Where everything is"
+            className="mt-auto rounded-lg border border-sidebar-border bg-transparent p-3 shadow-none"
+            headingClassName="m-0 mb-2 font-mono text-[10px] uppercase tracking-[0.06em] text-muted-foreground"
+          >
+            <table className="w-full border-collapse text-xs">
+              <caption className="sr-only">Task count by status</caption>
+              <tbody>
+                {taskStatuses.map((status) => (
+                  <tr key={status} className="border-b border-sidebar-border last:border-0">
+                    <th
+                      scope="row"
+                      className="py-1 pr-2 text-left font-normal text-muted-foreground"
+                    >
+                      {statusLabel(status)}
+                    </th>
+                    <td className="py-1 text-right font-mono text-foreground [font-variant-numeric:tabular-nums]">
+                      {counts.get(status) ?? 0}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </Panel>
         </div>
 
         {/* The main column: the verdict, the day bar and the agenda. One region rather than the
             separate plan and calendar panels this replaces, because the agenda interleaves both
             into a single spine. */}
-        <section className="dashboard-main" aria-labelledby="today-heading">
-          <div className="today-head">
-            <h2 id="today-heading" className="visually-hidden">
+        <section className="flex min-w-0 flex-col gap-3" aria-labelledby="today-heading">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
+            <h2 id="today-heading" className="sr-only">
               Today
             </h2>
             {todaysVerdict !== null && (
-              <p className="verdict">
-                <span className="verdict-headline">{todaysVerdict}</span>
-                <span className="verdict-date">{formatVerdictDate(now)}</span>
+              <p className="m-0">
+                <span className="text-xl font-medium tracking-tight">{todaysVerdict}</span>{' '}
+                <span className="verdict-date font-mono text-muted-foreground">
+                  {formatVerdictDate(now)}
+                </span>
               </p>
             )}
             {/* The window the verdict was drawn from, in words: issue #47's headline states only
                 the free/planned split, and the old separate calendar panel's working-day total
                 and reserve are otherwise dropped entirely by the merge. */}
             {todaysVerdict !== null && calendar !== null && (
-              <p className="verdict-detail">{capacityDetail(calendar.capacity)}</p>
+              <p className="mt-1 text-muted-foreground">{capacityDetail(calendar.capacity)}</p>
             )}
-            <button
-              type="button"
-              className="verdict-regenerate"
-              onClick={onRegeneratePlan}
-              disabled={regenerating}
-            >
+            <Button type="button" onClick={onRegeneratePlan} disabled={regenerating}>
               {regenerating ? 'Regenerating' : 'Regenerate'}
-            </button>
+            </Button>
           </div>
 
           {calendar !== null && (
             <DayBar capacity={calendar.capacity} planned={planned} done={done} now={now} />
           )}
 
-          {capacityNotice !== null && <p className="capacity-unverified">{capacityNotice}</p>}
+          {capacityNotice !== null && (
+            <p className="text-sm text-muted-foreground">{capacityNotice}</p>
+          )}
 
           {/* Independent empty states, kept apart rather than folded into one sentence: a plan
               with no calendar and a calendar with no plan are different states of the world, and
               a reader after one should not have to parse a claim about the other. Criterion 4. */}
           {plan === null && (
-            <p className="empty">
+            <p className={emptyClassName}>
               No plan yet. The planner runs each morning, and needs an LLM provider configured.
             </p>
           )}
           {calendar === null && (
-            <p className="empty">No calendar yet. Connect a Google account in Settings.</p>
+            <p className={emptyClassName}>No calendar yet. Connect a Google account in Settings.</p>
           )}
 
-          {plan !== null && plan.summary !== null && <p className="plan-summary">{plan.summary}</p>}
+          {plan !== null && plan.summary !== null && (
+            <p className="m-0 mb-2 max-w-[76ch]">{plan.summary}</p>
+          )}
 
           {/* A plan that had to leave something out says so here rather than in the database.
               Spec 05. */}
           {plan !== null && plan.warnings.length > 0 && (
-            <ul className="plan-warnings">
+            <ul className="m-0 p-0 text-sm text-muted-foreground [list-style:none]">
               {plan.warnings.map((warning) => (
-                <li key={warning}>{warning}</li>
+                <li key={warning} className="py-1">
+                  {warning}
+                </li>
               ))}
             </ul>
           )}
 
           {plan !== null && plan.entries.length === 0 && emptyPlanMessage(plan) !== null && (
-            <p className="empty">{emptyPlanMessage(plan)}</p>
+            <p className={emptyClassName}>{emptyPlanMessage(plan)}</p>
           )}
 
           {calendar !== null &&
             calendar.events.length === 0 &&
             (plan?.entries.length ?? 0) === 0 && (
-              <p className="empty">Nothing in the diary today.</p>
+              <p className={emptyClassName}>Nothing in the diary today.</p>
             )}
 
           {(plan !== null || calendar !== null) &&
