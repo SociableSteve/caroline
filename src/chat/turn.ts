@@ -38,6 +38,8 @@ import { renderPreamble } from '../llm/prompts/preamble.js'
 import {
   LlmError,
   type CompletionChunk,
+  type CompletionRequest,
+  type LlmProvider,
   type Message,
   type ToolCall,
   type ToolResult,
@@ -323,8 +325,9 @@ async function converse(
       messages = [...messages, { role: 'user', content: capNotice(config.chat.maxToolCalls) }]
     }
 
-    const completion = await drain(
-      provider.stream({
+    const completion = await streamAndDrain(
+      provider,
+      {
         system,
         messages,
         ...(registry.tools.length === 0
@@ -337,7 +340,7 @@ async function converse(
               })),
             }),
         maxTokens: config.llm.maxTokens,
-      }),
+      },
       emit,
     )
 
@@ -473,6 +476,33 @@ function refusal(
     name: call.name,
     content: JSON.stringify(retryable ? { error: message } : { held: true, message }),
     isError: retryable,
+  }
+}
+
+/**
+ * One retry, and only when nothing from this attempt has reached the client yet. A provider
+ * call that fails before any text arrives (a dropped connection, most often) is worth a second
+ * try: the request has not changed, and the failure is commonly transient. Once any text has
+ * been emitted, a retry would run a second answer on top of the first rather than replacing it,
+ * which is a worse outcome than the one failure this is meant to avoid, so past that point the
+ * failure is left to surface as it always has.
+ */
+async function streamAndDrain(
+  provider: LlmProvider,
+  request: CompletionRequest,
+  emit: ChatEmit,
+): ReturnType<typeof drain> {
+  let emitted = false
+  const tracked: ChatEmit = (event) => {
+    if (event.type === 'text') emitted = true
+    emit(event)
+  }
+
+  try {
+    return await drain(provider.stream(request), tracked)
+  } catch (error) {
+    if (emitted) throw error
+    return drain(provider.stream(request), emit)
   }
 }
 

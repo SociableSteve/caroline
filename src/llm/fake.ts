@@ -6,8 +6,12 @@
  */
 import type { CompletionRequest, CompletionResult, LlmProvider } from './types.js'
 
-/** One scripted turn: what to answer, or what to throw instead. */
-export type FakeAnswer = Partial<CompletionResult> | { readonly throws: Error }
+/** One scripted turn: what to answer, what to throw instead, or a streamed answer that emits
+ *  some text before failing partway through. */
+export type FakeAnswer =
+  | Partial<CompletionResult>
+  | { readonly throws: Error }
+  | { readonly partial: string; readonly throws: Error }
 
 export interface FakeProviderOptions {
   /**
@@ -48,15 +52,21 @@ export function createFakeProvider({
   const requests: CompletionRequest[] = []
   let served = 0
 
-  function next(request: CompletionRequest): CompletionResult {
+  /** Registers the call and hands back the script's next answer, unread. */
+  function take(request: CompletionRequest): FakeAnswer | undefined {
     requests.push(request)
 
     // Past the end of the script, the last answer stands. An empty script answers nothing,
     // which is a valid thing to test a caller against.
     const answer = answers[Math.min(served, answers.length - 1)]
     served += 1
+    return answer
+  }
 
+  function toResult(answer: FakeAnswer | undefined): CompletionResult {
     if (answer === undefined) return emptyResult
+    // A non-streamed call has no incremental channel to deliver `partial` on, so it fails the
+    // same way `throws` does: nothing came back.
     if ('throws' in answer) throw answer.throws
 
     return { ...emptyResult, ...answer }
@@ -70,11 +80,20 @@ export function createFakeProvider({
     requests,
 
     complete(request) {
-      return Promise.resolve(next(request))
+      return Promise.resolve(toResult(take(request)))
     },
 
     async *stream(request) {
-      const result = next(request)
+      const answer = take(request)
+
+      if (answer !== undefined && 'partial' in answer) {
+        for (let start = 0; start < answer.partial.length; start += chunkSize) {
+          yield { type: 'text', text: answer.partial.slice(start, start + chunkSize) }
+        }
+        throw answer.throws
+      }
+
+      const result = toResult(answer)
 
       for (let start = 0; start < result.text.length; start += chunkSize) {
         yield { type: 'text', text: result.text.slice(start, start + chunkSize) }

@@ -108,13 +108,65 @@ describe('a turn', () => {
    */
   it('keeps what a failed turn managed to say, and records why it stopped', async () => {
     const harness = chatHarness({
-      answers: [{ throws: new LlmError('the provider is down') }],
+      answers: [
+        { throws: new LlmError('the provider is down') },
+        { throws: new LlmError('the provider is down') },
+      ],
     })
 
     const events = await harness.turn('A question')
 
     expect(eventsOfType(events, 'error')[0]?.message).toContain('the provider is down')
     expect(doneEvent(events).message.error).toContain('the provider is down')
+  })
+
+  /**
+   * A connection failure before anything has come back is commonly transient, so it is worth one
+   * retry rather than failing the turn on the first attempt. "Anthropic call failed: Connection
+   * error." is exactly this case: nothing has reached the client yet when it happens.
+   */
+  it('retries once when the provider fails before answering anything', async () => {
+    const harness = chatHarness({
+      answers: [{ throws: new LlmError('Connection error.') }, textAnswer('Answered.')],
+    })
+
+    const events = await harness.turn('A question')
+
+    expect(streamedText(events)).toBe('Answered.')
+    expect(eventsOfType(events, 'error')).toEqual([])
+    expect(doneEvent(events).message.error).toBeNull()
+  })
+
+  /** The retry is a single extra attempt, not a loop: a second failure still surfaces. */
+  it('gives up after the retry also fails', async () => {
+    const harness = chatHarness({
+      answers: [
+        { throws: new LlmError('Connection error.') },
+        { throws: new LlmError('Connection error.') },
+        textAnswer('Would have answered.'),
+      ],
+    })
+
+    const events = await harness.turn('A question')
+
+    expect(streamedText(events)).toBe('')
+    expect(eventsOfType(events, 'error')[0]?.message).toContain('Connection error.')
+    expect(doneEvent(events).message.error).toContain('Connection error.')
+  })
+
+  /**
+   * Once text has reached the client, retrying would run a second answer on top of the first.
+   * A failure past that point is left to surface as-is rather than risk a doubled-up answer.
+   */
+  it('does not retry once the provider has already started answering', async () => {
+    const harness = chatHarness({
+      answers: [{ partial: 'Partway', throws: new LlmError('the connection dropped') }],
+    })
+
+    const events = await harness.turn('A question')
+
+    expect(streamedText(events)).toBe('Partway')
+    expect(eventsOfType(events, 'error')[0]?.message).toContain('the connection dropped')
   })
 
   /** Spec 03, criterion 7: a streamed call spent tokens, so it is recorded like any other. */
