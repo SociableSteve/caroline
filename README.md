@@ -1,8 +1,8 @@
 # Caroline
 
-A single-user, self-hosted GTD system. It collects work from GitHub, Gmail and Calendar,
-keeps the inbox sorted with an LLM, and proposes a daily plan that fits the free time
-actually available.
+Self-hosted, AI-powered work tracker and planner, private by design. It collects work from
+GitHub, Gmail and Calendar, keeps the inbox sorted with an LLM, and proposes a daily plan
+that fits the free time actually available.
 
 It runs on your own machine, against your own accounts, with read-only credentials you create.
 Review requests and mail threads arrive on their own every quarter of an hour, the inbox sorts
@@ -31,8 +31,8 @@ npm start
 
 With nothing configured, the server starts on <http://127.0.0.1:5123>, serves the UI and reports
 every integration as "not configured". No credentials are needed to run it, and it is a usable
-manual GTD app in that state. The SQLite database is created at `./data/caroline.db` on first run
-and migrated on every start.
+manual work tracker in that state. The SQLite database is created at `./data/caroline.db` on first
+run and migrated on every start.
 
 Adding the integrations is [docs/setup.md](docs/setup.md), which is the guide to follow rather than
 this file: it covers the Google Cloud project and OAuth consent, the GitHub token and its

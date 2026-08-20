@@ -223,7 +223,9 @@ describe('the site renders the documentation rather than restating it', () => {
       expect(text(home)).toContain(text(plain(lede)))
       // Written out rather than derived, because the assertion above computes the lede exactly as the
       // build does and so agrees with it about the wrong paragraph as readily as the right one.
-      expect(text(home)).toContain('A single-user, self-hosted GTD system.')
+      expect(text(home)).toContain(
+        'Self-hosted, AI-powered work tracker and planner, private by design.',
+      )
     })
 
     /**
@@ -236,8 +238,8 @@ describe('the site renders the documentation rather than restating it', () => {
       const linked = override(
         'README.md',
         readme.replace(
-          'A single-user, self-hosted GTD system.',
-          'A single-user, self-hosted GTD system, built in the order [the plan](docs/plan.md) gives.',
+          'Self-hosted, AI-powered work tracker and planner, private by design.',
+          'Self-hosted, AI-powered work tracker and planner, built in the order [the plan](docs/plan.md) gives.',
         ),
       )
 
@@ -253,7 +255,7 @@ describe('the site renders the documentation rather than restating it', () => {
       const windows = override('README.md', source('README.md').replace(/\n/g, '\r\n'))
 
       expect(buildSite(windows).get('index.html')).toContain(
-        'A single-user, self-hosted GTD system.',
+        'Self-hosted, AI-powered work tracker and planner, private by design.',
       )
     })
 
@@ -265,7 +267,9 @@ describe('the site renders the documentation rather than restating it', () => {
     it('describes itself with what Caroline is, not with what it runs on', () => {
       const description = /<meta name="description" content="([^"]*)"/.exec(home)?.[1] ?? ''
 
-      expect(description).toContain('A single-user, self-hosted GTD system.')
+      expect(description).toContain(
+        'Self-hosted, AI-powered work tracker and planner, private by design.',
+      )
     })
 
     it('instructs nobody: no commands, and no environment variable to set', () => {

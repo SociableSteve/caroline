@@ -169,6 +169,13 @@ export async function testServer({
     jobs: finalJobs,
     authFetch: authFetch ?? refuseNetwork,
     ...(mcpClientMetadataFetch === undefined ? {} : { mcpClientMetadataFetch }),
+    // Pointed at a directory that provably does not exist, rather than relying on the built SPA
+    // being incidentally absent from this checkout during `npm test` (see the same reasoning in
+    // test/auth/gate.test.ts): with it present, `@fastify/static` registers its own wildcard
+    // route for everything under `/`, so a request this suite expects to match no route at all
+    // instead matches that route and 404s (or, off `/api/`, gets the SPA shell at 200) through a
+    // different path than the one being tested. None of these route tests are about the SPA.
+    webRoot: '/dev/null/no-such-caroline-web-build',
   })
   openApps.push(app)
 

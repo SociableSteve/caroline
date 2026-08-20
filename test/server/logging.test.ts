@@ -38,6 +38,13 @@ describe('request URLs never reach a log line', () => {
       config,
       database: migratedDatabase(),
       logger: { level: 'info', stream },
+      // Pointed at a directory that provably does not exist, rather than relying on the built
+      // SPA being incidentally absent from this checkout during `npm test` (see the same
+      // reasoning in test/auth/gate.test.ts): with it present, `@fastify/static` registers its
+      // own wildcard route for everything under `/`, so this request matches that route instead
+      // of matching nothing, and the route this test asserts about is a different one than the
+      // one it means to exercise.
+      webRoot: '/dev/null/no-such-caroline-web-build',
     })
 
     await app.inject({ method: 'GET', url: '/api/no-such-route-abcdef' })
