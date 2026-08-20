@@ -891,12 +891,12 @@ function landingFooter(context: BuildContext): string {
 
 /**
  * One line of requirements, echoing `docs/setup.md`'s own opening claim: nothing here needs a
- * compiler, a container or a server, and Caroline is a usable manual GTD board before any
+ * compiler, a container or a server, and Caroline is a usable manual work tracker before any
  * credentials are configured.
  */
 function requirements(context: BuildContext): string {
   return renderInline(
-    'Node 24, a browser, nothing to compile. A manual GTD board before you hand it any credentials.',
+    'Node 24, a browser, nothing to compile. A usable work tracker before you hand it any credentials.',
     'site/pages/index.md',
     'index.html',
     context,

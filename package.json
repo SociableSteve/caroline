@@ -1,7 +1,7 @@
 {
   "name": "caroline-oss",
   "version": "1.0.0",
-  "description": "A single-user, self-hosted GTD system that collects work from GitHub, Gmail and Calendar",
+  "description": "A self-hosted, AI-powered work tracker and planner, private by design",
   "type": "module",
   "engines": {
     "node": ">=24"

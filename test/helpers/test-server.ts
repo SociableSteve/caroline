@@ -15,6 +15,16 @@ import type { GoogleAuth } from '../../src/connectors/google/auth.js'
 import { migratedDatabase } from './temp-database.js'
 
 /**
+ * A `webRoot` that provably does not exist, for a server a test wants with no built SPA to serve:
+ * `buildServer`'s `existsSync(webRoot)` check decides whether `@fastify/static` registers its own
+ * wildcard route for everything under `/`, and relying on the real build output being incidentally
+ * absent makes a test's outcome depend on whatever `npm run build` last did in this checkout rather
+ * than on the test itself. Shared rather than restated, since test/server/logging.test.ts and
+ * test/auth/gate.test.ts both build a server with the same requirement.
+ */
+export const NO_BUILT_WEB_ROOT = '/dev/null/no-such-caroline-web-build'
+
+/**
  * A directory of this file's own, for everything the configuration derives from the database path.
  *
  * The database these tests actually run against is a temporary one, but the config's own
@@ -169,6 +179,7 @@ export async function testServer({
     jobs: finalJobs,
     authFetch: authFetch ?? refuseNetwork,
     ...(mcpClientMetadataFetch === undefined ? {} : { mcpClientMetadataFetch }),
+    webRoot: NO_BUILT_WEB_ROOT,
   })
   openApps.push(app)
 

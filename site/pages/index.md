@@ -20,8 +20,8 @@
 
 - **Collects.** Pull requests waiting on your review, mail threads in your inbox, and the events in
   your calendar. Every quarter of an hour, without being asked.
-- **Sorts.** A model of your choosing empties the inbox hourly into the columns of a GTD board.
-  Where it is not confident it says so on the card and waits for one click rather than guessing.
+- **Sorts.** A model of your choosing empties the inbox hourly into the right column. Where it is
+  not confident it says so on the card and waits for one click rather than guessing.
 - **Plans.** A daily plan sized to the free time your calendar actually leaves, with a fifth of the
   day held back for the things that arrive.
 - **Discusses.** Chat in a rail beside whatever you are looking at, so asking about the board does

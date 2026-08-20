@@ -161,8 +161,8 @@ The dashboard is the morning screen. Reading it top to bottom:
   the first and not yet in the second. For a pull request it adds whether the author has pushed
   anything since you reviewed it, which is the case where a review is quietly yours again.
 - **If there is time** is what the plan left over, and the warning above it says there was something.
-- **Stalled projects** are projects with no next action. That is the one thing a GTD system can tell
-  you that you cannot see by looking at a list.
+- **Stalled projects** are projects with no next action. That is the one thing tracking work this way
+  can tell you that you cannot see by looking at a list.
 
 Under all of it, the state strip: where everything is, when each background job last ran, which
 integrations are configured, and how the last few days' plans went against what you completed.
@@ -232,7 +232,7 @@ from then on every task you file into it counts towards it.
 - **The next action is derived, not chosen.** It is the first task in the project that is in Next
   actions, so a project cannot claim a next action it does not have.
 - **A project with none is stalled**, and says so on the list and on the dashboard. That is the one
-  thing a GTD system can tell you that a list of tasks cannot.
+  thing tracking work this way can tell you that a list of tasks cannot.
 - **A project has a state**: Active, Someday, Done or Dropped. Only an active project is ever called
   stalled, because the other three are not meant to be moving.
 - **Neither completing nor deleting a project touches its tasks.** Marking it done leaves whatever was

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { loadConfig } from '../../src/config/load.js'
 import { buildServer } from '../../src/server/app.js'
 import { migratedDatabase } from '../helpers/temp-database.js'
+import { NO_BUILT_WEB_ROOT } from '../helpers/test-server.js'
 import { UNMATCHED_ROUTE } from '../../src/server/log-redaction.js'
 import { captureLog } from '../helpers/log-capture.js'
 
@@ -38,6 +39,7 @@ describe('request URLs never reach a log line', () => {
       config,
       database: migratedDatabase(),
       logger: { level: 'info', stream },
+      webRoot: NO_BUILT_WEB_ROOT,
     })
 
     await app.inject({ method: 'GET', url: '/api/no-such-route-abcdef' })
