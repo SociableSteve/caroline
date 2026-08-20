@@ -25,7 +25,15 @@ import {
   suppressedSources,
   waitingAge,
 } from '../format.js'
-import { Badge, Fact, Facts } from './primitives.js'
+import {
+  Badge,
+  changeNoteClassName,
+  emptyClassName,
+  Fact,
+  Facts,
+  policyNoteClassName,
+} from './primitives.js'
+import { Button } from './ui/button.js'
 
 /** What the panel was able to find for the reference in the hash. */
 export type DetailsSubject =
@@ -65,18 +73,21 @@ export function DetailsPanel({ item, subject, staleDays, now, onClose }: Details
         : subject.project.title
 
   return (
-    <section className="rail-details" aria-label={`Details of ${heading}`}>
-      <div className="rail-head">
-        <h2 className="rail-heading">{heading}</h2>
-        <button type="button" onClick={onClose}>
+    <section
+      className="mb-1 flex max-h-[45%] shrink-0 flex-col gap-2 overflow-y-auto rounded-md border border-border bg-card p-3"
+      aria-label={`Details of ${heading}`}
+    >
+      <div className="flex items-baseline justify-between gap-2">
+        <h2 className="m-0 text-base">{heading}</h2>
+        <Button type="button" onClick={onClose}>
           Close details
-        </button>
+        </Button>
       </div>
 
       {subject === null ? (
         // Said rather than shown as a blank: the reference is well formed and the row is gone, which
         // is a different thing from nothing being selected.
-        <p role="status" className="empty">
+        <p role="status" className={emptyClassName}>
           This {item.kind} is not among the ones loaded here. It may have been completed or deleted.
         </p>
       ) : subject.kind === 'task' ? (
@@ -95,7 +106,7 @@ export function DetailsPanel({ item, subject, staleDays, now, onClose }: Details
       )}
 
       {/* Why the panel is more than a bigger card: what is in it is what the next message sends. */}
-      <p className="policy-note">
+      <p className={policyNoteClassName}>
         Whatever is open here goes to the model with your next message, as far as the content policy
         allows.
       </p>
@@ -155,7 +166,7 @@ function TaskDetails({
 
       {/* Every state a colour marks is also said in words. Spec 10. */}
       {(hasPushedSinceReview(task) || hasOptedOutOfSync(task)) && (
-        <ul className="card-flags">
+        <ul className="m-0 flex flex-wrap gap-1 p-0 [list-style:none]">
           {hasPushedSinceReview(task) && (
             <li>
               <Badge tone="accent">The author has pushed since you reviewed</Badge>
@@ -170,17 +181,17 @@ function TaskDetails({
       )}
 
       {task.notes !== null && task.notes !== '' && (
-        <div className="details-notes">
-          <h3 className="details-subheading">Notes</h3>
+        <div>
+          <h3 className="m-0 text-sm font-medium text-muted-foreground">Notes</h3>
           <p>{task.notes}</p>
         </div>
       )}
 
       {/* Provenance, which spec 08 asks every task to show: where it came from, with a link out. */}
       {task.sources.length > 0 && (
-        <div className="details-sources">
-          <h3 className="details-subheading">Where it came from</h3>
-          <ul>
+        <div>
+          <h3 className="m-0 text-sm font-medium text-muted-foreground">Where it came from</h3>
+          <ul className="pl-4">
             {task.sources.map((source) => (
               <li key={source.id}>
                 {source.url === null ? (
@@ -190,7 +201,7 @@ function TaskDetails({
                     {source.title ?? source.externalId}
                   </a>
                 )}{' '}
-                <span className="change-note">
+                <span className={changeNoteClassName}>
                   {source.provider}
                   {suppressed.some((other) => other.id === source.id)
                     ? ', a notification kept as provenance'
@@ -203,7 +214,7 @@ function TaskDetails({
       )}
 
       {task.proposal !== null && (
-        <p className="policy-note">
+        <p className={policyNoteClassName}>
           Caroline suggests {statusLabel(task.proposal.status)} for this. Accept or dismiss it on
           the card.
         </p>
@@ -254,8 +265,8 @@ function ProjectDetails({
       </Facts>
 
       {project.notes !== null && project.notes !== '' && (
-        <div className="details-notes">
-          <h3 className="details-subheading">Notes</h3>
+        <div>
+          <h3 className="m-0 text-sm font-medium text-muted-foreground">Notes</h3>
           <p>{project.notes}</p>
         </div>
       )}

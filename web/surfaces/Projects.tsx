@@ -3,12 +3,29 @@
  * the drill-in to a project's tasks. Spec 08, and spec 01 criterion 4 seen from the UI.
  */
 import { useState } from 'react'
+import { cn } from '../lib/utils.js'
 import { projectStates } from '../../src/domain/project.js'
 import type { ItemRef, ProjectState, ProjectView, TaskInput, TaskStatus, TaskView } from '../api.js'
 import { statusLabel } from '../format.js'
 import { projectHref, surfaceHref } from '../router.js'
 import { TaskCard } from '../components/TaskCard.js'
-import { ActionRow, Badge, Field, Panel } from '../components/primitives.js'
+import {
+  ActionRow,
+  Badge,
+  emptyClassName,
+  Field,
+  Panel,
+  policyNoteClassName,
+} from '../components/primitives.js'
+import { Button } from '../components/ui/button.js'
+import { Input } from '../components/ui/input.js'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select.js'
 import { useSurfaceTitle } from '../title.js'
 
 export interface ProjectsProps {
@@ -77,49 +94,73 @@ export function Projects({
   useSurfaceTitle('Projects')
 
   return (
-    <div className="projects">
+    <div className="flex flex-col gap-5">
       <h1>Projects</h1>
 
       {/* The heading is for structure, not for reading: issue #47's mockup goes straight from the
           page's own "Projects" heading into the toolbar and table, with no second visible
           heading above them. Kept for a11y as a labelled region, just not shown. */}
-      <Panel headingLevel={2} heading="All projects" headingClassName="visually-hidden">
+      <Panel headingLevel={2} heading="All projects" headingClassName="sr-only">
         {/* Inline capture in the header row, per issue #47, rather than a form of its own above
             the table. */}
         <form
-          className="inline-form projects-toolbar"
+          className="mb-3 flex flex-wrap items-end justify-end gap-2"
           onSubmit={(event) => {
             event.preventDefault()
             void create()
           }}
         >
           <Field label="Outcome, phrased as a result">
-            <input
+            <Input
+              className="h-8 w-[300px] text-xs"
               name="title"
               value={title}
               onChange={(event) => setTitle(event.target.value)}
               autoComplete="off"
             />
           </Field>
-          <button type="submit" disabled={title.trim() === '' || saving}>
+          <Button
+            type="submit"
+            size="sm"
+            className="h-8 px-3 text-xs"
+            disabled={title.trim() === '' || saving}
+          >
             Add project
-          </button>
+          </Button>
         </form>
 
         {projects.length === 0 ? (
-          <p className="empty">
+          <p className={emptyClassName}>
             No projects yet. A project is an outcome that takes more than one action.
           </p>
         ) : (
           <>
-            <table className="project-table">
+            <table className="w-full border-collapse overflow-hidden rounded-xl border">
               <thead>
                 <tr>
-                  <th scope="col">Project</th>
-                  <th scope="col">Next action</th>
-                  <th scope="col">State</th>
-                  <th scope="col">
-                    <span className="visually-hidden">Actions</span>
+                  <th
+                    scope="col"
+                    className="border-b p-2 text-left text-[10px] font-medium uppercase tracking-[0.05em] text-muted-foreground"
+                  >
+                    Project
+                  </th>
+                  <th
+                    scope="col"
+                    className="border-b p-2 text-left text-[10px] font-medium uppercase tracking-[0.05em] text-muted-foreground"
+                  >
+                    Next action
+                  </th>
+                  <th
+                    scope="col"
+                    className="border-b p-2 text-left text-[10px] font-medium uppercase tracking-[0.05em] text-muted-foreground"
+                  >
+                    State
+                  </th>
+                  <th
+                    scope="col"
+                    className="border-b p-2 text-left text-[10px] font-medium uppercase tracking-[0.05em] text-muted-foreground"
+                  >
+                    <span className="sr-only">Actions</span>
                   </th>
                 </tr>
               </thead>
@@ -127,14 +168,18 @@ export function Projects({
                 {projects.map((project) => (
                   <tr
                     key={project.id}
-                    className={`${project.stalled ? 'stalled' : ''}${
-                      selected?.kind === 'project' && selected.id === project.id
-                        ? ' project-open'
-                        : ''
-                    }`.trim()}
+                    className={cn(
+                      '[&>td]:border-b [&>td]:border-border/60 [&>td]:p-2 [&>td]:align-top',
+                      project.stalled && 'bg-destructive/[0.04]',
+                    )}
                   >
                     <td>
-                      <a href={surfaceHref(projectHref(project.id), hash)}>{project.title}</a>
+                      <a
+                        className="text-[13px] font-medium"
+                        href={surfaceHref(projectHref(project.id), hash)}
+                      >
+                        {project.title}
+                      </a>
                       {/* Colour is not the only carrier: the word is on the row too. */}
                       {project.stalled && (
                         <>
@@ -145,9 +190,9 @@ export function Projects({
                     </td>
 
                     <td>
-                      <p className="project-next">
+                      <p className="m-0 text-xs">
                         {project.nextAction === null ? (
-                          <span className={project.stalled ? 'warning' : undefined}>
+                          <span className={project.stalled ? 'text-destructive' : undefined}>
                             No next action
                           </span>
                         ) : (
@@ -158,60 +203,81 @@ export function Projects({
 
                     <td>
                       {/* A pill, not a dropdown: issue #47's mockup draws state as a plain badge
-                          like Board's own stale and pushed pills. The control underneath is
-                          still a real `<select>`, so changing state is still one control away;
-                          only its skin changes. */}
+                          like Board's own stale and pushed pills. shadcn's stock `Select`, so the
+                          control is still real and one click away; only its skin changes. */}
                       <Field label={`State of ${project.title}`} hiddenLabel>
-                        <select
-                          className="pill-select"
+                        <Select
                           value={project.state}
-                          onChange={(event) =>
-                            onStateChange(project.id, event.target.value as ProjectState)
+                          onValueChange={(value) =>
+                            onStateChange(project.id, value as ProjectState)
                           }
                         >
-                          {projectStates.map((state) => (
-                            <option key={state} value={state}>
-                              {stateLabels[state]}
-                            </option>
-                          ))}
-                        </select>
+                          <SelectTrigger size="sm" className="rounded-full text-[11px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {projectStates.map((state) => (
+                              <SelectItem key={state} value={state}>
+                                {stateLabels[state]}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </Field>
                     </td>
 
                     <td>
                       <ActionRow>
-                        <button
+                        <Button
                           type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-6 px-2.5 text-[11px]"
                           aria-pressed={selected?.kind === 'project' && selected.id === project.id}
                           onClick={() => onSelect({ kind: 'project', id: project.id })}
                         >
                           Details
-                        </button>
+                        </Button>
 
                         {confirming === project.id ? (
                           <>
-                            <button
+                            <Button
                               type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-6 px-2.5 text-[11px] text-muted-foreground"
                               onClick={() => {
                                 setConfirming(null)
                                 onDelete(project.id)
                               }}
                             >
                               Confirm delete
-                            </button>
-                            <button type="button" onClick={() => setConfirming(null)}>
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-6 px-2.5 text-[11px] text-muted-foreground"
+                              onClick={() => setConfirming(null)}
+                            >
                               Keep
-                            </button>
+                            </Button>
                           </>
                         ) : (
-                          <button type="button" onClick={() => setConfirming(project.id)}>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-6 px-2.5 text-[11px] text-muted-foreground"
+                            onClick={() => setConfirming(project.id)}
+                          >
                             Delete
-                          </button>
+                          </Button>
                         )}
                       </ActionRow>
 
                       {confirming === project.id && (
-                        <p className="warning">
+                        <p className="text-destructive">
                           Its tasks are kept and lose their project, rather than being deleted.
                         </p>
                       )}
@@ -221,7 +287,7 @@ export function Projects({
               </tbody>
             </table>
 
-            <p className="policy-note">
+            <p className={policyNoteClassName}>
               Deleting a project keeps its tasks; they lose their project rather than being deleted.
             </p>
           </>
@@ -274,7 +340,7 @@ export function ProjectDetail({
 
   if (project === undefined) {
     return (
-      <div className="project-detail">
+      <div className="flex max-w-[76ch] flex-col gap-2">
         <h1>Project</h1>
         <p role="alert">That project is not here. It may have been deleted.</p>
         <a href={surfaceHref('#/projects', hash)}>Back to projects</a>
@@ -285,12 +351,12 @@ export function ProjectDetail({
   const open = tasks.filter((task) => task.status !== 'done')
 
   return (
-    <div className="project-detail">
+    <div className="flex max-w-[76ch] flex-col gap-2">
       <a href={surfaceHref('#/projects', hash)}>Back to projects</a>
       <h1>{project.title}</h1>
 
-      <p className="project-state">
-        <span className="label">State</span> {stateLabels[project.state]}
+      <p>
+        <span className="text-sm text-muted-foreground">State</span> {stateLabels[project.state]}
         {project.stalled && (
           <>
             {' '}
@@ -299,24 +365,24 @@ export function ProjectDetail({
         )}
       </p>
 
-      {project.notes !== null && <p className="project-notes">{project.notes}</p>}
+      {project.notes !== null && <p>{project.notes}</p>}
 
-      <p className="project-next">
-        <span className="label">Next action</span>{' '}
+      <p className="text-sm">
+        <span className="text-sm text-muted-foreground">Next action</span>{' '}
         {project.nextAction === null ? 'none' : project.nextAction.title}
       </p>
 
       {project.state === 'done' && open.length > 0 && (
-        <p className="warning" role="status">
+        <p className="text-destructive" role="status">
           This project is done, but {open.length} of its tasks are still open.
         </p>
       )}
 
       <h2>Tasks</h2>
       {tasks.length === 0 ? (
-        <p className="empty">No tasks in this project yet.</p>
+        <p className={emptyClassName}>No tasks in this project yet.</p>
       ) : (
-        <ul className="column-cards">
+        <ul className="m-0 flex flex-col gap-2 p-0 [list-style:none]">
           {tasks.map((task) => (
             <TaskCard
               key={task.id}
@@ -336,7 +402,7 @@ export function ProjectDetail({
         </ul>
       )}
 
-      <p className="project-summary">
+      <p className="m-0 text-sm">
         {open.length} open, {tasks.length - open.length} done, across{' '}
         {new Set(tasks.map((task) => statusLabel(task.status))).size} statuses.
       </p>

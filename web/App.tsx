@@ -4,6 +4,7 @@
  * take data and callbacks, so they can be driven in a test without a server.
  */
 import { useCallback, useEffect, useState } from 'react'
+import { cn } from './lib/utils.js'
 import { sameItem } from '../src/domain/selection.js'
 import {
   api,
@@ -36,6 +37,8 @@ import { ChatRail } from './components/ChatRail.js'
 import { DetailsPanel, type DetailsSubject } from './components/DetailsPanel.js'
 import { LoginScreen } from './components/LoginScreen.js'
 import { QuickCapture } from './components/QuickCapture.js'
+import { failureClassName } from './components/primitives.js'
+import { Button } from './components/ui/button.js'
 import { productName } from './title.js'
 
 /**
@@ -99,7 +102,6 @@ export function App() {
   const {
     tasks,
     projects,
-    health,
     jobRuns,
     jobStatus,
     plan,
@@ -371,12 +373,12 @@ export function App() {
 
   return (
     <>
-      <header className="app-header">
+      <header className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-sidebar-border bg-sidebar px-4 py-2">
         {/* Not a heading. The one `h1` on the page belongs to the surface and names it, so that
             every surface has an outline and every entry in history is distinguishable. Spec 10. */}
-        <p className="wordmark">{productName}</p>
+        <p className="m-0 text-sm font-semibold tracking-tight">{productName}</p>
         <nav aria-label="Surfaces">
-          <ul>
+          <ul className="m-0 flex flex-wrap gap-0.5 p-0">
             {routeLinks.map((link) => (
               <li key={link.name}>
                 {/* The rail travels with the link: changing surface is not closing the companion
@@ -384,6 +386,7 @@ export function App() {
                 <a
                   href={surfaceHref(link.href, hash)}
                   aria-current={route.name === link.name ? 'page' : undefined}
+                  className="inline-block rounded-md px-2.5 py-1.5 text-[13px] text-muted-foreground no-underline hover:bg-sidebar-accent aria-[current=page]:bg-sidebar-accent aria-[current=page]:font-medium aria-[current=page]:text-sidebar-accent-foreground"
                 >
                   {link.label}
                 </a>
@@ -391,31 +394,55 @@ export function App() {
             ))}
           </ul>
         </nav>
-        <div className="header-actions">
+        <div className="ml-auto flex flex-wrap gap-2">
           {authenticated && (
             <>
               {/* The scheduler runs sync on its own; this is the manual trigger spec 06 asks be
                   first-class, for when you know something has just landed. */}
-              <button type="button" onClick={onSync}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 px-2.5 text-xs"
+                onClick={onSync}
+              >
                 Sync now
-              </button>
-              <button type="button" onClick={() => setCapturing(true)}>
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 px-2.5 text-xs"
+                onClick={() => setCapturing(true)}
+              >
                 Quick capture
-              </button>
+              </Button>
               {/* Chat is a companion to the surface rather than a place to go, so it is a control
                   here rather than a link in the navigation. Spec 08. */}
-              <button type="button" aria-expanded={chatOpen} onClick={() => setChat(!chatOpen)}>
+              <Button
+                type="button"
+                size="sm"
+                className="h-7 px-2.5 text-xs"
+                aria-expanded={chatOpen}
+                onClick={() => setChat(!chatOpen)}
+              >
                 Chat
-              </button>
+              </Button>
             </>
           )}
           {/* Invisible, and nothing else here changes, where a login is not required: spec 13's
               loopback shape. Where one is, this is the fourth of the flow's four routes and the
               only one this shell offers a control for. */}
           {auth.authRequired && authenticated && (
-            <button type="button" onClick={() => void auth.logout()}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 px-2.5 text-xs"
+              onClick={() => void auth.logout()}
+            >
               Sign out
-            </button>
+            </Button>
           )}
         </div>
       </header>
@@ -442,22 +469,27 @@ export function App() {
             hash={hash}
           />
 
-          <div className={chatOpen ? 'app-body with-rail' : 'app-body'}>
-            <main>
+          <div
+            className={cn(
+              'grid min-h-0 flex-1 items-stretch self-stretch',
+              chatOpen ? 'grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]' : 'grid-cols-1',
+            )}
+          >
+            <main className="min-w-0 overflow-y-auto px-4 py-4 md:px-5 md:pb-12">
               {/* The message carries its own context, because the two cases read differently: the
               whole board being unreachable, and one panel of it that could not be read while the
               rest of the screen is current. */}
               {failure !== null && (
-                <p role="alert" className="failure">
+                <p role="alert" className={failureClassName}>
                   {failure}{' '}
-                  <button type="button" onClick={() => void reload()}>
+                  <Button type="button" onClick={() => void reload()}>
                     Try again
-                  </button>
+                  </Button>
                 </p>
               )}
 
               {writeFailure !== null && (
-                <p role="alert" className="failure">
+                <p role="alert" className={failureClassName}>
                   {writeFailure}
                 </p>
               )}
@@ -465,7 +497,7 @@ export function App() {
               {/* Said out loud rather than left to be noticed: a screen showing a subset of the
               tasks and not saying so is worse than one that admits it. */}
               {unfetchedTaskTotal !== null && (
-                <p role="status" className="failure">
+                <p role="status" className={failureClassName}>
                   Showing {tasks.length} of {unfetchedTaskTotal} tasks. Complete or delete some, or
                   narrow what you are looking at.
                 </p>
@@ -529,8 +561,6 @@ export function App() {
                 <Dashboard
                   tasks={tasks}
                   projects={projects}
-                  health={health}
-                  jobRuns={jobRuns}
                   plan={plan}
                   calendar={calendar}
                   staleDays={staleDays}

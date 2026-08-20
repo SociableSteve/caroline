@@ -175,16 +175,25 @@ describe('the site renders the documentation rather than restating it', () => {
     '/* The palette begins at :root { and ends at the brace that closes it. */',
     '/* Never write --accent: #ff0000 in a comment. */',
   ])('extracts the palette and the icon past %s', (comment) => {
-    const commented = override(
-      'web/styles.css',
-      source('web/styles.css').replace(':root {', `${comment}\n:root {`),
-    )
+    const original = source('web/styles.css')
+    const commented = override('web/styles.css', original.replace(':root {', `${comment}\n:root {`))
     const built = buildSite(commented)
     const stylesheet = built.get('styles.css') ?? ''
 
-    expect(stylesheet).toContain('--accent: #60a5fa')
+    // Read the values dynamically rather than hardcode them: what matters here is that a comment
+    // ahead of `:root {` does not confuse the extraction, not what shade of the theme this
+    // application currently declares. `styles.test.ts` and the tests below already hold those
+    // values to their own rules.
+    const darkAccent = /:root \{([^]*?)\n\}/.exec(original)?.[1]?.match(/--accent:\s*([^;]+);/)?.[1]
+    const lightAccent = /@media \(prefers-color-scheme: light\) \{\s*:root \{([^]*?)\n {2}\}/
+      .exec(original)?.[1]
+      ?.match(/--accent:\s*([^;]+);/)?.[1]
+
+    expect(darkAccent).toBeDefined()
+    expect(lightAccent).toBeDefined()
+    expect(stylesheet).toContain(`--accent: ${darkAccent}`)
     expect(stylesheet.split('{').length).toBe(stylesheet.split('}').length)
-    expect(built.get('icon.svg')).toContain('#2563eb')
+    expect(built.get('icon.svg')).toContain(String(lightAccent))
   })
 
   it('publishes a document that has commented a tag out, rather than refusing the page', () => {
@@ -607,9 +616,13 @@ describe('the site and the application look like one thing', () => {
       /@media \(prefers-color-scheme: light\) \{\s*:root \{[^}]*\}\s*\}/.exec(application)?.[0] ??
       ''
     const reordered = override('web/styles.css', `${light}\n${application.replace(light, '')}`)
+    const lightAccent = declared(application, '@media (prefers-color-scheme: light)').find(
+      (rule) => rule.property === '--accent',
+    )?.value
 
     expect(light).not.toBe('')
-    expect(buildSite(reordered).get('icon.svg')).toContain('#2563eb')
+    expect(lightAccent).toBeDefined()
+    expect(buildSite(reordered).get('icon.svg')).toContain(String(lightAccent))
   })
 })
 

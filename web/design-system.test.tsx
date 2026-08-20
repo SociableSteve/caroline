@@ -41,8 +41,6 @@ const surfaces: ReadonlyArray<{ name: string; title: string; render: () => void 
         <Dashboard
           tasks={[]}
           projects={[]}
-          health={null}
-          jobRuns={[]}
           plan={null}
           calendar={null}
           staleDays={7}
@@ -242,7 +240,7 @@ describe('focus', () => {
   const stylesheet = readFileSync(join(process.cwd(), 'web/styles.css'), 'utf8')
 
   it('is declared once, globally, rather than per control', () => {
-    expect(stylesheet).toMatch(/:focus-visible\s*\{[^}]*outline:\s*3px solid var\(--accent\)/)
+    expect(stylesheet).toMatch(/:focus-visible\s*\{[^}]*outline:\s*3px solid var\(--ring\)/)
     expect(stylesheet).toMatch(/:focus-visible\s*\{[^}]*outline-offset:\s*2px/)
   })
 

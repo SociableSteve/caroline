@@ -126,10 +126,16 @@ describe('the focus trap', () => {
   it('never lands on a control behind the dialog', async () => {
     await openCapture()
 
+    // `{ hidden: true }`, because Radix marks every sibling of the dialog `aria-hidden` while it
+    // is open (real inertness, not only a focus trap), and the default role query excludes what
+    // the accessibility tree hides. The point of the test is that Tab never reaches either
+    // control, not that the query can still see them the ordinary way.
     for (let presses = 0; presses < 12; presses += 1) {
       await userEvent.tab()
-      expect(screen.getByRole('button', { name: 'Background control' })).not.toHaveFocus()
-      expect(screen.getByRole('button', { name: 'Quick capture' })).not.toHaveFocus()
+      expect(
+        screen.getByRole('button', { name: 'Background control', hidden: true }),
+      ).not.toHaveFocus()
+      expect(screen.getByRole('button', { name: 'Quick capture', hidden: true })).not.toHaveFocus()
     }
   })
 })
@@ -184,8 +190,12 @@ describe('the gap before the deployment’s configured timezone has loaded', () 
     expect(screen.getByLabelText('Due')).toBeDisabled()
     expect(screen.getByLabelText('Defer until')).toBeDisabled()
 
-    // Config answers with the deployment's real, non-UTC zone.
-    await userEvent.click(screen.getByRole('button', { name: 'Resolve config' }))
+    // Config answers with the deployment's real, non-UTC zone: a `fireEvent`, not a `userEvent`
+    // click. This button stands in for an async prop update from outside, not something a user
+    // actually clicks while the dialog is open, and Radix's real modal both `aria-hides` every
+    // sibling and sets `pointer-events: none` on them, which `userEvent` (correctly) refuses to
+    // click through.
+    fireEvent.click(screen.getByRole('button', { name: 'Resolve config', hidden: true }))
     expect(screen.getByLabelText('Due')).toBeEnabled()
 
     await userEvent.type(screen.getByLabelText('What is it?'), 'Renew the domain')
@@ -205,7 +215,8 @@ describe('capturing', () => {
 
     await userEvent.type(screen.getByLabelText('What is it?'), '  Renew the domain  ')
     await userEvent.type(screen.getByLabelText('Notes'), 'Before it lapses')
-    await userEvent.selectOptions(screen.getByLabelText('Project'), 'project-1')
+    await userEvent.click(screen.getByLabelText('Project'))
+    await userEvent.click(await screen.findByRole('option', { name: 'Ship it' }))
     await userEvent.click(screen.getByRole('button', { name: 'Capture' }))
 
     expect(onCreate).toHaveBeenCalledWith({

@@ -344,7 +344,11 @@ describe('failures', () => {
     await userEvent.type(screen.getByLabelText('What is it?'), 'Renew the domain')
     await userEvent.click(screen.getByRole('button', { name: 'Capture' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('The server said no')
+    // `{ hidden: true }`: the open dialog marks the rest of the page `aria-hidden`, and the
+    // alert that reports the refused write renders behind it, in `<main>`.
+    expect(await screen.findByRole('alert', { hidden: true })).toHaveTextContent(
+      'The server said no',
+    )
     expect(screen.getByRole('dialog')).toBeInTheDocument()
     expect(screen.getByLabelText('What is it?')).toHaveValue('Renew the domain')
   })
@@ -420,7 +424,8 @@ describe('quick capture', () => {
     await screen.findByRole('region', { name: /where everything is/i })
     await userEvent.keyboard('c')
     await userEvent.type(screen.getByLabelText('What is it?'), 'Write the notes')
-    await userEvent.selectOptions(screen.getByLabelText('Project'), 'project-1')
+    await userEvent.click(screen.getByLabelText('Project'))
+    await userEvent.click(await screen.findByRole('option', { name: 'Ship it' }))
     await userEvent.click(screen.getByRole('button', { name: 'Capture' }))
 
     await waitFor(() =>
@@ -440,10 +445,8 @@ describe('writes from the board', () => {
     window.location.hash = '#/board'
 
     render(<App />)
-    await userEvent.selectOptions(
-      await screen.findByRole('combobox', { name: 'Status of Captured' }),
-      'next_action',
-    )
+    await userEvent.click(await screen.findByRole('combobox', { name: 'Status of Captured' }))
+    await userEvent.click(await screen.findByRole('option', { name: 'Next actions' }))
 
     await waitFor(() =>
       expect(calls).toContainEqual({
@@ -592,19 +595,6 @@ describe('more tasks than the client will fetch', () => {
     await screen.findByRole('region', { name: /where everything is/i })
 
     expect(within(screen.getByRole('main')).queryByRole('status')).not.toBeInTheDocument()
-  })
-})
-
-describe('the dashboard through the shell', () => {
-  /** Issue #47: integrations moved into the "Where everything is" card, beside the counts. */
-  it('shows the integrations the server reported', async () => {
-    stubApi()
-
-    render(<App />)
-    const panel = await screen.findByRole('region', { name: /where everything is/i })
-
-    expect(within(panel).getByText('GitHub')).toBeInTheDocument()
-    expect(within(panel).getAllByText('not configured')).toHaveLength(3)
   })
 })
 

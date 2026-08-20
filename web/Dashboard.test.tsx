@@ -15,27 +15,13 @@ import { describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { Dashboard } from './surfaces/Dashboard.js'
-import type { Health } from './api.js'
 import { aCalendarDay, aPlan, aPlanEntry, aProject, aTask, DAY, NOW } from './test-fixtures.js'
-
-const nothingConfigured: Health = {
-  status: 'ok',
-  version: '1.0.0',
-  uptimeSeconds: 3,
-  integrations: {
-    github: { configured: false, status: 'not configured' },
-    google: { configured: false, status: 'not configured' },
-    llm: { configured: false, status: 'not configured' },
-  },
-}
 
 function renderDashboard(overrides: Partial<Parameters<typeof Dashboard>[0]> = {}) {
   render(
     <Dashboard
       tasks={[]}
       projects={[]}
-      health={nothingConfigured}
-      jobRuns={[]}
       plan={null}
       calendar={null}
       staleDays={7}
@@ -95,7 +81,7 @@ describe('the dashboard’s layout', () => {
 
 describe('an empty Caroline', () => {
   it('renders without raising an alert', () => {
-    renderDashboard({ health: null })
+    renderDashboard()
 
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
@@ -113,14 +99,6 @@ describe('an empty Caroline', () => {
     const counts = screen.getByRole('region', { name: /where everything is/i })
 
     expect(within(counts).getAllByText('0')).toHaveLength(7)
-  })
-
-  it('names every integration and its status', () => {
-    renderDashboard()
-
-    expect(screen.getByText('GitHub')).toBeInTheDocument()
-    expect(screen.getAllByText('not configured')).toHaveLength(3)
-    expect(screen.getByText(/nothing is configured yet/i)).toBeInTheDocument()
   })
 
   it('says so rather than showing an empty list when nothing needs you', () => {
@@ -670,8 +648,8 @@ describe('the counts', () => {
 
     const counts = screen.getByRole('region', { name: /where everything is/i })
 
-    expect(within(counts).getByText('Inbox').previousSibling).toHaveTextContent('2')
-    expect(within(counts).getByText('Done').previousSibling).toHaveTextContent('1')
+    expect(within(counts).getByText('Inbox').nextElementSibling).toHaveTextContent('2')
+    expect(within(counts).getByText('Done').nextElementSibling).toHaveTextContent('1')
   })
 })
 

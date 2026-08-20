@@ -5,7 +5,9 @@
  */
 import type { JobRun, JobStatus } from '../api.js'
 import { ago, formatAge } from '../format.js'
-import { Badge, Fact, Facts, Panel } from '../components/primitives.js'
+import { cn } from '../lib/utils.js'
+import { Badge, emptyClassName, Fact, Facts, Panel } from '../components/primitives.js'
+import { Button } from '../components/ui/button.js'
 import { useSurfaceTitle } from '../title.js'
 
 export interface JobsProps {
@@ -62,36 +64,43 @@ export function Jobs({ jobs, runs, now, onRun }: JobsProps) {
   useSurfaceTitle('Jobs')
 
   return (
-    <div className="jobs-surface">
+    <div className="flex flex-col gap-5">
       <h1>Jobs</h1>
 
       {/* The heading is for structure, not for reading: issue #47's mockup goes straight from the
           page's own "Jobs" heading into the four cards, with no second visible heading above
           them. Kept for a11y as a labelled region, just not shown. */}
-      <Panel headingLevel={2} heading="Background jobs" headingClassName="visually-hidden">
+      <Panel headingLevel={2} heading="Background jobs" headingClassName="sr-only">
         {jobs.length === 0 ? (
-          <p className="empty">Nothing is scheduled.</p>
+          <p className={emptyClassName}>Nothing is scheduled.</p>
         ) : (
-          <ul className="job-status-list">
+          <ul className="m-0 grid grid-cols-1 gap-3 p-0 sm:grid-cols-2 md:grid-cols-4 [list-style:none]">
             {jobs.map((job) => (
-              <li key={job.job}>
+              <li key={job.job} className="h-full">
                 <Panel
                   headingLevel={3}
                   heading={job.job}
-                  headingClassName="job-name"
-                  className={job.lastRun?.status === 'failure' ? 'job-failed' : undefined}
+                  headingClassName="m-0 mb-1 mr-6 font-mono text-[13px] font-medium"
+                  className={cn(
+                    'relative flex h-full flex-col rounded-xl',
+                    job.lastRun?.status === 'failure'
+                      ? 'border-destructive/40 bg-destructive/5'
+                      : 'shadow-sm',
+                  )}
                 >
                   {/* "ok"/"failing" in words beside the name, matching Board's own stale and
                       pushed pills: colour is never the only carrier. The same condition the
                       card's own alarm tint reads, so the two never disagree. */}
                   <Badge
                     tone={job.lastRun?.status === 'failure' ? 'alarm' : 'quiet'}
-                    className="job-status-pill"
+                    className="absolute right-3 top-3"
                   >
                     {job.lastRun?.status === 'failure' ? 'failing' : 'ok'}
                   </Badge>
 
-                  <p className="job-description">{descriptions[job.job] ?? ''}</p>
+                  <p className="m-0 mb-2 text-[11px] leading-relaxed text-muted-foreground">
+                    {descriptions[job.job] ?? ''}
+                  </p>
 
                   <Facts>
                     <Fact label="Schedule">
@@ -111,7 +120,7 @@ export function Jobs({ jobs, runs, now, onRun }: JobsProps) {
                     {job.lastRun !== null && <Fact label="It did">{summarise(job.lastRun)}</Fact>}
 
                     {job.lastRun?.error != null && (
-                      <Fact label="Error" className="job-error">
+                      <Fact label="Error" className="text-sm text-destructive">
                         {job.lastRun.error}
                       </Fact>
                     )}
@@ -127,9 +136,16 @@ export function Jobs({ jobs, runs, now, onRun }: JobsProps) {
                     )}
                   </Facts>
 
-                  <button type="button" onClick={() => onRun(job.job)} disabled={job.running}>
+                  <Button
+                    type="button"
+                    variant={job.lastRun?.status === 'failure' ? 'default' : 'outline'}
+                    size="sm"
+                    className="mt-auto h-6.5 self-start px-2.5 text-[11px]"
+                    onClick={() => onRun(job.job)}
+                    disabled={job.running}
+                  >
                     {job.running ? 'Running' : 'Run now'}
-                  </button>
+                  </Button>
                 </Panel>
               </li>
             ))}
@@ -139,26 +155,67 @@ export function Jobs({ jobs, runs, now, onRun }: JobsProps) {
 
       <Panel headingLevel={2} heading="Run history">
         {runs.length === 0 ? (
-          <p className="empty">Nothing has run yet.</p>
+          <p className={emptyClassName}>Nothing has run yet.</p>
         ) : (
-          <table className="run-history">
+          <table className="w-full border-collapse overflow-hidden rounded-xl border text-xs">
             <thead>
               <tr>
-                <th scope="col">Job</th>
-                <th scope="col">Trigger</th>
-                <th scope="col">When</th>
-                <th scope="col">Status</th>
-                <th scope="col">What it did</th>
+                <th
+                  scope="col"
+                  className="border-b p-2 text-left text-[10px] font-medium uppercase tracking-[0.05em] text-muted-foreground"
+                >
+                  Job
+                </th>
+                <th
+                  scope="col"
+                  className="border-b p-2 text-left text-[10px] font-medium uppercase tracking-[0.05em] text-muted-foreground"
+                >
+                  Trigger
+                </th>
+                <th
+                  scope="col"
+                  className="border-b p-2 text-left text-[10px] font-medium uppercase tracking-[0.05em] text-muted-foreground"
+                >
+                  When
+                </th>
+                <th
+                  scope="col"
+                  className="border-b p-2 text-left text-[10px] font-medium uppercase tracking-[0.05em] text-muted-foreground"
+                >
+                  Status
+                </th>
+                <th
+                  scope="col"
+                  className="border-b p-2 text-left text-[10px] font-medium uppercase tracking-[0.05em] text-muted-foreground"
+                >
+                  What it did
+                </th>
               </tr>
             </thead>
             <tbody>
               {runs.map((run) => (
-                <tr key={run.id} className={run.status === 'failure' ? 'job-failed' : undefined}>
-                  <td>{run.job}</td>
-                  <td>{run.trigger}</td>
-                  <td className="run-when">{ago(run.finishedAt, now)}</td>
-                  <td>{run.status}</td>
-                  <td>{run.error ?? summarise(run)}</td>
+                <tr
+                  key={run.id}
+                  className={cn(
+                    '[&>td]:border-b [&>td]:border-border/60 [&>td]:p-2',
+                    run.status === 'failure' && 'bg-destructive/[0.04]',
+                  )}
+                >
+                  <td className="font-mono">{run.job}</td>
+                  <td className="text-muted-foreground">{run.trigger}</td>
+                  <td className="text-muted-foreground [font-variant-numeric:tabular-nums]">
+                    {ago(run.finishedAt, now)}
+                  </td>
+                  <td className={run.status === 'failure' ? 'text-destructive' : undefined}>
+                    {run.status}
+                  </td>
+                  <td
+                    className={
+                      run.status === 'failure' ? 'text-destructive' : 'text-muted-foreground'
+                    }
+                  >
+                    {run.error ?? summarise(run)}
+                  </td>
                 </tr>
               ))}
             </tbody>
