@@ -2,7 +2,7 @@
 
 Start to finish, on a machine that has never run it. Nothing here needs a compiler, a container or
 a server, and every step is optional except the first: Caroline runs with no credentials at all,
-reports each integration as not configured, and is a usable manual GTD app in that state.
+reports each integration as not configured, and is a usable manual work tracker in that state.
 
 Read it in order. Each integration ends with a way to check it actually works before you move on.
 
