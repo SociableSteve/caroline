@@ -11,6 +11,14 @@
  * tinted, the header and the contents list are sunk panels on it, and the document itself is raised
  * out of it in white. Running text is capped at `--measure` whatever the window does, because a
  * setup guide read at 120 characters a line is a setup guide somebody loses their place in.
+ *
+ * `--chart-2` rather than `--accent`, throughout this file: since the shadcn migration `--accent`
+ * is a muted hover-state background, not a colour, and the app's one chromatic accent now lives in
+ * the chart ramp instead. `--chart-2` is the rung already carrying that job everywhere else the app
+ * draws a single accent fill. `--accent-text`/`--accent-tint`, the old aliases onto `--accent`, are
+ * gone from `web/styles.css` entirely rather than kept pointing at a colour that no longer means
+ * "accent"; every rule below that used to read them names `--chart-2` (and `--primary-ink`, proven
+ * to read against a filled accent fill, same pairing the favicon uses) directly instead.
  */
 
 body {
@@ -28,11 +36,7 @@ body {
   top: 0;
   z-index: 2;
   padding: var(--space-2) var(--space-4);
-  /* `--chart-2`/`--primary-ink` rather than `--accent`/`--accent-text`: since the shadcn migration
-     `--accent` is a muted hover-state background and `--accent-text` its alias, so the two together
-     no longer read as a filled, legible chip. `--chart-2` is the app's one chromatic accent, and
-     `--primary-ink` (onto `--primary-foreground`) is proven to read against a filled accent
-     elsewhere, same pairing the favicon uses. */
+  /* See the file header on `--chart-2`/`--primary-ink` in place of `--accent`. */
   background: var(--chart-2);
   color: var(--primary-ink);
   border-bottom-right-radius: var(--radius-md);
@@ -226,9 +230,7 @@ li > ol {
 }
 
 a {
-  /* The one blue in running prose. `--chart-2` rather than `--accent`: since the shadcn migration
-     `--accent` is a muted hover-state background, not a colour, and the app's actual chromatic
-     brand blue now lives in the chart ramp. */
+  /* The one blue in running prose. See the file header on `--chart-2` in place of `--accent`. */
   color: var(--chart-2);
   text-underline-offset: 0.15em;
 }
@@ -466,11 +468,7 @@ hr {
  * A "Check it:" paragraph, tinted rather than a bold run of text: the one thing worth pausing on
  * before moving to the next step.
  */
-/*
- * `color-mix` on `--chart-2` rather than `--accent-tint`/`--accent`: those two are now aliases onto
- * the shadcn hover-state grey, and this callout wants the app's one chromatic accent tinted, the
- * blue-tinted box the redesign's mockup draws it as, not a grey one.
- */
+/* `color-mix` on `--chart-2`: see the file header on why, in place of the old `--accent-tint`. */
 .callout {
   padding: var(--space-4);
   margin: 0 0 var(--space-4);
@@ -779,8 +777,7 @@ h2#what-it-does ~ ul > li strong {
   font-family: var(--font-mono);
   font-size: var(--text-lg);
   font-weight: 500;
-  /* `--chart-2` rather than `--accent`: the app's one chromatic accent, not the shadcn hover grey
-     `--accent` is now. */
+  /* `--chart-2` in place of `--accent`; see the file header. */
   color: var(--chart-2);
 }
 
@@ -862,8 +859,7 @@ h2#what-it-does ~ ul > li strong {
 }
 
 :focus-visible {
-  /* `--chart-2` rather than `--accent`: a grey outline (what `--accent` now is) is a poor focus
-     ring, and the app's own chromatic accent is what the redesign's mockup draws it in. */
+  /* `--chart-2` in place of `--accent`; see the file header. */
   outline: 2px solid var(--chart-2);
   outline-offset: 2px;
 }
