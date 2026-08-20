@@ -614,6 +614,7 @@ export function App() {
         projects={projects}
         timezone={timezone}
         configLoaded={configLoaded}
+        failure={writeFailure}
         onClose={() => setCapturing(false)}
         onCreate={onCapture}
       />

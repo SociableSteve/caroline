@@ -9,7 +9,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ProjectView, TaskInput } from '../api.js'
 import { deferUntilFromDateInput, dueAtFromDateInput } from '../format.js'
-import { ActionRow, Field } from './primitives.js'
+import { ActionRow, Field, failureClassName } from './primitives.js'
 import { Button } from './ui/button.js'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog.js'
 import { Input } from './ui/input.js'
@@ -28,6 +28,13 @@ export interface QuickCaptureProps {
    *  fields are disabled until this is true rather than risk a date silently resolved against
    *  the wrong zone. */
   readonly configLoaded: boolean
+  /**
+   * Why the most recent write failed, or null. Rendered inside the dialog rather than relying
+   * solely on `App.tsx`'s own `<main>`-level rendering: Radix marks everything outside an open
+   * dialog `aria-hidden`, so a failure caused by this dialog's own submit would otherwise be
+   * unreachable to a screen reader user still inside it.
+   */
+  readonly failure: string | null
   readonly onClose: () => void
   /** Answers whether the task was created. The form holds what was typed until it was. */
   readonly onCreate: (input: TaskInput) => Promise<boolean>
@@ -40,6 +47,7 @@ export function QuickCapture({
   projects,
   timezone,
   configLoaded,
+  failure,
   onClose,
   onCreate,
 }: QuickCaptureProps) {
@@ -79,6 +87,15 @@ export function QuickCapture({
     // explanation for it.
     setSaving(false)
     opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+
+    // On close, so a request left in flight when the dialog was dismissed is recognized as stale
+    // by the `mine === session.current` guards in `submit()` rather than applying its result
+    // (clearing fields, closing a dialog reopened for a new capture) after the fact. Focus
+    // restoration itself is Radix's, via `onCloseAutoFocus` below; this only restores the other
+    // half of what the pre-migration cleanup used to do.
+    return () => {
+      session.current += 1
+    }
   }, [open])
 
   /**
@@ -173,6 +190,12 @@ export function QuickCapture({
         <DialogHeader>
           <DialogTitle className="text-sm font-semibold">Quick capture</DialogTitle>
         </DialogHeader>
+
+        {open && failure !== null && (
+          <p role="alert" className={failureClassName}>
+            {failure}
+          </p>
+        )}
 
         <form
           className="flex flex-col gap-3"

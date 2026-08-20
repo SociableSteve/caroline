@@ -394,6 +394,7 @@ function PlanEntryLine({
       {!entry.done && entry.taskId !== null && (
         <Button
           type="button"
+          size="xs"
           aria-label={`Complete ${entry.title}`}
           onClick={() => onComplete(entry.taskId as string)}
         >

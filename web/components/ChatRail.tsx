@@ -290,7 +290,7 @@ export function ChatRail({
 
   return (
     <aside
-      className="flex h-full flex-col gap-3 self-stretch overflow-hidden border-l border-sidebar-border bg-sidebar p-4"
+      className="fixed inset-0 z-10 flex h-full flex-col gap-3 self-stretch overflow-hidden bg-sidebar p-4 shadow-lg md:static md:inset-auto md:z-auto md:border-l md:border-sidebar-border md:shadow-none"
       aria-label="Chat"
     >
       {details}

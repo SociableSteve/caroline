@@ -344,13 +344,15 @@ describe('failures', () => {
     await userEvent.type(screen.getByLabelText('What is it?'), 'Renew the domain')
     await userEvent.click(screen.getByRole('button', { name: 'Capture' }))
 
-    // `{ hidden: true }`: the open dialog marks the rest of the page `aria-hidden`, and the
-    // alert that reports the refused write renders behind it, in `<main>`.
-    expect(await screen.findByRole('alert', { hidden: true })).toHaveTextContent(
-      'The server said no',
-    )
-    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    // The dialog carries its own copy of the failure, since Radix marks the rest of the page
+    // (including `<main>`'s own alert, asserted separately below) `aria-hidden` while it is
+    // open, and a screen reader user inside the dialog cannot reach outside it.
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('The server said no')
     expect(screen.getByLabelText('What is it?')).toHaveValue('Renew the domain')
+
+    // `{ hidden: true }`: the copy in `<main>` is still there too, behind the dialog.
+    expect(screen.getAllByRole('alert', { hidden: true })).toHaveLength(2)
   })
 
   it('reports what the server said about a refused write', async () => {
