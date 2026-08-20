@@ -10,6 +10,7 @@ import { buildServer, registerRoutes } from '../../src/server/app.js'
 import { buildJobs } from '../../src/jobs/registry.js'
 import { createChangeFeed } from '../../src/server/changes.js'
 import { migratedDatabase } from '../helpers/temp-database.js'
+import { NO_BUILT_WEB_ROOT } from '../helpers/test-server.js'
 import { EXEMPT_AUTH_ROUTES } from '../../src/server/auth-gate.js'
 import { createAuthService } from '../../src/auth/service.js'
 
@@ -169,14 +170,12 @@ describe('with authentication required (criterion 1, 31)', () => {
 
 describe('the SPA shell and its assets (criterion 8)', () => {
   it('are not gated, whether or not authentication is required', async () => {
-    // Pointed at a directory that provably does not exist, rather than relying on the built
-    // SPA being incidentally absent from this checkout during `npm test`: this test's premise
-    // is that there is no shell to serve, and it should hold regardless of build state.
-    const webRoot = '/dev/null/no-such-caroline-web-build'
+    // This test's premise is that there is no shell to serve, so it needs a `webRoot` that
+    // provably does not exist rather than one that happens not to on a clean checkout.
     const app = await buildServer({
       config: strictConfig(),
       database: migratedDatabase(),
-      webRoot,
+      webRoot: NO_BUILT_WEB_ROOT,
     })
 
     const response = await app.inject({ method: 'GET', url: '/some-client-route' })
