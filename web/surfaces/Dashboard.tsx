@@ -11,10 +11,11 @@
  *    the page needs them replaced. Jobs already has its own surface; plan history is not shown
  *    here at all.
  *
- * Criterion 6: the day bar's window, meetings and reserve are the figures `GET /api/calendar`
- * gave, and its planned, done and free figures come from walking the plan's own estimates through
- * that route's free intervals. Nothing is recomputed here, so the surface and the API cannot
- * disagree.
+ * Criterion 6: the day bar's window and reserve are the figures `GET /api/calendar` gave, its
+ * meetings figure re-sums that route's own busy intervals to the same total, and its planned, done
+ * and unplanned figures come from walking the plan's own estimates through that route's free
+ * intervals. Nothing here is a second opinion on a number the API already gave, so the surface and
+ * the API cannot disagree.
  *
  * Criterion 4: with no plan, no calendar and no integrations configured it shows empty states
  * rather than errors, because that is the state a clean checkout is in.
@@ -438,8 +439,10 @@ function DayTrack({
  * on its own and `windowMinutes` is rounded separately, so event boundaries inside a minute can
  * leave the four totalling the window plus or minus a minute. Criterion 47 makes no sum claim.
  *
- * The capacity figures are still the ones `GET /api/calendar` gave (criterion 6); nothing here
- * recomputes them.
+ * None of that is a second opinion on the API's figures (criterion 6): the window and the reserve
+ * are the route's own, meetings re-sums the route's own busy intervals and rounds them the way
+ * `busyMinutes` is rounded, so it is that number by another path, and the rest come from walking
+ * the plan through the route's free intervals.
  */
 function DayBar({
   capacity,
