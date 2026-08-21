@@ -55,7 +55,7 @@ read from the environment only: a key in the config file is a startup error.
 | ---------------------------------------------------------------------- | --------------------------------------------------------- |
 | `CAROLINE_CONFIG`                                                      | Path to the config file. Default `./caroline.config.json` |
 | `CAROLINE_HOST`, `CAROLINE_PORT`                                       | Bind address and port                                     |
-| `CAROLINE_ACCESS_TOKEN`                                                | Required to bind to anything other than loopback          |
+| `CAROLINE_AUTH_CLIENT_SECRET`                                          | Login provider's client secret, where it needs one        |
 | `CAROLINE_DB_PATH`                                                     | SQLite file location                                      |
 | `CAROLINE_LLM_PROVIDER`, `CAROLINE_LLM_MODEL`, `CAROLINE_LLM_BASE_URL` | LLM selection                                             |
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`                                  | LLM key for the selected provider                         |
@@ -215,8 +215,19 @@ open in the chat rail sends and what the audit tables keep, is
 [docs/content-policy.md](docs/content-policy.md), and the contract behind it is
 [spec 09](docs/specs/09-config-and-security.md).
 
-Caroline binds to `127.0.0.1` and has no login. Binding anywhere else requires an access
-token, enforced at startup.
+Caroline binds to `127.0.0.1` and has no login there. Binding anywhere else, declaring a
+`server.publicUrl`, or setting `auth.mode` to `"required"` means a login: you prove who you are to
+an identity provider you configure, and `auth.allow` says which account is yours. It is enforced at
+startup, and a configuration that would expose Caroline without one refuses to start. There is no
+shared-secret alternative: a token in an environment variable identifies nobody and cannot be
+revoked without a restart. [docs/setup.md](docs/setup.md#8-reaching-it-from-elsewhere) walks through
+it, and [spec 13](docs/specs/13-authentication.md) is the contract.
+
+Whatever the configuration, every request has to be addressed to Caroline by a name it answers to:
+loopback where there is no `server.publicUrl`, and that URL's host where there is one. Otherwise a
+name somebody else controls could be pointed at `127.0.0.1` and a page in your own browser would be
+talking to your Caroline. The database and the data directory are owner-only on disk (0600 and
+0700), which is the whole of the protection at rest: there is no encryption beyond it.
 
 ### Deleting everything
 

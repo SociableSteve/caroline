@@ -85,3 +85,54 @@ export function isAcceptableOrigin(config: Config, origin: string): boolean {
   // bind's own origin actually parses to.
   return loopbackHostnames.has(parsed.hostname)
 }
+
+/**
+ * Parses a `Host` header into the authority a URL parser would read it as, or null where it is
+ * not one. A `Host` header is `host[:port]` and nothing else, so anything carrying a path, a
+ * query, a fragment, userinfo or whitespace is refused rather than parsed: `new URL()` would
+ * happily read `localhost/../evil.example` as the host `localhost`, and a check that accepted
+ * that would be accepting a header no client legitimately sends.
+ */
+function parseHostHeader(value: string): URL | null {
+  if (value === '' || /[/\\?#@\s]/.test(value)) return null
+  try {
+    return new URL(`http://${value}`)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Whether the `Host` header a request carries is one this install answers to. Spec 09's
+ * network-posture section: loopback is not a boundary against other software on the machine, and
+ * a name somebody else controls can be made to resolve to `127.0.0.1`, at which point a page in
+ * the user's own browser is same-origin with the API. The name in the `Host` header is the one
+ * thing that attack cannot forge, because the browser writes it from the address bar, so
+ * checking it is what makes the loopback bind mean what spec 09 says it means.
+ *
+ * The rule is `isAcceptableOrigin`'s, asked of an authority rather than of an origin, and it is
+ * deliberately the same rule rather than a second one: where `server.publicUrl` is set, that is
+ * the address this install has been told it is reachable at, and its port too where it names one;
+ * where it is not, the bind is loopback (nothing else starts), and any loopback name on any port
+ * is accepted, so a browser reaching Caroline as `localhost` when the bind was `127.0.0.1` still
+ * works. A missing header is refused: an HTTP/1.0 request may omit it, and there is then no
+ * address for the request to have been addressed to.
+ */
+export function isAcceptableHost(config: Config, host: string | undefined): boolean {
+  if (host === undefined) return false
+
+  const parsed = parseHostHeader(host)
+  if (parsed === null) return false
+
+  if (config.server.publicUrl !== null) {
+    const expected = new URL(config.server.publicUrl)
+    if (parsed.hostname !== expected.hostname) return false
+    // Only where the public URL names a port. Where it does not, the port is the scheme's
+    // default and a proxy in front may have forwarded on another, so demanding a match would
+    // refuse a correctly configured install rather than catch a rebinding attempt, which is
+    // already caught by the hostname above.
+    return expected.port === '' || parsed.port === expected.port
+  }
+
+  return loopbackHostnames.has(parsed.hostname)
+}

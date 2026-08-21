@@ -1,0 +1,172 @@
+/**
+ * The `Host` check, spec 09's network-posture section and criterion 21. Loopback is not a
+ * boundary against other software on the machine, and a name somebody else controls can be made
+ * to resolve to `127.0.0.1`, at which point a page in the user's own browser is same-origin with
+ * the API and reads and writes everything in it. The MCP endpoint has validated `Host` for
+ * exactly this reason since spec 12; this asserts the same check over the rest of the API, on the
+ * default configuration as much as on an install with a login.
+ */
+import { describe, expect, it } from 'vitest'
+import { loadConfig } from '../../src/config/load.js'
+import { buildServer } from '../../src/server/app.js'
+import { migratedDatabase } from '../helpers/temp-database.js'
+import { isAcceptableHost } from '../../src/auth/origin.js'
+
+const noEnv = {} as NodeJS.ProcessEnv
+
+/** The default: loopback bind, no login, which is where the rebinding hole actually was. */
+function looseConfig() {
+  return loadConfig({ file: null, env: noEnv })
+}
+
+function exposedConfig() {
+  return loadConfig({
+    file: {
+      server: { publicUrl: 'https://caroline.example.com' },
+      auth: {
+        mode: 'required',
+        allow: ['owner@example.com'],
+        provider: { clientId: 'a-client-id' },
+      },
+    },
+    env: noEnv,
+  })
+}
+
+describe('isAcceptableHost', () => {
+  it('accepts any loopback host, on any port, where there is no public URL', () => {
+    const config = looseConfig()
+    for (const host of [
+      '127.0.0.1',
+      '127.0.0.1:5123',
+      'localhost',
+      'localhost:5173',
+      '[::1]',
+      '[::1]:5123',
+      '[::ffff:127.0.0.1]:5123',
+    ]) {
+      expect(isAcceptableHost(config, host), host).toBe(true)
+    }
+  })
+
+  it('refuses a missing Host outright', () => {
+    // An HTTP/1.0 request may carry no `Host` at all, and there is no address for it to be
+    // addressed to, so there is nothing to accept. The MCP endpoint answers a missing one the
+    // same way.
+    expect(isAcceptableHost(looseConfig(), undefined)).toBe(false)
+    expect(isAcceptableHost(exposedConfig(), undefined)).toBe(false)
+  })
+
+  it('refuses a host that is not loopback where there is no public URL', () => {
+    const config = looseConfig()
+    for (const host of [
+      'rebind.example.com',
+      'rebind.example.com:5123',
+      '203.0.113.5:5123',
+      '127.0.0.1.nip.io',
+      'localhost.evil.example',
+      '',
+      'localhost/../evil',
+      'user@evil.example',
+    ]) {
+      expect(isAcceptableHost(config, host), host).toBe(false)
+    }
+  })
+
+  it('requires the public URL host where one is set, and refuses loopback there', () => {
+    const config = exposedConfig()
+    expect(isAcceptableHost(config, 'caroline.example.com')).toBe(true)
+    expect(isAcceptableHost(config, 'rebind.example.com')).toBe(false)
+    expect(isAcceptableHost(config, '127.0.0.1:5123')).toBe(false)
+  })
+
+  it('requires the public URL port where the public URL names one', () => {
+    const config = loadConfig({
+      file: {
+        server: { publicUrl: 'https://caroline.example.com:8443' },
+        auth: {
+          mode: 'required',
+          allow: ['owner@example.com'],
+          provider: { clientId: 'a-client-id' },
+        },
+      },
+      env: noEnv,
+    })
+
+    expect(isAcceptableHost(config, 'caroline.example.com:8443')).toBe(true)
+    expect(isAcceptableHost(config, 'caroline.example.com')).toBe(false)
+  })
+})
+
+describe('the request-level Host check (criterion 21)', () => {
+  it('refuses a non-loopback Host on the default configuration, with no login in play', async () => {
+    const config = looseConfig()
+    expect(config.authRequired).toBe(false)
+    const app = await buildServer({ config, database: migratedDatabase() })
+
+    for (const { method, url } of [
+      { method: 'GET' as const, url: '/api/tasks' },
+      { method: 'GET' as const, url: '/api/config' },
+      { method: 'POST' as const, url: '/api/jobs/classify/run' },
+    ]) {
+      const response = await app.inject({
+        method,
+        url,
+        headers: { host: 'rebind.example.com' },
+        ...(method === 'GET' ? {} : { payload: {} }),
+      })
+
+      expect(response.statusCode, `${method} ${url}`).toBe(403)
+      expect(response.json(), `${method} ${url}`).toEqual({
+        error: { code: 'forbidden', message: expect.any(String) },
+      })
+    }
+
+    await app.close()
+  })
+
+  it('serves a loopback Host on the default configuration', async () => {
+    const app = await buildServer({ config: looseConfig(), database: migratedDatabase() })
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/health',
+      headers: { host: '127.0.0.1:5123' },
+    })
+
+    expect(response.statusCode).toBe(200)
+
+    await app.close()
+  })
+
+  it('refuses a loopback Host where a public URL is configured', async () => {
+    const app = await buildServer({ config: exposedConfig(), database: migratedDatabase() })
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/health',
+      headers: { host: '127.0.0.1:5123' },
+    })
+
+    // 403 rather than the 401 an unauthenticated request would otherwise get: the `Host` check
+    // runs before the session check, because a request that is not addressed to this install has
+    // no business being told whether its session would have been accepted.
+    expect(response.statusCode).toBe(403)
+
+    await app.close()
+  })
+
+  it('refuses a non-loopback Host on a route outside /api too', async () => {
+    const app = await buildServer({ config: looseConfig(), database: migratedDatabase() })
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/some-client-route',
+      headers: { host: 'rebind.example.com' },
+    })
+
+    expect(response.statusCode).toBe(403)
+
+    await app.close()
+  })
+})

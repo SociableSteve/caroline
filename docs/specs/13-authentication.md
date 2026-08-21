@@ -187,6 +187,38 @@ route. A boundary remembered per route is a boundary somebody forgets, and the r
 already centralised for exactly this reason: spec 08 criterion 1's test walks it so a route
 cannot slip past by living somewhere the test does not look.
 
+### The boundary is decided by the route that matched
+
+One check over the route list only works if the check and the router are reading the same thing,
+and for one release they were not. The hook asked whether the request's own URL began with
+`/api/`; the router decodes percent-escapes before it matches, so `GET /%61pi/tasks` was served by
+the `/api/tasks` handler while the hook saw a path that began with `/%61`, called it part of the
+SPA and required no session. That was unauthenticated read and write over the whole API on an
+install configured to require a login, and the wording of this section is where it hid: "one check
+over the whole route list" was true, and the check was consulting something that was not the route
+list.
+
+So the decision is made on `request.routeOptions.url`, the template the router matched, which is a
+string written in this repository rather than one the caller chose. It is already the value
+`requestSerialiser` logs a request by, for the neighbouring reason that no byte of a caller's URL
+may reach a log line, so this is one derivation reused rather than a second one to keep in step.
+Three cases:
+
+- A template under `/api/`: a session is required unless the template is in the exempt set, which
+  is matched against the template so that `GET /api/auth/status` still names itself the way that
+  set spells it.
+- Any other template, in practice `@fastify/static`'s `/*`: exempt, as the shell and its assets
+  have always been.
+- No template, because the request matched no route: there is nothing to consult, so the decoded
+  path decides, and it decides towards refusal. Anything decoding to a path under `/api` is
+  refused; everything else is exempt, which is what keeps the shell and the login screen reachable
+  without a session. A path that cannot be decoded is not decodable into `/api` either, and the
+  decode must not throw out of the hook.
+
+The regression this leaves behind is a test that drives encoded and non-canonical paths rather
+than canonical ones. The existing criterion 16 test walks the registered route list, which is
+exactly the set of paths on which the two readings agree, and that is why it passed throughout.
+
 Exempt from this check, and the exemption list is itself asserted:
 
 - `GET /api/auth/status`, `POST /api/auth/login` and `GET /api/auth/callback`. A login flow
@@ -290,26 +322,30 @@ writing down why they are sufficient rather than asserting that they are.
    fetch, so a foreign page cannot make an authenticated unsafe request in the ordinary way.
 2. No response on any route carries a CORS header, ever. So even where a foreign page can cause
    a request, it cannot read the answer.
-3. **Where `authRequired` is true**, any request whose method is not `GET` or `HEAD`, and whose
-   `Origin` header is present and is not one of the acceptable origins, is refused before it reaches
-   a route.
+3. Any request whose method is not `GET` or `HEAD`, and whose `Origin` header is present and is not
+   one of the acceptable origins, is refused before it reaches a route.
    That closes the cases where a browser sends the cookie on a same-site-but-not-same-origin
    request, and it is a check on a header the browser sets rather than on one the caller chooses
    to be believed about.
 
-The scope on the third property is load-bearing rather than a hedge. Where `authRequired` is
-false there is no session cookie to be ridden and no public origin to compare against, and
-browsers do send `Origin` on same-origin writes, including from the Vite dev server on a port of
-its own. An unscoped check would refuse every write on every loopback install, which is every
-install that exists. So where authentication is not required, no `Origin` check is applied at
-all. The forwarded-header refusal is the check that surface does get, and it is a different one.
+The third property was once scoped to `authRequired`, on the reasoning that where it is false
+there is no session cookie to be ridden and no public origin to compare against. The first half of
+that is right and the conclusion did not follow. A loopback install with no login answers writes to
+anybody who can reach the socket, and a page in the user's own browser can reach it: the JSON-body
+routes are covered by the CORS preflight a JSON content type forces, but a body-less `POST` is a
+simple request that no preflight covers, and `POST /api/tasks/:id/complete` and
+`POST /api/jobs/:name/run` are body-less. So the check is unconditional, and what makes that safe
+is the acceptable set rather than the scope: any loopback origin on any port is acceptable where
+there is no public URL, so a same-origin write from the SPA and a write from the Vite dev server on
+a port of its own are both accepted, on every install. The `Host` check spec 09 describes runs
+unconditionally for the neighbouring reason, and the forwarded-header refusal is a third check on
+that surface rather than a substitute for either.
 
-The dev server is also why a loopback install's acceptable origins are every loopback origin rather
-than the one string the bind used. `auth.mode: "required"` turns the check on with the bind still on
-loopback, so scoping the check to `authRequired` is not on its own enough: a check comparing against
-the exact bind string would refuse the dev server on that configuration, and would refuse the login
-being started from `http://localhost:<port>`, which is the same failure moved one configuration
-along. The scope and the set are two halves of one answer.
+The dev server is why a loopback install's acceptable origins are every loopback origin rather than
+the one string the bind used, and that was always the half of this doing the real work: a check
+comparing against the exact bind string would refuse the dev server, and would refuse a login being
+started from `http://localhost:<port>`. Now that the check is unconditional, the set is the whole of
+the answer rather than half of it.
 
 The SPA is same-origin, so nothing about it changes. A CSRF token would add a mechanism, a
 second endpoint and a client-side store for a case those three already cover.
@@ -782,3 +818,11 @@ them by number.
     is in fact right. Parsing both sides still catches what this criterion exists for, because the
     unbracketed forms it would be a bug to derive, `http://::1:<port>` and
     `http://::ffff:127.0.0.1:<port>`, do not parse at all.
+
+The security review of 2026-08-21 adds one, appended rather than renumbered for the reason the
+rest of this list is not renumbered: the numbers are cited by the code and the suite.
+
+35. A login flow expires. A callback arriving more than `LOGIN_FLOW_TTL_MS` (ten minutes) after the
+    `POST /api/auth/login` that started it is refused in the same words a callback whose state does
+    not match is refused, and the flow is discarded at that point rather than left to be redeemed
+    later. A callback inside the window still completes.

@@ -31,6 +31,11 @@ export interface FetchClientMetadataOptions {
    * than about the address check itself, so they can drive a real loopback server without also
    * having to make loopback look like a public address to the real guard. */
   readonly isPublicAddress?: typeof isPublicAddress
+  /** Injected for exactly the reason `isPublicAddress` is, and by the same tests: a real loopback
+   * server listens on an ephemeral port, so the port constraint below cannot hold for a test
+   * about the size cap, the time cap or the redirect guard. The constraint itself is asserted
+   * with no server at all, where nothing is injected. */
+  readonly isAcceptablePort?: (port: string) => boolean
   /** A trusted CA certificate, for a test driving a real loopback server with a throwaway
    * self-signed certificate. Absent in production, where the ordinary system trust store
    * applies: this is a way to add trust for a test fixture, never a way to bypass it. */
@@ -113,6 +118,7 @@ export async function fetchClientMetadata(
     timeoutMs,
     lookup = dnsLookup,
     isPublicAddress: checkAddress = isPublicAddress,
+    isAcceptablePort: acceptPort = (port) => port === '',
     ca,
   }: FetchClientMetadataOptions,
 ): Promise<ClientMetadataDocument> {
@@ -125,6 +131,19 @@ export async function fetchClientMetadata(
 
   if (url.protocol !== 'https:') {
     throw new ClientMetadataError('The client identifier must be an https URL.')
+  }
+
+  // The default port and nothing else, and asked of the parsed port rather than of the string so
+  // that `https://example.com:443/` is recognised as the same address as `https://example.com/`.
+  // A metadata document is published on the web, and one published on another port is not a thing
+  // that happens; what naming a port would buy a caller is a request made from Caroline's own
+  // network position at some other service on a host whose address passes the check above. The
+  // scheme has been constrained since this was written, for the same reason, and the port was the
+  // half of the authority left open. Spec 12, criterion 46.
+  if (!acceptPort(url.port)) {
+    throw new ClientMetadataError(
+      'The client identifier must not name a port: only the default https port is fetched.',
+    )
   }
 
   const address = await resolveToPublicAddress(url.hostname, lookup, checkAddress)

@@ -2,7 +2,8 @@
  * The provider and the session, assembled. Spec 13, slice 2. Discovery is fetched lazily on the
  * first login attempt and cached for the life of the process; the login flow's state lives in
  * memory, one at a time, following the pattern `src/connectors/google/auth.ts` sets for the same
- * reason its own comment gives: there is one user and one browser.
+ * reason its own comment gives: there is one user and one browser. One at a time and for ten
+ * minutes: the slot is bounded as well as single, `LOGIN_FLOW_TTL_MS` below.
  */
 import type { Config } from '../config/schema.js'
 import type { Database } from '../db/connection.js'
@@ -80,7 +81,20 @@ interface PendingFlow {
   readonly verifier: string
   readonly nonce: string
   readonly hash: string | null
+  /** When this flow stops being redeemable. Spec 13, criterion 35. */
+  readonly expiresAt: number
 }
+
+/**
+ * How long a started login stays redeemable. Ten minutes: long enough to type a password, answer
+ * a second factor and pick an account, and short enough that a flow abandoned at the provider is
+ * not still sitting there hours later with a live state and verifier in it. Not a setting, for the
+ * reason `AUTHORIZATION_REQUEST_TTL_MS` in `src/db/repositories/mcp-oauth.ts` is not one: this is
+ * about a person still being at the keyboard, not a rate anybody would tune. Longer than that
+ * five-minute bound on purpose, because a consent screen Caroline renders itself is one decision
+ * and a login at an identity provider is a sequence of them, some of them on another device.
+ */
+export const LOGIN_FLOW_TTL_MS = 10 * 60_000
 
 function sessionExpiry(config: Config) {
   return {
@@ -142,7 +156,13 @@ export function createAuthService({
       const pkce = createPkce()
       const state = createState()
       const nonce = createNonce()
-      pending = { state, verifier: pkce.verifier, nonce, hash }
+      pending = {
+        state,
+        verifier: pkce.verifier,
+        nonce,
+        hash,
+        expiresAt: now() + LOGIN_FLOW_TTL_MS,
+      }
 
       const url = new URL(document.authorizationEndpoint)
       url.search = new URLSearchParams({
@@ -165,7 +185,15 @@ export function createAuthService({
       }
 
       const flow = pending
-      if (flow === null || state === undefined || state !== flow.state) {
+      // An expired flow is discarded here rather than merely refused, so that a callback held
+      // back and replayed later cannot find it waiting: the state and the verifier stop existing
+      // at the moment they stop being usable. Answered in the same words a state that never
+      // matched gets, because the caller's next move is the same one and the difference between
+      // "wrong" and "too late" is the operator's business, not a stranger's.
+      const expired = flow !== null && now() > flow.expiresAt
+      if (expired) pending = null
+
+      if (flow === null || expired || state === undefined || state !== flow.state) {
         throw new AuthFlowError(
           400,
           'bad_request',

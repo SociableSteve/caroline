@@ -85,8 +85,8 @@ giving it something to read.
 
 | Path | What it is |
 | --- | --- |
-| `./data/caroline.db` | The database. Created on first run, migrated on every start |
-| `./data/caroline.db-wal`, `-shm` | SQLite's write-ahead log, while the process is running |
+| `./data/caroline.db` | The database. Created on first run, migrated on every start, mode 0600 |
+| `./data/caroline.db-wal`, `-shm` | SQLite's write-ahead log, while the process is running, mode 0600 too |
 | `./data/google-tokens.json` | Google's refresh token, mode 0600, written only once you connect. A `.tmp` sibling can survive an interrupted write, holding the same token |
 | `./caroline.config.json` | Your settings. Optional: every value has a default |
 
@@ -359,6 +359,29 @@ loopback, `server.publicUrl` is set too. The refusal is a line on the terminal n
 it objected to, in the same shape as the other startup refusals in
 [troubleshooting](#troubleshooting): it does not start half-open and it does not guess.
 
+### The address Caroline answers to
+
+Separately from the login, and whether or not you have one, every request has to be addressed to a
+name Caroline answers to. That is any loopback name where `server.publicUrl` is unset, and exactly
+that URL's host (and its port, where it names one) where it is set. Anything else is refused with a
+`403` before the request reaches a route.
+
+This is not the same question as which interface the socket is on. A name in DNS that somebody else
+controls can be pointed at `127.0.0.1`, and a page loaded from that name in your own browser is
+then same-origin with Caroline and can read and write everything in it, loopback bind or not. The
+`Host` header is the one part of that attack the page cannot forge, because the browser writes it
+from the address bar, so checking it is what makes the loopback bind mean what it looks like it
+means. The MCP endpoint has checked it since it was written; the rest of the API now does too.
+
+In practice: reach a loopback install as `localhost` or `127.0.0.1` (any port), and set
+`server.publicUrl` to the address you actually reach an exposed install at. A reverse proxy that
+rewrites `Host` to something else has to be told not to, or told to rewrite it to the public host.
+
+Non-`GET` requests are checked the same way for their `Origin` header where they carry one, again
+whether or not a login is configured. Any loopback origin on any port is accepted where there is no
+public URL, which is what keeps `npm run dev:web` working: the client is served from a different
+loopback port than the API.
+
 ### 8a. A second OAuth client, for login
 
 The Google Cloud project from [step 6](#6-google) can hold this client too, but it has to be a
@@ -569,6 +592,7 @@ Nothing has started and nothing has been written when you see one of those. Fix 
 | `Caroline cannot start: server.host is "...", which is not loopback, and server.publicUrl is not set: the redirect URI cannot be derived` | A non-loopback bind needs `server.publicUrl` set, so Caroline knows the address it is registering a redirect at. See [step 8](#8-reaching-it-from-elsewhere) |
 | `Caroline cannot start: server.publicUrl is "...", which is not https, ...: a session cookie would be sent over plaintext` | `server.publicUrl` must be `https` unless both it and `server.host` are loopback. See [step 8](#8-reaching-it-from-elsewhere) |
 | `Caroline cannot start: CAROLINE_ACCESS_TOKEN is set in the environment. It has been replaced by a login` | That variable no longer does anything. Remove it and configure `auth.provider` and `auth.allow` instead. See [step 8](#8-reaching-it-from-elsewhere) |
+| Every request answers `403` with `This request carries a Host this Caroline does not answer to` | The name in the address bar, or the one your proxy is forwarding as `Host`, is not one this install answers to. Reach a loopback install as `localhost` or `127.0.0.1`, or set `server.publicUrl` to the address you really reach it at. See [the address Caroline answers to](#the-address-caroline-answers-to) |
 | `EADDRINUSE` on 5123 | Something else has the port. `CAROLINE_PORT` moves it, and the Google redirect URI has to move with it |
 | `SyntaxError` about `node:sqlite`, or a version complaint at startup | Node older than 24.2.0 |
 | Google says `redirect_uri_mismatch` | The URI registered on the client is not the one Caroline sent. It is `/api/integrations/google/callback` on whatever `server.host` and `server.port` say, and `curl -s http://127.0.0.1:5123/api/integrations/google` (on your own port) prints the exact string Caroline sends, as `redirectUri`: compare it character for character, port included. The Settings screen shows it too, but only while no client is configured, which is before you would ever see this error |
