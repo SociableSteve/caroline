@@ -55,16 +55,21 @@ A tool call is the other half of this and is not governed by it: the context is 
 message, while `get_task` is the model deliberately fetching one item the conversation named. Every
 tool is held to the same content level as the context, so one policy answers all of them: a level
 that withholds a title from one path cannot hand it over from another, and a page of fifty titles from
-`search_tasks` is fifty times the disclosure of one from `get_task` rather than an exception to it. The
-write tools are held to it as well, because a tool that answers with the row it just wrote is answering
-with item text the model never supplied, and so are the turns of the conversation replayed as context,
-which were written when more could be sent. Spec 09 states it and owns the rule.
+`search_tasks` is fifty times the disclosure of one from `get_task` rather than an exception to it.
+`search_tasks` takes an `offset`, so a caller can walk the whole matching set fifty rows at a time,
+and that is a recorded decision rather than an oversight: what one call discloses is unchanged and
+every row still goes through the same content policy, so all paging changes is how many calls it
+takes to reach the rest of the set. A caller without it could reach the same rows by asking again
+with a narrower filter, and the count of matches was answered before this. The write tools are held
+to it as well, because a tool that answers with the row it just wrote is answering with item text the
+model never supplied, and so are the turns of the conversation replayed as context, which were
+written when more could be sent. Spec 09 states it and owns the rule.
 
 ## Tools
 
 Read:
 
-- `search_tasks(query?, status?, projectId?, dueBefore?, limit)`
+- `search_tasks(query?, status?, projectId?, dueBefore?, limit, offset?)`
 - `get_task(id)` including its source link and classification history
 - `list_projects(state?)`
 - `get_daily_plan(date?)`
@@ -208,3 +213,11 @@ The registry's second caller adds the following, appended for the same reason.
 14. A session's turn boundary is the confirmation decision: the writes after one are counted against
     the threshold afresh, and undo covers that run rather than the one before it. Asserted for both
     callers, a browser turn and an MCP session (spec 12), through the one decision both of them make.
+
+Paging `search_tasks` adds the following, appended for the same reason.
+
+15. `search_tasks` pages: an `offset` returns the matches the earlier page did not, with no overlap
+    and no gap, `total` counts every match whatever the offset is, and the answer says which page it
+    is by carrying `offset` and, only while matches remain beyond it, `nextOffset`. Both fields are
+    answered at every content level, including the one that withholds item text, because a page
+    position is not an item's content.

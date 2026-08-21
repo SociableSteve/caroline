@@ -199,7 +199,7 @@ whole of what chat can do.
 | --- | --- |
 | What am I waiting on? | `list_waiting`: everything outstanding on somebody else, who it is on, how long it has been, and whether that is past the staleness threshold |
 | What is on today? | `get_daily_plan` and `get_capacity`: the plan in order with its reasons, what did not fit, and the free time it was drawn against |
-| Anything overdue? | `search_tasks`, filtered by status and by a date, and it answers with the count as well as the matches |
+| Anything overdue? | `search_tasks`, filtered by status and by a date. It answers with the total number of matches as well as the matches themselves, and a long list comes back a page at a time, so ask for the rest and Caroline pages through it |
 | What is left in the Caroline 1.0 release? | `list_projects` and `search_tasks`: the project, its next action, and whether it is stalled |
 | Add a task to chase Legal about the statement of work, ten minutes | `create_task`. The transcript then shows `Created “Chase Legal about the statement of work” in next_action`, with an **Undo** beside it |
 | File it under reference | `update_task` on the item open in the rail: `Updated “…”: to reference`. A status set this way is yours, so the classifier leaves it alone |

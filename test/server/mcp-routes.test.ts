@@ -621,6 +621,17 @@ describe('with mcp.enabled true', () => {
     expect(tools.map((tool) => tool.name)).toContain('get_overview')
     expect(tools.map((tool) => tool.name)).not.toContain('create_task_typo')
 
+    // The schema is the registry's own object rather than a copy (criterion 11), so an argument
+    // added there reaches this surface without an MCP-only definition. `offset` is the one this
+    // asserts, since paging is useless to a client that is never told the argument exists.
+    const searchSchema = (
+      tools as Array<{ name: string; inputSchema?: { properties?: Record<string, unknown> } }>
+    ).find((tool) => tool.name === 'search_tasks')?.inputSchema
+    expect(searchSchema?.properties).toMatchObject({
+      limit: { type: 'integer' },
+      offset: { type: 'integer', minimum: 0 },
+    })
+
     // Nothing was run: no conversation was created by asking.
     expect(listConversations(database)).toEqual([])
   })

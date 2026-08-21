@@ -44,6 +44,7 @@ interface SearchArguments {
   readonly projectId?: string
   readonly dueBefore?: string
   readonly limit?: number
+  readonly offset?: number
   readonly includeDeferred?: boolean
 }
 
@@ -51,7 +52,7 @@ const searchTasks = defineTool<SearchArguments>({
   name: 'search_tasks',
   kind: 'read',
   description:
-    'Find tasks. Every filter is optional and they combine: query is a case-insensitive substring of the title or notes, status is one or more GTD statuses, dueBefore is a local date (YYYY-MM-DD) and matches tasks due on or before the end of it. Returns the newest page of matches and the total number of them.',
+    'Find tasks. Every filter is optional and they combine: query is a case-insensitive substring of the title or notes, status is one or more GTD statuses, dueBefore is a local date (YYYY-MM-DD) and matches tasks due on or before the end of it. Returns one page of matches, in your manual sort order and oldest created first within it, and total, which counts every match rather than the page. To read the rest, pass offset, or the nextOffset the previous call answered with; there is no nextOffset on the last page.',
   parameters: {
     type: 'object',
     additionalProperties: false,
@@ -61,6 +62,7 @@ const searchTasks = defineTool<SearchArguments>({
       projectId: { type: 'string', maxLength: 64 },
       dueBefore: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
       limit: { type: 'integer', minimum: 1, maximum: MAX_ROWS },
+      offset: { type: 'integer', minimum: 0 },
       includeDeferred: { type: 'boolean' },
     },
   },
@@ -78,10 +80,19 @@ const searchTasks = defineTool<SearchArguments>({
         ...(args.projectId === undefined ? {} : { projectId: args.projectId }),
         ...(dueBefore === null ? {} : { dueBefore: dueBefore.endOfDay }),
         ...(args.includeDeferred === undefined ? {} : { includeDeferred: args.includeDeferred }),
+        ...(args.offset === undefined ? {} : { offset: args.offset }),
         limit: args.limit ?? 20,
       },
       context.now,
     )
+
+    // Where in the matching set this page sits. Said rather than left to be worked out: a model told
+    // only `total` has to infer that paging is possible and then do the arithmetic itself, whereas a
+    // named `nextOffset` is the argument for the next call. It is absent once nothing remains, so its
+    // presence is the answer to whether there is more. Spec 07, criterion 15.
+    const offset = args.offset ?? 0
+    const next = offset + page.tasks.length
+    const position = { offset, ...(next < page.total ? { nextOffset: next } : {}) }
 
     // A page of summaries is a page of titles, so it is held to the level one title is held to: at
     // `none` the ids go and the withholding is stated, as in `get_task` and in the item context. The
@@ -92,6 +103,8 @@ const searchTasks = defineTool<SearchArguments>({
         data: {
           total: page.total,
           returned: page.tasks.length,
+          // A page position is not an item's content, so it goes at this level as the count does.
+          ...position,
           tasks: page.tasks.map((task) => ({ kind: 'task', id: task.id })),
           withheld: WITHHELD_ITEM_TEXT,
         },
@@ -103,6 +116,7 @@ const searchTasks = defineTool<SearchArguments>({
       data: {
         total: page.total,
         returned: page.tasks.length,
+        ...position,
         tasks: page.tasks.map((task) => taskSummary(context, task)),
       },
     }
