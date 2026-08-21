@@ -133,7 +133,88 @@ describe('search_tasks', () => {
 
     expect(answer.data).toMatchObject({ tasks: [{ dueAt: '2026-06-12T09:00:00.000Z' }] })
   })
+
+  /**
+   * Spec 07, criterion 15. Every task here is created at `CHAT_NOW` with the default sort order, so
+   * `order by sort_order, created_at, id` leaves the id as the tie-break and the pages are the ids
+   * in order: a paging test whose expected rows depend on an unstable ordering asserts nothing.
+   */
+  it('pages through the matches, so a later offset carries the rows an earlier one did not', async () => {
+    const database = seedNumberedTasks(5)
+
+    const firstPage = await run(database, 'search_tasks', { limit: 2 })
+    const secondPage = await run(database, 'search_tasks', { limit: 2, offset: 2 })
+    const lastPage = await run(database, 'search_tasks', { limit: 2, offset: 4 })
+
+    expect(idsOf(firstPage.data)).toEqual(['task-1', 'task-2'])
+    expect(idsOf(secondPage.data)).toEqual(['task-3', 'task-4'])
+    expect(idsOf(lastPage.data)).toEqual(['task-5'])
+  })
+
+  it('names the next offset while matches remain, and omits it on the last page', async () => {
+    const database = seedNumberedTasks(5)
+
+    const firstPage = await run(database, 'search_tasks', { limit: 2 })
+    const lastPage = await run(database, 'search_tasks', { limit: 2, offset: 4 })
+
+    expect(firstPage.data).toMatchObject({ total: 5, returned: 2, offset: 0, nextOffset: 2 })
+    expect(lastPage.data).toMatchObject({ total: 5, returned: 1, offset: 4 })
+    expect(lastPage.data).not.toHaveProperty('nextOffset')
+  })
+
+  it('answers no rows and no next offset for an offset past the last match', async () => {
+    const database = seedNumberedTasks(3)
+
+    const answer = await run(database, 'search_tasks', { offset: 10 })
+
+    expect(answer.data).toMatchObject({ total: 3, returned: 0, offset: 10, tasks: [] })
+    expect(answer.data).not.toHaveProperty('nextOffset')
+  })
+
+  /** `total` is the size of the matching set, not of the page, so paging cannot move it. */
+  it('counts every match whatever the offset is', async () => {
+    const database = seedNumberedTasks(5)
+
+    const firstPage = await run(database, 'search_tasks', { limit: 2 })
+    const secondPage = await run(database, 'search_tasks', { limit: 2, offset: 2 })
+
+    expect((firstPage.data as { total: number }).total).toBe(5)
+    expect((secondPage.data as { total: number }).total).toBe(5)
+  })
+
+  /**
+   * Spec 09, criterion 13, from the other direction: a page position is arithmetic about the set
+   * rather than an item's content, so the level that withholds the titles still says where in the
+   * matches the answer sits. Without it the withheld path could not be paged at all.
+   */
+  it('pages identically where the content policy withholds item text', async () => {
+    const database = seedNumberedTasks(5)
+    const withheld = { config: policyAt('none') }
+
+    const firstPage = await run(database, 'search_tasks', { limit: 2 }, withheld)
+    const lastPage = await run(database, 'search_tasks', { limit: 2, offset: 4 }, withheld)
+
+    expect(firstPage.data).toMatchObject({ total: 5, returned: 2, offset: 0, nextOffset: 2 })
+    expect(idsOf(firstPage.data)).toEqual(['task-1', 'task-2'])
+    expect(JSON.stringify(firstPage.data)).not.toContain('Task ')
+    expect(lastPage.data).toMatchObject({ total: 5, returned: 1, offset: 4 })
+    expect(lastPage.data).not.toHaveProperty('nextOffset')
+    expect(idsOf(lastPage.data)).toEqual(['task-5'])
+  })
 })
+
+/** `count` tasks whose ids sort in the order the repository returns them. Spec 07, criterion 15. */
+function seedNumberedTasks(count: number): Database {
+  const database = migratedDatabase()
+  for (let index = 1; index <= count; index += 1) {
+    createTask(database, { id: `task-${index}`, title: `Task ${index}` }, CHAT_NOW)
+  }
+  return database
+}
+
+function idsOf(data: unknown): readonly string[] {
+  return (data as { tasks: readonly { id: string }[] }).tasks.map((task) => task.id)
+}
 
 describe('get_task', () => {
   it('carries the source link and the classification history', async () => {
