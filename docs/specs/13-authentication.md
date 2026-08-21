@@ -119,24 +119,36 @@ an `Origin` header.
 **The acceptable origins** are a set rather than that one string, and what the set contains depends
 on where the public origin came from.
 
-- **Where `server.publicUrl` is set**, the set is exactly its origin. An operator who declares an
-  outside address has said which origin a browser reaches Caroline at, and there is no second one.
-- **Where it is not**, the bind is loopback (every other bind refuses to start without a public URL),
-  and the set is **every loopback origin**: any origin whose host is in the loopback set above, on
-  any port and on either scheme. `http://localhost:5123` and `http://127.0.0.1:5173` are as
-  acceptable as the exact string the bind happened to use. The public origin remains one string, and
-  it is still the only thing a redirect URI is derived from: it is the comparison that widens, not
-  the derivation.
+- **Every loopback origin**, whatever the rest of the configuration says: any origin whose host is
+  in the loopback set above, on any port and on either scheme. `http://localhost:5123` and
+  `http://127.0.0.1:5173` are as acceptable as the exact string the bind happened to use.
+- **The public origin too, where `server.publicUrl` is set.** Exactly its origin, so scheme and
+  port included: an operator who declares an outside address has said which origin a browser
+  reaches Caroline at, and there is one of those. The public origin remains one string, and it is
+  still the only thing a redirect URI is derived from: it is the comparison that widens, not the
+  derivation.
 
-The second of those is a decision on the merits rather than a convenience. Every loopback origin
+The loopback half is a decision on the merits rather than a convenience. Every loopback origin
 reaches this one socket, so none of them is a different security context from another: whoever can
 open `http://localhost:5123` can open `http://127.0.0.1:5123`, and the Vite dev server on a port of
 its own proxies to that same socket while the browser sits on the dev port. Privileging the exact
 bind string would refuse a write from `http://localhost:5123` while serving the identical write from
 `http://127.0.0.1:5123`, a distinction neither the browser nor the person makes, and it would refuse
-the login itself on the one configuration a loopback login exists for. What the set does not do is
-grow beyond loopback: a public URL narrows it to one origin, which is the case where the distinction
-between origins is real.
+the login itself on the one configuration a loopback login exists for.
+
+The loopback half holds where a public URL is set as well, and that is a change of position from
+the first version of this section, which narrowed the set to the public origin alone. Two things
+were wrong with narrowing it. The MCP endpoint accepts a loopback `Origin` and nothing else (spec
+12, criterion 9) and is registered whenever `mcp.enabled` is true and the bind is loopback, which
+says nothing about `server.publicUrl`, so on an install with both the two rules were unsatisfiable
+together and the endpoint answered 403 to every call. And `server.publicUrl: "http://127.0.0.1:5123"`
+is a configuration the `https` rule below explicitly permits, on which the SPA sends
+`Origin: http://localhost:5123` as soon as the browser is pointed at `localhost`, and every write
+was refused. What the loopback half concedes is a page served by other software on the user's own
+machine, which is what spec 09 already says a loopback bind was never a boundary against. The
+alternative, exempting one route by its path, is the reasoning the encoded-path bypass came from,
+and one uniform rule is worth more here than a narrower set. What the set still does not do is grow
+to any other outside origin: `https://evil.example.com` is refused on every configuration.
 
 There is deliberately no override for the `https` rule. A Tailscale or VPN-only deployment can
 terminate TLS itself, and an override flag for this is the flag that gets pasted out of a forum
@@ -218,6 +230,17 @@ Three cases:
 The regression this leaves behind is a test that drives encoded and non-canonical paths rather
 than canonical ones. The existing criterion 16 test walks the registered route list, which is
 exactly the set of paths on which the two readings agree, and that is why it passed throughout.
+
+The same reading applies wherever else a raw URL is consulted, and there was one other place: the
+SPA fallback, which serves the shell for any unmatched path that is not the API's. It compared
+`request.url` against `/api/`, so `GET /%61pi/no-such-route` was called a client-side route and
+answered with the shell and a 200 where the caller should have had a JSON 404. Nothing was exposed
+by that, since the request matched no route in either reading, but it is the same defect and takes
+the same fix, and the decode now lives in one function both callers import. The two draw the line
+one character apart on purpose: the gate treats any decoded path beginning `/api` as the API,
+because it is deciding whether to require a credential and errs towards requiring one, while the
+fallback counts `/api` and paths under it, because a client-side route is free to be called
+`/apiary` and the only thing at stake is which sort of 404 the caller gets.
 
 Exempt from this check, and the exemption list is itself asserted:
 
@@ -335,9 +358,9 @@ anybody who can reach the socket, and a page in the user's own browser can reach
 routes are covered by the CORS preflight a JSON content type forces, but a body-less `POST` is a
 simple request that no preflight covers, and `POST /api/tasks/:id/complete` and
 `POST /api/jobs/:name/run` are body-less. So the check is unconditional, and what makes that safe
-is the acceptable set rather than the scope: any loopback origin on any port is acceptable where
-there is no public URL, so a same-origin write from the SPA and a write from the Vite dev server on
-a port of its own are both accepted, on every install. The `Host` check spec 09 describes runs
+is the acceptable set rather than the scope: any loopback origin on any port is acceptable, so a
+same-origin write from the SPA and a write from the Vite dev server on a port of its own are both
+accepted, on every install. The `Host` check spec 09 describes runs
 unconditionally for the neighbouring reason, and the forwarded-header refusal is a third check on
 that surface rather than a substitute for either.
 

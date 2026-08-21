@@ -56,6 +56,69 @@ describe('the built SPA directory', () => {
     await app.close()
   })
 
+  /**
+   * Spec 13, "The boundary is decided by the route that matched", applied to the one place still
+   * reading the raw URL after the auth gate stopped: the SPA fallback. Fastify decodes
+   * percent-escapes before it matches, so `/%61pi/no-such-route` is an API path that matched no
+   * route, and a fallback deciding on `request.url` saw a path beginning `/%61` and served the
+   * shell with a 200. The class of defect is the one the gate was fixed for, and the shape of the
+   * fix is the same. Spec 09, criterion 26.
+   */
+  it('answers a JSON 404 for an unmatched API path however it was spelled', async () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), 'caroline-webroot-'))
+    openDirectories.push(repoRoot)
+    const webDirectory = join(repoRoot, 'dist', 'web')
+    mkdirSync(webDirectory, { recursive: true })
+    writeFileSync(join(webDirectory, 'index.html'), '<!doctype html><title>caroline</title>')
+
+    const app = await buildServer({
+      config: cleanCheckout,
+      database: migratedDatabase(),
+      webRoot: webDirectory,
+    })
+
+    for (const url of [
+      '/api/no-such-route',
+      '/%61pi/no-such-route',
+      '/api%2fno-such-route',
+      '/%61%70%69/no-such-route',
+    ]) {
+      const response = await app.inject({ method: 'GET', url })
+
+      expect(response.statusCode, url).toBe(404)
+      expect(response.json(), url).toEqual({
+        error: { code: 'not_found', message: expect.any(String) },
+      })
+    }
+
+    await app.close()
+  })
+
+  it('still serves the shell for a genuine client-side route beside that', async () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), 'caroline-webroot-'))
+    openDirectories.push(repoRoot)
+    const webDirectory = join(repoRoot, 'dist', 'web')
+    mkdirSync(webDirectory, { recursive: true })
+    writeFileSync(join(webDirectory, 'index.html'), '<!doctype html><title>caroline</title>')
+
+    const app = await buildServer({
+      config: cleanCheckout,
+      database: migratedDatabase(),
+      webRoot: webDirectory,
+    })
+
+    // Including one whose name merely starts with the same letters, which is not an API path and
+    // must not be answered as one, and a deep client route with an escape in it.
+    for (const url of ['/dashboard', '/apiary', '/projects/a%20project', '/']) {
+      const response = await app.inject({ method: 'GET', url })
+
+      expect(response.statusCode, url).toBe(200)
+      expect(response.body, url).toContain('<title>caroline</title>')
+    }
+
+    await app.close()
+  })
+
   it('404s on an unmatched GET when the injected webRoot does not exist', async () => {
     const repoRoot = mkdtempSync(join(tmpdir(), 'caroline-webroot-'))
     openDirectories.push(repoRoot)

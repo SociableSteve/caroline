@@ -424,6 +424,17 @@ The guards, each of which is a criterion below rather than prose:
   own browser can be made to POST to `127.0.0.1`, which is why the protocol requires both
   checks. What such a page cannot do is read the answer or obtain a token, which is what the
   credential is for.
+- These two checks stay narrower than the request-level ones spec 09 describes, and both stay
+  loopback-only: this endpoint answers a client on the machine and nothing else. "Loopback only"
+  is a constraint on the bind rather than on `server.publicUrl`, so an install fronted by a proxy
+  registers this endpoint exactly as a bare loopback one does, and a request addressed to the
+  public host is accepted by the request-level check (which answers to that name) and refused
+  here. That combination went untested for one release and was unreachable throughout it: the
+  request-level `Host` and `Origin` checks demanded the public origin and refused loopback, these
+  demanded loopback, and nothing satisfied both. Spec 09's checks now accept the loopback names
+  beside the public one for that reason, and it is asserted with `server.publicUrl` and
+  `mcp.enabled` set together, which is the combination whose absence let the endpoint break
+  silently.
 
 ## The session, which the protocol no longer has
 

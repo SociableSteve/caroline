@@ -69,7 +69,7 @@ describe('publicOrigin', () => {
 })
 
 describe('isAcceptableOrigin (criterion 24)', () => {
-  it('accepts exactly the publicUrl origin, and nothing else, when it is set', () => {
+  it('accepts the publicUrl origin, and refuses another site, when it is set', () => {
     const config = loadConfig({
       file: {
         server: { publicUrl: 'https://caroline.example.com' },
@@ -81,6 +81,41 @@ describe('isAcceptableOrigin (criterion 24)', () => {
     expect(isAcceptableOrigin(config, 'https://caroline.example.com')).toBe(true)
     expect(isAcceptableOrigin(config, 'https://evil.example.com')).toBe(false)
     expect(isAcceptableOrigin(config, 'http://caroline.example.com')).toBe(false)
+  })
+
+  it('accepts the loopback origins beside the publicUrl origin, rather than instead of them', () => {
+    // One set, whatever the public URL says, for the reason the `Host` check has one rule: the
+    // MCP endpoint accepts a loopback `Origin` and nothing else, so a gate that refused every
+    // loopback origin on an install naming a public URL left the two checks unsatisfiable
+    // together and the endpoint permanently unreachable. What the loopback origins concede is
+    // software already running on the user's own machine, which spec 09 says loopback was never
+    // a boundary against in the first place.
+    const config = loadConfig({
+      file: {
+        server: { publicUrl: 'https://caroline.example.com' },
+        auth: { allow: ['owner@example.com'], provider: { clientId: 'a-client-id' } },
+      },
+      env: noEnv,
+    })
+
+    expect(isAcceptableOrigin(config, 'http://127.0.0.1:5123')).toBe(true)
+    expect(isAcceptableOrigin(config, 'http://localhost:5173')).toBe(true)
+  })
+
+  it('accepts a loopback origin on a loopback publicUrl reached by another loopback name', () => {
+    // `server.publicUrl: "http://127.0.0.1:5123"` is permitted by the startup guards, and the SPA
+    // served at `http://localhost:5123` sends `Origin: http://localhost:5123` on every write. A
+    // rule naming only the public URL's own origin refused all of them.
+    const config = loadConfig({
+      file: {
+        server: { publicUrl: 'http://127.0.0.1:5123' },
+        auth: { allow: ['owner@example.com'], provider: { clientId: 'a-client-id' } },
+      },
+      env: noEnv,
+    })
+
+    expect(isAcceptableOrigin(config, 'http://localhost:5123')).toBe(true)
+    expect(isAcceptableOrigin(config, 'https://evil.example.com')).toBe(false)
   })
 
   it('accepts every loopback origin on any port and either scheme when publicUrl is unset (criterion 33)', () => {

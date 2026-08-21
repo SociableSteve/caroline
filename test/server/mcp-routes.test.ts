@@ -17,6 +17,7 @@ import { issueTokenPair, upsertClient } from '../../src/db/repositories/mcp-oaut
 import { canonicalResourceUri } from '../../src/mcp/oauth/resource.js'
 import { upsertSource } from '../../src/db/repositories/sources.js'
 import { createTask } from '../../src/db/repositories/tasks.js'
+import { loadConfig } from '../../src/config/load.js'
 import { testConfig, testServer, REQUEST_TIME } from '../helpers/test-server.js'
 
 function mcpConfig(overrides: Partial<Config['privacy']> = {}): Config {
@@ -106,6 +107,73 @@ describe('with mcp.enabled false (criterion 5)', () => {
     // Unregistered entirely: the standard 404 shape, not a JSON-RPC one, because the route does
     // not exist for this install at all.
     expect(response.statusCode).toBe(404)
+  })
+})
+
+/**
+ * `server.publicUrl` set and `mcp.enabled` true together (spec 12, criteria 6 and 9, and spec 09
+ * criterion 21), which is a supported configuration:
+ * `assertMcpIsLoopbackOnly` constrains the bind and says nothing about the public URL, so an
+ * install fronted by a proxy registers the MCP endpoint exactly as a bare loopback one does.
+ * The combination went untested, and for one release it was unreachable: the request-level `Host`
+ * check demanded the public URL's own host while this route demanded a loopback one, so no value
+ * satisfied both and every call answered 403. That is why the combination is asserted here rather
+ * than left to the unit tests of either check.
+ */
+function exposedMcpConfig(): Config {
+  return loadConfig({
+    file: {
+      database: { path: testConfig.database.path },
+      jobs: { timezone: 'Europe/London' },
+      server: { publicUrl: 'https://caroline.example.com' },
+      auth: {
+        mode: 'required',
+        allow: ['owner@example.com'],
+        provider: { clientId: 'a-client-id' },
+      },
+      mcp: { enabled: true },
+    },
+    env: {} as NodeJS.ProcessEnv,
+  })
+}
+
+describe('with mcp.enabled true and server.publicUrl set', () => {
+  it('answers a loopback client, which is the only client this endpoint has', async () => {
+    const config = exposedMcpConfig()
+    expect(config.authRequired).toBe(true)
+    const { app, database } = await testServer({ config })
+
+    const response = await post(app, database, config, rpc('server/discover'))
+
+    expect(response.statusCode).toBe(200)
+  })
+
+  it('answers a loopback client that names its Origin too', async () => {
+    // A browser-based MCP client sends one, and the two `Origin` checks have to be satisfiable
+    // together for the same reason the two `Host` checks do.
+    const config = exposedMcpConfig()
+    const { app, database } = await testServer({ config })
+
+    const response = await post(app, database, config, rpc('server/discover'), {
+      origin: 'http://127.0.0.1:5123',
+    })
+
+    expect(response.statusCode).toBe(200)
+  })
+
+  it('still refuses a request addressed to the public host, because the endpoint is loopback only', async () => {
+    const config = exposedMcpConfig()
+    const { app, database } = await testServer({ config })
+
+    const response = await post(app, database, config, rpc('server/discover'), {
+      host: 'caroline.example.com',
+    })
+
+    // Accepted by the request-level `Host` check, which answers to that name, and refused by this
+    // route's own, which is the check spec 12 criterion 6 is about. Widening the gate did not
+    // widen the endpoint.
+    expect(response.statusCode).toBe(403)
+    expect(response.json()).toEqual({ error: 'host not accepted' })
   })
 })
 

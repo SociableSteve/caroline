@@ -38,17 +38,52 @@ const FILE_MODE = 0o600
 const sidecarSuffixes = ['-wal', '-shm'] as const
 
 /**
- * Applies `FILE_MODE`, tolerating a file that is not there. `chmod` is done after opening rather
- * than through a creation mode, because SQLite creates these files itself and a creation mode is
- * masked by the umask in any case: `tokens.ts` sets a mode at creation and again afterwards for
- * exactly that reason. An existing database with a wider mode is tightened, which is the point:
- * every install that has run before this change has one.
+ * The `chmod` failures that are a fact about the filesystem rather than a fault. Each of them
+ * means the mode cannot be carried where this database lives: a CIFS or exFAT mount, or a
+ * container volume, answers `EPERM`, `ENOTSUP`, `EOPNOTSUPP`, `EINVAL` or `ENOSYS` depending on
+ * the driver, a read-only mount answers `EROFS`, and a file owned by another account answers
+ * `EPERM` or `EACCES`. `CAROLINE_DB_PATH` pointing at such a mount is an ordinary self-hosted
+ * arrangement, and these modes are defence in depth over a machine spec 09 already says has one
+ * user: a filesystem that cannot express them is a weaker posture, not a reason to refuse to
+ * start. Anything else, `EIO` above all, means the storage itself is misbehaving and is still
+ * thrown.
  */
-function tightenIfPresent(path: string): void {
+const tolerableModeFailures: ReadonlySet<string> = new Set([
+  'EPERM',
+  'EACCES',
+  'ENOTSUP',
+  'EOPNOTSUPP',
+  'EINVAL',
+  'ENOSYS',
+  'EROFS',
+])
+
+/** A mode this process wanted to set and the filesystem would not carry, for the one line
+ * `openDatabase` writes about them. */
+interface ModeFailure {
+  readonly path: string
+  readonly code: string
+}
+
+/**
+ * Applies a mode, tolerating a file that is not there and a filesystem that cannot express it.
+ * `chmod` is done after opening rather than through a creation mode, because SQLite creates these
+ * files itself and a creation mode is masked by the umask in any case: `tokens.ts` sets a mode at
+ * creation and again afterwards for exactly that reason. An existing database with a wider mode is
+ * tightened, which is the point: every install that has run before this change has one.
+ *
+ * An absent file is silent rather than reported: the WAL sidecars do not exist until the first
+ * write, so their absence is the normal state of a database that has just been created.
+ */
+function applyModeIfPossible(path: string, mode: number): ModeFailure | null {
   try {
-    chmodSync(path, FILE_MODE)
+    chmodSync(path, mode)
+    return null
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === 'ENOENT') return null
+    if (code === undefined || !tolerableModeFailures.has(code)) throw error
+    return { path, code }
   }
 }
 
@@ -74,9 +109,23 @@ export function openDatabase(path: string): Database {
     // somewhere of the user's own, and narrowing a directory Caroline did not make would be the
     // same overreach the deletion command refuses for the same reason (spec 09, "It deletes its
     // own files, not a directory").
-    if (created !== undefined) chmodSync(created, DIRECTORY_MODE)
-    tightenIfPresent(path)
-    for (const suffix of sidecarSuffixes) tightenIfPresent(`${path}${suffix}`)
+    const failures = [
+      ...(created === undefined ? [] : [applyModeIfPossible(created, DIRECTORY_MODE)]),
+      applyModeIfPossible(path, FILE_MODE),
+      ...sidecarSuffixes.map((suffix) => applyModeIfPossible(`${path}${suffix}`, FILE_MODE)),
+    ].filter((failure): failure is ModeFailure => failure !== null)
+
+    // One line for the whole open rather than one per path. On a mount that cannot carry these
+    // modes every one of them fails, and four lines saying the same thing on every start is a
+    // warning an operator learns to scroll past. Written to stderr because this runs before the
+    // server, and its logger, exists: `src/server/main.ts` reports a configuration failure the
+    // same way.
+    if (failures.length > 0) {
+      const described = failures.map(({ path: at, code }) => `${at} (${code})`).join(', ')
+      process.stderr.write(
+        `Caroline could not set owner-only permissions on ${described}. The filesystem this database lives on cannot carry them, so anybody with an account on this machine may be able to read it. Caroline is starting anyway.\n`,
+      )
+    }
   }
 
   return database

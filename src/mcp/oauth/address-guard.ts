@@ -3,7 +3,8 @@
  * outbound destination a caller rather than the user chooses, refused unless it resolves to a
  * public address, not loopback, not link-local, not RFC 1918, not unique-local, not the shared
  * address space a carrier-grade NAT hands out, not a protocol-assignment or benchmarking range,
- * not multicast or broadcast, not the NAT64 prefix, and not the IPv4-mapped form of any of those.
+ * not multicast or broadcast, not reserved, not either NAT64 prefix, and not the IPv4-mapped form
+ * of any of those.
  *
  * Written against the numeric address only, never against a hostname: the guard's whole point
  * is to check the address a name actually resolved to, so a function that took a hostname and
@@ -36,6 +37,11 @@ const ipv4PrivateRanges: readonly Ipv4Range[] = [
   { base: [198, 18, 0, 0], maskBits: 15 }, // benchmarking
   { base: [224, 0, 0, 0], maskBits: 4 }, // multicast
   { base: [255, 255, 255, 255], maskBits: 32 }, // limited broadcast
+  // RFC 1112's former class E, reserved and never allocated, so nothing in it is a destination a
+  // resolver can legitimately answer with and a stack is free to do something local with one.
+  // This subsumes the limited broadcast address above, which is kept named for what it is rather
+  // than folded into a range that says nothing about it.
+  { base: [240, 0, 0, 0], maskBits: 4 }, // RFC 1112 reserved
 ]
 
 function ipv4ToInt(octets: readonly [number, number, number, number]): number {
@@ -130,6 +136,13 @@ function isPrivateIpv6(address: string): boolean {
   if (first === 0x0064 && second === 0xff9b && groups.slice(2, 6).every((group) => group === 0)) {
     return true
   }
+
+  // 64:ff9b:1::/48, RFC 8215's local-use NAT64 prefix, refused for the same reason and stated
+  // separately rather than widened into `64:ff9b::/32`: the two are the assigned prefixes and the
+  // rest of that /32 is not one, so a check naming each of them says which range it is refusing.
+  // This is the prefix a site deploys when it does not use the well-known one, which made it the
+  // more likely of the two to be met in practice and the odder one to have left out.
+  if (first === 0x0064 && second === 0xff9b && groups[2] === 0x0001) return true
 
   // ::ffff:0:0/96 is the mapped-address block in its full expanded form; the compact dotted
   // spelling is handled by `embeddedIpv4Address` before this function is ever reached, but a

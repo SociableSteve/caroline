@@ -224,7 +224,7 @@ revoked without a restart. [docs/setup.md](docs/setup.md#8-reaching-it-from-else
 it, and [spec 13](docs/specs/13-authentication.md) is the contract.
 
 Whatever the configuration, every request has to be addressed to Caroline by a name it answers to:
-loopback where there is no `server.publicUrl`, and that URL's host where there is one. Otherwise a
+a loopback name, or the host of `server.publicUrl` where there is one. Otherwise a
 name somebody else controls could be pointed at `127.0.0.1` and a page in your own browser would be
 talking to your Caroline. The database and the data directory are owner-only on disk (0600 and
 0700), which is the whole of the protection at rest: there is no encryption beyond it.

@@ -21,6 +21,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { readCookie, sessionCookieName } from '../auth/cookie.js'
 import { isAcceptableHost, isAcceptableOrigin, isPublicOriginHttps } from '../auth/origin.js'
 import { apiError } from './errors.js'
+import { decodedPathname } from './request-path.js'
 import type { Config } from '../config/schema.js'
 
 /**
@@ -55,27 +56,6 @@ export const EXEMPT_AUTH_ROUTES: ReadonlySet<string> = new Set([
    */
   'POST /api/mcp/token',
 ])
-
-function pathnameOf(requestUrl: string): string {
-  const queryIndex = requestUrl.indexOf('?')
-  return queryIndex === -1 ? requestUrl : requestUrl.slice(0, queryIndex)
-}
-
-/**
- * The path as the router read it, rather than as the caller wrote it. Fastify decodes
- * percent-escapes before matching, so `/%61pi/tasks` and `/api/tasks` reach the same handler, and
- * a decision made on the undecoded string would disagree with the decision the router made.
- * A malformed escape is not decodable at all, and the undecoded string is then the closest thing
- * to the truth there is: `decodeURIComponent` throwing must not become a 500 out of the hook.
- */
-function decodedPathname(requestUrl: string): string {
-  const pathname = pathnameOf(requestUrl)
-  try {
-    return decodeURIComponent(pathname)
-  } catch {
-    return pathname
-  }
-}
 
 /**
  * Whether this request is exempt from the session check, decided on the route template the
@@ -157,12 +137,23 @@ export function registerAuthGate(app: FastifyInstance, config: Config, auth: Ses
     // was addressed to. Spec 09's network posture rests on the loopback bind being a boundary,
     // and it is not one against a name somebody else controls that resolves to `127.0.0.1`. The
     // MCP endpoint has checked this since spec 12 for exactly that reason; this is the same check
-    // over the rest of the API, by the same loopback set.
+    // over the rest of the API, by the same loopback set, widened by the public host where
+    // `server.publicUrl` names one.
     if (!isAcceptableHost(config, request.headers.host)) {
+      // The message names `server.publicUrl` because this check is the one an operator who fronts
+      // Caroline with a proxy and has not set it meets first, on every request: the
+      // forwarded-header refusal below says the same thing and is never reached, since a proxy
+      // rewriting `Host` to the public name is refused here before it gets there. Naming the
+      // setting in the message is preferred to reordering the two, because the address a request
+      // was addressed to is the first thing to decide about it and nothing else should be decided
+      // for a request this install does not answer to.
       await reply
         .status(403)
         .send(
-          apiError('forbidden', 'This request carries a Host this Caroline does not answer to.'),
+          apiError(
+            'forbidden',
+            'This request carries a Host this Caroline does not answer to. Set server.publicUrl to the address Caroline is reached at if it is behind a proxy.',
+          ),
         )
       return
     }

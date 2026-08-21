@@ -88,6 +88,38 @@ describe('isPublicAddress', () => {
   })
 
   /**
+   * The two ranges the security review of 2026-08-21 found still open, of the same kind as the
+   * ones above rather than a new kind. `240.0.0.0/4` is reserved and unrouted, so an answer in it
+   * is a resolver saying something this process cannot act on meaningfully, and it is exactly the
+   * sort of range a stack maps onto something local. `64:ff9b:1::/48` is RFC 8215's local-use
+   * NAT64 prefix, which is the prefix a site actually deploys when it does not use the well-known
+   * one, so covering only `64:ff9b::/96` covered the less likely half. Spec 12, criterion 35,
+   * extended again rather than joined by a criterion of its own.
+   */
+  it.each([
+    ['reserved (240/4)', '240.0.0.1'],
+    ['reserved, middle of the /4', '250.1.2.3'],
+    ['reserved, top of the /4 below the broadcast address', '255.255.255.254'],
+  ])('refuses an IPv4 %s address (%s)', (_label, address) => {
+    expect(isPublicAddress(address)).toBe(false)
+  })
+
+  it.each([
+    ['local-use NAT64 (64:ff9b:1::/48), wrapping a loopback address', '64:ff9b:1::7f00:1'],
+    ['local-use NAT64, with the whole prefix spelled out', '64:ff9b:1:0:0:0:5db8:d822'],
+    ['local-use NAT64, another subnet of the /48', '64:ff9b:1:abcd::1'],
+  ])('refuses an IPv6 %s address (%s)', (_label, address) => {
+    expect(isPublicAddress(address)).toBe(false)
+  })
+
+  it('still accepts a public address that merely begins like the NAT64 prefix', () => {
+    // `64:ff9b:2::/48` is outside both NAT64 prefixes, so a guard written as "anything under
+    // 64:ff9b" would be refusing something these criteria do not name. The point of the two
+    // checks being separate is that each says exactly which range it is.
+    expect(isPublicAddress('64:ff9b:2::1')).toBe(true)
+  })
+
+  /**
    * `::a.b.c.d` is the deprecated IPv4-compatible form, and it is a parsing trap rather than a
    * range: `Number.parseInt('192.168.1.1', 16)` answers 0x192 without complaining, so the address
    * expanded to something that read as an ordinary public one. Checked as the IPv4 address it

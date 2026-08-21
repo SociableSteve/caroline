@@ -362,9 +362,10 @@ it objected to, in the same shape as the other startup refusals in
 ### The address Caroline answers to
 
 Separately from the login, and whether or not you have one, every request has to be addressed to a
-name Caroline answers to. That is any loopback name where `server.publicUrl` is unset, and exactly
-that URL's host (and its port, where it names one) where it is set. Anything else is refused with a
-`403` before the request reaches a route.
+name Caroline answers to. That is any loopback name, plus the host of `server.publicUrl` where you
+have set one. Anything else is refused with a `403` before the request reaches a route. The hostname
+is what is compared and the port is not, so a proxy forwarding the bare name (which is what
+`proxy_set_header Host $host;` does) is fine.
 
 This is not the same question as which interface the socket is on. A name in DNS that somebody else
 controls can be pointed at `127.0.0.1`, and a page loaded from that name in your own browser is
@@ -375,12 +376,15 @@ means. The MCP endpoint has checked it since it was written; the rest of the API
 
 In practice: reach a loopback install as `localhost` or `127.0.0.1` (any port), and set
 `server.publicUrl` to the address you actually reach an exposed install at. A reverse proxy that
-rewrites `Host` to something else has to be told not to, or told to rewrite it to the public host.
+rewrites `Host` to a third name has to be told not to, or told to rewrite it to the public host. The
+403 names `server.publicUrl`, because forgetting it is the usual cause. The loopback names keep
+working on an exposed install too, which is what lets an MCP client on the machine itself reach
+`POST /api/mcp`: that endpoint answers a loopback address and nothing else.
 
 Non-`GET` requests are checked the same way for their `Origin` header where they carry one, again
-whether or not a login is configured. Any loopback origin on any port is accepted where there is no
-public URL, which is what keeps `npm run dev:web` working: the client is served from a different
-loopback port than the API.
+whether or not a login is configured. Any loopback origin on any port is accepted, along with the
+public origin where you have one, which is what keeps `npm run dev:web` working: the client is
+served from a different loopback port than the API.
 
 ### 8a. A second OAuth client, for login
 

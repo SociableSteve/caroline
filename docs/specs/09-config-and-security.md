@@ -255,15 +255,25 @@ implied: the mode is set on the files Caroline creates, and a directory the proc
 is left alone, because `database.path` may point somewhere of the user's own and narrowing a
 directory Caroline did not make is the overreach the deletion command already refuses.
 
+A filesystem that cannot express these modes is a weaker posture and not a reason to refuse to
+start. `CAROLINE_DB_PATH` pointing at a CIFS or exFAT mount, a container volume or a read-only
+mount is an ordinary self-hosted arrangement, and `chmod` answers `EPERM`, `EACCES`, `ENOTSUP`,
+`EOPNOTSUPP`, `EINVAL`, `ENOSYS` or `EROFS` there rather than succeeding; a database file owned by
+another account answers `EPERM` too. Each of those is reported once on stderr, naming the paths and
+the codes and saying that other accounts on the machine may be able to read the database, and then
+Caroline starts. Anything else, `EIO` above all, means the storage itself is misbehaving and is
+still fatal: these modes are defence in depth over a machine this spec already says has one user,
+so failing to set them is worth saying and not worth refusing to run over.
+
 ## Network posture
 
 - Binds to `127.0.0.1` by default. On loopback the socket is the boundary as far as other
   machines are concerned, and no credential is required of a caller there.
 - **Every request is checked against the address it was addressed to, whatever the rest of the
-  configuration says.** The `Host` header must be a loopback name where `server.publicUrl` is
-  unset, and that URL's host, with its port where it names one, where it is set. A missing `Host`
-  is refused. This is the check the MCP endpoint has made since spec 12, applied to the rest of
-  the API for the reason spec 12 gives for it: the socket being on loopback says where a
+  configuration says.** The `Host` header must name a loopback host, or the host of
+  `server.publicUrl` where one is set. A missing `Host` is refused. This is the check the MCP
+  endpoint has made since spec 12, applied to the rest of the API for the reason spec 12 gives for
+  it: the socket being on loopback says where a
   connection came from and says nothing about who asked for it, and a name in DNS that somebody
   else controls can be pointed at `127.0.0.1`, at which point a page loaded from that name in the
   user's own browser is same-origin with the API and can read and write everything in it. The
@@ -273,10 +283,27 @@ directory Caroline did not make is the overreach the deletion command already re
   ran with a login configured would be a check on the installs that needed it least. It follows
   `isAcceptableOrigin`'s rule rather than a rule of its own, and the loopback set is the same one
   the startup guards use.
+- **The hostname is compared and the port is not, and the loopback names are accepted whatever
+  `server.publicUrl` says.** Both halves follow from what the check is for. A rebinding attacker
+  forges DNS and cannot forge this header at all, so the hostname is the whole of the defence: the
+  port adds nothing, and demanding the public URL's port refused every request behind the standard
+  `proxy_set_header Host $host;`, which forwards a bare hostname. Admitting the loopback names
+  costs nothing for the same reason, and refusing them cost a supported configuration outright,
+  because `mcp.enabled` is constrained by the bind rather than by `server.publicUrl`: an install
+  with both registers `POST /api/mcp`, that route requires a loopback `Host` of its own (spec 12,
+  criterion 6), and the two rules together were unsatisfiable, so the endpoint answered 403 to
+  everything. Exempting one route by its path would have fixed that with the path-based reasoning
+  the encoded-path bypass came from, so the rule is uniform instead. What a routable install
+  concedes by it is a remote caller sending `Host: localhost`, which then meets the session check
+  and, on a write, the `Origin` check, exactly as any other request does.
+- The refusal names `server.publicUrl`, because an operator who fronts Caroline with a proxy and
+  has not set it meets this check on every request and the forwarded-header refusal below, which
+  names the same setting, is never reached.
 - **The `Origin` check runs on every non-`GET`/`HEAD` request too, whatever the configuration
   says.** Where a request carries an `Origin`, it must be an acceptable one (spec 13, "The
-  acceptable origins"), and any loopback origin on any port is acceptable where there is no public
-  URL, which is what keeps the Vite dev server working. It was previously conditional on a login,
+  acceptable origins"), and any loopback origin on any port is acceptable whatever
+  `server.publicUrl` says, which is what keeps the Vite dev server working and what keeps the two
+  `Origin` checks over `POST /api/mcp` satisfiable together. It was previously conditional on a login,
   and the gap that left was narrow and real: a JSON body forces a CORS preflight, so every route
   taking one was already protected, but a body-less `POST` is a simple request that no preflight
   covers, and `POST /api/tasks/:id/complete` and `POST /api/jobs/:name/run` are body-less. A page
@@ -473,14 +500,15 @@ were: the numbers are cited by the code and by the suite.
     request that matched no route at all and whose decoded path begins with `/api` is refused, and
     a path that cannot be decoded does not throw out of the check.
 21. Every request, whatever `authRequired` is, is refused with a `403` unless its `Host` header
-    names an address this install answers to: a loopback name where `server.publicUrl` is unset,
-    and that URL's host (and port, where it names one) where it is set. A request carrying no
-    `Host` is refused. Asserted on the default configuration, which is the one the check exists
-    for, as well as on an exposed one.
+    names an address this install answers to: a loopback name, or the host of `server.publicUrl`
+    where one is set. The hostname is what is compared, not the port, and the refusal names
+    `server.publicUrl`. A request carrying no `Host` is refused. Asserted on the default
+    configuration, which is the one the check exists for, as well as on an exposed one, including
+    an exposed one whose public URL names a port and one whose public URL is itself loopback.
 22. The `Origin` check of spec 13 criterion 24 runs whatever `authRequired` is, and a body-less
     `POST` carrying a cross-site `Origin` is refused with a `403` on a loopback install with no
-    login. Any loopback origin on any port is still accepted where there is no public URL, so the
-    dev server keeps working, and that is asserted rather than assumed.
+    login. Any loopback origin on any port is still accepted whatever `server.publicUrl` says, so
+    the dev server keeps working, and that is asserted rather than assumed.
 23. The data directory Caroline creates is 0700, and the database and its `-wal` and `-shm`
     sidecars are 0600, including on a database that already existed with a wider mode. An
     in-memory or URI database path touches the filesystem not at all, and a directory the process
@@ -489,3 +517,14 @@ were: the numbers are cited by the code and by the suite.
     carries, by importing it rather than restating it, and it reaches the provider on the call the
     classifier makes. Asserted against the built request, as criterion 1 is, and against the shared
     constant, because the point is that the wording is shared and cannot drift.
+25. A `chmod` that fails because the filesystem or the file cannot carry the mode does not stop
+    Caroline starting: the codes listed under "Data at rest" above are reported once on stderr and
+    the database opens, and any other code is still thrown. Asserted per code, with `chmodSync`
+    mocked, because no POSIX filesystem can be made to refuse a `chmod` from the account owning
+    the file and the behaviour under test is what this does with the error rather than which mount
+    produces it.
+26. An unmatched path that addresses the API is answered with the API's JSON 404 however it was
+    spelled, including percent-encoded (`/%61pi/no-such-route`), rather than with the SPA shell,
+    and an unmatched path that does not address the API still gets the shell. Criterion 20's
+    reading of a request's own URL, applied to the one other place that read one. Asserted with the
+    built SPA present, since with no shell to serve both answers are already a 404.
