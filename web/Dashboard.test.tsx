@@ -286,6 +286,24 @@ describe('the day bar', () => {
     expect(today().queryByText(stored as string)).not.toBeInTheDocument()
   })
 
+  /**
+   * Criterion 48 the other way round: the surface says the capacity is a guess whenever it is one,
+   * and with no calendar there is no live reading to say it, so the plan's own stored notice is the
+   * only thing left that can. De-duplication is only wanted where the live notice actually renders,
+   * which is why the filter is conditional on it rather than applied always.
+   */
+  it('keeps the plan’s stored notice when there is no live capacity to read', () => {
+    const stored = unverifiedCapacityNotice({ verified: false, workingDay: true, busyMinutes: 0 })
+    expect(stored).not.toBeNull()
+
+    renderDashboard({
+      calendar: null,
+      plan: aPlan({ capacityVerified: false, busyMinutes: 0, warnings: [stored as string] }),
+    })
+
+    expect(today().getAllByText(stored as string)).toHaveLength(1)
+  })
+
   /** The plan's other warnings are untouched by that de-duplication. */
   it('still shows a plan warning that is not the unverified notice', () => {
     renderDashboard({
@@ -531,6 +549,49 @@ describe('the day bar’s track', () => {
 
     expect(today().getByText('unplanned 10 hours')).toBeInTheDocument()
     expect(today().queryByText(/of it held back/)).not.toBeInTheDocument()
+  })
+
+  /**
+   * "of it held back" asserts containment, and containment is not a given. Unplanned is the window
+   * less its meetings and less whatever was placed on the track, so a plan that overcommits the
+   * capacity leaves fewer unplanned minutes than the reserve: here a nine hour entry into a ten
+   * hour window leaves one unplanned hour against an hour and forty two minutes held back. The
+   * containment sentence would claim more held-back minutes than unplanned minutes exist, so the
+   * legend states the two figures separately instead, which is true whatever the plan did.
+   */
+  it('states held back on its own when the reserve is more than the unplanned minutes', () => {
+    renderDashboard({
+      calendar: aTimedDay({
+        reserveMinutes: 102,
+        free: [{ start: WINDOW_START, end: WINDOW_END }],
+      }),
+      plan: aPlan({ entries: [aPlanEntry({ id: 'entry-1', estimateMinutes: 540 })] }),
+    })
+
+    expect(today().getByText('unplanned 1 hour')).toBeInTheDocument()
+    expect(today().getByText('held back 1 hour 42 min')).toBeInTheDocument()
+    expect(today().queryByText(/of it held back/)).not.toBeInTheDocument()
+  })
+
+  /**
+   * The boundary, where a plan fills the capacity exactly and the unplanned minutes are the
+   * reserve to the minute. Containment holds, so the sentence that says so is what prints: it
+   * reads oddly with the same figure twice, but two separate items with the same figure read no
+   * better and invite the addition the wording exists to prevent.
+   */
+  it('keeps the containment sentence where the reserve is exactly the unplanned minutes', () => {
+    renderDashboard({
+      calendar: aTimedDay({
+        reserveMinutes: 102,
+        free: [{ start: WINDOW_START, end: WINDOW_END }],
+      }),
+      plan: aPlan({ entries: [aPlanEntry({ id: 'entry-1', estimateMinutes: 498 })] }),
+    })
+
+    expect(
+      today().getByText('unplanned 1 hour 42 min, 1 hour 42 min of it held back'),
+    ).toBeInTheDocument()
+    expect(today().queryByText(/^held back/)).not.toBeInTheDocument()
   })
 
   /**

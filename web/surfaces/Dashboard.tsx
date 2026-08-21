@@ -419,12 +419,15 @@ function DayTrack({
  * an entry already finished still occupied the minutes it was placed into. Free time is whatever
  * the walk left over, one element per gap rather than one merged block (criterion 41).
  *
- * "Held back" (`reserveMinutes`) is not drawn at all, only named in the legend as a slice of the
- * unplanned minutes (criterion 44). It is a flat percentage of the window held back for
- * interruptions, not any particular minutes of it, so putting it anywhere on a clock would claim
- * that some named stretch of the day is reserved when none is. It is the one legend figure with
- * nothing of its own on the track, which is why it is stated inside the unplanned item rather than
- * beside it: written as a sixth figure it read as one more slice of the day to add on.
+ * "Held back" (`reserveMinutes`) is not drawn at all, only named in the legend (criterion 44). It is
+ * a flat percentage of the window held back for interruptions, not any particular minutes of it, so
+ * putting it anywhere on a clock would claim that some named stretch of the day is reserved when
+ * none is. It is the one legend figure with nothing of its own on the track, which is why it is
+ * stated inside the unplanned item wherever it is a part of those minutes: written as a sixth
+ * figure it read as one more slice of the day to add on. It is not always a part of them. A plan
+ * that overcommits the capacity the reserve was already taken out of leaves fewer unplanned minutes
+ * than the reserve, and there the legend states the two separately rather than claim a containment
+ * that does not hold.
  *
  * Every other legend figure is a total of the blocks the track drew (criterion 47), taken from the
  * same array `DayTrack` renders. Nothing is clamped to what is left of the day's capacity: a plan
@@ -459,14 +462,26 @@ function DayBar({
   const done = drawnMinutes(blocks, 'done')
   const free = drawnMinutes(blocks, 'free')
   const reserve = Math.max(0, capacity.reserveMinutes)
-  // One item rather than two, and it names the containment inline. "Free" is already the verdict
-  // headline's word for a larger quantity just above the bar (the free capacity the API gave), and
-  // the reserve is a slice of these same unplanned minutes, so printing it as a sixth figure
-  // invited a reader to add it on and arrive at more day than exists. Criterion 47.
-  const unplanned =
-    reserve > 0
-      ? `unplanned ${formatEstimate(free)}, ${formatEstimate(reserve)} of it held back`
-      : `unplanned ${formatEstimate(free)}`
+  // "Free" is already the verdict headline's word for a larger quantity just above the bar (the
+  // free capacity the API gave), so the unplanned minutes are named "unplanned"; and where the
+  // reserve is part of them, saying so inline is what stops a reader adding the two together and
+  // arriving at more day than exists. Criterion 47.
+  //
+  // Containment is not a given, though, so it is only claimed where it holds. Unplanned is the
+  // window less its meetings and less whatever the track drew, and the planner plans against a
+  // capacity that already has the reserve taken out of it, so a plan that overcommits that capacity
+  // leaves fewer unplanned minutes than the reserve. "of it held back" would then assert more
+  // held-back minutes than unplanned minutes exist, which is the same add-them-up error inverted,
+  // so those days state the two figures separately: an unplanned item and a held-back one, both
+  // true whatever the plan did. The exact boundary, unplanned equal to the reserve, keeps the
+  // containment sentence: it is true there, and two items carrying the same figure read no better
+  // while inviting the addition the wording exists to prevent.
+  const unplannedItems =
+    reserve <= 0
+      ? [`unplanned ${formatEstimate(free)}`]
+      : reserve <= free
+        ? [`unplanned ${formatEstimate(free)}, ${formatEstimate(reserve)} of it held back`]
+        : [`unplanned ${formatEstimate(free)}`, `held back ${formatEstimate(reserve)}`]
 
   // `capacityFrom` reports `workingDay: true` for exactly the days it has a window for, so these
   // are populated wherever the track is drawn; the guard is what tells the compiler that, and it
@@ -487,7 +502,9 @@ function DayBar({
         <li>meetings {formatEstimate(meetings)}</li>
         <li>planned {formatEstimate(planned)}</li>
         <li>done {formatEstimate(done)}</li>
-        <li>{unplanned}</li>
+        {unplannedItems.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
         {/* The time is a position on the track as well as a figure here, and stays a figure even on
             the days the marker cannot honestly be drawn. Criterion 42. */}
         <li className="ml-auto font-mono font-medium text-chart-2">now {formatTimeOfDay(now)}</li>
@@ -976,8 +993,12 @@ export function Dashboard({
           workingDay: plan.windowMinutes > 0,
           busyMinutes: plan.busyMinutes,
         })
+  // The de-duplication is conditional on the live notice being on the page at all: with no calendar
+  // there is no live reading, so `capacityNotice` is null and the plan's stored copy is the only
+  // thing left that can say the capacity is a guess. Filtering it out then rendered the sentence
+  // zero times, which criterion 48 forbids as much as it forbids two.
   const planWarnings = (plan?.warnings ?? []).filter(
-    (warning) => warning !== capacityNotice && warning !== planNotice,
+    (warning) => capacityNotice === null || (warning !== capacityNotice && warning !== planNotice),
   )
   // One placement, two renderings: the day bar draws this walk and the agenda prints clock times
   // from it, so the bar and the agenda cannot disagree about when something is happening. Spec 08,

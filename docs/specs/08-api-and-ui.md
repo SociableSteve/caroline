@@ -434,8 +434,9 @@ describes. That adds the following, appended for the same reason.
 44. Held back (`reserveMinutes`) is in the legend as a number and nowhere on the track. It is a
     flat percentage of the window held back for interruptions rather than any particular minutes of
     it, so drawing it anywhere on a clock would claim that specific minutes are reserved when none
-    are. It is stated inside the unplanned item as a slice of those minutes (criterion 47) rather
-    than as an item of its own, and is left unsaid entirely when the reserve is zero.
+    are. Where it is a part of the unplanned minutes it is stated inside that item as a slice of
+    them (criterion 47) rather than as an item of its own; where it is not, it is an item of its
+    own. It is left unsaid entirely when the reserve is zero.
 45. The track is decoration: it is `aria-hidden`, and the legend beside it carries every figure in
     words, so nothing on the strip is said in colour alone. The track carries hour ticks and the
     window's own start and end times, so it reads as a clock rather than as an abstract bar.
@@ -451,10 +452,16 @@ describes. That adds the following, appended for the same reason.
     headline above the bar is a different claim and stays a different number: it weighs the whole
     plan, unplaceable entries included, against the free capacity the API reported, which is the
     window less its meetings and its reserve. The legend therefore does not call its own figure
-    free: it is "unplanned", the time actually left on the clock, and it names the held-back
-    minutes as a part of itself ("unplanned 1 hour 50 min, 1 hour 42 min of it held back") so that
-    the two cannot be read as separate slices of the day and added together. On a day where every
-    entry found a place, the unplanned figure is the verdict's spare plus the held back.
+    free: it is "unplanned", the time actually left on the clock. Where the held-back minutes fit
+    inside it, it names them as a part of itself ("unplanned 1 hour 50 min, 1 hour 42 min of it
+    held back") so that the two cannot be read as separate slices of the day and added together.
+    That containment is conditional and is claimed only where it holds: the planner plans against a
+    capacity the reserve has already been taken out of, so a plan that overcommits that capacity
+    leaves fewer unplanned minutes than the reserve, and there the legend states the two as separate
+    items ("unplanned 1 hour", "held back 1 hour 42 min") rather than assert a containment that is
+    false. At the exact boundary, unplanned equal to the reserve, containment holds and the
+    containment sentence is what prints. On a day where every entry found a place, the unplanned
+    figure is the verdict's spare plus the held back.
 48. The unverified-capacity notice appears once on the surface, not once per source. The plan job
     stores it as a warning and the dashboard also reads it from the live capacity, both from
     `unverifiedCapacityNotice` so that the two cannot word the same fact differently (spec 05,
