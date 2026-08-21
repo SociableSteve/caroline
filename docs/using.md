@@ -156,9 +156,13 @@ The dashboard is the morning screen. Reading it top to bottom:
   read. Every stretch of free time is drawn at its own true width and none of them are merged, which
   is what makes the difference between one clear ninety minutes and thirty two-minute cracks visible.
   A three minute gap is drawn three minutes wide, and looks as unusable as it is. The line across it
-  is now. Held back is in the legend and not on the bar: the reserve is a flat percentage of the
-  window rather than any particular minutes of it, so drawing it anywhere would claim minutes it does
-  not own. The legend carries every figure in words.
+  is now. The legend under it carries every figure in words: meetings, planned, done, and the
+  unplanned time left on the clock, with the reserve named as a part of that unplanned time rather
+  than as a figure of its own ("unplanned 1 hour 50 min, 1 hour 42 min of it held back"). Held back
+  is in the legend and not on the bar: the reserve is a flat percentage of the window rather than any
+  particular minutes of it, so drawing it anywhere would claim minutes it does not own. The
+  unplanned figure is not the same number as the verdict's free capacity in the line above, which
+  weighs the whole plan against the window less its meetings and its reserve.
 - **The agenda** is the day itself, one time-ordered list: the calendar's meetings and the plan's
   entries interleaved, each entry with its rank, a sentence saying why, its estimate and a
   **Complete** button, and a rule where now falls. At least one review is in the plan whenever

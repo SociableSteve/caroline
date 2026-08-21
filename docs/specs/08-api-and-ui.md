@@ -298,11 +298,13 @@ here is the behaviour each surface owes the reader; what is there is what they a
 4. The dashboard renders correctly with no plan, no calendar and no integrations
    configured, showing empty states rather than errors.
 5. A background job completing updates the open UI without a manual refresh.
-6. The day bar's numbers match `GET /api/calendar` for the same date: the window, the meetings
-   and the reserve are that route's own figures rather than anything recomputed on the client, and
-   the planned, done and free figures come from walking the plan's own estimates through that
-   route's free intervals. (Named the capacity bar until issue #67 redrew it as a clock; the same
-   contract.)
+6. The day bar's numbers match `GET /api/calendar` for the same date: the window and the reserve
+   are that route's own figures rather than anything recomputed on the client, the meetings figure
+   is the same total arrived at equivalently (re-summed from the `capacity.busy` intervals the route
+   returned, rounded the same way `busyMinutes` is, so it is the route's number by another path),
+   and the planned, done and unplanned figures come from walking the plan's own estimates through
+   that route's free intervals. (Named the capacity bar until issue #67 redrew it as a clock; the
+   same contract.)
 7. Chat streams incrementally and a dropped connection leaves the conversation recoverable
    on reload.
 8. The board is fully operable by keyboard alone, including status changes and marking a
@@ -432,7 +434,8 @@ describes. That adds the following, appended for the same reason.
 44. Held back (`reserveMinutes`) is in the legend as a number and nowhere on the track. It is a
     flat percentage of the window held back for interruptions rather than any particular minutes of
     it, so drawing it anywhere on a clock would claim that specific minutes are reserved when none
-    are.
+    are. It is stated inside the unplanned item as a slice of those minutes (criterion 47) rather
+    than as an item of its own, and is left unsaid entirely when the reserve is zero.
 45. The track is decoration: it is `aria-hidden`, and the legend beside it carries every figure in
     words, so nothing on the strip is said in colour alone. The track carries hour ticks and the
     window's own start and end times, so it reads as a clock rather than as an abstract bar.
@@ -441,15 +444,17 @@ describes. That adds the following, appended for the same reason.
     says the window was assumed free. Neither falls back to a second, proportional drawing.
 47. Every figure in the legend is a total of the minutes the track drew, and none of them is
     clamped to what is left of the day's capacity: planned and done total the entries actually
-    placed on the track, at their full estimates, and free totals the gaps drawn between them. A
-    plan that overcommits the window therefore reads the same in words as it is drawn, where a
-    clamped figure would have described minutes nothing on the screen matched. Held back
-    (criterion 44) is the one legend figure with nothing of its own on the track. The verdict
+    placed on the track, at their full estimates, and the unplanned figure totals the gaps drawn
+    between them. A plan that overcommits the window therefore reads the same in words as it is
+    drawn, where a clamped figure would have described minutes nothing on the screen matched. Held
+    back (criterion 44) is the one legend figure with nothing of its own on the track. The verdict
     headline above the bar is a different claim and stays a different number: it weighs the whole
     plan, unplaceable entries included, against the free capacity the API reported, which is the
-    window less its meetings and its reserve. So the legend's free is the unplanned time actually
-    left on the clock, and on a day where every entry found a place it is the verdict's spare plus
-    the held back.
+    window less its meetings and its reserve. The legend therefore does not call its own figure
+    free: it is "unplanned", the time actually left on the clock, and it names the held-back
+    minutes as a part of itself ("unplanned 1 hour 50 min, 1 hour 42 min of it held back") so that
+    the two cannot be read as separate slices of the day and added together. On a day where every
+    entry found a place, the unplanned figure is the verdict's spare plus the held back.
 48. The unverified-capacity notice appears once on the surface, not once per source. The plan job
     stores it as a warning and the dashboard also reads it from the live capacity, both from
     `unverifiedCapacityNotice` so that the two cannot word the same fact differently (spec 05,

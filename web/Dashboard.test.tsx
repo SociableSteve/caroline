@@ -174,7 +174,7 @@ describe('the verdict', () => {
 })
 
 describe('the day bar', () => {
-  it('shows the meetings, planned, done, free and held-back minutes in words', () => {
+  it('shows the meetings, planned, done and unplanned minutes in words', () => {
     // An eight and a half hour window with the first hour in a meeting, so the legend's figures
     // are the ones the track can be seen to draw: 450 free minutes, 120 of them planned into.
     const windowStart = NOW
@@ -202,8 +202,9 @@ describe('the day bar', () => {
     expect(today().getByText('meetings 1 hour')).toBeInTheDocument()
     expect(today().getByText('planned 1 hour 30 min')).toBeInTheDocument()
     expect(today().getByText('done 30 min')).toBeInTheDocument()
-    expect(today().getByText('free 5 hours 30 min')).toBeInTheDocument()
-    expect(today().getByText('held back 1 hour 42 min')).toBeInTheDocument()
+    expect(
+      today().getByText('unplanned 5 hours 30 min, 1 hour 42 min of it held back'),
+    ).toBeInTheDocument()
   })
 
   it('says so on a day that is not a working day', () => {
@@ -255,6 +256,34 @@ describe('the day bar', () => {
     })
 
     expect(today().getAllByText(notice as string)).toHaveLength(1)
+  })
+
+  /**
+   * `unverifiedCapacityNotice` branches on whether any events were deducted, so the sentence a plan
+   * stored with nothing synced is not the sentence the live capacity gives once events are on
+   * record. Both are still unverified, and both would have rendered: criterion 48 says the fact is
+   * stated once, so the plan's copy is matched against the plan's own facts rather than against the
+   * live wording.
+   */
+  it('prints the notice once when the plan stored the other wording of it', () => {
+    const stored = unverifiedCapacityNotice({ verified: false, workingDay: true, busyMinutes: 0 })
+    const live = unverifiedCapacityNotice({ verified: false, workingDay: true, busyMinutes: 60 })
+    expect(stored).not.toBe(live)
+
+    renderDashboard({
+      calendar: aCalendarDay({
+        connected: false,
+        capacity: { verified: false, busyMinutes: 60 },
+      }),
+      plan: aPlan({
+        capacityVerified: false,
+        busyMinutes: 0,
+        warnings: [stored as string],
+      }),
+    })
+
+    expect(today().getAllByText(live as string)).toHaveLength(1)
+    expect(today().queryByText(stored as string)).not.toBeInTheDocument()
   })
 
   /** The plan's other warnings are untouched by that de-duplication. */
@@ -463,7 +492,7 @@ describe('the day bar’s track', () => {
    * whole window: with the meetings and the free time between them accounted for, there is no
    * stretch of the clock left over for a reserve to claim.
    */
-  it('states the held-back minutes in the legend and draws none of them', () => {
+  it('names the held-back minutes inside the unplanned figure and draws none of them', () => {
     renderDashboard({
       calendar: aTimedDay({
         busy: [{ start: WINDOW_START, end: WINDOW_START + 60 * MINUTE }],
@@ -476,9 +505,32 @@ describe('the day bar’s track', () => {
       .map((block) => geometryOf(block).width)
       .reduce((total, width) => total + width, 0)
 
-    expect(today().getByText('held back 1 hour 42 min')).toBeInTheDocument()
+    // Criterion 47's containment wording, pinned exactly: the reserve is a part of the unplanned
+    // nine hours rather than a sixth figure beside it, so the legend cannot be added up to more
+    // day than the window holds.
+    expect(
+      today().getByText('unplanned 9 hours, 1 hour 42 min of it held back'),
+    ).toBeInTheDocument()
+    expect(today().queryByText(/^held back/)).not.toBeInTheDocument()
     expect(track().querySelector('[data-block="reserve"]')).toBeNull()
     expect(covered).toBeCloseTo(100, 6)
+  })
+
+  /**
+   * Criterion 44: with nothing held back there is nothing to name, so the item is the unplanned
+   * figure alone rather than a sentence trailing a zero. (The capacity line above the bar still
+   * spells the reserve out, which is why this looks for the legend's own phrasing.)
+   */
+  it('says nothing about held back when the reserve is zero', () => {
+    renderDashboard({
+      calendar: aTimedDay({
+        reserveMinutes: 0,
+        free: [{ start: WINDOW_START, end: WINDOW_END }],
+      }),
+    })
+
+    expect(today().getByText('unplanned 10 hours')).toBeInTheDocument()
+    expect(today().queryByText(/of it held back/)).not.toBeInTheDocument()
   })
 
   /**
@@ -501,9 +553,11 @@ describe('the day bar’s track', () => {
 
     expect(block?.width).toBeCloseTo(share(420), 6)
     expect(today().getByText('planned 7 hours')).toBeInTheDocument()
-    // And the free time is the gap left on the track, not the capacity left in the day.
+    // And the unplanned time is the gap left on the track, not the capacity left in the day.
     expect(gap?.width).toBeCloseTo(share(180), 6)
-    expect(today().getByText('free 3 hours')).toBeInTheDocument()
+    expect(
+      today().getByText('unplanned 3 hours, 1 hour 42 min of it held back'),
+    ).toBeInTheDocument()
   })
 
   /** Criterion 47, for a done entry: the same figure, drawn in its own fill. */

@@ -198,6 +198,9 @@ function scheduleDay(
     while (entry !== undefined) {
       const minutes = entry.estimateMinutes ?? 0
       const durationMs = minutes * MINUTE_MS
+      // The `durationMs > 0` guard is for the no-estimate case, which is placed at the cursor
+      // without moving it. A negative estimate would skip the fit check and rewind the cursor, but
+      // cannot arrive: `estimateFor` in `src/domain/plan.ts` floors every entry at one minute.
       if (durationMs > 0 && cursor + durationMs > interval.end) break
       scheduled.push({ entry, startsAt: cursor })
       cursor += durationMs
@@ -416,17 +419,21 @@ function DayTrack({
  * an entry already finished still occupied the minutes it was placed into. Free time is whatever
  * the walk left over, one element per gap rather than one merged block (criterion 41).
  *
- * "Held back" (`reserveMinutes`) is not drawn at all, only stated in the legend (criterion 44). It
- * is a flat percentage of the window held back for interruptions, not any particular minutes of it,
- * so putting it anywhere on a clock would claim that some named stretch of the day is reserved when
- * none is. It is the one legend figure with nothing of its own on the track.
+ * "Held back" (`reserveMinutes`) is not drawn at all, only named in the legend as a slice of the
+ * unplanned minutes (criterion 44). It is a flat percentage of the window held back for
+ * interruptions, not any particular minutes of it, so putting it anywhere on a clock would claim
+ * that some named stretch of the day is reserved when none is. It is the one legend figure with
+ * nothing of its own on the track, which is why it is stated inside the unplanned item rather than
+ * beside it: written as a sixth figure it read as one more slice of the day to add on.
  *
  * Every other legend figure is a total of the blocks the track drew (criterion 47), taken from the
  * same array `DayTrack` renders. Nothing is clamped to what is left of the day's capacity: a plan
  * that overcommits the window draws its entries at their full estimates, so a legend stating
- * anything less would describe minutes other than the ones on the screen beside it. The window is
- * therefore accounted for exactly once over: meetings, done, planned and free total it, with the
- * reserve named separately as the slice of it that is spoken for rather than a stretch of it.
+ * anything less would describe minutes other than the ones on the screen beside it. The four kinds
+ * partition the drawn blocks, so no minute of the track is counted under two of them; they are not
+ * an exact decomposition of `windowMinutes` in print, because each figure is rounded to the minute
+ * on its own and `windowMinutes` is rounded separately, so event boundaries inside a minute can
+ * leave the four totalling the window plus or minus a minute. Criterion 47 makes no sum claim.
  *
  * The capacity figures are still the ones `GET /api/calendar` gave (criterion 6); nothing here
  * recomputes them.
@@ -452,6 +459,14 @@ function DayBar({
   const done = drawnMinutes(blocks, 'done')
   const free = drawnMinutes(blocks, 'free')
   const reserve = Math.max(0, capacity.reserveMinutes)
+  // One item rather than two, and it names the containment inline. "Free" is already the verdict
+  // headline's word for a larger quantity just above the bar (the free capacity the API gave), and
+  // the reserve is a slice of these same unplanned minutes, so printing it as a sixth figure
+  // invited a reader to add it on and arrive at more day than exists. Criterion 47.
+  const unplanned =
+    reserve > 0
+      ? `unplanned ${formatEstimate(free)}, ${formatEstimate(reserve)} of it held back`
+      : `unplanned ${formatEstimate(free)}`
 
   // `capacityFrom` reports `workingDay: true` for exactly the days it has a window for, so these
   // are populated wherever the track is drawn; the guard is what tells the compiler that, and it
@@ -472,8 +487,7 @@ function DayBar({
         <li>meetings {formatEstimate(meetings)}</li>
         <li>planned {formatEstimate(planned)}</li>
         <li>done {formatEstimate(done)}</li>
-        <li>free {formatEstimate(free)}</li>
-        {reserve > 0 && <li>held back {formatEstimate(reserve)}</li>}
+        <li>{unplanned}</li>
         {/* The time is a position on the track as well as a figure here, and stays a figure even on
             the days the marker cannot honestly be drawn. Criterion 42. */}
         <li className="ml-auto font-mono font-medium text-chart-2">now {formatTimeOfDay(now)}</li>
@@ -949,7 +963,22 @@ export function Dashboard({
   // had a plan. De-duplicated here, at the render site, rather than by having either source stop
   // producing it: with no plan at all the notice is the only thing that says the capacity is a
   // guess, and it keeps the same position under the day bar in both cases.
-  const planWarnings = (plan?.warnings ?? []).filter((warning) => warning !== capacityNotice)
+  //
+  // Matched against both wordings rather than against the live one alone: `unverifiedCapacityNotice`
+  // branches on whether any events were deducted, so a plan stored with nothing synced and rendered
+  // once events are on record carries the other branch's sentence, and comparing only against the
+  // live notice would have let the two through together.
+  const planNotice =
+    plan === null
+      ? null
+      : unverifiedCapacityNotice({
+          verified: plan.capacityVerified,
+          workingDay: plan.windowMinutes > 0,
+          busyMinutes: plan.busyMinutes,
+        })
+  const planWarnings = (plan?.warnings ?? []).filter(
+    (warning) => warning !== capacityNotice && warning !== planNotice,
+  )
   // One placement, two renderings: the day bar draws this walk and the agenda prints clock times
   // from it, so the bar and the agenda cannot disagree about when something is happening. Spec 08,
   // criterion 43.
