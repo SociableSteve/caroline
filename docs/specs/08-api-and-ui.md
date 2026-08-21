@@ -80,10 +80,15 @@ answers that first and everything else after, in three bands, in this order. The
 rows rather than one reflowing grid, because a reading path that changes with the window width is
 not a reading path.
 
-1. **Today.** The plan, with the capacity bar and today's calendar column beside it. Leads, at
-   the full width of the surface, because it is the answer to the question the surface exists to
-   answer. The calendar shows the busy and free blocks; the capacity bar shows planned against
-   available.
+1. **Today.** The verdict, the day bar, and one time-ordered agenda merging the plan's entries
+   with the calendar's events. Leads, at the full width of the surface, because it is the answer to
+   the question the surface exists to answer. The day bar is the working window drawn to
+   wall-clock scale, left to right: meetings, planned work and what is already done each sit at
+   their own offset into the window and are drawn at their own duration, and every stretch of free
+   time is drawn at its own true width rather than merged into one, so a fragmented afternoon reads
+   as fragmented and a three-minute crack reads as unusable. The present moment is a position on
+   it. The agenda underneath prints the clock times of the same placements, so the two cannot
+   disagree about when something is happening.
 2. **Wants a decision.** Waiting items that have gone quiet, worth-a-chase nudges, the plan's
    overflow, and stalled projects. Second, because each of these is something only the user can
    resolve. The quiet-waiting panel is a chase list, not a count: it names the item, who it is
@@ -400,3 +405,33 @@ for the same reason.
     clearing the control back to empty sends `null`, taking the field off the task rather than
     leaving it as it was. This is the same three-state contract `update_task` offers from chat: set,
     change or clear, with an untouched field left alone.
+
+Issue #67 replaced the day bar's proportion chart with the wall-clock timeline band 1 now
+describes. That adds the following, appended for the same reason.
+
+40. The day bar is the working window drawn to scale: every element on the track is positioned and
+    sized from its own instants as a fraction of `windowStart` to `windowEnd`, so two blocks of
+    equal duration are drawn equally wide wherever in the day they fall, and a block of twice the
+    duration is drawn twice as wide. There is no minimum width, because a floor would draw three
+    unusable minutes as though they were usable, and that time looking unusable is the point.
+41. Free time is drawn one element per gap and never merged: a window with several separate
+    stretches of free time in it draws one element for each, each at its own width and offset. A
+    day of thirty scattered cracks and a day with one long clear stretch do not draw alike.
+42. The present moment is drawn as a position on the track when it falls inside the window, and is
+    drawn nowhere at all when it falls before the window opens or after it closes: clamping it to
+    an edge would say the day had started, or was ending, when it has not. The legend states the
+    time in either case.
+43. The bar and the agenda place a plan entry at the same time, by construction rather than by
+    coincidence: one walk of the plan's entries through `capacity.free` produces the placement that
+    the bar draws and the agenda prints a clock time for, so an entry's offset on the track is the
+    offset of the time beside it in the agenda.
+44. Held back (`reserveMinutes`) is in the legend as a number and nowhere on the track. It is a
+    flat percentage of the window held back for interruptions rather than any particular minutes of
+    it, so drawing it anywhere on a clock would claim that specific minutes are reserved when none
+    are.
+45. The track is decoration: it is `aria-hidden`, and the legend beside it carries every figure in
+    words, so nothing on the strip is said in colour alone. The track carries hour ticks and the
+    window's own start and end times, so it reads as a clock rather than as an abstract bar.
+46. A day that is not a working day draws no track and says why instead. A day whose capacity is
+    unverified draws the track and keeps its unverified notice, which is honest because the notice
+    says the window was assumed free. Neither falls back to a second, proportional drawing.

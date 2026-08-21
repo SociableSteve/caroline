@@ -938,7 +938,7 @@ function heroShot(context: BuildContext): string {
     const output = context.assets.get(source)
     if (output === undefined) throw new Error(`the home page cannot show ${source}`)
 
-    return `<img class="shot hero-shot ${palette}-only" src="${output}" alt="Caroline's dashboard: today's plan, the calendar, and the state of the machine" />`
+    return `<img class="shot hero-shot ${palette}-only" src="${output}" alt="Caroline's dashboard: the verdict on today, the day bar drawn as a clock, and the agenda under it" />`
   }
 
   return `<div class="hero-shot-frame">

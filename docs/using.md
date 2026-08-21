@@ -139,33 +139,45 @@ deadlines come from people rather than from a model.
 
 The dashboard is the morning screen. Reading it top to bottom:
 
-![The dashboard: today's plan, today's calendar, and the four panels under them](images/dashboard.png#gh-light-mode-only)
-![The dashboard: today's plan, today's calendar, and the four panels under them](images/dashboard-dark.png#gh-dark-mode-only)
+![The dashboard: the verdict on today, the day bar drawn as a clock, and the agenda under it](images/dashboard.png#gh-light-mode-only)
+![The dashboard: the verdict on today, the day bar drawn as a clock, and the agenda under it](images/dashboard-dark.png#gh-dark-mode-only)
 
-- **Today's plan** is what the planner proposed: a line about the shape of the day, then any warning
-  it has to give, then the entries in order with a sentence each saying why. The two warnings in the
-  picture are both the planner's own, and are the two things it wants you to know before you read
-  the list: it could not fit everything, and the capacity it was drawn against is unverified. At
-  least one review is in there whenever something is waiting on you and the day has room for it,
-  whether the model thought of it or not, unless `planning.includeReviews` in the config file is
-  off. **Regenerate** redraws it against the tasks and the calendar as they stand now. It is a
-  proposal and not a commitment: complete things from it, or ignore it.
-- **Today's calendar** is the capacity arithmetic, spelled out: the working window, less the meetings
-  you accepted, less the reserve held back for interruptions, and what is left. Declined meetings do
-  not count against you. **Unverified** means no calendar is connected, which is not the same as no
-  meetings being known: as the picture above shows, the arithmetic still uses whatever events are in
-  the database, and what is missing is anything confirming they are current.
-- **Gone quiet** is what has been waiting on somebody else longer than the staleness threshold, with
-  who it is on and for how long, read as things stand now. **Worth a chase** is the same list as the
-  planner saw when it drew the plan, so something that crossed the threshold since this morning is in
-  the first and not yet in the second. For a pull request it adds whether the author has pushed
-  anything since you reviewed it, which is the case where a review is quietly yours again.
-- **If there is time** is what the plan left over, and the warning above it says there was something.
-- **Stalled projects** are projects with no next action. That is the one thing tracking work this way
-  can tell you that you cannot see by looking at a list.
+- **The verdict** is the first line: whether today fits, how much is planned against how much is
+  free, and what is spare or over. Under it, the capacity arithmetic spelled out: the working
+  window, less the meetings you accepted, less the reserve held back for interruptions. Declined
+  meetings do not count against you. **Unverified** means no calendar is connected, which is not the
+  same as no meetings being known: the arithmetic still uses whatever events are in the database, and
+  what is missing is anything confirming they are current. **Regenerate** redraws the plan against
+  the tasks and the calendar as they stand now. It is a proposal and not a commitment: complete
+  things from it, or ignore it.
+- **The day bar** is the working window drawn as a clock, left to right. Meetings, the work planned
+  into the day and the work already done each sit where in the day they fall, at their own width, so
+  the shape of the day (front loaded, clear afternoon, fragmented middle) is a glance rather than a
+  read. Every stretch of free time is drawn at its own true width and none of them are merged, which
+  is what makes the difference between one clear ninety minutes and thirty two-minute cracks visible.
+  A three minute gap is drawn three minutes wide, and looks as unusable as it is. The line across it
+  is now. Held back is in the legend and not on the bar: the reserve is a flat percentage of the
+  window rather than any particular minutes of it, so drawing it anywhere would claim minutes it does
+  not own. The legend carries every figure in words.
+- **The agenda** is the day itself, one time-ordered list: the calendar's meetings and the plan's
+  entries interleaved, each entry with its rank, a sentence saying why, its estimate and a
+  **Complete** button, and a rule where now falls. At least one review is in the plan whenever
+  something is waiting on you and the day has room for it, whether the model thought of it or not,
+  unless `planning.includeReviews` in the config file is off. Warnings above the list are the
+  planner's own: that it could not fit everything, or that the capacity it drew against is
+  unverified. A stretch of free time appears as its own row, and where something the plan left over
+  would fit into it, that is offered there.
+- **Needs you**, in the left rail, is the triage list: the three oldest things only you can resolve,
+  with a link to the board for the rest. **Gone quiet** is what has been waiting on somebody else
+  longer than the staleness threshold, with who it is on and for how long, read as things stand now.
+  **Worth a chase** is the same list as the planner saw when it drew the plan, so something that
+  crossed the threshold since this morning is in the first and not yet in the second. For a pull
+  request it adds whether the author has pushed anything since you reviewed it, which is the case
+  where a review is quietly yours again. **Stalled** is a project with no next action, which is the
+  one thing tracking work this way can tell you that you cannot see by looking at a list.
 
-Under all of it, the state strip: where everything is, when each background job last ran, which
-integrations are configured, and how the last few days' plans went against what you completed.
+Under the rail, **where everything is**: how many tasks are sitting in each status. What each
+background job last did is the Jobs surface's own subject rather than repeated here.
 
 ## The rail: an item, and a conversation about it
 

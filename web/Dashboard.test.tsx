@@ -15,6 +15,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { Dashboard } from './surfaces/Dashboard.js'
+import { formatTimeOfDay } from './format.js'
+import type { CapacityView } from './api.js'
 import { aCalendarDay, aPlan, aPlanEntry, aProject, aTask, DAY, NOW } from './test-fixtures.js'
 
 function renderDashboard(overrides: Partial<Parameters<typeof Dashboard>[0]> = {}) {
@@ -220,6 +222,248 @@ describe('the day bar', () => {
     })
 
     expect(today().queryByText(/unverified/i)).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * Issue #67 replaced the proportion chart with a wall-clock timeline: spec 08, criteria 40 to 46.
+ * The window these use is ten hours long, so a minute of it is a sixth of a per cent and the
+ * arithmetic in each assertion can be read rather than trusted.
+ */
+describe('the day bar’s track', () => {
+  const MINUTE = 60_000
+  const WINDOW_START = NOW
+  const WINDOW_MINUTES = 600
+  const WINDOW_END = WINDOW_START + WINDOW_MINUTES * MINUTE
+
+  /** A day of the fixed ten-hour window, with whatever busy and free intervals a test asks for. */
+  function aTimedDay(capacity: Partial<CapacityView> = {}) {
+    return aCalendarDay({
+      capacity: {
+        windowStart: WINDOW_START,
+        windowEnd: WINDOW_END,
+        busy: [],
+        free: [],
+        ...capacity,
+      },
+    })
+  }
+
+  function track(): HTMLElement {
+    const strip = screen
+      .getByRole('region', { name: /today/i })
+      .querySelector<HTMLElement>('.day-bar')
+    expect(strip).not.toBeNull()
+    return strip as HTMLElement
+  }
+
+  function blocksOf(kind: string): HTMLElement[] {
+    return [...track().querySelectorAll<HTMLElement>(`[data-block="${kind}"]`)]
+  }
+
+  /** Where an element was drawn, as the percentages the component wrote into its own style. */
+  function geometryOf(element: HTMLElement) {
+    return {
+      left: Number.parseFloat(element.style.left),
+      width: Number.parseFloat(element.style.width),
+    }
+  }
+
+  /** The share of the window a run of minutes is, as a percentage: the scale under test. */
+  function share(minutes: number): number {
+    return (minutes / WINDOW_MINUTES) * 100
+  }
+
+  /** Criterion 40: positioned and sized from its own instants, not from a share of a total. */
+  it('positions each meeting at its own offset into the window, at its own duration', () => {
+    renderDashboard({
+      calendar: aTimedDay({
+        busy: [
+          { start: WINDOW_START + 60 * MINUTE, end: WINDOW_START + 120 * MINUTE },
+          { start: WINDOW_START + 300 * MINUTE, end: WINDOW_START + 420 * MINUTE },
+        ],
+      }),
+    })
+
+    const [firstMeeting, secondMeeting] = blocksOf('meeting').map(geometryOf)
+
+    expect(firstMeeting?.left).toBeCloseTo(share(60), 6)
+    expect(firstMeeting?.width).toBeCloseTo(share(60), 6)
+    // Twice the duration, drawn twice as wide, and after the first rather than beside it.
+    expect(secondMeeting?.left).toBeCloseTo(share(300), 6)
+    expect(secondMeeting?.width).toBeCloseTo(share(120), 6)
+  })
+
+  /** Criterion 40: no floor. Time that is unusable has to look unusable. */
+  it('draws a three-minute gap three minutes wide rather than at a minimum width', () => {
+    renderDashboard({
+      calendar: aTimedDay({
+        free: [
+          { start: WINDOW_START, end: WINDOW_START + 3 * MINUTE },
+          { start: WINDOW_START + 540 * MINUTE, end: WINDOW_END },
+        ],
+      }),
+    })
+
+    const [crack, stretch] = blocksOf('free').map(geometryOf)
+
+    expect(crack?.width).toBeCloseTo(share(3), 6)
+    expect(stretch?.width).toBeCloseTo(share(60), 6)
+  })
+
+  /** Criterion 41: a day of scattered cracks and a day with one clear stretch do not draw alike. */
+  it('draws one element per stretch of free time rather than merging them', () => {
+    renderDashboard({
+      calendar: aTimedDay({
+        free: [
+          { start: WINDOW_START, end: WINDOW_START + 10 * MINUTE },
+          { start: WINDOW_START + 120 * MINUTE, end: WINDOW_START + 130 * MINUTE },
+          { start: WINDOW_START + 480 * MINUTE, end: WINDOW_START + 490 * MINUTE },
+        ],
+      }),
+    })
+
+    const free = blocksOf('free').map(geometryOf)
+
+    expect(free).toHaveLength(3)
+    expect(free.map((gap) => gap.left.toFixed(4))).toEqual(
+      [share(0), share(120), share(480)].map((offset) => offset.toFixed(4)),
+    )
+    for (const gap of free) expect(gap.width).toBeCloseTo(share(10), 6)
+  })
+
+  /** Criterion 42: a position on the track, not only a figure in the legend. */
+  it('marks the present moment where it falls in the window', () => {
+    const now = WINDOW_START + 150 * MINUTE
+    renderDashboard({ calendar: aTimedDay(), now })
+
+    const marker = track().querySelector<HTMLElement>('[data-marker="now"]')
+
+    expect(marker).not.toBeNull()
+    expect(Number.parseFloat(marker?.style.left ?? '')).toBeCloseTo(share(150), 6)
+  })
+
+  /** Criterion 42: clamping it to an edge would say the day had started when it has not. */
+  it('draws no marker before the window opens, and still states the time in the legend', () => {
+    const now = WINDOW_START - 60 * MINUTE
+    renderDashboard({ calendar: aTimedDay(), now })
+
+    expect(track().querySelector('[data-marker="now"]')).toBeNull()
+    expect(today().getByText(`now ${formatTimeOfDay(now)}`)).toBeInTheDocument()
+  })
+
+  it('draws no marker after the window closes', () => {
+    renderDashboard({ calendar: aTimedDay(), now: WINDOW_END + MINUTE })
+
+    expect(track().querySelector('[data-marker="now"]')).toBeNull()
+  })
+
+  /**
+   * Criterion 43, and the assertion that matters most: the bar and the agenda are two renderings
+   * of one placement walk, so an entry's offset on the track is the offset of the clock time the
+   * agenda prints beside it. Read back from the drawn percentage into an instant rather than
+   * recomputed from the fixture, so the two can never drift apart without this failing.
+   */
+  it('draws a plan entry at the offset of the time the agenda prints beside it', () => {
+    const freeStart = WINDOW_START + 97 * MINUTE
+    renderDashboard({
+      calendar: aTimedDay({ free: [{ start: freeStart, end: freeStart + 120 * MINUTE }] }),
+      plan: aPlan({
+        entries: [aPlanEntry({ id: 'entry-1', title: 'Write the report', estimateMinutes: 45 })],
+      }),
+    })
+
+    const [block] = blocksOf('planned').map(geometryOf)
+    const drawnAt = WINDOW_START + ((block?.left ?? 0) / 100) * (WINDOW_END - WINDOW_START)
+    const row = today().getByText('Write the report').closest('li')
+
+    expect(row?.textContent).toContain(formatTimeOfDay(drawnAt))
+    expect(block?.width).toBeCloseTo(share(45), 6)
+  })
+
+  /** An entry already done still occupies the minutes it was placed into, in its own fill. */
+  it('keeps a done entry on the track, distinct from one still to do', () => {
+    renderDashboard({
+      calendar: aTimedDay({ free: [{ start: WINDOW_START, end: WINDOW_END }] }),
+      plan: aPlan({
+        entries: [
+          aPlanEntry({ id: 'entry-1', estimateMinutes: 30, done: true }),
+          aPlanEntry({ id: 'entry-2', estimateMinutes: 30, done: false }),
+        ],
+      }),
+    })
+
+    const [doneBlock] = blocksOf('done').map(geometryOf)
+    const [plannedBlock] = blocksOf('planned').map(geometryOf)
+
+    expect(doneBlock?.left).toBeCloseTo(share(0), 6)
+    expect(doneBlock?.width).toBeCloseTo(share(30), 6)
+    expect(plannedBlock?.left).toBeCloseTo(share(30), 6)
+  })
+
+  /**
+   * Criterion 44: the reserve is a flat percentage of the window rather than any particular minutes
+   * of it, so it is a legend figure and nothing else. Asserted as the drawn track covering the
+   * whole window: with the meetings and the free time between them accounted for, there is no
+   * stretch of the clock left over for a reserve to claim.
+   */
+  it('states the held-back minutes in the legend and draws none of them', () => {
+    renderDashboard({
+      calendar: aTimedDay({
+        busy: [{ start: WINDOW_START, end: WINDOW_START + 60 * MINUTE }],
+        free: [{ start: WINDOW_START + 60 * MINUTE, end: WINDOW_END }],
+        reserveMinutes: 102,
+      }),
+    })
+
+    const covered = [...blocksOf('meeting'), ...blocksOf('free')]
+      .map((block) => geometryOf(block).width)
+      .reduce((total, width) => total + width, 0)
+
+    expect(today().getByText('held back 1 hour 42 min')).toBeInTheDocument()
+    expect(track().querySelector('[data-block="reserve"]')).toBeNull()
+    expect(covered).toBeCloseTo(100, 6)
+  })
+
+  /** Criterion 45: the legend is the text carrier, and the strip reads as a clock. */
+  it('hides the track from assistive technology, and labels the window’s ends and its hours', () => {
+    renderDashboard({ calendar: aTimedDay() })
+
+    expect(track()).toHaveAttribute('aria-hidden', 'true')
+    expect(track().textContent).toContain(formatTimeOfDay(WINDOW_START))
+    expect(track().textContent).toContain(formatTimeOfDay(WINDOW_END))
+
+    const ticks = [...track().querySelectorAll<HTMLElement>('[data-tick="hour"]')].map((tick) =>
+      Number.parseFloat(tick.style.left),
+    )
+
+    expect(ticks.length).toBeGreaterThan(0)
+    // An hour apart, whatever the runner's time zone does to where the first one falls.
+    for (const [index, tick] of ticks.slice(1).entries()) {
+      expect(tick - (ticks[index] as number)).toBeCloseTo(share(60), 6)
+    }
+  })
+
+  /** Criterion 46: no track where there is no window, and no second proportional drawing either. */
+  it('draws no track at all on a day that is not a working day', () => {
+    renderDashboard({
+      calendar: aCalendarDay({ capacity: { workingDay: false, windowMinutes: 0 } }),
+    })
+
+    const region = screen.getByRole('region', { name: /today/i })
+
+    expect(region.querySelector('.day-bar')).toBeNull()
+    expect(today().getByText(/not a working day/i)).toBeInTheDocument()
+  })
+
+  /** Criterion 46: honest, because the notice beside it says the window was assumed free. */
+  it('draws the track on an unverified day, alongside the notice', () => {
+    renderDashboard({
+      calendar: aTimedDay({ verified: false, busyMinutes: 0 }),
+    })
+
+    expect(track()).toBeInTheDocument()
+    expect(today().getByText(/unverified/i)).toBeInTheDocument()
   })
 })
 
