@@ -58,12 +58,18 @@ Weights are `400`, `500` and `600`; nothing is bolder than `600` and nothing is 
 `400`. Line height is `--leading-tight` (`1.25`) for headings and `--leading-normal` (`1.5`) for
 everything else.
 
-**Radius.** Three values. `--radius-sm` (`0.25rem`) for controls, `--radius-md` (`0.5rem`) for
-panels and cards, `--radius-pill` (`999px`) for badges and count pills. The previous `4px` and
-`0.25rem` were one radius written twice, and `0.35rem` and `0.75rem` were nothing at all. The pill
-used to be named for the capacity bar; the day bar that replaced it is a clock track (spec 08,
-criterion 40) and takes `--radius-md` like any other bounded region, because a rounded end on a
-to-scale track shaves the first and last minutes of the window it is drawing.
+**Radius.** One scale, derived in `web/styles.css` from `--radius` (`0.625rem`), which the shadcn
+migration brought with it. `--radius-sm` (`0.375rem`) is for controls: buttons, inputs, the select,
+keyboard hints. `--radius-md` (`0.5rem`) is for cards, menus, dialogs, quoted blocks and the day
+bar's clock track. `--radius-lg` (`0.625rem`) is for the dashboard's rail and its agenda cards, and
+`--radius-xl` (`0.875rem`) for a chat turn, a Jobs panel and the Jobs and Projects tables. A pill is
+Tailwind's `rounded-full` rather than a token of its own, which is what a badge and the board's
+count pills use. The pre-shadcn `4px` and `0.25rem` were one radius written twice, and `0.35rem`
+and `0.75rem` were nothing at all.
+
+The day bar takes `--radius-md` like any other bounded region rather than the pill radius the
+proportional capacity bar it replaced carried (spec 08, criterion 40): a rounded end on a to-scale
+track shaves the first and last minutes of the window it is drawing.
 
 **Colour.** Two palettes, light and dark, both meeting WCAG AA against their own backgrounds.
 

@@ -11,8 +11,10 @@
  *    the page needs them replaced. Jobs already has its own surface; plan history is not shown
  *    here at all.
  *
- * Criterion 6: the day bar's numbers are the ones `GET /api/calendar` gave. They are not
- * recomputed here, so the two cannot disagree.
+ * Criterion 6: the day bar's window, meetings and reserve are the figures `GET /api/calendar`
+ * gave, and its planned, done and free figures come from walking the plan's own estimates through
+ * that route's free intervals. Nothing is recomputed here, so the surface and the API cannot
+ * disagree.
  *
  * Criterion 4: with no plan, no calendar and no integrations configured it shows empty states
  * rather than errors, because that is the state a clean checkout is in.
@@ -80,24 +82,13 @@ function plannedMinutes(plan: PlanView | null): number {
   return (plan?.entries ?? []).reduce((total, entry) => total + (entry.estimateMinutes ?? 0), 0)
 }
 
-/** The same total, split by whether the task behind it is already done. The day bar and the
- *  agenda both need the split; the verdict does not, so it keeps using the combined figure. */
-function splitPlannedMinutes(plan: PlanView | null): { planned: number; done: number } {
-  let planned = 0
-  let done = 0
-  for (const entry of plan?.entries ?? []) {
-    const minutes = entry.estimateMinutes ?? 0
-    if (entry.done) done += minutes
-    else planned += minutes
-  }
-  return { planned, done }
-}
-
 /**
- * The verdict: whether today fits. Issue #47's headline, computed from the same numbers the day
- * bar already shows (spec 08, criterion 6: never recomputed from anything else), so the two can
- * never disagree. Null where there is nothing to verdict yet: no calendar, or a day with no
- * working window at all.
+ * The verdict: whether today fits. Issue #47's headline, from the plan's own estimates against
+ * the free capacity `GET /api/calendar` reported (spec 08, criterion 6: neither figure is
+ * recomputed here). It is a claim about the whole plan, so it counts every entry, including one
+ * the client could find no room for; the day bar's legend beside it counts only what was placed
+ * on the track, because that is what the track drew (criterion 47). Null where there is nothing
+ * to verdict yet: no calendar, or a day with no working window at all.
  */
 function verdict(calendar: CalendarDay | null, planned: number): string | null {
   if (calendar === null || !calendar.capacity.workingDay) return null
@@ -107,11 +98,11 @@ function verdict(calendar: CalendarDay | null, planned: number): string | null {
 
   if (planned <= free) {
     const spare = free - planned
-    return `Today fits — ${formatEstimate(planned)} planned of ${formatEstimate(free)} free, and ${formatEstimate(spare)} to spare.`
+    return `Today fits: ${formatEstimate(planned)} planned of ${formatEstimate(free)} free, and ${formatEstimate(spare)} to spare.`
   }
 
   const over = planned - free
-  return `Today’s tight — ${formatEstimate(planned)} planned of ${formatEstimate(free)} free, ${formatEstimate(over)} over.`
+  return `Today’s tight: ${formatEstimate(planned)} planned of ${formatEstimate(free)} free, ${formatEstimate(over)} over.`
 }
 
 /** The day's working window, spelled out the way the old separate calendar panel used to: the
@@ -294,6 +285,21 @@ function trackBlocks(capacity: CapacityView, placement: DayPlacement): TrackBloc
   return blocks
 }
 
+/**
+ * How many minutes of one kind the track drew, which is what the legend beside it states. Totalled
+ * from the drawn blocks rather than from the plan or the capacity, so the words and the drawing
+ * cannot disagree about the same minutes: spec 08, criterion 47. `meeting` totals `capacity.busy`,
+ * which is the `busyMinutes` the API reported, arrived at the same way (`minutesOf` in
+ * `src/domain/capacity.ts` rounds the same sum), so the figure is still the route's own.
+ */
+function drawnMinutes(blocks: readonly TrackBlock[], kind: TrackBlock['kind']): number {
+  return Math.round(
+    blocks
+      .filter((block) => block.kind === kind)
+      .reduce((total, block) => total + (block.endsAt - block.startsAt), 0) / MINUTE_MS,
+  )
+}
+
 /** Where an instant sits in the window, as a percentage across it, clamped to the window's ends. */
 function offsetIn(window: Interval, instant: number): number {
   const clamped = Math.min(Math.max(instant, window.start), window.end)
@@ -329,16 +335,14 @@ function hourTicks(window: Interval): number[] {
  */
 function DayTrack({
   window,
-  capacity,
-  placement,
+  blocks,
   now,
 }: {
   readonly window: Interval
-  readonly capacity: CapacityView
-  readonly placement: DayPlacement
+  /** The blocks to draw, built once by the day bar so the legend can total the same set. */
+  readonly blocks: readonly TrackBlock[]
   readonly now: number
 }) {
-  const blocks = trackBlocks(capacity, placement)
   const nowOffset = now >= window.start && now <= window.end ? offsetIn(window, now) : null
 
   return (
@@ -355,10 +359,15 @@ function DayTrack({
             }}
           />
         ))}
+        {/* Ink, ringed in the page's own ground, rather than `bg-chart-2`: that was the exact
+            colour of a planned block, so the marker vanished into the one fill it is most likely to
+            land on (the work happening now), and against a done block or a meeting it was little
+            better. Foreground against a background ring reads on every fill the track can draw,
+            and what ties it to the legend is the time it states there rather than its colour. */}
         {nowOffset !== null && (
           <span
             data-marker="now"
-            className="absolute inset-y-0 w-0.5 bg-chart-2"
+            className="absolute inset-y-0 w-0.5 bg-foreground ring-1 ring-background"
             style={{ left: `${nowOffset}%` }}
           />
         )}
@@ -366,7 +375,11 @@ function DayTrack({
       {/* The hours, as a ruler under the track rather than as gridlines through it: a tick behind
           the blocks is a tick a full day of blocks hides, and one over them has to fight every fill
           it crosses. Criterion 45. */}
-      <div className="relative h-1">
+      {/* `border-x border-transparent` rather than no border at all: the track carries a 1px
+          border, and an absolutely positioned block's percentage resolves against its containing
+          block's padding box, so a ruler without the same inset is a pixel out at each end. The
+          ticks and the blocks have to resolve against boxes of the same width to line up. */}
+      <div className="relative h-1 border-x border-transparent">
         {hourTicks(window).map((tick) => (
           <span
             key={tick}
@@ -406,23 +419,25 @@ function DayTrack({
  * "Held back" (`reserveMinutes`) is not drawn at all, only stated in the legend (criterion 44). It
  * is a flat percentage of the window held back for interruptions, not any particular minutes of it,
  * so putting it anywhere on a clock would claim that some named stretch of the day is reserved when
- * none is. That is also why the legend's "free" figure is smaller than the free time on the track:
- * the legend subtracts the reserve, and the track cannot.
+ * none is. It is the one legend figure with nothing of its own on the track.
  *
- * The numbers are still the ones `GET /api/calendar` gave (criterion 6); nothing here recomputes
- * them.
+ * Every other legend figure is a total of the blocks the track drew (criterion 47), taken from the
+ * same array `DayTrack` renders. Nothing is clamped to what is left of the day's capacity: a plan
+ * that overcommits the window draws its entries at their full estimates, so a legend stating
+ * anything less would describe minutes other than the ones on the screen beside it. The window is
+ * therefore accounted for exactly once over: meetings, done, planned and free total it, with the
+ * reserve named separately as the slice of it that is spoken for rather than a stretch of it.
+ *
+ * The capacity figures are still the ones `GET /api/calendar` gave (criterion 6); nothing here
+ * recomputes them.
  */
 function DayBar({
   capacity,
   placement,
-  planned,
-  done,
   now,
 }: {
   readonly capacity: CapacityView
   readonly placement: DayPlacement
-  readonly planned: number
-  readonly done: number
   readonly now: number
 }) {
   if (!capacity.workingDay) {
@@ -431,12 +446,12 @@ function DayBar({
     )
   }
 
-  const meetings = capacity.busyMinutes
+  const blocks = trackBlocks(capacity, placement)
+  const meetings = drawnMinutes(blocks, 'meeting')
+  const planned = drawnMinutes(blocks, 'planned')
+  const done = drawnMinutes(blocks, 'done')
+  const free = drawnMinutes(blocks, 'free')
   const reserve = Math.max(0, capacity.reserveMinutes)
-  const capacityFree = Math.max(0, capacity.capacityMinutes)
-  const doneWidth = Math.min(done, capacityFree)
-  const plannedWidth = Math.min(planned, Math.max(0, capacityFree - doneWidth))
-  const free = Math.max(0, capacityFree - doneWidth - plannedWidth)
 
   // `capacityFrom` reports `workingDay: true` for exactly the days it has a window for, so these
   // are populated wherever the track is drawn; the guard is what tells the compiler that, and it
@@ -451,14 +466,12 @@ function DayBar({
     <div className="my-1 mb-3 flex flex-col gap-1.5">
       {/* A decoration of the legend below, which is what actually carries the numbers in words:
           colour is never the only carrier of meaning. Spec 08, criteria 45 and 6. */}
-      {window !== null && (
-        <DayTrack window={window} placement={placement} capacity={capacity} now={now} />
-      )}
+      {window !== null && <DayTrack window={window} blocks={blocks} now={now} />}
 
       <ul className="m-0 flex flex-wrap items-baseline gap-x-4 gap-y-1 p-0 text-[11px] text-muted-foreground [list-style:none]">
         <li>meetings {formatEstimate(meetings)}</li>
-        <li>planned {formatEstimate(plannedWidth)}</li>
-        <li>done {formatEstimate(doneWidth)}</li>
+        <li>planned {formatEstimate(planned)}</li>
+        <li>done {formatEstimate(done)}</li>
         <li>free {formatEstimate(free)}</li>
         {reserve > 0 && <li>held back {formatEstimate(reserve)}</li>}
         {/* The time is a position on the track as well as a figure here, and stays a figure even on
@@ -869,7 +882,7 @@ interface NeedsYouItem {
 /**
  * Why the rail has nothing in it, when it has nothing: two independent facts, kept apart rather
  * than folded into the one claim "nothing is waiting on anyone else" (which used to be literally
- * false whenever a waiting task just was not stale yet, or a project just was not stalled — the
+ * false whenever a waiting task just was not stale yet, or a project just was not stalled: the
  * rail only ranks the stale, the nudged and the stalled, not everything waiting or every active
  * project). Issue #47's merge deleted the old "Gone quiet" and "Stalled projects" panels' own
  * accurate, distinct empty states along with the panels; this restores both, as two lines rather
@@ -928,8 +941,15 @@ export function Dashboard({
   const quiet = waiting.filter((task) => isStale(task, now, staleDays))
   const stalled = projects.filter((project) => project.stalled)
   const totalPlanned = plannedMinutes(plan)
-  const { planned, done } = splitPlannedMinutes(plan)
   const capacityNotice = calendar === null ? null : unverifiedCapacityNotice(calendar.capacity)
+  // The plan's warnings, less the unverified-capacity notice when the notice is already on the
+  // page in its own right. The job stores the same sentence `unverifiedCapacityNotice` gives the
+  // dashboard, deliberately, so that the two cannot say different things from the same numbers
+  // (spec 05, criterion 10); rendering both sources printed it twice on every unverified day that
+  // had a plan. De-duplicated here, at the render site, rather than by having either source stop
+  // producing it: with no plan at all the notice is the only thing that says the capacity is a
+  // guess, and it keeps the same position under the day bar in both cases.
+  const planWarnings = (plan?.warnings ?? []).filter((warning) => warning !== capacityNotice)
   // One placement, two renderings: the day bar draws this walk and the agenda prints clock times
   // from it, so the bar and the agenda cannot disagree about when something is happening. Spec 08,
   // criterion 43.
@@ -1069,13 +1089,7 @@ export function Dashboard({
           </div>
 
           {calendar !== null && (
-            <DayBar
-              capacity={calendar.capacity}
-              placement={placement}
-              planned={planned}
-              done={done}
-              now={now}
-            />
+            <DayBar capacity={calendar.capacity} placement={placement} now={now} />
           )}
 
           {capacityNotice !== null && (
@@ -1100,9 +1114,9 @@ export function Dashboard({
 
           {/* A plan that had to leave something out says so here rather than in the database.
               Spec 05. */}
-          {plan !== null && plan.warnings.length > 0 && (
+          {planWarnings.length > 0 && (
             <ul className="m-0 p-0 text-sm text-muted-foreground [list-style:none]">
-              {plan.warnings.map((warning) => (
+              {planWarnings.map((warning) => (
                 <li key={warning} className="py-1">
                   {warning}
                 </li>

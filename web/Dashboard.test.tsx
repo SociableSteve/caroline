@@ -16,6 +16,7 @@ import { render, screen, within } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { Dashboard } from './surfaces/Dashboard.js'
 import { formatTimeOfDay } from './format.js'
+import { unverifiedCapacityNotice } from '../src/domain/capacity.js'
 import type { CapacityView } from './api.js'
 import { aCalendarDay, aPlan, aPlanEntry, aProject, aTask, DAY, NOW } from './test-fixtures.js'
 
@@ -119,7 +120,7 @@ describe('the verdict', () => {
 
     expect(
       today().getByText(
-        /Today fits — 3 hours planned of 4 hours 45 min free, and 1 hour 45 min to spare/,
+        /Today fits: 3 hours planned of 4 hours 45 min free, and 1 hour 45 min to spare/,
       ),
     ).toBeInTheDocument()
   })
@@ -174,9 +175,21 @@ describe('the verdict', () => {
 
 describe('the day bar', () => {
   it('shows the meetings, planned, done, free and held-back minutes in words', () => {
+    // An eight and a half hour window with the first hour in a meeting, so the legend's figures
+    // are the ones the track can be seen to draw: 450 free minutes, 120 of them planned into.
+    const windowStart = NOW
+    const meetingEnd = windowStart + 60 * 60_000
     renderDashboard({
       calendar: aCalendarDay({
-        capacity: { busyMinutes: 60, reserveMinutes: 102, capacityMinutes: 348 },
+        capacity: {
+          windowStart,
+          windowEnd: windowStart + 510 * 60_000,
+          busyMinutes: 60,
+          reserveMinutes: 102,
+          capacityMinutes: 348,
+          busy: [{ start: windowStart, end: meetingEnd }],
+          free: [{ start: meetingEnd, end: windowStart + 510 * 60_000 }],
+        },
       }),
       plan: aPlan({
         entries: [
@@ -189,7 +202,7 @@ describe('the day bar', () => {
     expect(today().getByText('meetings 1 hour')).toBeInTheDocument()
     expect(today().getByText('planned 1 hour 30 min')).toBeInTheDocument()
     expect(today().getByText('done 30 min')).toBeInTheDocument()
-    expect(today().getByText('free 3 hours 48 min')).toBeInTheDocument()
+    expect(today().getByText('free 5 hours 30 min')).toBeInTheDocument()
     expect(today().getByText('held back 1 hour 42 min')).toBeInTheDocument()
   })
 
@@ -211,6 +224,47 @@ describe('the day bar', () => {
 
     expect(today().getByText(/unverified/i)).toBeInTheDocument()
     expect(today().getByText(/assumes the whole working window is free/i)).toBeInTheDocument()
+  })
+
+  /**
+   * The notice is produced twice from the same numbers on purpose: `src/jobs/plan.ts` stores it as
+   * a plan warning and the dashboard reads it from the live capacity, so that the job and the
+   * surface cannot word the same fact differently (spec 05, criterion 10). Both being rendered
+   * printed the identical sentence twice on every unverified day that had a plan. The string is
+   * taken from the domain function here rather than written out, so a reworded notice cannot make
+   * this pass by comparing two different sentences.
+   */
+  it('prints the unverified notice once when the plan carries it as well', () => {
+    const notice = unverifiedCapacityNotice({ verified: false, workingDay: true, busyMinutes: 0 })
+    expect(notice).not.toBeNull()
+
+    renderDashboard({
+      calendar: aCalendarDay({ connected: false, capacity: { verified: false, busyMinutes: 0 } }),
+      plan: aPlan({ warnings: [notice as string] }),
+    })
+
+    expect(today().getAllByText(notice as string)).toHaveLength(1)
+  })
+
+  it('prints the unverified notice with no plan at all, which is what it is there for', () => {
+    const notice = unverifiedCapacityNotice({ verified: false, workingDay: true, busyMinutes: 0 })
+
+    renderDashboard({
+      calendar: aCalendarDay({ connected: false, capacity: { verified: false, busyMinutes: 0 } }),
+      plan: null,
+    })
+
+    expect(today().getAllByText(notice as string)).toHaveLength(1)
+  })
+
+  /** The plan's other warnings are untouched by that de-duplication. */
+  it('still shows a plan warning that is not the unverified notice', () => {
+    renderDashboard({
+      calendar: aCalendarDay({ connected: false, capacity: { verified: false, busyMinutes: 0 } }),
+      plan: aPlan({ warnings: ['Some of today’s work did not fit.'] }),
+    })
+
+    expect(today().getByText('Some of today’s work did not fit.')).toBeInTheDocument()
   })
 
   it('leaves the unverified notice off a day that is not a working day', () => {
@@ -352,10 +406,12 @@ describe('the day bar’s track', () => {
     expect(today().getByText(`now ${formatTimeOfDay(now)}`)).toBeInTheDocument()
   })
 
-  it('draws no marker after the window closes', () => {
-    renderDashboard({ calendar: aTimedDay(), now: WINDOW_END + MINUTE })
+  it('draws no marker after the window closes, and still states the time in the legend', () => {
+    const now = WINDOW_END + MINUTE
+    renderDashboard({ calendar: aTimedDay(), now })
 
     expect(track().querySelector('[data-marker="now"]')).toBeNull()
+    expect(today().getByText(`now ${formatTimeOfDay(now)}`)).toBeInTheDocument()
   })
 
   /**
@@ -423,6 +479,49 @@ describe('the day bar’s track', () => {
     expect(today().getByText('held back 1 hour 42 min')).toBeInTheDocument()
     expect(track().querySelector('[data-block="reserve"]')).toBeNull()
     expect(covered).toBeCloseTo(100, 6)
+  })
+
+  /**
+   * Criterion 47: the legend totals the minutes the track drew, with nothing clamped to what is
+   * left of the day's capacity. A window of ten hours with five hours of it plannable takes a
+   * seven hour entry: the block is drawn at seven hours, so the legend has to read seven hours
+   * too. The clamp this replaces said five, which was a figure nothing on the screen matched.
+   */
+  it('states the minutes it drew, on a plan that overcommits the day', () => {
+    renderDashboard({
+      calendar: aTimedDay({
+        capacityMinutes: 300,
+        free: [{ start: WINDOW_START, end: WINDOW_END }],
+      }),
+      plan: aPlan({ entries: [aPlanEntry({ id: 'entry-1', estimateMinutes: 420 })] }),
+    })
+
+    const [block] = blocksOf('planned').map(geometryOf)
+    const [gap] = blocksOf('free').map(geometryOf)
+
+    expect(block?.width).toBeCloseTo(share(420), 6)
+    expect(today().getByText('planned 7 hours')).toBeInTheDocument()
+    // And the free time is the gap left on the track, not the capacity left in the day.
+    expect(gap?.width).toBeCloseTo(share(180), 6)
+    expect(today().getByText('free 3 hours')).toBeInTheDocument()
+  })
+
+  /** Criterion 47, for a done entry: the same figure, drawn in its own fill. */
+  it('states a done entry at the minutes it drew for it, overcommitted too', () => {
+    renderDashboard({
+      calendar: aTimedDay({
+        capacityMinutes: 60,
+        free: [{ start: WINDOW_START, end: WINDOW_END }],
+      }),
+      plan: aPlan({
+        entries: [aPlanEntry({ id: 'entry-1', estimateMinutes: 240, done: true })],
+      }),
+    })
+
+    const [block] = blocksOf('done').map(geometryOf)
+
+    expect(block?.width).toBeCloseTo(share(240), 6)
+    expect(today().getByText('done 4 hours')).toBeInTheDocument()
   })
 
   /** Criterion 45: the legend is the text carrier, and the strip reads as a clock. */

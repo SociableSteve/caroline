@@ -164,8 +164,9 @@ The dashboard is the morning screen. Reading it top to bottom:
   **Complete** button, and a rule where now falls. At least one review is in the plan whenever
   something is waiting on you and the day has room for it, whether the model thought of it or not,
   unless `planning.includeReviews` in the config file is off. Warnings above the list are the
-  planner's own: that it could not fit everything, or that the capacity it drew against is
-  unverified. A stretch of free time appears as its own row, and where something the plan left over
+  planner's own, chiefly that it could not fit everything in. It also records that the capacity it
+  drew against was unverified, but that is said once, up beside the arithmetic, rather than a second
+  time here. A stretch of free time appears as its own row, and where something the plan left over
   would fit into it, that is offered there.
 - **Needs you**, in the left rail, is the triage list: the three oldest things only you can resolve,
   with a link to the board for the rest. **Gone quiet** is what has been waiting on somebody else
@@ -176,8 +177,8 @@ The dashboard is the morning screen. Reading it top to bottom:
   where a review is quietly yours again. **Stalled** is a project with no next action, which is the
   one thing tracking work this way can tell you that you cannot see by looking at a list.
 
-Under the rail, **where everything is**: how many tasks are sitting in each status. What each
-background job last did is the Jobs surface's own subject rather than repeated here.
+At the foot of the rail, **where everything is**: how many tasks are sitting in each status. What
+each background job last did is the Jobs surface's own subject rather than repeated here.
 
 ## The rail: an item, and a conversation about it
 

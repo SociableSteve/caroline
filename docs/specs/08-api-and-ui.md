@@ -298,7 +298,11 @@ here is the behaviour each surface owes the reader; what is there is what they a
 4. The dashboard renders correctly with no plan, no calendar and no integrations
    configured, showing empty states rather than errors.
 5. A background job completing updates the open UI without a manual refresh.
-6. The capacity bar's numbers match `GET /api/calendar` for the same date.
+6. The day bar's numbers match `GET /api/calendar` for the same date: the window, the meetings
+   and the reserve are that route's own figures rather than anything recomputed on the client, and
+   the planned, done and free figures come from walking the plan's own estimates through that
+   route's free intervals. (Named the capacity bar until issue #67 redrew it as a clock; the same
+   contract.)
 7. Chat streams incrementally and a dropped connection leaves the conversation recoverable
    on reload.
 8. The board is fully operable by keyboard alone, including status changes and marking a
@@ -435,3 +439,19 @@ describes. That adds the following, appended for the same reason.
 46. A day that is not a working day draws no track and says why instead. A day whose capacity is
     unverified draws the track and keeps its unverified notice, which is honest because the notice
     says the window was assumed free. Neither falls back to a second, proportional drawing.
+47. Every figure in the legend is a total of the minutes the track drew, and none of them is
+    clamped to what is left of the day's capacity: planned and done total the entries actually
+    placed on the track, at their full estimates, and free totals the gaps drawn between them. A
+    plan that overcommits the window therefore reads the same in words as it is drawn, where a
+    clamped figure would have described minutes nothing on the screen matched. Held back
+    (criterion 44) is the one legend figure with nothing of its own on the track. The verdict
+    headline above the bar is a different claim and stays a different number: it weighs the whole
+    plan, unplaceable entries included, against the free capacity the API reported, which is the
+    window less its meetings and its reserve. So the legend's free is the unplanned time actually
+    left on the clock, and on a day where every entry found a place it is the verdict's spare plus
+    the held back.
+48. The unverified-capacity notice appears once on the surface, not once per source. The plan job
+    stores it as a warning and the dashboard also reads it from the live capacity, both from
+    `unverifiedCapacityNotice` so that the two cannot word the same fact differently (spec 05,
+    criterion 10); the surface renders the sentence a single time, and still renders it on a day
+    with no plan at all, which is the case the live reading exists for.

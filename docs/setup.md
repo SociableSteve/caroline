@@ -195,8 +195,8 @@ Two settings worth knowing about:
   a cheap fast model can sort the inbox hourly while a stronger one answers in chat. An override
   inherits everything it does not name.
 
-Restart, then look at the dashboard: the state strip along the bottom lists **LLM provider** as
-configured. The end-to-end check is in [step 9](#9-checking-the-whole-thing), once there is
+Restart, then open **Settings**: under **GitHub and LLM provider**, the **LLM provider** row reads
+`configured`. The end-to-end check is in [step 9](#9-checking-the-whole-thing), once there is
 something in the inbox to sort.
 
 ## 5. GitHub
@@ -317,7 +317,7 @@ Both are worth narrowing before the first sync rather than after:
   fortnight forward by default.
 
 **Check it:** **Sync now**, then the board. Threads matching the query arrive in the inbox
-column, and the dashboard's capacity bar reflects today's calendar.
+column, and the dashboard's day bar reflects today's calendar.
 
 ## 7. What leaves the machine
 
