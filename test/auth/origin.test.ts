@@ -20,6 +20,19 @@ function configWithHost(host: string, port = 5123) {
   return loadConfig({ file: { server: { host, port } }, env: noEnv })
 }
 
+/** An exposed install naming a public URL, which is the configuration the publicUrl branch of
+ * `isAcceptableOrigin` exists for. A login is mandatory once `server.publicUrl` is set, so the
+ * provider fields come with it. */
+function configWithPublicUrl(publicUrl: string) {
+  return loadConfig({
+    file: {
+      server: { publicUrl },
+      auth: { allow: ['owner@example.com'], provider: { clientId: 'a-client-id' } },
+    },
+    env: noEnv,
+  })
+}
+
 describe('originFromHostPort (criterion 34)', () => {
   it.each([
     ['127.0.0.1', 'http://127.0.0.1:5123'],
@@ -107,6 +120,25 @@ describe('isAcceptableOrigin (criterion 24)', () => {
 
     expect(isAcceptableOrigin(config, 'http://127.0.0.1:5123')).toBe(true)
     expect(isAcceptableOrigin(config, 'http://localhost:5173')).toBe(true)
+  })
+
+  it('compares the port as strictly as the scheme', () => {
+    // The field-by-field comparison in `isAcceptableOrigin` compares the port, and nothing here
+    // asserted it: deleting that line left the whole suite green. What it protects is a
+    // `server.publicUrl` naming a non-default port, a plausible proxy setup, where losing the
+    // comparison would let anything else the operator serves on 443 of that same hostname issue
+    // cross-origin writes to Caroline.
+    const bareHttps = configWithPublicUrl('https://caroline.example.com')
+    expect(isAcceptableOrigin(bareHttps, 'https://caroline.example.com')).toBe(true)
+    expect(isAcceptableOrigin(bareHttps, 'https://caroline.example.com:8443')).toBe(false)
+    // `:443` is the same origin as the bare `https` spelling rather than another one, and
+    // `URL.port` is empty for a scheme's default port on both sides alike, so it is accepted.
+    expect(isAcceptableOrigin(bareHttps, 'https://caroline.example.com:443')).toBe(true)
+
+    const portedHttps = configWithPublicUrl('https://caroline.example.com:8443')
+    expect(isAcceptableOrigin(portedHttps, 'https://caroline.example.com:8443')).toBe(true)
+    expect(isAcceptableOrigin(portedHttps, 'https://caroline.example.com')).toBe(false)
+    expect(isAcceptableOrigin(portedHttps, 'https://caroline.example.com:443')).toBe(false)
   })
 
   it('accepts a loopback origin on a loopback publicUrl reached by another loopback name', () => {

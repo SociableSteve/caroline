@@ -150,12 +150,13 @@ export function registerAuthGate(app: FastifyInstance, config: Config, auth: Ses
     // `server.publicUrl` names one.
     if (!isAcceptableHost(config, request.headers.host)) {
       // The message names `server.publicUrl` because this check is the one an operator who fronts
-      // Caroline with a proxy and has not set it meets first, on every request: the
-      // forwarded-header refusal below says the same thing and is never reached, since a proxy
-      // rewriting `Host` to the public name is refused here before it gets there. Naming the
-      // setting in the message is preferred to reordering the two, because the address a request
-      // was addressed to is the first thing to decide about it and nothing else should be decided
-      // for a request this install does not answer to.
+      // Caroline with a proxy and has not set it meets first, on every request, and the
+      // forwarded-header refusal below says the same thing later. A proxy rewriting `Host` to the
+      // public name is refused here and never reaches that second refusal at all; a proxy that
+      // forwards a loopback `Host` with `X-Forwarded-For` passes this check and does reach it.
+      // Naming the setting in the message is preferred to reordering the two, because the address a
+      // request was addressed to is the first thing to decide about it and nothing else should be
+      // decided for a request this install does not answer to.
       await reply
         .status(403)
         .send(

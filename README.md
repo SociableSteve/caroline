@@ -229,7 +229,9 @@ name somebody else controls could be pointed at `127.0.0.1` and a page in your o
 talking to your Caroline. The database and the data directory are set owner-only on disk (0600 and
 0700), which is the whole of the protection at rest: there is no encryption beyond it. Two limits
 come with that. A filesystem that cannot carry those modes gets a warning on stderr rather than a
-refusal to start, and a data directory Caroline did not create is left as it was found.
+refusal to start, and only a data directory Caroline creates on that run is set to 0700: a
+directory that is already there keeps the permissions it has, including the `./data` of an install
+created before this was added. Tighten an existing one yourself with `chmod 700 data`.
 
 ### Deleting everything
 

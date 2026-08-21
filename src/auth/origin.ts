@@ -176,9 +176,13 @@ function parseHostHeader(value: string): URL | null {
  *   browser reaches as `localhost:5123`.
  * - The scheme is not compared, because a `Host` header carries none.
  *
- * What a routable install concedes by this is a remote caller sending `Host: localhost`, which
- * reaches the session check and, on a write, the `Origin` check, exactly as any other request
- * does.
+ * What a routable install concedes by this is a remote caller sending `Host: localhost`, which is
+ * then held to whatever the route it addresses holds it to, with two qualifications worth naming.
+ * `POST /api/mcp` and `POST /api/mcp/token` are exempt from the session check (`EXEMPT_AUTH_ROUTES`
+ * in `src/server/auth-gate.ts`) and carry their own credential check instead, a bearer token
+ * Caroline's own authorisation server issued. And the `Origin` check only constrains a caller that
+ * sends the header, which a browser does on a write and a non-browser client does not. Every other
+ * route meets the session check exactly as any other request does.
  */
 export function isAcceptableHost(config: Config, host: string | undefined): boolean {
   if (host === undefined) return false

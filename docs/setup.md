@@ -98,8 +98,10 @@ anything.
 
 Those modes are set rather than assumed, and two things limit them. A filesystem that cannot carry
 them, such as a CIFS or exFAT mount, gets one warning on stderr and Caroline starts anyway, so check
-that line if the modes matter to you. And a data directory Caroline did not create is left as it was
-found: if you point `database.path` at a directory of your own, its permissions stay yours.
+that line if the modes matter to you. And only a data directory Caroline creates on that run is set
+to 0700. A directory that is already there keeps the permissions it has, whether it is one of your
+own that `database.path` points at or the `./data` of an install created before this was added, so
+if the modes matter to you, tighten it yourself: `chmod 700 data`.
 
 Nothing Caroline writes lives outside the data directory, which is what makes
 [step 11](#11-removing-everything) one command.

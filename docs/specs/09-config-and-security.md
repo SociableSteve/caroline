@@ -294,11 +294,17 @@ so failing to set them is worth saying and not worth refusing to run over.
   criterion 6), and the two rules together were unsatisfiable, so the endpoint answered 403 to
   everything. Exempting one route by its path would have fixed that with the path-based reasoning
   the encoded-path bypass came from, so the rule is uniform instead. What a routable install
-  concedes by it is a remote caller sending `Host: localhost`, which then meets the session check
-  and, on a write, the `Origin` check, exactly as any other request does.
-- The refusal names `server.publicUrl`, because an operator who fronts Caroline with a proxy and
-  has not set it meets this check on every request and the forwarded-header refusal below, which
-  names the same setting, is never reached.
+  concedes by it is a remote caller sending `Host: localhost`, which is then held to whatever the
+  route it addresses holds it to. Two qualifications on that. `POST /api/mcp` and
+  `POST /api/mcp/token` are exempt from the session check and carry their own credential check
+  instead, a bearer token Caroline's own authorisation server issued, and the `Origin` check only
+  constrains a caller that sends the header, which a non-browser client does not. Every other route
+  meets the session check exactly as any other request does.
+- The refusal names `server.publicUrl`, because an operator who fronts Caroline with a proxy and has
+  not set it meets this check on every request, before the forwarded-header refusal below, which
+  names the same setting. A proxy that rewrites `Host` to the public name never reaches that second
+  refusal at all; one that forwards a loopback `Host` alongside `X-Forwarded-For` passes this check
+  and does reach it.
 - **The `Origin` check runs on every non-`GET`/`HEAD` request too, whatever the configuration
   says.** Where a request carries an `Origin`, it must be an acceptable one (spec 13, "The
   acceptable origins"), and any loopback origin on any port is acceptable whatever
@@ -524,7 +530,8 @@ were: the numbers are cited by the code and by the suite.
 23. The data directory Caroline creates is 0700, and the database and its `-wal` and `-shm`
     sidecars are 0600, including on a database that already existed with a wider mode. An
     in-memory or URI database path touches the filesystem not at all, and a directory the process
-    did not create is left as it was found.
+    did not create is left as it was found, the default layout's own `data` directory on an
+    install that already has one included.
 24. The classifier's system prompt carries the same data-not-instruction sentence the chat context
     carries, by importing it rather than restating it, and it reaches the provider on the call the
     classifier makes. Asserted against the built request, as criterion 1 is, and against the shared

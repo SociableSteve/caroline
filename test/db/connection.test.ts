@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -251,6 +251,28 @@ describe('openDatabase and filesystem permissions (criterion 23)', () => {
 
     database.close()
     rmSync(directory, { recursive: true, force: true })
+  })
+
+  it('leaves a data directory that was already there as it was found, default path included', () => {
+    // The upgrade case, and the one the documented 0700 does not reach: `mkdirSync` answers with
+    // nothing where the directory already existed, so the mode is applied to no path at all. Every
+    // install created before this was added therefore keeps its `./data` at whatever the umask
+    // gave it, which is what README.md and docs/setup.md now say. Distinct from the case above,
+    // where the operator's own directory holds the database directly: here the directory is the
+    // default layout's own `data` alongside a database Caroline does create.
+    const parent = mkdtempSync(join(tmpdir(), 'caroline-modes-'))
+    const directory = join(parent, 'data')
+    mkdirSync(directory, { mode: 0o755 })
+    chmodSync(directory, 0o755)
+    const path = join(directory, 'caroline.db')
+
+    const database = openDatabase(path)
+
+    expect(modeOf(path)).toBe(0o600)
+    expect(modeOf(directory)).toBe(0o755)
+
+    database.close()
+    rmSync(parent, { recursive: true, force: true })
   })
 
   it('opens an in-memory database without touching the filesystem', () => {
