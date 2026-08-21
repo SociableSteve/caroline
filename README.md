@@ -258,6 +258,10 @@ npm run build
 Tests come before code. A change is done when the relevant spec's acceptance criteria have
 tests asserting them, and lint, typecheck and the suite all pass.
 
+[AGENTS.md](https://github.com/SociableSteve/caroline/blob/main/AGENTS.md) is the working
+conventions in full: the order of operations, what has to move with a behaviour change, and the
+traps worth knowing before you start.
+
 ## Licence
 
 MIT.
