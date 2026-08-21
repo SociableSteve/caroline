@@ -1,5 +1,8 @@
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { withTransaction, type Database } from '../../src/db/connection.js'
+import { openDatabase, withTransaction, type Database } from '../../src/db/connection.js'
 import { migratedDatabase } from '../helpers/temp-database.js'
 
 /** A handle that records what it was asked to run, and fails the statements it is told to. */
@@ -201,5 +204,80 @@ describe('withTransaction nested inside another', () => {
       'release caroline_1',
       'commit',
     ])
+  })
+})
+
+/**
+ * Spec 09: "There is no encryption at rest beyond filesystem permissions", which is only a
+ * posture if the permissions are actually set. Spec 09 criterion 23. `google-tokens.json` has
+ * been 0600 since it was written; the database, which holds every task, note and stored body,
+ * was left to whatever the umask happened to be, and on a default umask that is world-readable.
+ */
+describe('openDatabase and filesystem permissions (criterion 23)', () => {
+  const modeOf = (path: string) => statSync(path).mode & 0o777
+
+  it('creates the data directory owner-only and the database owner read and write', () => {
+    const directory = join(mkdtempSync(join(tmpdir(), 'caroline-modes-')), 'data')
+    const path = join(directory, 'caroline.db')
+
+    const database = openDatabase(path)
+    // WAL mode creates the sidecars on the first write rather than at open, so this is what
+    // makes the assertion about them an assertion about something that exists.
+    database.exec('create table probe (id integer primary key)')
+    database.exec('insert into probe (id) values (1)')
+
+    expect(modeOf(directory)).toBe(0o700)
+    expect(modeOf(path)).toBe(0o600)
+    expect(modeOf(`${path}-wal`)).toBe(0o600)
+    expect(modeOf(`${path}-shm`)).toBe(0o600)
+
+    database.close()
+    rmSync(directory, { recursive: true, force: true })
+  })
+
+  it('tightens a database that was already there with a wider mode, and leaves a directory it did not create alone', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'caroline-modes-'))
+    const path = join(directory, 'caroline.db')
+    writeFileSync(path, '')
+    chmodSync(path, 0o644)
+    chmodSync(directory, 0o755)
+
+    const database = openDatabase(path)
+
+    expect(modeOf(path)).toBe(0o600)
+    // `database.path` may point somewhere of the user's own, so a directory this did not create
+    // is left as it was found: the file is Caroline's to narrow and the directory is not.
+    expect(modeOf(directory)).toBe(0o755)
+
+    database.close()
+    rmSync(directory, { recursive: true, force: true })
+  })
+
+  it('leaves a data directory that was already there as it was found, default path included', () => {
+    // The upgrade case, and the one the documented 0700 does not reach: `mkdirSync` answers with
+    // nothing where the directory already existed, so the mode is applied to no path at all. Every
+    // install created before this was added therefore keeps its `./data` at whatever the umask
+    // gave it, which is what README.md and docs/setup.md now say. Distinct from the case above,
+    // where the operator's own directory holds the database directly: here the directory is the
+    // default layout's own `data` alongside a database Caroline does create.
+    const parent = mkdtempSync(join(tmpdir(), 'caroline-modes-'))
+    const directory = join(parent, 'data')
+    mkdirSync(directory, { mode: 0o755 })
+    chmodSync(directory, 0o755)
+    const path = join(directory, 'caroline.db')
+
+    const database = openDatabase(path)
+
+    expect(modeOf(path)).toBe(0o600)
+    expect(modeOf(directory)).toBe(0o755)
+
+    database.close()
+    rmSync(parent, { recursive: true, force: true })
+  })
+
+  it('opens an in-memory database without touching the filesystem', () => {
+    // `isFilePath` already draws this line for the deletion command, and it is the same line
+    // here: there is no file to chmod, and no directory to have created.
+    expect(() => openDatabase(':memory:').close()).not.toThrow()
   })
 })

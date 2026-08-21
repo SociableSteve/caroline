@@ -55,4 +55,120 @@ describe('isPublicAddress', () => {
   it('refuses an unparsable address rather than treating it as public', () => {
     expect(isPublicAddress('not-an-address')).toBe(false)
   })
+
+  /**
+   * The ranges the first version of this guard did not name. None of them is a routable public
+   * destination, and each is somewhere a resolver can be made to point: the shared-address space
+   * a carrier-grade NAT hands out reaches other customers of the same network, the benchmarking
+   * range and the protocol assignment range reach devices on the local network, and a multicast
+   * or broadcast address reaches whatever is listening on the segment the process is attached to.
+   * Spec 12, criterion 35, extended rather than joined by a second criterion.
+   */
+  it.each([
+    ['shared address space (100.64/10)', '100.64.0.1'],
+    ['shared address space, top of the /10', '100.127.255.254'],
+    ['IETF protocol assignments (192.0.0/24)', '192.0.0.1'],
+    ['benchmarking (198.18/15)', '198.18.0.1'],
+    ['benchmarking, second half of the /15', '198.19.0.1'],
+    ['multicast (224/4)', '224.0.0.1'],
+    ['multicast, top of the /4', '239.255.255.255'],
+    ['broadcast', '255.255.255.255'],
+  ])('refuses an IPv4 %s address (%s)', (_label, address) => {
+    expect(isPublicAddress(address)).toBe(false)
+  })
+
+  it.each([
+    ['multicast (ff00::/8)', 'ff00::1'],
+    ['multicast, link-local scope', 'ff02::1'],
+    ['NAT64 (64:ff9b::/96), wrapping a loopback address', '64:ff9b::7f00:1'],
+    ['NAT64, wrapping an RFC 1918 address', '64:ff9b::a00:1'],
+    ['NAT64, wrapping a public address', '64:ff9b::5db8:d822'],
+  ])('refuses an IPv6 %s address (%s)', (_label, address) => {
+    expect(isPublicAddress(address)).toBe(false)
+  })
+
+  /**
+   * The two ranges the security review of 2026-08-21 found still open, of the same kind as the
+   * ones above rather than a new kind. `240.0.0.0/4` is reserved and unrouted, so an answer in it
+   * is a resolver saying something this process cannot act on meaningfully, and it is exactly the
+   * sort of range a stack maps onto something local. `64:ff9b:1::/48` is RFC 8215's local-use
+   * NAT64 prefix, which is the prefix a site actually deploys when it does not use the well-known
+   * one, so covering only `64:ff9b::/96` covered the less likely half. Spec 12, criterion 35,
+   * extended again rather than joined by a criterion of its own.
+   */
+  it.each([
+    ['reserved (240/4)', '240.0.0.1'],
+    ['reserved, middle of the /4', '250.1.2.3'],
+    ['reserved, top of the /4 below the broadcast address', '255.255.255.254'],
+  ])('refuses an IPv4 %s address (%s)', (_label, address) => {
+    expect(isPublicAddress(address)).toBe(false)
+  })
+
+  it.each([
+    ['local-use NAT64 (64:ff9b:1::/48), wrapping a loopback address', '64:ff9b:1::7f00:1'],
+    ['local-use NAT64, with the whole prefix spelled out', '64:ff9b:1:0:0:0:5db8:d822'],
+    ['local-use NAT64, another subnet of the /48', '64:ff9b:1:abcd::1'],
+  ])('refuses an IPv6 %s address (%s)', (_label, address) => {
+    expect(isPublicAddress(address)).toBe(false)
+  })
+
+  it('still accepts a public address that merely begins like the NAT64 prefix', () => {
+    // `64:ff9b:2::/48` is outside both NAT64 prefixes, so a guard written as "anything under
+    // 64:ff9b" would be refusing something these criteria do not name. The point of the two
+    // checks being separate is that each says exactly which range it is.
+    expect(isPublicAddress('64:ff9b:2::1')).toBe(true)
+  })
+
+  /**
+   * The two remaining prefixes that spell an IPv4 destination as an IPv6 address, found by the
+   * review of 2026-08-21 beside the NAT64 ones and refused the same way. `2002:7f00:1::1` is the
+   * 6to4 spelling of a site behind 127.0.0.1 and `2001:0:...` is a Teredo address whose last two
+   * groups are its client's IPv4 address with every bit flipped, so both reached a destination the
+   * IPv4 ranges above already refuse while reading as ordinary public addresses. Spec 12,
+   * criterion 35, extended once more.
+   */
+  it.each([
+    ['6to4 (2002::/16), wrapping a loopback address', '2002:7f00:1::1'],
+    ['6to4, wrapping an RFC 1918 address', '2002:c0a8:101::1'],
+    ['6to4, wrapping a public address', '2002:5db8:d822::1'],
+    ['Teredo (2001::/32), wrapping a loopback address', '2001:0:53aa:64c:0:0:7f00:1'],
+    ['Teredo, with the obfuscated client address of an RFC 1918 host', '2001:0:0:0:0:0:3f57:fefe'],
+    ['Teredo, bare prefix', '2001::1'],
+  ])('refuses an IPv6 %s address (%s)', (_label, address) => {
+    expect(isPublicAddress(address)).toBe(false)
+  })
+
+  it.each([
+    // The prefixes either side of 6to4 in the same /8 of the address space, and the one global
+    // range that shares Teredo's first group. Refusing "anything beginning 2001" or "anything
+    // beginning 200" would take these with it, and they are ordinary routable addresses.
+    ['just below 6to4', '2001:4860:4860::8888'],
+    ['just above 6to4', '2003::1'],
+    ['a global address in the same /3', '2600:1f18::1'],
+  ])('still accepts %s (%s)', (_label, address) => {
+    expect(isPublicAddress(address)).toBe(true)
+  })
+
+  /**
+   * `::a.b.c.d` is the deprecated IPv4-compatible form, and it is a parsing trap rather than a
+   * range: `Number.parseInt('192.168.1.1', 16)` answers 0x192 without complaining, so the address
+   * expanded to something that read as an ordinary public one. Checked as the IPv4 address it
+   * carries, the way `::ffff:` already was.
+   */
+  it.each([
+    ['a loopback address', '::127.0.0.1'],
+    ['an RFC 1918 address', '::192.168.1.1'],
+    ['a public address', '::93.184.216.34'],
+  ])('refuses the IPv4-compatible form carrying %s (%s)', (_label, address) => {
+    expect(isPublicAddress(address)).toBe(false)
+  })
+
+  it.each([
+    ['a group that is not hexadecimal at all', '1.2.3.4:5::1'],
+    ['a group above ffff', '10000::1'],
+    ['a group of five hex digits', 'abcde::1'],
+    ['an empty group in the middle', '2001::db8::1'],
+  ])('refuses an IPv6 address with %s (%s)', (_label, address) => {
+    expect(isPublicAddress(address)).toBe(false)
+  })
 })

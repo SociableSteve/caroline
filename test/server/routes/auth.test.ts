@@ -30,6 +30,22 @@ function strictLoopbackConfig(overrides: Record<string, unknown> = {}) {
   })
 }
 
+/** An exposed install: `server.publicUrl` on `https`, which is what makes the public origin
+ * `https` and so what makes the session cookie the `__Host-` prefixed one. */
+function strictHttpsConfig() {
+  return loadConfig({
+    file: {
+      server: { publicUrl: 'https://caroline.example.com' },
+      auth: {
+        mode: 'required',
+        allow: ['owner@example.com'],
+        provider: { issuer: TEST_ISSUER, clientId: 'a-client-id' },
+      },
+    },
+    env: noEnv,
+  })
+}
+
 /** Null where the response carried no Set-Cookie header at all, which is itself an assertion a
  * refused login makes: a test that expects a session names that explicitly rather than through
  * a thrown error from here. */
@@ -447,6 +463,35 @@ describe('GET /api/auth/callback', () => {
     expect(header).not.toContain('Domain=')
     expect(header).not.toContain('Secure')
     expect(header).not.toContain('__Host-')
+    await app.close()
+  })
+
+  it('names the session cookie with the literal __Host- prefix, and marks it Secure, on an https install (criterion 18)', async () => {
+    // Asserted as the literal string, on the `Set-Cookie` header a real login writes, rather than
+    // against `sessionCookieName` or against the http name being different. The prefix is the
+    // security property and the distinctness is not: it is what makes a browser refuse the cookie
+    // unless it carries `Secure`, `Path=/` and no `Domain`, and so what stops a sibling or
+    // non-secure origin overwriting the session. A name that merely differed from the http one
+    // would satisfy a distinctness check and give away all of that.
+    const app = await buildServer({
+      config: strictHttpsConfig(),
+      database: migratedDatabase(),
+      authFetch: stubProvider().fetch,
+    })
+
+    const { callbackResponse } = await loggedIn(app)
+    const header = (
+      Array.isArray(callbackResponse.headers['set-cookie'])
+        ? callbackResponse.headers['set-cookie'][0]
+        : callbackResponse.headers['set-cookie']
+    ) as string
+
+    expect(header.startsWith('__Host-caroline_session=')).toBe(true)
+    // The three attributes the prefix obliges, so the name and what it promises cannot drift
+    // apart: a `__Host-` cookie missing any of them is refused by the browser outright.
+    expect(header).toContain('Secure')
+    expect(header).toContain('Path=/')
+    expect(header).not.toContain('Domain=')
     await app.close()
   })
 

@@ -30,6 +30,38 @@ describe('fetchClientMetadata: guards that need no network', () => {
     ).rejects.toThrow(ClientMetadataError)
   })
 
+  /**
+   * Spec 12, criterion 46. A client identifier is a document published on the web, and one
+   * published anywhere but the default `https` port is not a thing that happens: what a port in
+   * the URL does buy a caller is a way to aim a request Caroline makes, from Caroline's own
+   * network position, at some other service listening on a host whose address passes the public
+   * check. The scheme was already constrained for the same reason; the port was not.
+   */
+  it('refuses a client identifier naming a port other than the https default (criterion 46)', async () => {
+    for (const clientId of [
+      'https://example.com:8080/client.json',
+      'https://example.com:22/client.json',
+      'https://example.com:9200/client.json',
+    ]) {
+      await expect(
+        fetchClientMetadata(clientId, { maxResponseBytes: 65_536, timeoutMs: 1000 }),
+        clientId,
+      ).rejects.toThrow(/port/)
+    }
+  })
+
+  it('accepts the default port written out explicitly, which is the same address', async () => {
+    // `https://example.com:443/` and `https://example.com/` are the same URL, and a URL parser
+    // says so, so the check has to be made on the parsed port rather than on the string.
+    await expect(
+      fetchClientMetadata('https://example.com:443/client.json', {
+        maxResponseBytes: 65_536,
+        timeoutMs: 1000,
+        lookup: privateLookup as never,
+      }),
+    ).rejects.toThrow(/no public address/)
+  })
+
   it('refuses an unparsable client identifier', async () => {
     await expect(
       fetchClientMetadata('not a url', { maxResponseBytes: 65_536, timeoutMs: 1000 }),
@@ -121,7 +153,14 @@ describe.skipIf(!hasOpenssl)('fetchClientMetadata: guards over a real loopback c
    * loopback `lookup`: the address check itself is already proved with no server at all, above,
    * and what these four are proving is the size cap, the time cap, the redirect guard and the
    * parse path once a connection is allowed to proceed. */
-  const allowLoopback = { lookup: privateLookup as never, isPublicAddress: () => true, ca: cert }
+  const allowLoopback = {
+    lookup: privateLookup as never,
+    isPublicAddress: () => true,
+    // For the same reason, and no more of a bypass than that one: an ephemeral port is what
+    // `listen(0)` gives, and the port constraint is asserted above with no server at all.
+    isAcceptablePort: () => true,
+    ca: cert,
+  }
 
   it('refuses a response larger than the cap while it is being read (criterion 36)', async () => {
     const port = await startServer((_request, response) => {

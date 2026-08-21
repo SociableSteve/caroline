@@ -1,7 +1,9 @@
 /**
  * Whether a resolved address is public. Spec 12, "The client metadata document fetch": the one
  * outbound destination a caller rather than the user chooses, refused unless it resolves to a
- * public address, not loopback, not link-local, not RFC 1918, not unique-local, and not the
+ * public address, not loopback, not link-local, not RFC 1918, not unique-local, not the shared
+ * address space a carrier-grade NAT hands out, not a protocol-assignment or benchmarking range,
+ * not multicast or broadcast, not reserved, not either NAT64 prefix, not 6to4 or Teredo, and not the
  * IPv4-mapped form of any of those.
  *
  * Written against the numeric address only, never against a hostname: the guard's whole point
@@ -25,6 +27,21 @@ const ipv4PrivateRanges: readonly Ipv4Range[] = [
   { base: [172, 16, 0, 0], maskBits: 12 }, // RFC 1918
   { base: [192, 168, 0, 0], maskBits: 16 }, // RFC 1918
   { base: [0, 0, 0, 0], maskBits: 8 }, // "this network", not a public destination
+  // Not routable on the public internet either, and each of them is somewhere a resolver can be
+  // pointed at a machine the user did not choose: the shared address space a carrier-grade NAT
+  // hands out reaches other customers of the same network, the protocol-assignment and
+  // benchmarking ranges reach devices on the local one, and a multicast or broadcast address
+  // reaches whatever is listening on the segment this process is attached to.
+  { base: [100, 64, 0, 0], maskBits: 10 }, // RFC 6598 shared address space (CGNAT)
+  { base: [192, 0, 0, 0], maskBits: 24 }, // IETF protocol assignments
+  { base: [198, 18, 0, 0], maskBits: 15 }, // benchmarking
+  { base: [224, 0, 0, 0], maskBits: 4 }, // multicast
+  { base: [255, 255, 255, 255], maskBits: 32 }, // limited broadcast
+  // RFC 1112's former class E, reserved and never allocated, so nothing in it is a destination a
+  // resolver can legitimately answer with and a stack is free to do something local with one.
+  // This subsumes the limited broadcast address above, which is kept named for what it is rather
+  // than folded into a range that says nothing about it.
+  { base: [240, 0, 0, 0], maskBits: 4 }, // RFC 1112 reserved
 ]
 
 function ipv4ToInt(octets: readonly [number, number, number, number]): number {
@@ -53,10 +70,19 @@ function isPrivateIpv4(address: string): boolean {
   })
 }
 
-/** `::ffff:a.b.c.d`, the IPv4-mapped form an IPv6-only stack can hand back for an IPv4 address.
- * Extracted and checked as the IPv4 address it maps, per spec 12 criterion 35. */
-function ipv4MappedAddress(address: string): string | null {
-  const match = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(address)
+/**
+ * The IPv4 address an IPv6 literal carries in dotted form, or null where it carries none.
+ *
+ * Two spellings, and both have to be recognised. `::ffff:a.b.c.d` is the IPv4-mapped form an
+ * IPv6-only stack can hand back for an IPv4 address (spec 12, criterion 35). `::a.b.c.d` is the
+ * deprecated IPv4-compatible form, and leaving it out was not merely an omission: the group
+ * parser below used to read `192.168.1.1` with `Number.parseInt(group, 16)`, which answers 0x192
+ * rather than failing, so such an address expanded to something that read as an ordinary public
+ * one and the guard waved a private destination through. Both forms are checked as the IPv4
+ * address they carry, which is the only reading of them that means anything.
+ */
+function embeddedIpv4Address(address: string): string | null {
+  const match = /^::(?:ffff:)?(\d+\.\d+\.\d+\.\d+)$/i.exec(address)
   return match?.[1] ?? null
 }
 
@@ -66,7 +92,14 @@ function expandIpv6Groups(address: string): readonly number[] | null {
 
   const parseGroups = (part: string): number[] | null => {
     if (part === '') return []
-    const groups = part.split(':').map((group) => Number.parseInt(group, 16))
+    // One to four hexadecimal digits, and nothing else. `Number.parseInt` is deliberately not
+    // trusted to say so: it stops at the first character it cannot read and answers with what it
+    // had, so it reads `192.168.1.1` as 0x192 and `abcde` as 0xabcde, and an address that parses
+    // to the wrong number is worse here than one that does not parse at all. Anything this
+    // rejects is unparsable, which `isPrivateIpv6` already treats as not public.
+    const groups = part
+      .split(':')
+      .map((group) => (/^[0-9a-f]{1,4}$/i.test(group) ? Number.parseInt(group, 16) : Number.NaN))
     return groups.some((group) => Number.isNaN(group)) ? null : groups
   }
 
@@ -93,9 +126,41 @@ function isPrivateIpv6(address: string): boolean {
   if (groups.slice(0, 7).every((group) => group === 0) && groups[7] === 1) return true // ::1
   if ((first & 0xffc0) === 0xfe80) return true // fe80::/10, link-local
   if ((first & 0xfe00) === 0xfc00) return true // fc00::/7, unique local
+  if ((first & 0xff00) === 0xff00) return true // ff00::/8, multicast
+
+  // 64:ff9b::/96, the well-known NAT64 prefix: an address in it is an IPv4 destination reached
+  // through a translator, so a resolver that answers with one is naming an IPv4 address by
+  // another spelling. Refused outright rather than unwrapped and checked, because the address it
+  // reaches depends on a translator this process knows nothing about, and there is no legitimate
+  // reason for a client metadata document to be published behind one.
+  if (first === 0x0064 && second === 0xff9b && groups.slice(2, 6).every((group) => group === 0)) {
+    return true
+  }
+
+  // 64:ff9b:1::/48, RFC 8215's local-use NAT64 prefix, refused for the same reason and stated
+  // separately rather than widened into `64:ff9b::/32`: the two are the assigned prefixes and the
+  // rest of that /32 is not one, so a check naming each of them says which range it is refusing.
+  // This is the prefix a site deploys when it does not use the well-known one, which made it the
+  // more likely of the two to be met in practice and the odder one to have left out.
+  if (first === 0x0064 && second === 0xff9b && groups[2] === 0x0001) return true
+
+  // 2002::/16, 6to4: bits 16 to 47 are an IPv4 address, and a packet to such an address is
+  // tunnelled to it, so `2002:7f00:1::1` reaches 127.0.0.1 and `2002:c0a8:101::1` reaches
+  // 192.168.1.1. Refused outright rather than unwrapped and checked against the IPv4 ranges
+  // above, for the reason the NAT64 prefixes are: the destination is reached through a relay this
+  // process knows nothing about, the prefix is deprecated (RFC 7526), and no client metadata
+  // document has reason to be published on one.
+  if (first === 0x2002) return true
+
+  // 2001::/32, Teredo. Refused for the same reasons, and the second parsing this avoids is worse
+  // here than for 6to4: the client's IPv4 address sits in the last two groups with every bit
+  // flipped, so reading it is an inversion whose only purpose would be to disagree with the
+  // ranges above. The whole /32 is the assigned prefix, so this takes nothing else with it:
+  // 2001:db8::/32 and every global 2001: address have a non-zero second group.
+  if (first === 0x2001 && second === 0x0000) return true
 
   // ::ffff:0:0/96 is the mapped-address block in its full expanded form; the compact dotted
-  // spelling is handled by `ipv4MappedAddress` before this function is ever reached, but a
+  // spelling is handled by `embeddedIpv4Address` before this function is ever reached, but a
   // caller could still hand this form to `dns.lookup`'s IPv6 answer.
   if (
     first === 0 &&
@@ -123,8 +188,14 @@ export function isPublicAddress(address: string): boolean {
   const family = isIP(address)
   if (family === 0) return false
 
-  const mapped = ipv4MappedAddress(address)
-  if (mapped !== null) return !isPrivateIpv4(mapped)
+  const embedded = embeddedIpv4Address(address)
+  if (embedded !== null) {
+    // The IPv4-compatible form (`::a.b.c.d`, no `ffff:`) is refused whatever it carries: it is
+    // deprecated, no resolver has reason to answer with one, and the only thing a caller gains by
+    // spelling a destination that way is a second parsing of it to disagree with the first.
+    if (!/^::ffff:/i.test(address)) return false
+    return !isPrivateIpv4(embedded)
+  }
 
   return family === 4 ? !isPrivateIpv4(address) : !isPrivateIpv6(address)
 }

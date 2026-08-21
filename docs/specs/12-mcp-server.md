@@ -385,8 +385,28 @@ argument again from scratch.
 The guards, each of which is a criterion below rather than prose:
 
 - `https` only. No `http`, in any spelling.
-- Public addresses only: not loopback, not link-local, not RFC 1918, not unique-local, and not
-  the IPv4-mapped forms of any of them.
+- The default `https` port only. A metadata document is something published on the web, and one
+  published on another port is not a thing that happens; what naming a port would buy a caller is
+  a request made from Caroline's own network position at some other service listening on a host
+  whose address passes the check below. The scheme was constrained from the start for that reason
+  and the port is the other half of the same authority.
+- Public addresses only: not loopback, not link-local, not RFC 1918, not unique-local, not the
+  shared address space a carrier-grade NAT hands out (100.64.0.0/10), not the protocol-assignment
+  (192.0.0.0/24) or benchmarking (198.18.0.0/15) ranges, not multicast or broadcast (224.0.0.0/4,
+  255.255.255.255, ff00::/8), not the reserved former class E (240.0.0.0/4), not either NAT64
+  prefix (64:ff9b::/96 and 64:ff9b:1::/48), not the other two prefixes that spell an IPv4
+  destination as an IPv6 one (6to4, 2002::/16, and Teredo, 2001::/32), and not the IPv4-mapped or
+  IPv4-compatible forms of any of them. Every one of those reaches a machine the user did not
+  choose, and the guard's own convention is that an address it cannot classify is not one it can
+  call public: a group that is not one to four hexadecimal digits makes the whole address
+  unparsable, rather than being read as far as it parses. That last point is not fussiness. The
+  IPv4-compatible spelling `::192.168.1.1` was read with `Number.parseInt(group, 16)`, which
+  answers 0x192 without complaining, and the address then expanded into something that read as an
+  ordinary public one. The four prefixes that spell an IPv4 destination as an IPv6 one, the two
+  NAT64 ones and 6to4 and Teredo, are refused by the prefix rather than unwrapped and checked
+  against the IPv4 ranges: what such an address actually reaches depends on a translator or relay
+  this process knows nothing about, and reading the embedded address out would be a second parsing
+  whose only possible contribution is to disagree with the first.
 - **Resolve, then check, then connect to the resolved address.** Checking the hostname and then
   handing the URL to a fetch would let a DNS answer smuggle a private address past the guard,
   and re-resolving after the check reopens the same hole. This is the guard most easily
@@ -410,6 +430,17 @@ The guards, each of which is a criterion below rather than prose:
   own browser can be made to POST to `127.0.0.1`, which is why the protocol requires both
   checks. What such a page cannot do is read the answer or obtain a token, which is what the
   credential is for.
+- These two checks stay narrower than the request-level ones spec 09 describes, and both stay
+  loopback-only: this endpoint answers a client on the machine and nothing else. "Loopback only"
+  is a constraint on the bind rather than on `server.publicUrl`, so an install fronted by a proxy
+  registers this endpoint exactly as a bare loopback one does, and a request addressed to the
+  public host is accepted by the request-level check (which answers to that name) and refused
+  here. That combination went untested for one release and was unreachable throughout it: the
+  request-level `Host` and `Origin` checks demanded the public origin and refused loopback, these
+  demanded loopback, and nothing satisfied both. Spec 09's checks now accept the loopback names
+  beside the public one for that reason, and it is asserted with `server.publicUrl` and
+  `mcp.enabled` set together, which is the combination whose absence let the endpoint break
+  silently.
 
 ## The session, which the protocol no longer has
 
@@ -838,7 +869,13 @@ is dropped for the same reason: it was never merged, so nothing cites it.
 35. The address a client metadata URL resolves to is checked before anything connects to it, and
     the connection is made to that checked address, so a name resolving to a loopback,
     link-local, RFC 1918 or unique-local address is refused and a second resolution cannot
-    substitute one. Asserted for each of those ranges and for their IPv4-mapped forms.
+    substitute one. Asserted for each of those ranges and for their IPv4-mapped forms. Extended by
+    the security review of 2026-08-21, rather than joined by a second criterion, to the rest of the
+    ranges the guard section above now lists: shared address space, protocol assignments,
+    benchmarking, multicast, broadcast, the reserved former class E, both NAT64 prefixes, 6to4,
+    Teredo, and the IPv4-compatible spelling of an embedded address. One case per range,
+    table-driven, and each widening is bounded by a neighbouring address that stays public, so a
+    prefix check written wider than the prefix fails here.
 36. A client metadata response larger than `mcp.clientMetadata.maxResponseBytes` is refused while it
     is being read rather than after, and one that has not completed within
     `mcp.clientMetadata.timeoutMs` is abandoned. Both are asserted by lowering the setting rather
@@ -895,3 +932,6 @@ and each is asserted from that slice onwards like the rest.
     never with the client's own string parroted back. The legacy top-level field is read first
     because Claude Code's shipped client, built before revision `2026-07-28` moved the field,
     sends only that one. Per "Version interoperability" above.
+46. A client identifier naming a port other than the `https` default is refused before anything is
+    resolved or connected to, and the default port written out explicitly is accepted because a URL
+    parser reads it as the same address. Per "The client metadata document fetch" above.

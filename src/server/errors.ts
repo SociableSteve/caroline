@@ -1,6 +1,7 @@
 import type { FastifyError, FastifyInstance } from 'fastify'
 import { redactSecrets } from '../config/redact.js'
 import type { Config } from '../config/schema.js'
+import { decodedPathname } from './request-path.js'
 
 /** The one error shape the API uses: `{ error: { code, message, details? } }`. Spec 08. */
 export interface ApiError {
@@ -36,13 +37,33 @@ export interface ErrorHandlingOptions {
   spaFallback: boolean
 }
 
+/**
+ * Whether an unmatched request was addressed to the API, decided on the decoded path rather than
+ * on the URL the caller wrote. Spec 13, "The boundary is decided by the route that matched", which
+ * is about the auth gate and is the same reading wherever a raw URL is consulted: Fastify decodes
+ * percent-escapes before matching, so `GET /%61pi/no-such-route` is an API path, and a fallback
+ * comparing the raw string saw one beginning `/%61`, called it a client-side route and served the
+ * SPA shell with a 200 where the caller should have had a JSON 404. Nothing was exposed by that,
+ * only misreported, but it is the same class of defect and the same shape of fix.
+ *
+ * `/api` on its own counts, and `/apiary` does not: a client-side route is free to be named
+ * anything, and only a path that is `/api` or sits under it is one the API would have answered.
+ * The auth gate draws its own line one character wider (any decoded path beginning `/api`) because
+ * it is deciding whether to require a credential and errs towards requiring one; here the decision
+ * is only which of two 404-ish answers to give, so the narrower reading is the right one.
+ */
+function addressesTheApi(requestUrl: string): boolean {
+  const pathname = decodedPathname(requestUrl)
+  return pathname === '/api' || pathname.startsWith('/api/')
+}
+
 export function registerErrorHandling(
   app: FastifyInstance,
   config: Config,
   { spaFallback }: ErrorHandlingOptions,
 ): void {
   app.setNotFoundHandler((request, reply) => {
-    if (spaFallback && !request.url.startsWith('/api/')) {
+    if (spaFallback && !addressesTheApi(request.url)) {
       return reply.sendFile('index.html')
     }
     // The URL is not echoed. Every byte of it is chosen by the caller, so reflecting it

@@ -243,10 +243,79 @@ for a single-user local tool, and it is documented rather than implied: anyone w
 to the account has access to the data. Full-disk encryption is the right layer for that
 concern.
 
+Because those permissions are the whole of the protection at rest, they are set rather than
+inherited. The data directory is created 0700, and the database and the SQLite sidecars beside it
+(`-wal` and `-shm`, which hold the same page data) are 0600, applied at open and applied again to
+a database that was there already, so an install created before this was written is tightened
+rather than left as it was found. `google-tokens.json` has been 0600 since it was written, and the
+database is the file with every task, note and stored body in it, so the two now agree. A default
+umask leaves a newly created file readable by every account on the machine, which made "anyone
+with access to the account" a claim about the wrong account. Two limits are stated rather than
+implied: the mode is set on the files Caroline creates, and a directory the process did not create
+is left alone, because `database.path` may point somewhere of the user's own and narrowing a
+directory Caroline did not make is the overreach the deletion command already refuses.
+
+A filesystem that cannot express these modes is a weaker posture and not a reason to refuse to
+start. `CAROLINE_DB_PATH` pointing at a CIFS or exFAT mount, a container volume or a read-only
+mount is an ordinary self-hosted arrangement, and `chmod` answers `EPERM`, `EACCES`, `ENOTSUP`,
+`EOPNOTSUPP`, `EINVAL`, `ENOSYS` or `EROFS` there rather than succeeding; a database file owned by
+another account answers `EPERM` too. Each of those is reported once on stderr, naming the paths and
+the codes and saying that other accounts on the machine may be able to read the database, and then
+Caroline starts. Anything else, `EIO` above all, means the storage itself is misbehaving and is
+still fatal: these modes are defence in depth over a machine this spec already says has one user,
+so failing to set them is worth saying and not worth refusing to run over.
+
 ## Network posture
 
-- Binds to `127.0.0.1` by default. On loopback the socket is the boundary and nothing is
-  required of a caller.
+- Binds to `127.0.0.1` by default. On loopback the socket is the boundary as far as other
+  machines are concerned, and no credential is required of a caller there.
+- **Every request is checked against the address it was addressed to, whatever the rest of the
+  configuration says.** The `Host` header must name a loopback host, or the host of
+  `server.publicUrl` where one is set. A missing `Host` is refused. This is the check the MCP
+  endpoint has made since spec 12, applied to the rest of the API for the reason spec 12 gives for
+  it: the socket being on loopback says where a
+  connection came from and says nothing about who asked for it, and a name in DNS that somebody
+  else controls can be pointed at `127.0.0.1`, at which point a page loaded from that name in the
+  user's own browser is same-origin with the API and can read and write everything in it. The
+  `Host` header is the one part of that the page cannot choose, because the browser writes it from
+  the address bar. Deliberately not conditional on `authRequired`: the default configuration, a
+  loopback bind with no login, is exactly the one the attack works against, so a check that only
+  ran with a login configured would be a check on the installs that needed it least. It follows
+  `isAcceptableOrigin`'s rule rather than a rule of its own, and the loopback set is the same one
+  the startup guards use.
+- **The hostname is compared and the port is not, and the loopback names are accepted whatever
+  `server.publicUrl` says.** Both halves follow from what the check is for. A rebinding attacker
+  forges DNS and cannot forge this header at all, so the hostname is the whole of the defence: the
+  port adds nothing, and demanding the public URL's port refused every request behind the standard
+  `proxy_set_header Host $host;`, which forwards a bare hostname. Admitting the loopback names
+  costs nothing for the same reason, and refusing them cost a supported configuration outright,
+  because `mcp.enabled` is constrained by the bind rather than by `server.publicUrl`: an install
+  with both registers `POST /api/mcp`, that route requires a loopback `Host` of its own (spec 12,
+  criterion 6), and the two rules together were unsatisfiable, so the endpoint answered 403 to
+  everything. Exempting one route by its path would have fixed that with the path-based reasoning
+  the encoded-path bypass came from, so the rule is uniform instead. What a routable install
+  concedes by it is a remote caller sending `Host: localhost`, which is then held to whatever the
+  route it addresses holds it to. Two qualifications on that. `POST /api/mcp` and
+  `POST /api/mcp/token` are exempt from the session check and carry their own credential check
+  instead, a bearer token Caroline's own authorisation server issued, and the `Origin` check only
+  constrains a caller that sends the header, which a non-browser client does not. Every other route
+  meets the session check exactly as any other request does.
+- The refusal names `server.publicUrl`, because an operator who fronts Caroline with a proxy and has
+  not set it meets this check on every request, before the forwarded-header refusal below, which
+  names the same setting. A proxy that rewrites `Host` to the public name never reaches that second
+  refusal at all; one that forwards a loopback `Host` alongside `X-Forwarded-For` passes this check
+  and does reach it.
+- **The `Origin` check runs on every non-`GET`/`HEAD` request too, whatever the configuration
+  says.** Where a request carries an `Origin`, it must be an acceptable one (spec 13, "The
+  acceptable origins"), and any loopback origin on any port is acceptable whatever
+  `server.publicUrl` says, which is what keeps the Vite dev server working and what keeps the two
+  `Origin` checks over `POST /api/mcp` satisfiable together. It was previously conditional on a login,
+  and the gap that left was narrow and real: a JSON body forces a CORS preflight, so every route
+  taking one was already protected, but a body-less `POST` is a simple request that no preflight
+  covers, and `POST /api/tasks/:id/complete` and `POST /api/jobs/:name/run` are body-less. A page
+  anywhere could fire one at a loopback install and have it succeed. Spec 13's argument for having
+  no CSRF token is an argument from the acceptable-origin set, and that argument never depended on
+  a login being configured.
 - Binding to any other interface, declaring a `server.publicUrl`, or asking for a login
   explicitly requires authentication: a person proves who they are to an identity provider
   before anything answers (spec 13). It is enforced by one request-level check covering every
@@ -335,6 +404,18 @@ Two decisions about it:
   Those rows hold the tool, an arguments digest, whether the call was held, the level and policy
   version in force and a count of items answered, and never the answered text.
 - Any multi-user access control.
+- **Rate limiting, on `/api/chat`, on the job triggers or anywhere else.** Considered and declined
+  rather than overlooked, which is why it is written here. What a limiter would bound is cost and
+  availability, not access: every surface that spends money or does work sits behind the boundary
+  above, so the caller is either the one person this instance belongs to or somebody who has
+  already got past a login, and neither is a stranger a limiter would turn away. What it would add
+  is a production dependency and a configuration surface (a window, a burst, a per-route override,
+  an answer for what a limited request looks like to the client) for a threat model that is one
+  person hammering their own machine. The bounds that do exist are the ones with a reason of their
+  own: `chat.maxToolCalls` bounds a turn, the scheduler runs one job at a time and holds a failing
+  one back, and the provider's own quota is the ceiling on spend. If Caroline ever grows a surface
+  an unauthenticated caller can reach, this decision is the first one to revisit, and it should be
+  revisited as a decision rather than patched around.
 
 ## Acceptance criteria
 
@@ -413,3 +494,56 @@ merged: no code and no test cites it, and citation is the whole reason the conve
     host. No such fetch happens at startup, on a schedule or during a token request. Asserted over the
     whole process rather than over the module that makes the fetch, so that a later addition cannot slip
     in beside it.
+
+The security review of 2026-08-21 adds the following, appended for the reason the earlier blocks
+were: the numbers are cited by the code and by the suite.
+
+20. A request whose path reaches a route under `/api` is held to criterion 16 however that path was
+    spelled, not only in the canonical spelling: the exemption is decided by the route template the
+    router matched rather than by the request's own URL. Asserted with percent-encoded paths
+    (`/%61pi/tasks` and the rest) over read and write routes alike, because the criterion 16 test
+    walks canonical route paths and those are exactly the paths on which the two readings agree. A
+    request that matched no route at all is decided by its decoded path instead, and one addressing
+    `/api` is refused, while a path that cannot be decoded does not throw out of the check. That
+    branch is asserted on the predicate directly and, over HTTP, on the two configurations that
+    reach it: a checkout with no built SPA, and a method `@fastify/static` does not register. With
+    the built SPA present its `/*` route matches every unmatched `GET`, so such a request carries
+    `/*` as its template, is exempt from the session check, and is answered by the API's own JSON
+    404 of criterion 26 instead. An unauthenticated caller can therefore distinguish an API route
+    that exists (401) from one that does not (404). That is accepted rather than overlooked: the
+    route list is published in this repository, so it is no oracle, and a fallback whose refusal
+    does not depend on which routes a configuration happens to register is worth more than hiding
+    it.
+21. Every request, whatever `authRequired` is, is refused with a `403` unless its `Host` header
+    names an address this install answers to: a loopback name, or the host of `server.publicUrl`
+    where one is set. The hostname is what is compared, not the port, and the refusal names
+    `server.publicUrl`. Both sides of that comparison have the root label's trailing dot removed,
+    so the fully qualified spelling of a name this install answers to is accepted in `Host` and in
+    `Origin` alike, and a second dot is not. A request carrying no `Host` is refused. Asserted on
+    the default configuration, which is the one the check exists for, as well as on an exposed one,
+    including an exposed one whose public URL names a port and one whose public URL is itself
+    loopback.
+22. The `Origin` check of spec 13 criterion 24 runs whatever `authRequired` is, and a body-less
+    `POST` carrying a cross-site `Origin` is refused with a `403` on a loopback install with no
+    login. Any loopback origin on any port is still accepted whatever `server.publicUrl` says, so
+    the dev server keeps working, and that is asserted rather than assumed.
+23. The data directory Caroline creates is 0700, and the database and its `-wal` and `-shm`
+    sidecars are 0600, including on a database that already existed with a wider mode. An
+    in-memory or URI database path touches the filesystem not at all, and a directory the process
+    did not create is left as it was found, the default layout's own `data` directory on an
+    install that already has one included.
+24. The classifier's system prompt carries the same data-not-instruction sentence the chat context
+    carries, by importing it rather than restating it, and it reaches the provider on the call the
+    classifier makes. Asserted against the built request, as criterion 1 is, and against the shared
+    constant, because the point is that the wording is shared and cannot drift.
+25. A `chmod` that fails because the filesystem or the file cannot carry the mode does not stop
+    Caroline starting: the codes listed under "Data at rest" above are reported once on stderr and
+    the database opens, and any other code is still thrown. Asserted per code, with `chmodSync`
+    mocked, because no POSIX filesystem can be made to refuse a `chmod` from the account owning
+    the file and the behaviour under test is what this does with the error rather than which mount
+    produces it.
+26. An unmatched path that addresses the API is answered with the API's JSON 404 however it was
+    spelled, including percent-encoded (`/%61pi/no-such-route`), rather than with the SPA shell,
+    and an unmatched path that does not address the API still gets the shell. Criterion 20's
+    reading of a request's own URL, applied to the one other place that read one. Asserted with the
+    built SPA present, since with no shell to serve both answers are already a 404.
