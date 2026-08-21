@@ -77,7 +77,16 @@ export const EXEMPT_AUTH_ROUTES: ReadonlySet<string> = new Set([
  *   decoded path decides, and it decides towards refusal: anything under `/api` is refused, and
  *   everything else is exempt so that the shell and the login screen stay reachable without a
  *   session. `/api` rather than `/api/`, because a request that matched nothing has no shape this
- *   can rely on.
+ *   can rely on, and the price of that is a cosmetic one: on a checkout with no built SPA,
+ *   `/apiary` is refused with a 401 where `/dashboard` gets a 404, an odd-looking status for a path
+ *   no route serves. Both are kept, because this branch's whole job is to be wrong in the safe
+ *   direction and a configuration with no shell has nothing better to answer either path with.
+ *
+ *   This branch is also narrower than it looks. `@fastify/static` registers `/*`, so with the SPA
+ *   built an unmatched `GET` matches that template and takes the bullet above; what is left here is
+ *   a method `@fastify/static` does not register, and a checkout with no built SPA. Not trimmed to
+ *   those, because which routes a configuration registers is not something this should rest on.
+ *   Spec 09, criterion 20, is written to claim only what that leaves it asserting.
  *
  * Exported so the suite can assert the two failures no request can drive through the router: a
  * malformed escape, which Fastify refuses itself before any hook runs, and an unmatched path.

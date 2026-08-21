@@ -124,8 +124,8 @@ on where the public origin came from.
   `http://127.0.0.1:5173` are as acceptable as the exact string the bind happened to use.
 - **The public origin too, where `server.publicUrl` is set.** Exactly its origin, so scheme and
   port included: an operator who declares an outside address has said which origin a browser
-  reaches Caroline at, and there is one of those. The public origin remains one string, and it is
-  still the only thing a redirect URI is derived from: it is the comparison that widens, not the
+  reaches Caroline at, and there is only one of those. The public origin remains one string, and it
+  is still the only thing a redirect URI is derived from: it is the comparison that widens, not the
   derivation.
 
 The loopback half is a decision on the merits rather than a convenience. Every loopback origin
@@ -149,6 +149,14 @@ machine, which is what spec 09 already says a loopback bind was never a boundary
 alternative, exempting one route by its path, is the reasoning the encoded-path bypass came from,
 and one uniform rule is worth more here than a narrower set. What the set still does not do is grow
 to any other outside origin: `https://evil.example.com` is refused on every configuration.
+
+One spelling of the same name is normalised rather than treated as another origin: the root label's
+trailing dot, which a browser sends in `Origin` and in `Host` when the address bar carries it. It is
+removed from both sides of the comparison, as `caroline.example.com.` and `caroline.example.com`
+resolve to the same address and an install that answers to one answers to the other. This narrows
+nothing and widens nothing about which names are acceptable, and only a single dot is removed: the
+name underneath still has to match, and the scheme and port of a public origin still have to match
+exactly. Case needs no such treatment, because URL parsing lowercases a hostname already.
 
 There is deliberately no override for the `https` rule. A Tailscale or VPN-only deployment can
 terminate TLS itself, and an override flag for this is the flag that gets pasted out of a forum

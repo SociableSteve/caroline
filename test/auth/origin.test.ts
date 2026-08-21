@@ -81,6 +81,13 @@ describe('isAcceptableOrigin (criterion 24)', () => {
     expect(isAcceptableOrigin(config, 'https://caroline.example.com')).toBe(true)
     expect(isAcceptableOrigin(config, 'https://evil.example.com')).toBe(false)
     expect(isAcceptableOrigin(config, 'http://caroline.example.com')).toBe(false)
+    // The fully qualified spelling of the same name, which is what a browser puts in `Origin`
+    // when the address bar carries the root label's dot. Accepted for the reason
+    // `isAcceptableHost` accepts it: otherwise a write from the SPA is refused on a name this
+    // install does answer to. The scheme still has to match, and only one dot is normalised.
+    expect(isAcceptableOrigin(config, 'https://caroline.example.com.')).toBe(true)
+    expect(isAcceptableOrigin(config, 'http://caroline.example.com.')).toBe(false)
+    expect(isAcceptableOrigin(config, 'https://caroline.example.com..')).toBe(false)
   })
 
   it('accepts the loopback origins beside the publicUrl origin, rather than instead of them', () => {

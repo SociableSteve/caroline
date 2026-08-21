@@ -181,3 +181,102 @@ describe('config.server.webRoot reaching buildServer', () => {
     await app.close()
   })
 })
+
+/**
+ * The built SPA present on an exposed install: `auth.mode: "required"` and a `server.publicUrl`
+ * together, which is the deployment every check in the auth gate exists for and the one
+ * configuration this file did not have. Every test above runs on `cleanCheckout`, so the shell,
+ * the API 404 and the `Host` check had each been asserted only where the gate lets nearly
+ * everything through. The gap is the shape of the round-1 one, where a whole endpoint was dead
+ * because nothing paired `server.publicUrl` with `mcp.enabled`: each part worked and the
+ * combination was never built. Spec 09, criteria 20, 21 and 26.
+ */
+describe('the built SPA on an install with a login and a public URL', () => {
+  const openDirectories: string[] = []
+
+  afterEach(() => {
+    for (const directory of openDirectories.splice(0)) {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  const exposedInstall = loadConfig({
+    file: {
+      server: { publicUrl: 'https://caroline.example.com' },
+      auth: {
+        mode: 'required',
+        allow: ['owner@example.com'],
+        provider: { clientId: 'a-client-id' },
+      },
+    },
+    env: {} as NodeJS.ProcessEnv,
+  })
+
+  async function exposedServerWithShell() {
+    const webDirectory = mkdtempSync(join(tmpdir(), 'caroline-webroot-'))
+    openDirectories.push(webDirectory)
+    writeFileSync(join(webDirectory, 'index.html'), '<!doctype html><title>caroline</title>')
+
+    return buildServer({
+      config: exposedInstall,
+      database: migratedDatabase(),
+      webRoot: webDirectory,
+    })
+  }
+
+  it('serves the shell with no session, so the login screen can render', async () => {
+    const app = await exposedServerWithShell()
+
+    // The one thing an install with a login must still answer to an unauthenticated browser: the
+    // shell that renders the login screen. Refusing this would make the login unreachable, and
+    // `authRequired` is exactly the configuration where nothing else could fix it.
+    for (const url of ['/', '/dashboard']) {
+      const response = await app.inject({ method: 'GET', url, headers: { host: 'localhost:5123' } })
+
+      expect(response.statusCode, url).toBe(200)
+      expect(response.body, url).toContain('<title>caroline</title>')
+    }
+
+    await app.close()
+  })
+
+  it('answers the API 404 and the API 401 beside it, rather than the shell', async () => {
+    const app = await exposedServerWithShell()
+
+    const missing = await app.inject({ method: 'GET', url: '/api/nope' })
+    expect(missing.statusCode).toBe(404)
+    expect(missing.json()).toEqual({ error: { code: 'not_found', message: expect.any(String) } })
+
+    const registered = await app.inject({ method: 'GET', url: '/api/tasks' })
+    expect(registered.statusCode).toBe(401)
+
+    await app.close()
+  })
+
+  it('refuses a Host it does not answer to before serving any of it', async () => {
+    const app = await exposedServerWithShell()
+
+    // The `Host` check runs first, so it applies to the shell as much as to the API: a static
+    // wildcard registered under the gate is not a way around it.
+    for (const url of ['/dashboard', '/api/tasks']) {
+      const response = await app.inject({
+        method: 'GET',
+        url,
+        headers: { host: 'rebind.example.com' },
+      })
+
+      expect(response.statusCode, url).toBe(403)
+    }
+
+    // And the public URL's own name is answered to, so the assertion above is about the name and
+    // not about the check refusing everything.
+    const served = await app.inject({
+      method: 'GET',
+      url: '/dashboard',
+      headers: { host: 'caroline.example.com' },
+    })
+    expect(served.statusCode).toBe(200)
+
+    await app.close()
+  })
+})

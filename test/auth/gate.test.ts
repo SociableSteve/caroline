@@ -3,7 +3,10 @@
  * mechanism yet, every request carries no valid session, so `authRequired` alone decides between
  * a 401 and letting the request through. Criteria 1, 2, 6, 8 and 31.
  */
-import { describe, expect, it } from 'vitest'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
 import Fastify, { type HTTPMethods } from 'fastify'
 import { loadConfig } from '../../src/config/load.js'
 import { buildServer, registerRoutes } from '../../src/server/app.js'
@@ -240,6 +243,14 @@ describe('the SPA shell and its assets (criterion 8)', () => {
  * the strings the two readings agree on.
  */
 describe('the session check is decided by the matched route (criterion 20)', () => {
+  const temporaryDirectories: string[] = []
+
+  afterEach(() => {
+    for (const directory of temporaryDirectories.splice(0)) {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
   const encodedRequests = [
     { method: 'GET' as const, url: '/%61pi/tasks' },
     { method: 'GET' as const, url: '/%61pi/config' },
@@ -279,6 +290,41 @@ describe('the session check is decided by the matched route (criterion 20)', () 
     await app.close()
   })
 
+  /**
+   * The same branch under the configuration a user actually runs, which is what spec 09 criterion
+   * 20 now says it asserts. With the built SPA present `@fastify/static` registers `/*`, so an
+   * unmatched `GET` matches that template and is exempt: it is answered by the API's JSON 404 of
+   * criterion 26, not by the no-template branch. What still reaches that branch is a method
+   * `@fastify/static` does not register, so an unmatched write under `/api` is refused for want of
+   * a session. Both halves are asserted here, because the criterion claims both and a reader who
+   * assumed the `GET` produced the 401 would be reading the wrong path.
+   */
+  it('refuses an unmatched API write, and 404s an unmatched API read, with the SPA present', async () => {
+    const builtWebRoot = mkdtempSync(join(tmpdir(), 'caroline-gate-webroot-'))
+    temporaryDirectories.push(builtWebRoot)
+    writeFileSync(join(builtWebRoot, 'index.html'), '<!doctype html><title>caroline</title>')
+
+    const app = await buildServer({
+      config: strictConfig(),
+      database: migratedDatabase(),
+      webRoot: builtWebRoot,
+    })
+
+    const write = await app.inject({ method: 'POST', url: '/api/no-such-route', payload: {} })
+    expect(write.statusCode).toBe(401)
+
+    const read = await app.inject({ method: 'GET', url: '/api/no-such-route' })
+    expect(read.statusCode).toBe(404)
+    expect(read.json()).toEqual({ error: { code: 'not_found', message: expect.any(String) } })
+
+    // And a client-side route still gets the shell with no session, so the login screen renders.
+    const shell = await app.inject({ method: 'GET', url: '/dashboard' })
+    expect(shell.statusCode).toBe(200)
+    expect(shell.body).toContain('<title>caroline</title>')
+
+    await app.close()
+  })
+
   it('does not throw out of the hook for a malformed percent-escape', async () => {
     const app = await buildServer({
       config: strictConfig(),
@@ -311,6 +357,50 @@ describe('the session check is decided by the matched route (criterion 20)', () 
     expect(isExemptFromSessionCheck('GET', undefined, '/login')).toBe(true)
     expect(isExemptFromSessionCheck('GET', undefined, '/%zz-not-an-escape')).toBe(true)
     expect(isExemptFromSessionCheck('GET', undefined, '/api%zz')).toBe(false)
+  })
+
+  /**
+   * The cookie name the gate reads is derived from the public origin, and on an `https` install it
+   * is the `__Host-` prefixed one. That derivation had no end-to-end assertion on an `https`
+   * configuration at all: every test that presented a session cookie ran on a loopback install,
+   * where the plain name is correct. The failure it leaves open is the shape of the round-1 one,
+   * two derivations of the same fact disagreeing, and its symptom would be an exposed install
+   * answering 401 to a session it had just issued.
+   */
+  it('reads the __Host- prefixed cookie, and only that one, on an https install', async () => {
+    const database = migratedDatabase()
+    const config = loadConfig({
+      file: {
+        server: { publicUrl: 'https://caroline.example.com' },
+        auth: {
+          mode: 'required',
+          allow: ['owner@example.com'],
+          provider: { clientId: 'a-client-id' },
+        },
+      },
+      env: noEnv,
+    })
+    const app = await buildServer({ config, database })
+    const session = createSession(database, Date.now())
+
+    const accepted = await app.inject({
+      method: 'GET',
+      url: '/api/health',
+      headers: { cookie: `${sessionCookieName(true)}=${session.value}` },
+    })
+    expect(accepted.statusCode).toBe(200)
+
+    // The unprefixed name carrying the same valid session value is not a session here: a browser
+    // on this install was never told to send that name, so accepting it would be accepting a
+    // cookie some other software on the machine had set.
+    const refused = await app.inject({
+      method: 'GET',
+      url: '/api/health',
+      headers: { cookie: `${sessionCookieName(false)}=${session.value}` },
+    })
+    expect(refused.statusCode).toBe(401)
+
+    await app.close()
   })
 
   it('sets request.sessionId where the session check passed (criteria 22 and 23)', async () => {

@@ -96,6 +96,11 @@ directory" means below. If you move it, back up and delete that directory rather
 if you are not sure which one is in force, `npm run delete-data` prints it before it removes
 anything.
 
+Those modes are set rather than assumed, and two things limit them. A filesystem that cannot carry
+them, such as a CIFS or exFAT mount, gets one warning on stderr and Caroline starts anyway, so check
+that line if the modes matter to you. And a data directory Caroline did not create is left as it was
+found: if you point `database.path` at a directory of your own, its permissions stay yours.
+
 Nothing Caroline writes lives outside the data directory, which is what makes
 [step 11](#11-removing-everything) one command.
 

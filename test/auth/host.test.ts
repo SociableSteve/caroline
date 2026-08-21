@@ -136,6 +136,20 @@ describe('isAcceptableHost', () => {
     expect(isAcceptableHost(config, 'localhost:5123')).toBe(true)
     expect(isAcceptableHost(config, 'rebind.example.com')).toBe(false)
   })
+
+  it('accepts the fully qualified spelling of the public URL host, root label and all', () => {
+    // A browser sends `Host: caroline.example.com.` when the user types the trailing dot, which
+    // is the fully qualified form of the same name and resolves to the same address, but a URL
+    // parser keeps the dot. Comparing the two spellings without normalising one refused every
+    // request on an exposed install for a name it does answer to. The dot is not an escape from
+    // the check: only a single one is removed, and the name underneath still has to match.
+    const config = exposedConfig()
+    expect(isAcceptableHost(config, 'caroline.example.com.')).toBe(true)
+    expect(isAcceptableHost(config, 'caroline.example.com.:8443')).toBe(true)
+    expect(isAcceptableHost(config, 'localhost.')).toBe(true)
+    expect(isAcceptableHost(config, 'rebind.example.com.')).toBe(false)
+    expect(isAcceptableHost(config, 'caroline.example.com..')).toBe(false)
+  })
 })
 
 describe('the request-level Host check (criterion 21)', () => {

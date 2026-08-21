@@ -120,6 +120,36 @@ describe('isPublicAddress', () => {
   })
 
   /**
+   * The two remaining prefixes that spell an IPv4 destination as an IPv6 address, found by the
+   * review of 2026-08-21 beside the NAT64 ones and refused the same way. `2002:7f00:1::1` is the
+   * 6to4 spelling of a site behind 127.0.0.1 and `2001:0:...` is a Teredo address whose last two
+   * groups are its client's IPv4 address with every bit flipped, so both reached a destination the
+   * IPv4 ranges above already refuse while reading as ordinary public addresses. Spec 12,
+   * criterion 35, extended once more.
+   */
+  it.each([
+    ['6to4 (2002::/16), wrapping a loopback address', '2002:7f00:1::1'],
+    ['6to4, wrapping an RFC 1918 address', '2002:c0a8:101::1'],
+    ['6to4, wrapping a public address', '2002:5db8:d822::1'],
+    ['Teredo (2001::/32), wrapping a loopback address', '2001:0:53aa:64c:0:0:7f00:1'],
+    ['Teredo, with the obfuscated client address of an RFC 1918 host', '2001:0:0:0:0:0:3f57:fefe'],
+    ['Teredo, bare prefix', '2001::1'],
+  ])('refuses an IPv6 %s address (%s)', (_label, address) => {
+    expect(isPublicAddress(address)).toBe(false)
+  })
+
+  it.each([
+    // The prefixes either side of 6to4 in the same /8 of the address space, and the one global
+    // range that shares Teredo's first group. Refusing "anything beginning 2001" or "anything
+    // beginning 200" would take these with it, and they are ordinary routable addresses.
+    ['just below 6to4', '2001:4860:4860::8888'],
+    ['just above 6to4', '2003::1'],
+    ['a global address in the same /3', '2600:1f18::1'],
+  ])('still accepts %s (%s)', (_label, address) => {
+    expect(isPublicAddress(address)).toBe(true)
+  })
+
+  /**
    * `::a.b.c.d` is the deprecated IPv4-compatible form, and it is a parsing trap rather than a
    * range: `Number.parseInt('192.168.1.1', 16)` answers 0x192 without complaining, so the address
    * expanded to something that read as an ordinary public one. Checked as the IPv4 address it

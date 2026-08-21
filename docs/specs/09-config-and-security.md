@@ -497,14 +497,26 @@ were: the numbers are cited by the code and by the suite.
     router matched rather than by the request's own URL. Asserted with percent-encoded paths
     (`/%61pi/tasks` and the rest) over read and write routes alike, because the criterion 16 test
     walks canonical route paths and those are exactly the paths on which the two readings agree. A
-    request that matched no route at all and whose decoded path begins with `/api` is refused, and
-    a path that cannot be decoded does not throw out of the check.
+    request that matched no route at all is decided by its decoded path instead, and one addressing
+    `/api` is refused, while a path that cannot be decoded does not throw out of the check. That
+    branch is asserted on the predicate directly and, over HTTP, on the two configurations that
+    reach it: a checkout with no built SPA, and a method `@fastify/static` does not register. With
+    the built SPA present its `/*` route matches every unmatched `GET`, so such a request carries
+    `/*` as its template, is exempt from the session check, and is answered by the API's own JSON
+    404 of criterion 26 instead. An unauthenticated caller can therefore distinguish an API route
+    that exists (401) from one that does not (404). That is accepted rather than overlooked: the
+    route list is published in this repository, so it is no oracle, and a fallback whose refusal
+    does not depend on which routes a configuration happens to register is worth more than hiding
+    it.
 21. Every request, whatever `authRequired` is, is refused with a `403` unless its `Host` header
     names an address this install answers to: a loopback name, or the host of `server.publicUrl`
     where one is set. The hostname is what is compared, not the port, and the refusal names
-    `server.publicUrl`. A request carrying no `Host` is refused. Asserted on the default
-    configuration, which is the one the check exists for, as well as on an exposed one, including
-    an exposed one whose public URL names a port and one whose public URL is itself loopback.
+    `server.publicUrl`. Both sides of that comparison have the root label's trailing dot removed,
+    so the fully qualified spelling of a name this install answers to is accepted in `Host` and in
+    `Origin` alike, and a second dot is not. A request carrying no `Host` is refused. Asserted on
+    the default configuration, which is the one the check exists for, as well as on an exposed one,
+    including an exposed one whose public URL names a port and one whose public URL is itself
+    loopback.
 22. The `Origin` check of spec 13 criterion 24 runs whatever `authRequired` is, and a body-less
     `POST` carrying a cross-site `Origin` is refused with a `403` on a loopback install with no
     login. Any loopback origin on any port is still accepted whatever `server.publicUrl` says, so

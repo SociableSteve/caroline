@@ -3,8 +3,8 @@
  * outbound destination a caller rather than the user chooses, refused unless it resolves to a
  * public address, not loopback, not link-local, not RFC 1918, not unique-local, not the shared
  * address space a carrier-grade NAT hands out, not a protocol-assignment or benchmarking range,
- * not multicast or broadcast, not reserved, not either NAT64 prefix, and not the IPv4-mapped form
- * of any of those.
+ * not multicast or broadcast, not reserved, not either NAT64 prefix, not 6to4 or Teredo, and not the
+ * IPv4-mapped form of any of those.
  *
  * Written against the numeric address only, never against a hostname: the guard's whole point
  * is to check the address a name actually resolved to, so a function that took a hostname and
@@ -143,6 +143,21 @@ function isPrivateIpv6(address: string): boolean {
   // This is the prefix a site deploys when it does not use the well-known one, which made it the
   // more likely of the two to be met in practice and the odder one to have left out.
   if (first === 0x0064 && second === 0xff9b && groups[2] === 0x0001) return true
+
+  // 2002::/16, 6to4: bits 16 to 47 are an IPv4 address, and a packet to such an address is
+  // tunnelled to it, so `2002:7f00:1::1` reaches 127.0.0.1 and `2002:c0a8:101::1` reaches
+  // 192.168.1.1. Refused outright rather than unwrapped and checked against the IPv4 ranges
+  // above, for the reason the NAT64 prefixes are: the destination is reached through a relay this
+  // process knows nothing about, the prefix is deprecated (RFC 7526), and no client metadata
+  // document has reason to be published on one.
+  if (first === 0x2002) return true
+
+  // 2001::/32, Teredo. Refused for the same reasons, and the second parsing this avoids is worse
+  // here than for 6to4: the client's IPv4 address sits in the last two groups with every bit
+  // flipped, so reading it is an inversion whose only purpose would be to disagree with the
+  // ranges above. The whole /32 is the assigned prefix, so this takes nothing else with it:
+  // 2001:db8::/32 and every global 2001: address have a non-zero second group.
+  if (first === 0x2001 && second === 0x0000) return true
 
   // ::ffff:0:0/96 is the mapped-address block in its full expanded form; the compact dotted
   // spelling is handled by `embeddedIpv4Address` before this function is ever reached, but a

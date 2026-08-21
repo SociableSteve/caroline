@@ -15,6 +15,20 @@ function bracketed(host: string): string {
 }
 
 /**
+ * A hostname with the root label's trailing dot removed. `caroline.example.com.` is the fully
+ * qualified spelling of `caroline.example.com`, resolves to the same address, and is what a
+ * browser sends in `Host` and `Origin` when the user types the dot, but a URL parser keeps it. Both
+ * checks below therefore normalise both sides, exactly as they parse both sides: a comparison that
+ * kept the dot on one side refused the whole app for a name the install does answer to. Only one
+ * dot is removed, because `caroline.example.com..` is not another spelling of anything and the
+ * name underneath still has to match. Case is already normalised for us, since the parser
+ * lowercases a hostname.
+ */
+function withoutRootLabel(hostname: string): string {
+  return hostname.endsWith('.') && !hostname.endsWith('..') ? hostname.slice(0, -1) : hostname
+}
+
+/**
  * `http://<host>:<port>`, with the host bracketed where it is an IPv6 literal, produced by
  * setting `URL.hostname` rather than by building the string by hand. That is what makes an
  * IPv4-mapped address come out normalised the way WHATWG parsing normalises it, which criterion
@@ -93,10 +107,19 @@ export function isAcceptableOrigin(config: Config, origin: string): boolean {
   // `isLoopbackHost` compares `server.host` against: that config value is never URL-parsed, so
   // it is never normalised, and using it here would refuse the normalised form an IPv4-mapped
   // bind's own origin actually parses to.
-  if (loopbackHostnames.has(parsed.hostname)) return true
+  const hostname = withoutRootLabel(parsed.hostname)
+  if (loopbackHostnames.has(hostname)) return true
 
   if (config.server.publicUrl !== null) {
-    return parsed.origin === new URL(config.server.publicUrl).origin
+    // Field by field rather than as two origin strings, because an origin string carries the root
+    // label's dot. Still exactly the origin otherwise: `URL.port` is empty for a scheme's default
+    // port on both sides alike, so the port is compared as strictly as the scheme.
+    const publicUrl = new URL(config.server.publicUrl)
+    return (
+      parsed.protocol === publicUrl.protocol &&
+      parsed.port === publicUrl.port &&
+      hostname === withoutRootLabel(publicUrl.hostname)
+    )
   }
 
   return false
@@ -163,10 +186,11 @@ export function isAcceptableHost(config: Config, host: string | undefined): bool
   const parsed = parseHostHeader(host)
   if (parsed === null) return false
 
-  if (loopbackHostnames.has(parsed.hostname)) return true
+  const hostname = withoutRootLabel(parsed.hostname)
+  if (loopbackHostnames.has(hostname)) return true
 
   if (config.server.publicUrl !== null) {
-    return parsed.hostname === new URL(config.server.publicUrl).hostname
+    return hostname === withoutRootLabel(new URL(config.server.publicUrl).hostname)
   }
 
   return false
