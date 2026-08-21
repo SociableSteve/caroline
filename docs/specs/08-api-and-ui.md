@@ -80,10 +80,15 @@ answers that first and everything else after, in three bands, in this order. The
 rows rather than one reflowing grid, because a reading path that changes with the window width is
 not a reading path.
 
-1. **Today.** The plan, with the capacity bar and today's calendar column beside it. Leads, at
-   the full width of the surface, because it is the answer to the question the surface exists to
-   answer. The calendar shows the busy and free blocks; the capacity bar shows planned against
-   available.
+1. **Today.** The verdict, the day bar, and one time-ordered agenda merging the plan's entries
+   with the calendar's events. Leads, at the full width of the surface, because it is the answer to
+   the question the surface exists to answer. The day bar is the working window drawn to
+   wall-clock scale, left to right: meetings, planned work and what is already done each sit at
+   their own offset into the window and are drawn at their own duration, and every stretch of free
+   time is drawn at its own true width rather than merged into one, so a fragmented afternoon reads
+   as fragmented and a three-minute crack reads as unusable. The present moment is a position on
+   it. The agenda underneath prints the clock times of the same placements, so the two cannot
+   disagree about when something is happening.
 2. **Wants a decision.** Waiting items that have gone quiet, worth-a-chase nudges, the plan's
    overflow, and stalled projects. Second, because each of these is something only the user can
    resolve. The quiet-waiting panel is a chase list, not a count: it names the item, who it is
@@ -293,7 +298,13 @@ here is the behaviour each surface owes the reader; what is there is what they a
 4. The dashboard renders correctly with no plan, no calendar and no integrations
    configured, showing empty states rather than errors.
 5. A background job completing updates the open UI without a manual refresh.
-6. The capacity bar's numbers match `GET /api/calendar` for the same date.
+6. The day bar's numbers match `GET /api/calendar` for the same date: the window and the reserve
+   are that route's own figures rather than anything recomputed on the client, the meetings figure
+   is the same total arrived at equivalently (re-summed from the `capacity.busy` intervals the route
+   returned, rounded the same way `busyMinutes` is, so it is the route's number by another path),
+   and the planned, done and unplanned figures come from walking the plan's own estimates through
+   that route's free intervals. (Named the capacity bar until issue #67 redrew it as a clock; the
+   same contract.)
 7. Chat streams incrementally and a dropped connection leaves the conversation recoverable
    on reload.
 8. The board is fully operable by keyboard alone, including status changes and marking a
@@ -400,3 +411,59 @@ for the same reason.
     clearing the control back to empty sends `null`, taking the field off the task rather than
     leaving it as it was. This is the same three-state contract `update_task` offers from chat: set,
     change or clear, with an untouched field left alone.
+
+Issue #67 replaced the day bar's proportion chart with the wall-clock timeline band 1 now
+describes. That adds the following, appended for the same reason.
+
+40. The day bar is the working window drawn to scale: every element on the track is positioned and
+    sized from its own instants as a fraction of `windowStart` to `windowEnd`, so two blocks of
+    equal duration are drawn equally wide wherever in the day they fall, and a block of twice the
+    duration is drawn twice as wide. There is no minimum width, because a floor would draw three
+    unusable minutes as though they were usable, and that time looking unusable is the point.
+41. Free time is drawn one element per gap and never merged: a window with several separate
+    stretches of free time in it draws one element for each, each at its own width and offset. A
+    day of thirty scattered cracks and a day with one long clear stretch do not draw alike.
+42. The present moment is drawn as a position on the track when it falls inside the window, and is
+    drawn nowhere at all when it falls before the window opens or after it closes: clamping it to
+    an edge would say the day had started, or was ending, when it has not. The legend states the
+    time in either case.
+43. The bar and the agenda place a plan entry at the same time, by construction rather than by
+    coincidence: one walk of the plan's entries through `capacity.free` produces the placement that
+    the bar draws and the agenda prints a clock time for, so an entry's offset on the track is the
+    offset of the time beside it in the agenda.
+44. Held back (`reserveMinutes`) is in the legend as a number and nowhere on the track. It is a
+    flat percentage of the window held back for interruptions rather than any particular minutes of
+    it, so drawing it anywhere on a clock would claim that specific minutes are reserved when none
+    are. Where it is a part of the unplanned minutes it is stated inside that item as a slice of
+    them (criterion 47) rather than as an item of its own; where it is not, it is an item of its
+    own. It is left unsaid entirely when the reserve is zero.
+45. The track is decoration: it is `aria-hidden`, and the legend beside it carries every figure in
+    words, so nothing on the strip is said in colour alone. The track carries hour ticks and the
+    window's own start and end times, so it reads as a clock rather than as an abstract bar.
+46. A day that is not a working day draws no track and says why instead. A day whose capacity is
+    unverified draws the track and keeps its unverified notice, which is honest because the notice
+    says the window was assumed free. Neither falls back to a second, proportional drawing.
+47. Every figure in the legend is a total of the minutes the track drew, and none of them is
+    clamped to what is left of the day's capacity: planned and done total the entries actually
+    placed on the track, at their full estimates, and the unplanned figure totals the gaps drawn
+    between them. A plan that overcommits the window therefore reads the same in words as it is
+    drawn, where a clamped figure would have described minutes nothing on the screen matched. Held
+    back (criterion 44) is the one legend figure with nothing of its own on the track. The verdict
+    headline above the bar is a different claim and stays a different number: it weighs the whole
+    plan, unplaceable entries included, against the free capacity the API reported, which is the
+    window less its meetings and its reserve. The legend therefore does not call its own figure
+    free: it is "unplanned", the time actually left on the clock. Where the held-back minutes fit
+    inside it, it names them as a part of itself ("unplanned 1 hour 50 min, 1 hour 42 min of it
+    held back") so that the two cannot be read as separate slices of the day and added together.
+    That containment is conditional and is claimed only where it holds: the planner plans against a
+    capacity the reserve has already been taken out of, so a plan that overcommits that capacity
+    leaves fewer unplanned minutes than the reserve, and there the legend states the two as separate
+    items ("unplanned 1 hour", "held back 1 hour 42 min") rather than assert a containment that is
+    false. At the exact boundary, unplanned equal to the reserve, containment holds and the
+    containment sentence is what prints. On a day where every entry found a place, the unplanned
+    figure is the verdict's spare plus the held back.
+48. The unverified-capacity notice appears once on the surface, not once per source. The plan job
+    stores it as a warning and the dashboard also reads it from the live capacity, both from
+    `unverifiedCapacityNotice` so that the two cannot word the same fact differently (spec 05,
+    criterion 10); the surface renders the sentence a single time, and still renders it on a day
+    with no plan at all, which is the case the live reading exists for.
