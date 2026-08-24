@@ -61,7 +61,7 @@ would hand the override back to Tailwind's own defaults. Criterion 9 turns on th
 
 | Token | Utility | Value | For |
 | --- | --- | --- | --- |
-| `--text-xs` | `text-xs` | `0.75rem` | Badges, column numbers, keyboard hints |
+| `--text-xs` | `text-xs` | `0.75rem` | Badges, a column's count, the chat rail's own text |
 | `--text-sm` | `text-sm` | `0.875rem` | Captions, controls, ages, secondary detail |
 | `--text-base` | `text-base` | `1rem` | Body text, card titles, list items, an input's own text |
 | `--text-lg` | `text-lg` | `1.125rem` | Panel headings |
@@ -99,7 +99,7 @@ it.
 **Radius.** One scale, derived in `web/styles.css` from `--radius` (`0.625rem`), which the shadcn
 migration brought with it, and exposed to Tailwind through `@theme inline` so `rounded-md` and
 `var(--radius-md)` are the same value. `rounded-sm` (`0.375rem`) is for controls: buttons, inputs,
-the select, keyboard hints, a failure block. `rounded-md` (`0.5rem`) is for cards, menus, dialogs,
+the select, a failure block. `rounded-md` (`0.5rem`) is for cards, menus, dialogs,
 quoted blocks and the day bar's clock track, and it is what the `Panel` primitive draws.
 `rounded-lg` (`0.625rem`) is for the dashboard's rail and its agenda cards, and `rounded-xl`
 (`0.875rem`) for a chat turn, a Jobs panel and the Jobs and Projects tables. A pill is Tailwind's
@@ -128,7 +128,7 @@ than a selection from them.
 | `--primary-foreground` | `oklch(0.205 0 0)` | `oklch(0.985 0 0)` | Text on the filled action |
 | `--secondary` | `oklch(0.269 0 0)` | `oklch(0.97 0 0)` | A quiet filled ground behind a control |
 | `--secondary-foreground` | `oklch(0.985 0 0)` | `oklch(0.205 0 0)` | Text on it |
-| `--muted` | `oklch(0.269 0 0)` | `oklch(0.97 0 0)` | A sunk ground: a keyboard hint, a quiet badge |
+| `--muted` | `oklch(0.269 0 0)` | `oklch(0.97 0 0)` | A sunk ground: a quiet badge, a status line, a quoted scope |
 | `--muted-foreground` | `oklch(0.708 0 0)` | `oklch(0.556 0 0)` | Secondary text, still AA on its own ground |
 | `--accent` | `oklch(0.269 0 0)` | `oklch(0.97 0 0)` | A hover or highlighted ground in the client, and nothing else there |
 | `--accent-foreground` | `oklch(0.985 0 0)` | `oklch(0.205 0 0)` | Text while that ground is showing |
