@@ -178,7 +178,10 @@ export async function buildServer({
       },
     },
     logger: {
-      level: logger?.level ?? process.env.CAROLINE_LOG_LEVEL ?? 'info',
+      // `logging.level` is the resolved answer: `loadConfig` has already let `CAROLINE_LOG_LEVEL`
+      // override the configuration file, so this reads one setting rather than the environment
+      // again. Spec 14, criterion 9.
+      level: logger?.level ?? config.logging.level,
       stream: scrubbingStream(logger?.stream ?? process.stdout, config),
       serializers: {
         req: requestSerialiser(),

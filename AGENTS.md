@@ -79,6 +79,21 @@ what each document is there to answer.
   file disagree. Editing this file means running that command in the same commit. It used to be a
   symlink, which reads correctly in a working tree and is served by the GitHub API as a blob holding
   the twelve bytes `../AGENTS.md`, so the surface most likely to be reading it got a filename.
+- **The log's durable destination sits behind the scrubber, not beside it.** Every line goes
+  through `scrubbingStream` ([src/server/log-redaction.ts](src/server/log-redaction.ts)) on its way
+  to [src/server/log-destination.ts](src/server/log-destination.ts), which tees it to the rotating
+  file and to stdout. A pino transport (`pino-roll` and its neighbours) runs in a worker thread and
+  receives already-encoded lines, so adding one would create a second path to disk that the scrubber
+  never sees, which is the one thing spec 14 exists to prevent. Rotation is therefore written here
+  rather than depended on.
+- **No item's own text goes in a log line, at any level.** No subject, title, body, snippet, note or
+  plan rationale, at `info` or at `trace`: ids, counts, statuses, durations and decisions only, and a
+  caller's own bytes (an MCP tool name, a refused header, a client-chosen identifier) only as what
+  Caroline recognised or as an id Caroline assigned. Spec 14 states it as a contract, and
+  `test/server/log-verbosity.test.ts` asserts it over the paths it drives: classify, plan, the sync
+  engine and an MCP tool call. So a title added on one of those is a failing test, and a title added
+  in the scheduler, in chat, in the routes or in purge is a review comment plus a case that file is
+  missing. The rule is the same everywhere; only the coverage stops there.
 - **Parts of docs/content-policy.md are generated.** Three blocks, each opened by an HTML
   comment naming `tools/docs/content-policy-examples.ts` and closed by an `end of the generated`
   one, come from the schema and the functions the classify job calls. Run

@@ -89,6 +89,7 @@ giving it something to read.
 | `./data/caroline.db` | The database. Created on first run, migrated on every start, mode 0600 |
 | `./data/caroline.db-wal`, `-shm` | SQLite's write-ahead log, while the process is running, mode 0600 too |
 | `./data/google-tokens.json` | Google's refresh token, mode 0600, written only once you connect. A `.tmp` sibling can survive an interrupted write, holding the same token |
+| `./data/logs/caroline.log` | The log, rotated at 5 MiB and kept to five files and a fortnight, mode 0600. `logging.file` moves it, bounds it or turns it off |
 | `./caroline.config.json` | Your settings. Optional: every value has a default |
 
 Those are defaults, not fixed locations. `database.path`, or `CAROLINE_DB_PATH`, moves the database,
@@ -571,9 +572,10 @@ if you moved the database with `database.path` or `CAROLINE_DB_PATH`, this is th
 directory is in force.
 
 That is the database, the SQLite sidecars a crash leaves behind, the Google token file and the
-temporary sibling an interrupted token write leaves, which holds the same refresh token. Anything
-else in the data directory is left alone and named, and the directory itself goes only if Caroline
-had written something in it and it is empty afterwards. Stop Caroline first.
+temporary sibling an interrupted token write leaves, which holds the same refresh token, and the log
+files and the directory they sit in. Anything else in the data directory is left alone and named, and
+a directory goes only if Caroline had written something in it and it is empty afterwards. Stop
+Caroline first.
 
 Deleting the token file is what revoking Caroline's access locally means. To revoke it at the other
 end too, remove the app at <https://myaccount.google.com/permissions>, delete the GitHub token, and
@@ -594,6 +596,12 @@ Caroline cannot start: privacy.llmContent is "full" with the remote provider "an
 
 Nothing has started and nothing has been written when you see one of those. Fix the setting and run
 `npm start` again.
+
+For anything that goes wrong after it has started, the log is the place to look, and it is kept
+rather than only printed: `data/logs/caroline.log`, with the boot line naming the path it is actually
+writing to. `CAROLINE_LOG_LEVEL=debug npm start` says a good deal more, including why the classifier
+decided what it did and what each model call cost, and no item's own text appears in it at any
+level.
 
 | What you see | What it is |
 | --- | --- |

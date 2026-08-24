@@ -14,11 +14,13 @@ import { registerEnvironmentSecrets } from './redact.js'
 import {
   credentialFreeUrl,
   fileConfigSchema,
+  logLevels,
   remoteLlmProviders,
   type Config,
   type FileConfig,
   type LlmProviderName,
   type LlmSettings,
+  type LogLevel,
   type ResolvedBudget,
 } from './schema.js'
 
@@ -101,6 +103,24 @@ function envPort(env: NodeJS.ProcessEnv, fallback: number): number {
     )
   }
   return port
+}
+
+/**
+ * `CAROLINE_LOG_LEVEL` predates `logging.level` and keeps working: the environment overrides the
+ * file, as it does everywhere else. A level the logger does not know is refused here rather than
+ * being passed to pino, which would take it as a level of its own and then log nothing at all.
+ * Spec 14, criterion 9.
+ */
+function envLogLevel(env: NodeJS.ProcessEnv, fallback: LogLevel): LogLevel {
+  const raw = nonEmpty(env.CAROLINE_LOG_LEVEL)
+  if (raw === null) return fallback
+
+  if (!(logLevels as readonly string[]).includes(raw)) {
+    throw new ConfigError(
+      `Invalid configuration. logging.level: CAROLINE_LOG_LEVEL must be one of ${logLevels.join(', ')}, got "${raw}".`,
+    )
+  }
+  return raw as LogLevel
 }
 
 /**
@@ -592,6 +612,10 @@ export function loadConfig({ file, env, runtimeChecks = true }: LoadOptions): Co
     classification: parsed.classification,
     chat: parsed.chat,
     planning: parsed.planning,
+    logging: {
+      level: envLogLevel(env, parsed.logging.level),
+      file: parsed.logging.file,
+    },
     privacy: parsed.privacy,
     auth: {
       mode: parsed.auth.mode,

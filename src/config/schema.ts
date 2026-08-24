@@ -17,6 +17,14 @@ import {
  */
 export { contentLevels, contentLevelRank, type ContentLevel }
 
+/**
+ * The levels the logger knows, pino's own set. Declared here rather than imported so that a
+ * configuration file is validated against the same list the environment variable is checked
+ * against, and so that neither has to reach into the logger to be parsed. Spec 14.
+ */
+export const logLevels = ['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'] as const
+export type LogLevel = (typeof logLevels)[number]
+
 export const llmProviders = ['none', 'anthropic', 'openai', 'ollama'] as const
 /**
  * Which provider is configured, not the provider itself. `src/llm/types.ts` owns the
@@ -337,6 +345,46 @@ export const fileConfigSchema = z
       })
       .strict()
       .default({}),
+    /**
+     * Spec 14. Every key has a default, so a file naming no `logging` block, which is every file in
+     * existence today, keeps the level it always had and gains a durable log. `CAROLINE_LOG_LEVEL`
+     * overrides `level` in `load.ts`, the way every other environment variable overrides the file.
+     */
+    logging: z
+      .object({
+        level: z.enum(logLevels).default('info'),
+        file: z
+          .object({
+            enabled: z.boolean().default(true),
+            /**
+             * Null means `logs` inside Caroline's own data directory, derived from `database.path`
+             * exactly as the Google token file's location is. Spec 14: a database pointed at
+             * another disk takes its log with it, which is what keeps spec 09's promise that
+             * nothing Caroline creates lives outside its data directory.
+             */
+            directory: z.string().min(1).nullable().default(null),
+            /**
+             * The live file is rotated before a write that would take it past this, so a line is
+             * never split across two files. Five mebibytes is a number rather than a principle,
+             * which is why it is a key.
+             */
+            maxBytes: z
+              .number()
+              .int()
+              .min(4096)
+              .max(1_073_741_824)
+              .default(5 * 1_048_576),
+            /** Counting the live file. The bound that always holds: `maxBytes * maxFiles` is the
+             * disk to plan for, not a byte guarantee, since a line longer than the cap lands whole. */
+            maxFiles: z.number().int().min(1).max(100).default(5),
+            /** A rotated file older than this goes. The live file never does. */
+            retainDays: z.number().int().min(1).max(365).default(14),
+          })
+          .strict()
+          .default({}),
+      })
+      .strict()
+      .default({}),
     privacy: z
       .object({
         llmContent: z.enum(contentLevels).default('snippet'),
@@ -562,6 +610,18 @@ export interface Config {
     readonly countAllDayEvents: boolean
     /** Whether `review` tasks are candidates at all. Spec 05, criteria 18 and 19. */
     readonly includeReviews: boolean
+  }
+  /** Spec 14. `level` is already resolved: the environment has overridden the file by this point. */
+  readonly logging: {
+    readonly level: LogLevel
+    readonly file: {
+      readonly enabled: boolean
+      /** Null means `logs` beside the database. `src/server/log-destination.ts` resolves it. */
+      readonly directory: string | null
+      readonly maxBytes: number
+      readonly maxFiles: number
+      readonly retainDays: number
+    }
   }
   readonly privacy: {
     readonly llmContent: ContentLevel

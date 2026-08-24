@@ -27,6 +27,7 @@ import type { Database } from '../db/connection.js'
 import { cronInterval, nextCronTime, parseCron, type CronFields } from '../domain/cron.js'
 import type { JobCounts, JobRun, JobRunStatus, JobTrigger } from '../domain/job.js'
 import type { ChangeFeed } from '../server/changes.js'
+import type { OperationalLog } from '../server/log.js'
 
 /** What a job reports. Recording it is the scheduler's, so that every path records it alike. */
 export interface StepResult {
@@ -96,6 +97,11 @@ export interface SchedulerOptions {
   readonly changes?: ChangeFeed
   /** Somewhere for a failure the scheduler itself could not record to go. */
   readonly onError?: (error: unknown, context: string) => void
+  /**
+   * Where the scheduler says what it decided. Spec 14: "why did it do that" about a job is a
+   * question about the decisions here, not about the row the run wrote.
+   */
+  readonly log?: OperationalLog
 }
 
 /** How long shutdown waits for a job in flight before giving up on it. */
@@ -140,6 +146,7 @@ export function createScheduler({
   now = () => Date.now(),
   changes,
   onError,
+  log,
 }: SchedulerOptions): Scheduler {
   const byName = new Map(steps.map((step) => [step.name, step]))
   const inFlight = new Map<string, Promise<unknown>>()
@@ -239,6 +246,7 @@ export function createScheduler({
         status: 'skipped',
         error: 'A run of this job was already in flight, so this one was skipped.',
       })
+      log?.debug({ job, trigger, reason: 'already in flight' }, 'job run skipped')
       return { status: 'already-running' }
     }
 
@@ -272,6 +280,20 @@ export function createScheduler({
       const result = await running
       counts = result.counts ?? {}
       const run = record(job, trigger, startedAt, result)
+      // One line per run, at the level that says what became of it: a failure is worth reading
+      // without being asked for, and a success is the `debug` answer to "did it run at all".
+      const fields = {
+        job,
+        trigger,
+        status: result.status,
+        durationMs: now() - startedAt,
+        ...counts,
+        // The job's own message, which is what it put in the row. It names providers, statuses and
+        // schema paths rather than any item's text. Spec 14.
+        ...(result.error === undefined || result.error === null ? {} : { reason: result.error }),
+      }
+      if (result.status === 'failure') log?.warn(fields, 'job run failed')
+      else log?.debug(fields, 'job run finished')
       return { status: 'ran', run }
     } finally {
       inFlight.delete(job)
@@ -281,6 +303,10 @@ export function createScheduler({
 
   /** One schedule firing: its chain, in order, each step recorded in its own right. */
   async function fire(schedule: Registered, trigger: JobTrigger): Promise<void> {
+    log?.debug(
+      { job: schedule.job, trigger, chain: schedule.chain, dueAt: schedule.nextAt },
+      'schedule firing',
+    )
     for (const step of schedule.chain) {
       // A step that fails does not stop the chain. Items already ingested are still worth
       // sorting, and a classify that never ran because sync could not reach GitHub would be a
@@ -321,6 +347,16 @@ export function createScheduler({
       // Recomputed after the run rather than before it, so that a job which took longer than its
       // interval does not immediately fire again, and so that a failure's backoff is in force.
       schedule.nextAt = nextFor(schedule, now())
+      // With the backoff, because the two numbers together are the whole answer to "when will it
+      // try again", and a job being held back is the thing that looks like a job never running.
+      log?.debug(
+        {
+          job: schedule.job,
+          nextRunAt: schedule.nextAt,
+          backoffUntil: backoffUntil(schedule.job),
+        },
+        'schedule rearmed',
+      )
     }
 
     arm()

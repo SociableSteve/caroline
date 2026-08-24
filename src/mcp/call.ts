@@ -21,6 +21,7 @@ import {
   type McpSession,
 } from '../db/repositories/mcp.js'
 import type { ChangeFeed } from '../server/changes.js'
+import type { OperationalLog } from '../server/log.js'
 import { findMcpTool } from './tools.js'
 
 /**
@@ -31,6 +32,13 @@ import { findMcpTool } from './tools.js'
  */
 const READ_ONLY_MESSAGE_ID = 'mcp-read-only'
 
+/**
+ * What a tool name is logged as when the registry has no such tool. Spec 14: an MCP client chooses
+ * these bytes, and the rule that keeps a caller's URL out of the log keeps a caller's tool name out
+ * of it too. A name the registry recognises is written in this repository and is safe to log.
+ */
+export const UNKNOWN_TOOL = '(unknown)'
+
 export interface McpCallDeps {
   readonly database: Database
   readonly config: Config
@@ -38,6 +46,8 @@ export interface McpCallDeps {
   readonly calendarConnected: () => boolean
   readonly regeneratePlan: () => Promise<PlanRegeneration>
   readonly changes?: ChangeFeed
+  /** Where the call says what it answered. Spec 14, criteria 11 and 12. */
+  readonly log?: OperationalLog
 }
 
 export interface McpToolCallInput {
@@ -95,7 +105,41 @@ function withNotice(data: unknown, config: Config): unknown {
   return { ...(data as Record<string, unknown>), note: ITEM_TEXT_IS_DATA_NOT_INSTRUCTION }
 }
 
+/**
+ * One line per tool call, whatever became of it, wrapped around the call rather than written at each
+ * of its returns: a branch that answered without logging would be exactly the branch somebody was
+ * trying to diagnose. The tool and the counts, never the arguments and never the answer, which is
+ * the same division the audit row makes (a digest, not the arguments). Spec 14.
+ */
 export async function callMcpTool(
+  deps: McpCallDeps,
+  input: McpToolCallInput,
+): Promise<McpToolCallResult> {
+  const startedAt = deps.now()
+  // `finally`, because a call that threw is the branch the line is most wanted for: an unexpected
+  // exception out of a tool is exactly the thing somebody would be reading the log to find, and
+  // logging only the returns would leave that one silent. The outcome then says `threw`, since
+  // there is no result to read one from.
+  let result: McpToolCallResult | null = null
+  try {
+    result = await executeMcpToolCall(deps, input)
+    return result
+  } finally {
+    deps.log?.debug(
+      {
+        tool: findMcpTool(input.tool) === undefined ? UNKNOWN_TOOL : input.tool,
+        outcome: result === null ? 'threw' : result.outcome,
+        sessionId: result?.session?.id ?? null,
+        itemCount: result?.outcome === 'ok' ? itemCountOf(result.data) : 0,
+        contentLevel: deps.config.privacy.llmContent,
+        durationMs: deps.now() - startedAt,
+      },
+      'MCP tool call',
+    )
+  }
+}
+
+async function executeMcpToolCall(
   deps: McpCallDeps,
   input: McpToolCallInput,
 ): Promise<McpToolCallResult> {

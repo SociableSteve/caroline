@@ -39,6 +39,12 @@ The MCP endpoint is the third arrow into the process and the only one an externa
 (spec 12). It is off unless turned on, loopback only, and reaches the same tool registry chat
 reaches rather than a surface of its own.
 
+The one arrow out of the box that is not an integration is the log. Everything the process says
+about itself goes through one redacting stream to stdout and to a bounded, rotated file in
+Caroline's own data directory, so a fault that has already happened can still be investigated on a
+machine nobody was watching (spec 14). It carries no item content at any level, which is what keeps
+it a record of the machine rather than a second copy of the mailbox.
+
 ### Stack
 
 - TypeScript throughout, ESM, Node 24 LTS or later.

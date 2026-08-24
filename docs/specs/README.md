@@ -25,6 +25,7 @@ spec disagree, one of them is a defect: decide which, fix that one.
 | [11-public-site.md](11-public-site.md) | The site that publishes these documents, and how it stays one copy of them |
 | [12-mcp-server.md](12-mcp-server.md) | The tool surface for an external assistant, and how it is authorised |
 | [13-authentication.md](13-authentication.md) | Who may reach Caroline over a network, and how they prove it |
+| [14-operational-logging.md](14-operational-logging.md) | What the process keeps about what it did, how much of it, and how verbose it gets |
 
 ## Conventions
 

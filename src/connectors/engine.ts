@@ -27,6 +27,7 @@ import {
   updateTask,
 } from '../db/repositories/tasks.js'
 import { noCounts, type JobCounts, type JobRunStatus, type JobTrigger } from '../domain/job.js'
+import type { OperationalLog } from '../server/log.js'
 import type { Source, SourceProvider } from '../domain/source.js'
 import { isUntriaged, type Task } from '../domain/task.js'
 import { trackedStatusesFor } from '../domain/tracking.js'
@@ -64,6 +65,11 @@ export interface RunSyncOptions {
   readonly policy: ContentPolicy
   /** Injected so a test can name the moment rather than wait for one. */
   readonly now: () => number
+  /**
+   * Where the pass says what it did. Spec 14: a connector run is one of the places a fault
+   * actually happens, and the `job_runs` row says what became of it without saying why.
+   */
+  readonly log?: OperationalLog
 }
 
 /** A mutable tally, turned into the immutable `JobCounts` when the connector's run ends. */
@@ -447,6 +453,7 @@ export interface ConnectorPassOptions {
   readonly trigger: JobTrigger
   readonly isConfigured: () => boolean
   readonly now: () => number
+  readonly log?: OperationalLog
 }
 
 /**
@@ -467,7 +474,7 @@ export interface ConnectorPassOptions {
  * records, or the two would disagree about when the pass happened.
  */
 export async function runConnectorPass(
-  { database, provider, trigger, isConfigured, now }: ConnectorPassOptions,
+  { database, provider, trigger, isConfigured, now, log }: ConnectorPassOptions,
   work: (tally: Tally, startedAt: number) => Promise<void>,
 ): Promise<ConnectorRunResult> {
   const job = syncJobName(provider)
@@ -485,6 +492,9 @@ export async function runConnectorPass(
       status: 'skipped',
       counts: tally,
     })
+    // Spec 14: the counts and the status are in the row, and the reason a pass did not happen is
+    // the thing a reader of the log is looking for.
+    log?.debug({ provider, trigger, reason: 'not configured' }, 'connector pass skipped')
     return { provider, status: 'skipped', counts: { ...tally }, error: null }
   }
 
@@ -500,6 +510,10 @@ export async function runConnectorPass(
       counts: tally,
     })
 
+    log?.debug(
+      { provider, trigger, durationMs: now() - startedAt, ...tally },
+      'connector pass finished',
+    )
     return { provider, status: 'success', counts: { ...tally }, error: null }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -515,12 +529,18 @@ export async function runConnectorPass(
       ...(error instanceof Error && error.stack !== undefined ? { errorStack: error.stack } : {}),
     })
 
+    // At `warn`: a connector that cannot reach its API is the fault this log exists for, and it is
+    // recorded with what it managed before it stopped rather than as a bare failure.
+    log?.warn(
+      { provider, trigger, durationMs: now() - startedAt, ...tally, err: error },
+      'connector pass failed',
+    )
     return { provider, status: 'failure', counts: { ...tally }, error: message }
   }
 }
 
 function runConnector(options: RunSyncOptions, connector: Connector): Promise<ConnectorRunResult> {
-  const { database, trigger, policy, now } = options
+  const { database, trigger, policy, now, log } = options
 
   return runConnectorPass(
     {
@@ -529,10 +549,23 @@ function runConnector(options: RunSyncOptions, connector: Connector): Promise<Co
       trigger,
       isConfigured: () => connector.isConfigured(),
       now,
+      ...(log === undefined ? {} : { log }),
     },
     async (tally, startedAt) => {
       const since = getSyncCursor(database, connector.provider)
+      log?.debug({ provider: connector.provider, since }, 'connector pass fetching')
       for await (const item of connector.fetch(since)) {
+        // One line per item is `trace` rather than `debug`, because a mailbox is thousands of them.
+        // The external id, never the item's title: spec 14's rule holds at every level.
+        log?.trace(
+          {
+            provider: connector.provider,
+            externalId: item.externalId,
+            backup: item.backupFor !== undefined,
+          },
+          'item seen',
+        )
+
         // An item that says it is a second telling of another connector's is decided by the backup
         // source rule, which may put it back here if it cannot place it. Spec 02.
         if (

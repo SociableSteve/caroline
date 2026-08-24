@@ -689,6 +689,44 @@ blocked task is a nudge on the dashboard rather than work in the plan; a task al
 refused as a blocker, because nothing would release what was filed behind it. Spec 01 criteria 12 to
 20, spec 05 criterion 20, spec 08 criteria 52 to 54, and spec 04 criterion 4 extended in place.
 
+### M19. A log that survives the process, and a level worth turning up
+
+Caroline logged carefully and kept none of it. Every line went through a field redactor, a message
+redactor and a scrubbing stream, and then to stdout, where it existed for as long as somebody was
+watching the terminal. An instance died on an MCP call and the only evidence left on disk was the
+mtime of a WAL file, so the diagnosis was a reconstruction from timestamps against a copy of the
+database and the actual failure was never seen.
+
+This milestone gives the log a destination that outlives the process, and gives the level knob
+something to say. The destination is a plain `Writable` behind the scrubbing stream rather than a
+pino transport, and that is the decision the rest follows from: a transport runs in a worker thread
+and receives lines pino has already encoded, which is past the last of the three points that make a
+line safe, so it would have created a second path to disk that spec 09's guarantee did not cover.
+Rotation is therefore code here (open, size, cascade, prune) rather than a dependency, its writes are
+synchronous, and stdout stays a tee so a supervisor that captures it still works.
+
+Three bounds, because one is not enough: a size cap per file, a file count including the live one, so
+the ceiling is a number the operator can read off their own configuration, and a day bound on the
+rotated files, pruned at open, at every rotation and at most hourly on a write. A bound that only
+holds while the process is busy is not a bound. `uncaughtException` and `unhandledRejection` now
+reach the same destination at `fatal`, with the exception, its stack and the fact that the process is
+going away, and the process still exits non-zero.
+
+The verbose half is a contract as much as a set of call sites. An item's own text never appears in a
+log line at any level: no subject, no title, no body, no snippet, and no model answer derived from
+them. Ids, counts, statuses, durations, decisions and confidences only, which keeps a persisted log
+out of the content-holding class, keeps deletion simple, and is what makes a `debug` level safe to
+add at all. On the same reasoning, caller-chosen bytes are logged as what Caroline recognised: an MCP
+tool name in the registry or `(unknown)`, and a refusal by its reason rather than by the header that
+was refused.
+
+Exit: an instance left running writes `data/logs/caroline.log`, rotated and bounded, with a
+configured secret redacted in the file as well as on the terminal; a crash is in the file rather than
+on an unwatched stderr; `CAROLINE_LOG_LEVEL=debug` says what the scheduler, the connectors, the
+provider, the classifier, the planner and the MCP surface decided; a distinctive task title appears
+nowhere in it; and `npm run delete-data` removes the log and its directory. New spec 14, spec 09
+criterion 6 extended in place and criterion 28 appended.
+
 ## Test strategy
 
 - **Domain**: pure unit tests, no database.

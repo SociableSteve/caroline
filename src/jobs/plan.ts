@@ -39,6 +39,7 @@ import {
 import type { Task } from '../domain/task.js'
 import { formatLocalDate, instantAt, localDateAt, type LocalDate } from '../domain/time.js'
 import type { LlmRuntime } from '../llm/index.js'
+import type { OperationalLog } from '../server/log.js'
 import {
   buildPlanPayload,
   planRequestText,
@@ -59,6 +60,11 @@ export interface PlanJobOptions {
   readonly now: () => number
   /** The day to plan. Defaults to today in the configured zone. */
   readonly date?: LocalDate
+  /**
+   * Where the planner says what it had to work with. Spec 14: capacity, candidates and counts,
+   * which is the arithmetic behind a plan, rather than the plan's own prose.
+   */
+  readonly log?: OperationalLog
 }
 
 export interface PlanResult {
@@ -78,7 +84,7 @@ function skipped(error: string): PlanResult {
  * `job_runs` row, so a manual run and a scheduled one are recorded the same way.
  */
 export async function runPlanning(options: PlanJobOptions): Promise<PlanResult> {
-  const { config, llm, now } = options
+  const { config, llm, now, log } = options
 
   // At `none` there is nothing the model could be told about a task, not even its title, so
   // planning is disabled rather than attempted with a list of identifiers. Spec 09.
@@ -99,6 +105,21 @@ export async function runPlanning(options: PlanJobOptions): Promise<PlanResult> 
   const timeZone = config.jobs.timezone
   const date = options.date ?? localDateAt(now(), timeZone)
   const day = dayContext(options, date, timeZone)
+
+  log?.debug(
+    {
+      date: formatLocalDate(date),
+      capacityMinutes: day.capacity?.capacityMinutes ?? 0,
+      windowMinutes: day.capacity?.windowMinutes ?? 0,
+      busyMinutes: day.capacity?.busyMinutes ?? 0,
+      capacityVerified: day.capacityVerified,
+      candidates: day.candidates.length,
+      chases: day.nudges.length,
+      blocked: day.blocked.length,
+      warnings: day.warnings.length,
+    },
+    'planning the day',
+  )
 
   try {
     return await draw(options, date, timeZone, day)
@@ -200,7 +221,7 @@ function dayContext(
 
 /** Asks the model, applies the rules, and writes the result. */
 async function draw(
-  { database, config, llm, now }: PlanJobOptions,
+  { database, config, llm, now, log }: PlanJobOptions,
   date: LocalDate,
   timeZone: string,
   day: DayContext,
@@ -229,6 +250,22 @@ async function draw(
     defaultEstimateMinutes: config.planning.defaultEstimateMinutes,
     dueBy: day.dueBy,
   })
+
+  // The arithmetic, not the plan's prose: a summary and a rationale are Caroline's writing about
+  // somebody's work, which spec 09 counts as content and spec 14 keeps out of the log.
+  log?.debug(
+    {
+      date: planDate,
+      capacityMinutes,
+      asked: provider !== null,
+      model: provider?.model ?? null,
+      ranked: answer.entries.length,
+      entries: rules.entries.length,
+      overflow: rules.overflow.length,
+      warnings: rules.warnings.length,
+    },
+    'plan drawn',
+  )
 
   const plan = recordDailyPlan(database, {
     planDate,

@@ -18,6 +18,7 @@ import { canonicalResourceUri } from '../../src/mcp/oauth/resource.js'
 import { upsertSource } from '../../src/db/repositories/sources.js'
 import { createTask } from '../../src/db/repositories/tasks.js'
 import { loadConfig } from '../../src/config/load.js'
+import { captureLog } from '../helpers/log-capture.js'
 import { testConfig, testServer, REQUEST_TIME } from '../helpers/test-server.js'
 
 function mcpConfig(overrides: Partial<Config['privacy']> = {}): Config {
@@ -1016,5 +1017,129 @@ describe('with mcp.enabled true', () => {
     )
 
     expect(JSON.stringify(response.json())).not.toContain('Steve Example')
+  })
+})
+
+/**
+ * What this surface says about a refusal. Spec 14 criterion 12: the reason, never the value, because
+ * an `Origin`, a `Host` and a bearer token are all bytes the caller chose, and spec 09's rule about a
+ * request's URL is a rule about caller-chosen bytes rather than about URLs in particular.
+ */
+describe('what a refusal says in the log (spec 14 criterion 12)', () => {
+  /**
+   * An install that names a public URL, which is what makes this route's own `Origin` and `Host`
+   * checks reachable over HTTP at all.
+   *
+   * `isAcceptableMcpOrigin` accepts a loopback hostname and nothing else (spec 12, criterion 9),
+   * while the request-level gate of spec 13 also accepts `server.publicUrl`'s origin, and
+   * `isAcceptableHost` its hostname, both a deliberate widening documented in `src/auth/origin.ts`.
+   * So the public origin and the public host pass the gate, reach this hook, and are refused here:
+   * the two arms are ordinary requests rather than shapes only reachable from inside the process.
+   */
+  const publicUrlConfig = (): Config => ({
+    ...mcpConfig(),
+    server: { ...testConfig.server, publicUrl: 'https://caroline.example.com' },
+  })
+
+  it('logs that an Origin was refused, and never the Origin', async () => {
+    const config = publicUrlConfig()
+    const { lines, stream } = captureLog()
+    const { app, database } = await testServer({ config, logger: { level: 'debug', stream } })
+
+    const response = await post(app, database, config, rpc('server/discover'), {
+      origin: 'https://caroline.example.com',
+      host: 'caroline.example.com',
+    })
+
+    expect(response.statusCode).toBe(403)
+    expect(response.json()).toEqual({ error: 'origin not accepted' })
+    const logged = lines.join('')
+    expect(logged).toContain('"refusal":"origin not accepted"')
+    expect(logged).not.toContain('caroline.example.com')
+  })
+
+  it('logs that a Host was refused, and never the Host', async () => {
+    const config = publicUrlConfig()
+    const { lines, stream } = captureLog()
+    const { app, database } = await testServer({ config, logger: { level: 'debug', stream } })
+
+    const response = await post(app, database, config, rpc('server/discover'), {
+      host: 'caroline.example.com',
+    })
+
+    expect(response.statusCode).toBe(403)
+    expect(response.json()).toEqual({ error: 'host not accepted' })
+    const logged = lines.join('')
+    expect(logged).toContain('"refusal":"host not accepted"')
+    expect(logged).not.toContain('caroline.example.com')
+  })
+
+  it('logs that there was no credential, at all, rather than what arrived', async () => {
+    const { lines, stream } = captureLog()
+    const { app, database } = await testServer({
+      config: mcpConfig(),
+      logger: { level: 'debug', stream },
+    })
+
+    const response = await post(app, database, mcpConfig(), rpc('server/discover'), {
+      authorization: '',
+    })
+
+    expect(response.statusCode).toBe(401)
+    expect(lines.join('')).toContain('"refusal":"no bearer token"')
+  })
+
+  it('logs the reason for a refused token and not the token', async () => {
+    const { lines, stream } = captureLog()
+    const { app, database } = await testServer({
+      config: mcpConfig(),
+      logger: { level: 'debug', stream },
+    })
+
+    const response = await post(app, database, mcpConfig(), rpc('server/discover'), {
+      authorization: 'Bearer ghp-smuggled-in-a-token',
+    })
+
+    expect(response.statusCode).toBe(401)
+    const logged = lines.join('')
+    expect(logged).toContain('"refusal":"token not accepted"')
+    expect(logged).not.toContain('ghp-smuggled-in-a-token')
+  })
+
+  /**
+   * The requests that are not refused, held to the same rule. Spec 14, criterion 15: the client
+   * identifier is an https URL the client chose, so it is caller-chosen bytes exactly as a header
+   * is, and what is logged is the id of the grant Caroline minted for the token presented.
+   */
+  it('logs an authorised request by the grant Caroline issued, not by the client identifier', async () => {
+    const { lines, stream } = captureLog()
+    const { app, database } = await testServer({
+      config: mcpConfig(),
+      logger: { level: 'debug', stream },
+    })
+
+    const response = await post(app, database, mcpConfig(), rpc('server/discover'))
+
+    expect(response.statusCode).toBe(200)
+    const logged = lines.join('')
+    expect(logged).toContain('MCP request authorised')
+    expect(logged).toContain('"grantId"')
+    expect(logged).not.toContain(TEST_CLIENT_ID)
+    expect(logged).not.toContain('clientId')
+  })
+
+  it('logs a method it does not have as unknown, and not by the name it was sent', async () => {
+    const { lines, stream } = captureLog()
+    const { app, database } = await testServer({
+      config: mcpConfig(),
+      logger: { level: 'debug', stream },
+    })
+
+    const response = await post(app, database, mcpConfig(), rpc('ghp/smuggled-in-a-method-name'))
+
+    expect(response.statusCode).toBe(200)
+    const logged = lines.join('')
+    expect(logged).toContain('MCP method not found')
+    expect(logged).not.toContain('smuggled-in-a-method-name')
   })
 })

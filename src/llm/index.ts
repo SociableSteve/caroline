@@ -6,13 +6,14 @@
 import type { Config, LlmSettings } from '../config/schema.js'
 import type { LlmPurpose } from '../domain/llm.js'
 import type { Database } from '../db/connection.js'
+import type { OperationalLog } from '../server/log.js'
 import { createAnthropicAdapter } from './adapters/anthropic.js'
 import { createOllamaAdapter } from './adapters/ollama.js'
 import { createOpenAiAdapter } from './adapters/openai.js'
 import { createBudgetGate, noHold, withBudget, type BudgetReservation } from './budget.js'
 import { llmCallRecorder } from './recording.js'
 import { withSchemaValidation } from './structured.js'
-import { LlmError, type LlmProvider } from './types.js'
+import { LlmError, type CompletionAttempt, type LlmProvider } from './types.js'
 
 export type { LlmProvider } from './types.js'
 
@@ -88,6 +89,12 @@ export interface LlmRuntimeOptions extends AdapterOverrides {
   readonly now?: () => number
   /** Told when a usage row could not be written, which never fails the call itself. */
   readonly onRecordingError?: (error: unknown) => void
+  /**
+   * Where each attempt says what it cost and what became of it. Spec 14: the same facts the
+   * `llm_calls` row holds, in the log, because a provider that is slow or refusing is a fault and
+   * the log is where a fault is diagnosed.
+   */
+  readonly log?: OperationalLog
 }
 
 export function createLlmRuntime({
@@ -96,6 +103,7 @@ export function createLlmRuntime({
   now,
   fetch,
   onRecordingError,
+  log,
 }: LlmRuntimeOptions): LlmRuntime {
   // Built once per purpose and kept: an adapter holds an SDK client with its own connection
   // pool, and a fresh one per call would throw that away every time.
@@ -105,7 +113,38 @@ export function createLlmRuntime({
   /** The ceiling is per provider, and a purpose's provider is whatever its settings name. */
   function refusalFor(purpose: LlmPurpose): string | null {
     const { provider } = settingsFor(config, purpose)
-    return provider === 'none' ? null : gate.refusalFor(provider)
+    const refusal = provider === 'none' ? null : gate.refusalFor(provider)
+    // A refusal is the answer to "why did nothing happen today", and it is a decision rather than a
+    // failure, so it is only ever read out of the log. Spec 14.
+    if (refusal !== null)
+      log?.debug({ purpose, provider, reason: refusal }, 'provider call refused')
+    return refusal
+  }
+
+  /**
+   * One line per provider attempt, beside the row `recording.ts` writes. Both are wanted: the row
+   * is the cost view's, and the line is what a person reading the log at `debug` needs to see that
+   * a call was slow, retried or refused. Spec 14, criterion 11.
+   */
+  function attemptLogger(
+    purpose: LlmPurpose,
+    adapter: Pick<LlmProvider, 'name' | 'model'>,
+  ): (attempt: CompletionAttempt) => void {
+    return (attempt) => {
+      const fields = {
+        purpose,
+        provider: adapter.name,
+        model: adapter.model,
+        status: attempt.status,
+        durationMs: attempt.durationMs,
+        inputTokens: attempt.usage.inputTokens,
+        outputTokens: attempt.usage.outputTokens,
+        // The validator's own words, which name schema paths rather than the answer that failed.
+        ...(attempt.error === null ? {} : { reason: attempt.error }),
+      }
+      if (attempt.status === 'success') log?.debug(fields, 'provider call finished')
+      else log?.warn(fields, 'provider call did not answer usably')
+    }
   }
 
   /**
@@ -138,11 +177,20 @@ export function createLlmRuntime({
       // The ceiling is checked outside the validate-and-retry loop, so a refusal is not an attempt:
       // it spends no tokens and writes no `llm_calls` row, and the one reservation the check takes
       // covers the retry as well as the first call. Spec 03, criteria 11 and 12.
+      const record =
+        database === undefined
+          ? null
+          : llmCallRecorder(database, adapter, purpose, onRecordingError)
+      const say = attemptLogger(purpose, adapter)
+
       const provider = withBudget(
         withSchemaValidation(adapter, {
-          ...(database === undefined
-            ? {}
-            : { onAttempt: llmCallRecorder(database, adapter, purpose, onRecordingError) }),
+          // Both sinks behind one hook, because `withSchemaValidation` reports each attempt once
+          // and neither the row nor the line may cost the other.
+          onAttempt: (attempt) => {
+            record?.(attempt)
+            say(attempt)
+          },
           ...(now === undefined ? {} : { now }),
         }),
         (tokens) => reserveFor(purpose, tokens),

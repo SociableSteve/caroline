@@ -122,6 +122,11 @@ export interface TestServerOptions {
    * `GET /api/mcp/authorize` without reaching a real network. Undefined means the real one,
    * which every such test therefore has to stub explicitly. */
   readonly mcpClientMetadataFetch?: Parameters<typeof buildServer>[0]['mcpClientMetadataFetch']
+  /**
+   * Where the server's log lines go, for a test about what is logged rather than about the answer.
+   * Defaults to the server's own, which in the suite is the terminal running vitest.
+   */
+  readonly logger?: Parameters<typeof buildServer>[0]['logger']
 }
 
 export async function testServer({
@@ -133,6 +138,7 @@ export async function testServer({
   config = testConfig,
   authFetch,
   mcpClientMetadataFetch,
+  logger,
 }: TestServerOptions = {}): Promise<TestServer> {
   const changes = createChangeFeed()
   const published: ChangeEvent[] = []
@@ -179,6 +185,7 @@ export async function testServer({
     jobs: finalJobs,
     authFetch: authFetch ?? refuseNetwork,
     ...(mcpClientMetadataFetch === undefined ? {} : { mcpClientMetadataFetch }),
+    ...(logger === undefined ? {} : { logger }),
     webRoot: NO_BUILT_WEB_ROOT,
   })
   openApps.push(app)

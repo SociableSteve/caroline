@@ -61,7 +61,24 @@ read from the environment only: a key in the config file is a startup error.
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`                                  | LLM key for the selected provider                         |
 | `GITHUB_TOKEN`                                                         | Fine-grained personal access token, read-only             |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`                             | OAuth client from your own Google Cloud project           |
-| `CAROLINE_LOG_LEVEL`                                                   | Pino log level. Default `info`                            |
+| `CAROLINE_LOG_LEVEL`                                                   | Log level, overriding `logging.level`. Default `info`     |
+
+`logging` decides what Caroline keeps about what it did. The log goes to stdout and to a file in
+Caroline's own data directory, `data/logs/caroline.log` by default, so a fault that has already
+happened can be investigated on a machine nobody was watching. What survives is bounded:
+`logging.file.maxBytes` rotates the live file (5 MiB), `logging.file.maxFiles` is how many exist at
+once including it (five, so around 25 MiB to plan for), and `logging.file.retainDays` ages the
+rotated ones out (a fortnight). The bound that always holds is the file count, since a line longer
+than the cap is written whole rather than split and takes its file past 5 MiB.
+`logging.file.directory` puts them somewhere else, `logging.file.enabled` turns the file off, and
+`npm run delete-data` removes them along with everything else.
+
+`logging.level` sets how much is said, and `CAROLINE_LOG_LEVEL` overrides it. At `info` you get the
+boot line, a matched pair per request and each job's outcome; at `debug` you also get the
+scheduler's decisions, each connector pass, each model call with its timings and tokens, the
+classifier's decision per task and the planner's arithmetic. No item's own text appears in a log
+line at any level: ids, counts, statuses and confidences only, which is what keeps a log on disk out
+of the content policy's way. [Spec 14](docs/specs/14-operational-logging.md) is the whole of it.
 
 `tasks.waitingStaleDays` sets how long something may sit in Waiting for before it is called
 out as gone quiet, in the column and on the dashboard. Seven days by default, per
@@ -270,9 +287,9 @@ npm run delete-data -- --yes   # removes it
 ```
 
 The database, the SQLite sidecars a crash leaves behind, the Google token file and the temporary
-sibling an interrupted token write leaves: everything Caroline writes. Anything else in the data
-directory is left alone and named in the output, and the directory itself goes only if Caroline had
-written something in it and it is empty afterwards. Stop Caroline first.
+sibling an interrupted token write leaves, and the log files and their directory: everything Caroline
+writes. Anything else in the data directory is left alone and named in the output, and a directory
+goes only if Caroline had written something in it and it is empty afterwards. Stop Caroline first.
 
 ## Development
 

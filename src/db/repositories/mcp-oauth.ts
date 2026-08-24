@@ -372,6 +372,12 @@ export interface IssuedTokenPair {
 }
 
 export interface McpAccessGrant {
+  /**
+   * The token row's own id, which Caroline minted. Carried so that a caller with something to say
+   * about an authorised request can name it without naming the client identifier, which is a URL
+   * the client chose (spec 14, criterion 15).
+   */
+  readonly id: string
   readonly clientId: string
   readonly resource: string
   readonly revokedAt: number | null
@@ -476,13 +482,14 @@ export function findAccessGrant(
     .all()
     .map((raw) => {
       const row = raw as Row
-      return { hash: String(row.access_token_hash), ...toGrantFields(row) }
+      return { hash: String(row.access_token_hash), id: String(row.id), ...toGrantFields(row) }
     })
 
   const found = findByHash(rows, presentedToken)
   if (found === null || found.accessExpiresAt <= now) return null
 
   return {
+    id: found.id,
     clientId: found.clientId,
     resource: found.resource,
     revokedAt: found.revokedAt,
