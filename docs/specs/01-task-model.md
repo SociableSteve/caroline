@@ -115,9 +115,9 @@ triage is genuinely free-form. Two rules constrain it:
 
 Rule 3 exists because of rule 2. A status change is cheap to make and, when the actor is the
 user, permanent in its effect: it takes the task out of the classifier's reach for good. On the
-board a change is a single keypress (spec 08), so the cost of a mistake and the cost of making
-one are badly matched. Putting a status back therefore has to restore the actor as well as the
-status, and that means knowing what the actor was.
+board a change is a drag, or one pick from the card's status control (spec 08), so the cost of a
+mistake and the cost of making one are badly matched. Putting a status back therefore has to
+restore the actor as well as the status, and that means knowing what the actor was.
 
 One step, not a history. Each change overwrites the previous pair, so what is recoverable is the
 last change and nothing before it. A task never changed since creation has both columns null and

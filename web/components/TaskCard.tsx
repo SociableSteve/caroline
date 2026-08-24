@@ -2,7 +2,7 @@
  * One card. Everything that matters about a task is on it: nothing is behind a hover, per
  * spec 08, and every state that is carried by colour is also carried by text.
  */
-import { useEffect, useState, type KeyboardEvent } from 'react'
+import { useEffect, useState } from 'react'
 import {
   boardStatuses,
   movableStatuses,
@@ -97,9 +97,6 @@ export interface TaskCardProps {
   readonly onSelect?: ((item: ItemRef) => void) | undefined
   /** Whether this is the task the rail is showing, so the card says which one is open. */
   readonly selected?: boolean | undefined
-  /** The board hands this in to drive its own keyboard grid. */
-  readonly onKeyDown?: ((event: KeyboardEvent<HTMLElement>) => void) | undefined
-  readonly registerRef?: ((id: string, element: HTMLElement | null) => void) | undefined
 }
 
 /**
@@ -128,8 +125,6 @@ export function TaskCard({
   onUndoStatus,
   onSelect,
   selected = false,
-  onKeyDown,
-  registerRef,
 }: TaskCardProps) {
   // Deleting is one click away but never one click: the card asks, in place, rather than
   // through a browser dialog that a keyboard user has to leave the board to answer.
@@ -201,10 +196,11 @@ export function TaskCard({
           selected && 'card-open border-chart-2/50',
         )}
         aria-label={task.title}
+        // Focusable, so tabbing through the board announces each card by its title before the
+        // controls on it. It answers no keys of its own: everything a key used to do is a control
+        // inside the card. Spec 08, criteria 8 and 56.
         tabIndex={0}
         draggable
-        ref={(element) => registerRef?.(task.id, element)}
-        onKeyDown={onKeyDown}
         onDragStart={(event) => {
           event.dataTransfer.setData('text/plain', task.id)
           event.dataTransfer.effectAllowed = 'move'
@@ -402,16 +398,9 @@ export function TaskCard({
         </ActionRow>
 
         <details className="mt-2">
-          {/*
-           * The summary takes the board's own key handler. Without it the disclosure would be a
-           * dead end for the keyboard: the board reads its shortcuts from the card and ignores
-           * anything raised inside it, which is right for the select and the buttons but wrong
-           * for a summary, where a digit or a `d` is still a board command and not typing.
-           * Criterion 15.
-           */}
-          <summary className="cursor-pointer text-sm text-muted-foreground" onKeyDown={onKeyDown}>
-            More
-          </summary>
+          {/* A native summary, so it is in the tab order and opens on Enter or Space, and the
+              controls it holds join the tab order with it. Criterion 15. */}
+          <summary className="cursor-pointer text-sm text-muted-foreground">More</summary>
 
           <ActionRow className="mt-2 text-sm">
             <Field label={`Status of ${task.title}`} hiddenLabel>

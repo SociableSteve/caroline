@@ -125,25 +125,17 @@ describe('a card carrying a proposal', () => {
     expect(handlers.onDismissProposal).toHaveBeenCalledWith('task-1')
   })
 
-  /** Spec 08 criterion 8: the board is operable from the keyboard alone, this action included. */
-  it('accepts from the keyboard', async () => {
+  /**
+   * Spec 08 criterion 8: the board is operable from the keyboard alone, this action included. Through
+   * the button, since criterion 56 leaves the board no key of its own to answer.
+   */
+  it('accepts from the keyboard, on the button itself', async () => {
     const handlers = renderBoard({ tasks: [proposed] })
 
-    card().focus()
-    await userEvent.keyboard('a')
+    within(card()).getByRole('button', { name: 'Accept' }).focus()
+    await userEvent.keyboard('{Enter}')
 
     expect(handlers.onAcceptProposal).toHaveBeenCalledWith('task-1')
-  })
-
-  it('does nothing on that key for a task with no suggestion', async () => {
-    const handlers = renderBoard({
-      tasks: [aTask({ id: 'task-2', title: 'Nothing suggested here' })],
-    })
-
-    screen.getByRole('article', { name: 'Nothing suggested here' }).focus()
-    await userEvent.keyboard('a')
-
-    expect(handlers.onAcceptProposal).not.toHaveBeenCalled()
   })
 })
 
