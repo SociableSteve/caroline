@@ -188,6 +188,16 @@ export function createScheduler({
     return held === null ? cron : Math.max(cron, held)
   }
 
+  /**
+   * That a run has started. Announced before the work is awaited, so a surface showing whether a
+   * job is going hears about it while it is going rather than once it is over: a scheduled sync
+   * that is announced only on completion leaves every open tab reporting the machine as idle for
+   * exactly the window somebody is watching it in. Spec 06, criterion 8.
+   */
+  function announceStart(): void {
+    changes?.publish({ kind: 'jobs', at: now() })
+  }
+
   function announce(counts: Partial<JobCounts>): void {
     if (changes === undefined) return
 
@@ -247,6 +257,7 @@ export function createScheduler({
     })()
 
     inFlight.set(job, running)
+    announceStart()
 
     try {
       const result = await running

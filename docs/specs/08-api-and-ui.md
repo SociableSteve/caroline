@@ -243,6 +243,26 @@ That is the surface's second write path after the user's name, and it is here ra
 client's own interface because an approval decided anywhere else is an approval Caroline cannot
 show you afterwards.
 
+**The header, and Sync now.** The header carries the five links and three controls that work from
+every surface: Sync now, Quick capture and Chat. Sync now is the manual trigger spec 06 asks be
+first-class, for when you know something has just landed, and a trigger that says nothing when it is
+pressed is not first-class: a click that changes nothing about the control is indistinguishable from
+a missed click, and the natural response to it is a second click.
+
+So the control reports the run. The press is acknowledged at once, before the request answers,
+because the request does not answer until the sync has finished; while a run is going the control
+says so and is not pressable, so a second press cannot ask for a second run; and between runs it
+says how the last one went and when, which is what tells the reader a failed sync failed rather than
+stalled. A failure leaves it pressable, because the answer to a failed sync is usually to try again.
+
+What it reports is the sync job's own state, read from `GET /api/jobs/status` alongside everything
+else the client loads, rather than a second idea of its own kept beside the scheduler's. The
+scheduler is the one authority on whether a job is going (spec 06), so a run the scheduler started
+reads in the header exactly as one the button started, and the header cannot claim the machine is
+idle while a scheduled sync is under way. The one piece of state the header does keep is the gap
+between the press and the first answer from the server, which is what makes the acknowledgement
+immediate; it is folded into the scheduler's answer rather than substituted for it.
+
 How the SPA authenticates itself is **spec 13's, and is settled there rather than here.** An earlier
 draft of this paragraph had the SPA carrying a configured access token on every request and on the
 change feed, which assumed a page with no login had been given the token somehow and said nothing
@@ -471,3 +491,13 @@ describes. That adds the following, appended for the same reason.
     `unverifiedCapacityNotice` so that the two cannot word the same fact differently (spec 05,
     criterion 10); the surface renders the sentence a single time, and still renders it on a day
     with no plan at all, which is the case the live reading exists for.
+
+Making a sync in progress visible from the header adds the following, appended for the same reason.
+
+49. Pressing **Sync now** is acknowledged before the request answers: the control reports the run as
+    under way from the press itself, and is not pressable while it is under way, so a second press
+    during a run asks the server for nothing.
+50. The header's sync control reads the sync job's state from `GET /api/jobs/status` rather than
+    keeping one of its own, so a run the scheduler started reports as under way in the header too.
+    Between runs the header says how the last sync went, success or failure, and when, without
+    leaving the surface to find out; a failed run leaves the control pressable.

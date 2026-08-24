@@ -278,7 +278,11 @@ card with the rest of its proposal.
 - **Jobs** is the first place to look. Every background job, when it last ran, what it did, when it
   goes next, and the error in words if it failed. **Run now** takes the same path a scheduled run
   takes.
-- **Sync now** in the header runs the connectors immediately.
+- **Sync now** in the header runs the connectors immediately. Beside it, the header says
+  **Syncing** while a run is going, whether you started it or the schedule did, and the button
+  cannot be pressed again until it finishes. Between runs it says how the last one went and when,
+  so a sync that failed reads as failed rather than as one still going, and the button stays
+  pressable so you can try again.
 - Nothing arriving, a column staying empty, or a Google connection that dies weekly: the
   [troubleshooting table](setup.md#troubleshooting) names the cause of each.
 - Anything else is worth reading a [spec](specs/README.md) about. They are the contract the tests hold

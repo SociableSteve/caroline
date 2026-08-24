@@ -51,6 +51,11 @@ Every attempt writes a `job_runs` row: job name, trigger, started-at, finished-a
 reclassified, LLM calls), and the error message and stack on failure. Retained for a
 configurable window, default 30 days.
 
+A run announces itself on the change feed (spec 08) twice: once when it starts and once when it
+finishes. Announcing only the finish would have every open surface report the job as idle for the
+whole time it was running, which is precisely the window somebody watching for a result is looking
+at it in.
+
 The sync job writes a row per connector, named `sync:<provider>`, and one aggregate row named
 `sync`. The aggregate answers "did the pass work at all", so it fails only when every
 configured connector failed, which is the case where holding the whole job back is right; a
@@ -85,3 +90,10 @@ start does not fire everything at the same second.
    queueing a second run.
 7. A job failure never leaves the process in a state where subsequent scheduled runs stop
    firing.
+
+Making a run in progress visible while it is in progress adds the following, appended rather than
+renumbered because the code and the suite cite these by number.
+
+8. A run announces itself on the change feed when it starts, as well as when it finishes, whichever
+   trigger asked for it. A surface showing whether a job is going is therefore told at the start of
+   a scheduled run rather than only at the end of one.

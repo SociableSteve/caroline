@@ -163,8 +163,38 @@ describe('running a job', () => {
 
     await scheduler.run('sync', 'manual')
 
-    // `itemsSeen` alone changed nothing on the board, so only the jobs surface is stale.
+    // Once for the start and once for the finish (criterion 8). `itemsSeen` alone changed nothing
+    // on the board, so only the jobs surface is stale either time.
+    expect(published.map((event) => event.kind)).toEqual(['jobs', 'jobs'])
+  })
+
+  /**
+   * Spec 06, criterion 8: the start is announced too, so a surface showing whether a job is going
+   * is told while it is going rather than once it is over.
+   */
+  it('announces the start of a run before the run has finished', async () => {
+    const database = migratedDatabase()
+    let release = () => {}
+    const slow = step(
+      'sync',
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve({ status: 'success' as const, counts: { itemsSeen: 1 } })
+        }),
+    )
+    const { scheduler, published } = build(database, [slow.step], [])
+
+    const running = scheduler.run('sync', 'scheduled')
+    await Promise.resolve()
+
     expect(published.map((event) => event.kind)).toEqual(['jobs'])
+    expect(scheduler.isRunning('sync')).toBe(true)
+    expect(listJobRuns(database)).toEqual([])
+
+    release()
+    await running
+
+    expect(published.map((event) => event.kind)).toEqual(['jobs', 'jobs'])
   })
 
   it('announces the board as well when the run changed something on it', async () => {
@@ -176,7 +206,7 @@ describe('running a job', () => {
 
     await scheduler.run('sync', 'manual')
 
-    expect(published.map((event) => event.kind)).toEqual(['jobs', 'tasks', 'projects'])
+    expect(published.map((event) => event.kind)).toEqual(['jobs', 'jobs', 'tasks', 'projects'])
   })
 })
 

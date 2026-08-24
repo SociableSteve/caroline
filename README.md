@@ -127,9 +127,10 @@ classic token with the `repo` scope instead: [docs/setup.md](docs/setup.md#5-git
 Read-only either way: Caroline never writes to GitHub, so there are no comments, no approvals and
 no labels.
 
-With a token set, a sync runs when the server starts and whenever you press **Sync now**, and
-each run does two passes: it searches for open pull requests requesting your review, then
-refetches every one it already knows about. The second pass is the important one. A review
+With a token set, a sync runs when the server starts and whenever you press **Sync now**. The
+header says **Syncing** while a run is going, whoever started it, and says how the last one went
+once it is over. Each run does two passes: it searches for open pull requests requesting your
+review, then refetches every one it already knows about. The second pass is the important one. A review
 request disappears from GitHub's search the moment you submit a review, so without it a pull
 request would vanish from Caroline exactly when it became somebody else's turn.
 
