@@ -475,6 +475,14 @@ describe('the keyboard grid the board used to carry', () => {
       await userEvent.keyboard(key)
     }
 
+    // `r` has to be pressed on a card the action actually applied to. The removed branch was gated
+    // on the same predicate as the card's button, which an inbox task fails, so `r` on the card
+    // above was silent before the grid went too and proves nothing about its removal.
+    const reviewCard = screen.getByRole('article', { name: aReviewTask().title })
+    reviewCard.focus()
+    await userEvent.keyboard('r')
+    expect(reviewCard).toHaveFocus()
+
     expect(handlers.onStatusChange).not.toHaveBeenCalled()
     expect(handlers.onComplete).not.toHaveBeenCalled()
     expect(handlers.onMarkReviewed).not.toHaveBeenCalled()

@@ -367,9 +367,10 @@ here is the behaviour each surface owes the reader; what is there is what they a
 10. A waiting item past the staleness threshold is visually distinguished in the column and
     listed on the dashboard.
 
-Criteria 1 to 10 keep their numbers, which are referenced by name throughout the code and the suite,
-and criterion 8 is the only one of them that has been reworded since. The design pass adds the
-following, appended rather than renumbered for that reason.
+Criteria 1 to 10 keep their numbers, which are cited by number throughout the code and the suite, so
+one that has been reworded or extended since keeps the number it was written under and says so where
+it stands rather than being renumbered or replaced. The design pass adds the following, appended
+rather than renumbered for that reason.
 
 11. The dashboard's bands render in the order given above at every width, and no panel of band 3
     is laid out at the size of a band 1 panel.
@@ -383,7 +384,9 @@ following, appended rather than renumbered for that reason.
     remains visible without a hover, a click or a disclosure.
 15. A card's secondary controls are reachable by keyboard, and opening the disclosure that holds them
     puts each of them in the tab order, so a control inside it is reached the same way one on the face
-    of the card is.
+    of the card is. (Second clause reworded by issue #89: it described the board's own grid reaching
+    inside the disclosure, and now states what is owed without one, the tab order. The contract is
+    the same, that the disclosure is not a keyboard dead end.)
 16. `POST /api/tasks/:id/undo-status` restores both the previous status and the previous
     `status_set_by`, so a task moved by mistake and then undone is once again a task the
     classifier may act on.
@@ -551,7 +554,9 @@ reason.
     which.
 53. The Blocked column is not a drop target, and no other control on the board files a card into it. A
     card leaving the column by any route loses its blocker along with the status, and the card's status
-    control offers `blocked` only to a card that is already in it.
+    control offers `blocked` only to a card that is already in it. (Reworded by issue #89: "its digit"
+    became "no other control on the board", since the digits went with the grid. The column is closed
+    to the same extent it always was.)
 54. The card's blocker picker offers only tasks that could still finish, so completed work is not
     among them, and it says which task the card is behind even where that task is not one of the
     ones loaded. The rail's details panel names the blocker too, since nothing around it does.
