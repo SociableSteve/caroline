@@ -652,6 +652,43 @@ provider. Spec 03 criteria 8 to 15, spec 09 criterion 27, and spec 04 criterion 
 own: what the route answers and what the panel says are spec 03 criterion 15's, and a second copy
 here would be one to drift.
 
+### M18. Blocking one task behind another
+
+Work that cannot start because something else has to finish first had nowhere honest to sit. It
+went into Waiting for, which is a list of people to chase, and there it either read as somebody
+else's move when it was not, or sat in Next actions being proposed as work that could not be done.
+Spec 01's definition of `waiting` said "blocked on someone or something else", and that "or
+something else" is why the two looked like one state.
+
+This milestone gives it a state of its own. `blocked` is an eighth status and `blocked_by` a real
+reference to the blocking task, and the two are one fact rather than two: the invariant
+`(status = 'blocked') = (blocked_by is not null)` is a table check constraint, so the database
+refuses the disagreement rather than the application remembering to avoid it. That took the first
+table rebuild in the tree, because SQLite cannot alter a check constraint in place, and the
+migration runner gained the one thing the rebuild needs that a migration cannot do for itself:
+`pragma foreign_keys` around the transaction rather than inside it.
+
+What the invariant costs is written down where it is paid. `on delete set null` alone would null
+the reference and leave the status saying `blocked`, so deleting a blocker moves its dependents in
+the same transaction as the delete, in the application rather than in a trigger. Completing one
+does the same, attributed to `user`, because the act that caused it is the user completing the
+blocker. Unblocking is one way: reopening a completed blocker re-blocks nothing, and putting a move
+out of `blocked` back is refused, because the blocker went with the move.
+
+One blocker, not several, and no cycles: the walk that refuses a chain coming back round to itself
+is a pure function in the domain beside the status rules, so every write path asks it and none of
+them can answer differently. The classifier never proposes `blocked`, and migration 0004's
+`proposed_status` check is unchanged. `blocked` joins `neverPlanned`, which the planner's catch-all
+limb made necessary rather than tidy, and an overdue blocked task returns as a nudge naming what it
+is behind rather than vanishing.
+
+Exit: a task filed behind another leaves Next actions and appears in the board's Blocked column
+naming its blocker; completing or deleting that blocker puts it back in Next actions with no
+further action; a chain that would come back round is refused with its reason; and an overdue
+blocked task is a nudge on the dashboard rather than work in the plan; a task already finished is
+refused as a blocker, because nothing would release what was filed behind it. Spec 01 criteria 12 to
+20, spec 05 criterion 20, spec 08 criteria 52 to 54, and spec 04 criterion 4 extended in place.
+
 ## Test strategy
 
 - **Domain**: pure unit tests, no database.

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   applyStatusChange,
+  blockChange,
+  blockRefusal,
   githubTrackedStatuses,
   isDeferred,
   isUntriaged,
@@ -20,13 +22,14 @@ function existingTask(overrides: Partial<Task> = {}): Task {
   }
 }
 
-describe('the seven statuses', () => {
+describe('the eight statuses', () => {
   it('are exactly the ones spec 01 names, and project is not among them', () => {
     expect([...taskStatuses]).toEqual([
       'inbox',
       'next_action',
       'review',
       'waiting',
+      'blocked',
       'someday',
       'reference',
       'done',
@@ -241,6 +244,65 @@ describe('sync tracking', () => {
     expect(result.task.syncTracked).toBe(true)
   })
 
+  /**
+   * Criterion 21. `blocked` is outside the GitHub set, so criterion 2a's letter would opt the
+   * task out, but blocking is not a filing decision and the opt-out is permanent.
+   */
+  it('keeps tracking when the user blocks a tracked task behind another', () => {
+    const result = applyStatusChange(trackedReviewTask(), {
+      status: 'blocked',
+      by: 'user',
+      at: changedAt,
+      blockedBy: 'task-blocker',
+      trackedStatuses: githubTrackedStatuses,
+    })
+
+    expect(result.applied).toBe(true)
+    expect(result.task.status).toBe('blocked')
+    expect(result.task.syncTracked).toBe(true)
+  })
+
+  // Criterion 21, the other half: the move back out is the same act undone.
+  it('keeps tracking when a blocked task is cleared back to next_action', () => {
+    const blocked = existingTask({
+      status: 'blocked',
+      blockedBy: 'task-blocker',
+      statusSetBy: 'user',
+      syncTracked: true,
+    })
+
+    const result = applyStatusChange(blocked, {
+      status: 'next_action',
+      by: 'user',
+      at: changedAt,
+      trackedStatuses: githubTrackedStatuses,
+    })
+
+    expect(result.applied).toBe(true)
+    expect(result.task.syncTracked).toBe(true)
+  })
+
+  // Criterion 21 exempts the return to `next_action` and nothing else: filing a blocked task
+  // under someday is still the opt-out criterion 2a describes.
+  it('stops tracking when a blocked task is filed outside the set instead', () => {
+    const blocked = existingTask({
+      status: 'blocked',
+      blockedBy: 'task-blocker',
+      statusSetBy: 'user',
+      syncTracked: true,
+    })
+
+    const result = applyStatusChange(blocked, {
+      status: 'someday',
+      by: 'user',
+      at: changedAt,
+      trackedStatuses: githubTrackedStatuses,
+    })
+
+    expect(result.applied).toBe(true)
+    expect(result.task.syncTracked).toBe(false)
+  })
+
   it('declares review, waiting and done as the GitHub connector tracked set', () => {
     expect([...githubTrackedStatuses]).toEqual(['review', 'waiting', 'done'])
   })
@@ -299,7 +361,7 @@ describe('the previous status pair', () => {
 
     expect(task.previousStatus).toBeNull()
     expect(task.previousStatusSetBy).toBeNull()
-    expect(undoStatusChange(task, at)).toEqual({ undone: false })
+    expect(undoStatusChange(task, at)).toEqual({ undone: false, reason: 'nothing-to-undo' })
   })
 
   // Criterion 8.
@@ -388,7 +450,10 @@ describe('undoStatusChange', () => {
     const task = first.undone ? first.task : moved.task
     expect(task.previousStatus).toBeNull()
     expect(task.previousStatusSetBy).toBeNull()
-    expect(undoStatusChange(task, undoneAt + 1)).toEqual({ undone: false })
+    expect(undoStatusChange(task, undoneAt + 1)).toEqual({
+      undone: false,
+      reason: 'nothing-to-undo',
+    })
   })
 
   /**
@@ -420,5 +485,115 @@ describe('undoStatusChange', () => {
     const result = undoStatusChange(completed.task, undoneAt)
 
     expect(result.undone && result.task.completedAt).toBeNull()
+  })
+})
+
+/**
+ * Blocking, in the domain: the status and the reference are one fact, and nothing here can set
+ * one without the other. Spec 01, criteria 12, 13, 16, 17 and 18.
+ */
+describe('blocking one task behind another', () => {
+  const at = createdAt + 60_000
+
+  /** Criterion 13: naming a blocker is a move to `blocked`, and both halves land together. */
+  it('names the blocker and the status together', () => {
+    const result = applyStatusChange(existingTask(), blockChange('blocker', 'user', at))
+
+    expect(result).toMatchObject({
+      applied: true,
+      task: { status: 'blocked', blockedBy: 'blocker', statusSetBy: 'user' },
+    })
+  })
+
+  /** Criterion 13: clearing it puts the task back where an unblocked concrete action goes. */
+  it('returns the task to next_action when the blocker is cleared', () => {
+    const blocked = existingTask({ status: 'blocked', blockedBy: 'blocker' })
+
+    const result = applyStatusChange(blocked, blockChange(null, 'user', at))
+
+    expect(result).toMatchObject({
+      applied: true,
+      task: { status: 'next_action', blockedBy: null },
+    })
+  })
+
+  /** Criterion 12: half the fact is refused, with its reason, rather than written. */
+  it('refuses a move to blocked that names no blocker', () => {
+    const result = applyStatusChange(existingTask(), { status: 'blocked', by: 'user', at })
+
+    expect(result).toMatchObject({ applied: false, reason: 'blocker-required' })
+  })
+
+  /** Criterion 12: a task that is not blocked holds no blocker, whatever the caller passed. */
+  it.each(['someday', 'done', 'inbox'] as const)('clears the blocker on a move to %s', (status) => {
+    const blocked = existingTask({ status: 'blocked', blockedBy: 'blocker' })
+
+    const result = applyStatusChange(blocked, { status, by: 'user', at, blockedBy: 'blocker' })
+
+    expect(result).toMatchObject({ applied: true, task: { status, blockedBy: null } })
+  })
+
+  /**
+   * Criterion 18. The blocker went with the move, and the status cannot stand without one, so
+   * the way back is to name it again rather than to undo. That is criterion 16 seen from the
+   * other side: the second block is a new decision.
+   */
+  it('refuses to put a move out of blocked back', () => {
+    const moved = existingTask({
+      status: 'someday',
+      blockedBy: null,
+      previousStatus: 'blocked',
+      previousStatusSetBy: 'user',
+    })
+
+    expect(undoStatusChange(moved, at)).toEqual({
+      undone: false,
+      reason: 'blocked-needs-blocker',
+    })
+  })
+
+  /**
+   * Spec 01, criterion 20, the direction the criterion 18 tests do not cover. Restoring the status alone
+   * left the reference in place, which is the half fact the check constraint refuses, so what the
+   * board offered on every freshly blocked card was a 500.
+   */
+  it('clears the blocker when it puts a move into blocked back', () => {
+    const blocked = existingTask({
+      status: 'blocked',
+      blockedBy: 'blocker',
+      previousStatus: 'next_action',
+      previousStatusSetBy: 'user',
+    })
+
+    expect(undoStatusChange(blocked, at)).toMatchObject({
+      undone: true,
+      task: { status: 'next_action', blockedBy: null },
+    })
+  })
+})
+
+/** Criterion 17: a task may not end up behind itself, directly or through a chain. */
+describe('blockRefusal', () => {
+  /** The chain, as a map from a task to the one it is blocked behind. */
+  const chainOf = (chain: Record<string, string>) => (id: string) => chain[id] ?? null
+
+  it("allows a blocker that is not in the task's own chain", () => {
+    expect(blockRefusal('a', 'b', chainOf({ b: 'c' }))).toBeNull()
+  })
+
+  it('refuses a task blocked behind itself', () => {
+    expect(blockRefusal('a', 'a', chainOf({}))).toBe('cycle')
+  })
+
+  it('refuses a cycle through a chain of blockers', () => {
+    expect(blockRefusal('a', 'c', chainOf({ c: 'b', b: 'a' }))).toBe('cycle')
+  })
+
+  /**
+   * A database edited by hand can hold a loop the rule was written to prevent. The walk carries
+   * the ids it has seen so that reading one cannot hang the process.
+   */
+  it('terminates on a loop it did not create, rather than hanging', () => {
+    expect(blockRefusal('a', 'b', chainOf({ b: 'c', c: 'b' }))).toBeNull()
   })
 })

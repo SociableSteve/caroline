@@ -206,11 +206,17 @@ catch-up run rather than ninety-six, and nothing notifies you: the run history i
 ### Using the board
 
 The board is operable from the keyboard alone: arrow keys or `h j k l` to move between cards and
-columns, `1` to `6` to move the focused card to that column, `d` to complete it, `u` to put its
+columns, `1` to `7` to move the focused card to that column, `d` to complete it, `u` to put its
 last move back, `r` to mark a review done, `a` to accept the classifier's suggestion, `Enter` to
 open it in the rail, and `c` to capture something new from anywhere. Dragging a card between columns
 does the same thing as the digit. Either way the change is recorded as yours, and the classifier
 will not later overrule it.
+
+Blocked is the one column neither a digit nor a drag will move a card into. A task is blocked by
+naming the task that has to finish first, from the card's **More** disclosure or from chat, and the
+status and that reference are one fact rather than two. Completing or deleting the blocker releases
+whatever was behind it into Next actions at once, so there is no state left to maintain by hand.
+[docs/using.md](docs/using.md#blocking-one-task-behind-another) has the rest.
 
 ### What leaves the machine
 

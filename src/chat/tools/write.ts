@@ -24,10 +24,13 @@ import { WITHHELD_ITEM_TEXT } from '../../config/content.js'
 import { withTransaction } from '../../db/connection.js'
 import { createProject, getProject, updateProject } from '../../db/repositories/projects.js'
 import {
+  blockerRefusal,
   changeTaskStatus,
   createTask,
   deleteTask,
   getTask,
+  listBlockedBy,
+  setTaskBlocker,
   updateTask,
 } from '../../db/repositories/tasks.js'
 import { projectStates, type ProjectState } from '../../domain/project.js'
@@ -41,8 +44,13 @@ import {
 import { defineTool, type ChatTool, type ChatToolContext } from '../types.js'
 import { dateFrom, projectSummary, taskSummary, withholdsText, type DayArgument } from './shared.js'
 
-/** The statuses a task may be filed into from chat. Completing has its own tool. */
-const fileableStatuses = taskStatuses.filter((status) => status !== 'done')
+/**
+ * The statuses a task may be filed into from chat. Completing has its own tool, and `blocked` is
+ * not filed into at all: it is reached by naming the blocker in `blockedBy`, because the status
+ * and the reference are one fact and a status on its own would be half of it. Spec 01.
+ */
+const unfileableStatuses: readonly TaskStatus[] = ['done', 'blocked']
+const fileableStatuses = taskStatuses.filter((status) => !unfileableStatuses.includes(status))
 
 const localDate = { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' } as const
 
@@ -69,6 +77,12 @@ const taskFields = {
       'A local date, or null to remove the deferral. A deferred task is hidden from Next actions until that morning.',
   },
   waitingOn: { type: ['string', 'null'], maxLength: 500 },
+  blockedBy: {
+    type: ['string', 'null'],
+    maxLength: 64,
+    description:
+      'The id of the one task of theirs that has to finish before this one can start. Naming it files this task as blocked; null clears it and returns the task to next_action. Completing or deleting the blocker clears it on its own.',
+  },
 } as unknown as Record<string, unknown>
 
 interface TaskFieldArguments {
@@ -80,6 +94,7 @@ interface TaskFieldArguments {
   readonly dueAt?: string | null
   readonly deferUntil?: string | null
   readonly waitingOn?: string | null
+  readonly blockedBy?: string | null
 }
 
 /**
@@ -154,6 +169,13 @@ const createTaskTool = defineTool<TaskFieldArguments & { readonly title: string 
       return { ok: false, message: `There is no project with the id ${String(args.projectId)}.` }
     }
 
+    // A task nothing points at yet cannot be in a cycle, so the walk is the one check the create
+    // path skips, and a null id is how the read is told so. Spec 01, criteria 13 and 19.
+    if (args.blockedBy !== undefined) {
+      const refusal = blockerRefusalMessage(context, null, args.blockedBy)
+      if (refusal !== null) return { ok: false, message: refusal }
+    }
+
     const dates = readDates(context, args)
     if (typeof dates === 'string') return { ok: false, message: dates }
 
@@ -166,6 +188,7 @@ const createTaskTool = defineTool<TaskFieldArguments & { readonly title: string 
         ...(args.projectId === undefined ? {} : { projectId: args.projectId }),
         ...(args.estimateMinutes === undefined ? {} : { estimateMinutes: args.estimateMinutes }),
         ...(args.waitingOn === undefined ? {} : { waitingOn: args.waitingOn }),
+        ...(args.blockedBy === undefined ? {} : { blockedBy: args.blockedBy }),
         ...dates,
         // Not passed as an option: `newTask` attributes a status to the user by default, which is
         // what a task created at the user's instruction is. Spec 07, criterion 1.
@@ -228,9 +251,23 @@ const updateTaskTool = defineTool<{ readonly id: string } & TaskFieldArguments>(
       ...dates,
     }
 
+    // Before the transaction, because a refusal is an answer to the model rather than a failed
+    // write: the task is left exactly as it was and the reason is said. Spec 01, criterion 17.
+    if (args.blockedBy !== undefined) {
+      const refusal = blockerRefusalMessage(context, args.id, args.blockedBy)
+      if (refusal !== null) return { ok: false, message: refusal }
+    }
+
     const updated = withTransaction(context.database, () => {
       if (Object.keys(patch).length > 0) {
         updateTask(context.database, args.id, patch, context.now)
+      }
+
+      // Naming or clearing a blocker is itself a status change, so it goes through the one path
+      // that sets the pair together, and it is applied before any status the same call named:
+      // the explicit status is the later word. Spec 01, criteria 12 and 13.
+      if (args.blockedBy !== undefined) {
+        setTaskBlocker(context.database, args.id, args.blockedBy, context.now)
       }
 
       if (args.status !== undefined) {
@@ -266,6 +303,33 @@ const updateTaskTool = defineTool<{ readonly id: string } & TaskFieldArguments>(
   },
 })
 
+/**
+ * Why naming this blocker was refused, or null where it was not. Read before the write, so a
+ * refusal leaves the task untouched. Spec 01, criterion 17.
+ */
+function blockerRefusalMessage(
+  context: ChatToolContext,
+  id: string | null,
+  blockedBy: string | null,
+): string | null {
+  const refusal = blockerRefusal(context.database, id, blockedBy)
+
+  switch (refusal) {
+    case null:
+      return null
+    case 'not-found':
+      return `There is no task with the id ${String(id)}.`
+    case 'no-such-blocker':
+      return `There is no task with the id ${String(blockedBy)}.`
+    // Nothing releases a task filed behind work that has already finished, because the release
+    // happens as the blocker completes. Spec 01, criterion 19.
+    case 'blocker-done':
+      return 'That task is already done, so blocking behind it would never come undone.'
+    case 'cycle':
+      return 'That would block the task behind itself, directly or through a chain of blockers.'
+  }
+}
+
 /** What changed, in the words the transcript shows. Named fields, so nothing is implied. */
 function describeUpdate(before: Task, after: Task): string {
   const said: string[] = []
@@ -292,6 +356,9 @@ function describeUpdate(before: Task, after: Task): string {
     said.push(
       after.waitingOn === null ? 'no longer waiting on anybody' : `waiting on ${after.waitingOn}`,
     )
+  }
+  if (before.blockedBy !== after.blockedBy) {
+    said.push(after.blockedBy === null ? 'no longer blocked' : `blocked behind ${after.blockedBy}`)
   }
 
   // A patch that set a field to the value it already had is a change that changed nothing, and
@@ -325,6 +392,9 @@ const completeTaskTool = defineTool<{ readonly id: string }>({
       return { ok: true, data: { ...taskSummary(context, before.task), alreadyDone: true } }
     }
 
+    // Completing a blocker also releases what was behind it, in the repository. The inverse below
+    // restores this task and not those: undoing the turn reopens the blocker, and spec 01's
+    // criterion 16 has unblocking one way, so the dependency has to be named again.
     const statuses = trackedStatuses(context.database, before.task)
     const result = changeTaskStatus(context.database, args.id, {
       status: 'done',
@@ -441,13 +511,27 @@ const deleteTaskTool = defineTool<{ readonly id: string }>({
   },
   describe(context, args) {
     const task = getTask(context.database, args.id)
-    return task === null ? `Delete the task ${args.id}` : `Delete “${task.title}”`
+    if (task === null) return `Delete the task ${args.id}`
+
+    // What the delete would release, said before it happens. A delete that quietly freed work
+    // the user had deliberately held back is the thing the confirmation exists to prevent.
+    // Spec 01, criterion 15.
+    const released = listBlockedBy(context.database, args.id).length
+    const alsoFrees =
+      released === 0
+        ? ''
+        : `, which also unblocks ${released} ${released === 1 ? 'task' : 'tasks'} behind it`
+
+    return `Delete “${task.title}”${alsoFrees}`
   },
   execute(context, args) {
     const before = snapshotTask(context.database, args.id)
     if (before === null) return { ok: false, message: `There is no task with the id ${args.id}.` }
 
-    if (!deleteTask(context.database, args.id)) {
+    // Read before the delete, because afterwards there is nothing pointing at it to count.
+    const released = listBlockedBy(context.database, args.id).map((task) => task.id)
+
+    if (!deleteTask(context.database, args.id, context.now)) {
       return { ok: false, message: `There is no task with the id ${args.id}.` }
     }
 
@@ -457,6 +541,9 @@ const deleteTaskTool = defineTool<{ readonly id: string }>({
       // to be able to say what it did, and at `none` what it did was delete an id.
       data: {
         deleted: args.id,
+        // Ids rather than titles, so it is the same answer at every content level: what a delete
+        // released is a fact about the board rather than an item's own text.
+        ...(released.length === 0 ? {} : { unblocked: released }),
         ...(withholdsText(context)
           ? { withheld: WITHHELD_ITEM_TEXT }
           : { title: before.task.title }),

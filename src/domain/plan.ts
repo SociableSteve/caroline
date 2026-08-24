@@ -34,8 +34,14 @@ export interface PlanCandidate {
  * Statuses that are never work for today, whatever else is true of the task. Spec 05 excludes
  * `someday` and `reference` outright, and takes `waiting` out of the work list because the
  * next move belongs to someone else: a waiting item past the threshold returns as a nudge.
+ * `blocked` is here for the plainest reason of the lot, that another task has to finish first,
+ * and it returns the same way: past its deadline it is a nudge rather than work. Criterion 20.
+ *
+ * Naming a status here is not optional bookkeeping. `isCandidate` below ends with a catch-all
+ * limb reached by any status with no limb of its own, so a status added to the domain and not
+ * added here is planned as work on the strength of a deadline alone, silently.
  */
-const neverPlanned: readonly TaskStatus[] = ['someday', 'reference', 'waiting', 'done']
+const neverPlanned: readonly TaskStatus[] = ['someday', 'reference', 'waiting', 'blocked', 'done']
 
 /**
  * Whether reviews are among the day's candidates at all. Spec 05, criterion 18: the decision is
@@ -367,4 +373,35 @@ export function chaseNudges(
       return { ...item, waitingMs, waitingDays: Math.floor(waitingMs / DAY_MS) }
     })
     .toSorted((first, second) => first.waitingSince - second.waitingSince)
+}
+
+/** A blocked task as the nudge rules see it. The blocker's title is the caller's to resolve. */
+export interface BlockedItem {
+  readonly taskId: string
+  readonly title: string
+  readonly dueAt: number | null
+  /** When it became blocked, which is what the nudge dates from. */
+  readonly blockedSince: number
+  /** The blocker's own title, or null where the policy withholds it or the row has gone. */
+  readonly blockerTitle: string | null
+}
+
+export interface BlockedNudge extends BlockedItem {
+  readonly dueAt: number
+}
+
+/**
+ * The blocked work whose deadline has arrived. Spec 05, criterion 20.
+ *
+ * Excluding blocked work from the plan and stopping there would make an overdue blocked task
+ * vanish, and something vanishing quietly is the failure this is all meant to avoid. So it comes
+ * back as a nudge: it names the task and what it is behind, consumes no capacity, and sits beside
+ * the chase nudges. A deadline that has arrived on work that cannot start is a decision.
+ *
+ * Most urgent first, which here is the earliest deadline.
+ */
+export function blockedNudges(items: readonly BlockedItem[], dueBy: number): BlockedNudge[] {
+  return items
+    .filter((item): item is BlockedNudge => item.dueAt !== null && item.dueAt <= dueBy)
+    .toSorted((first, second) => first.dueAt - second.dueAt)
 }

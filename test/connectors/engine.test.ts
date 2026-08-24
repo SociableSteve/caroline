@@ -271,7 +271,7 @@ describe('an item whose upstream closes', () => {
     const connector = stubConnector('github', [[pullRequest], [merged]])
 
     await sync(database, [connector], () => FIRST_RUN)
-    deleteTask(database, onlyTask(database).id)
+    deleteTask(database, onlyTask(database).id, FIRST_RUN)
 
     await sync(database, [connector], () => SECOND_RUN)
 

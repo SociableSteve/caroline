@@ -5,6 +5,7 @@
 import { useEffect, useState, type KeyboardEvent } from 'react'
 import {
   boardStatuses,
+  movableStatuses,
   type ItemRef,
   type TaskInput,
   type TaskStatus,
@@ -36,9 +37,28 @@ import {
   waitingAge,
 } from '../format.js'
 
+/** One task as the blocker picker lists it. Titles, because an id is not a thing to choose. */
+export interface BlockerOption {
+  readonly id: string
+  readonly title: string
+}
+
 export interface TaskCardProps {
   readonly task: TaskView
   readonly projectTitle?: string | undefined
+  /** The blocker's own title, where the surface knows it. Spec 08, criterion 53. */
+  readonly blockerTitle?: string | undefined
+  /**
+   * The tasks this one could be blocked behind, for the picker in the "More" disclosure. Absent on
+   * a surface that only holds part of the board, where there would be nothing useful to offer.
+   */
+  readonly blockerOptions?: readonly BlockerOption[] | undefined
+  /**
+   * Naming the blocker, or `null` to clear it. Given whenever `blockerOptions` is and absent
+   * whenever it is not: a picker with nothing to choose from and a list nothing can be chosen from
+   * are each half a control, so the card renders neither unless it has both.
+   */
+  readonly onBlockerChange?: ((id: string, blockedBy: string | null) => void) | undefined
   readonly staleDays: number
   /** The zone `dueAtFromDateInput` and `deferUntilFromDateInput` resolve a typed date in, so a
    *  date set here lands on the same instant it would from chat. Spec 06. */
@@ -82,9 +102,18 @@ export interface TaskCardProps {
   readonly registerRef?: ((id: string, element: HTMLElement | null) => void) | undefined
 }
 
+/**
+ * The picker's value for "behind nothing". A `Select` cannot carry an empty string as an item
+ * value, and null is not a value it holds at all, so the absence needs a name of its own.
+ */
+const NOT_BLOCKED = 'none'
+
 export function TaskCard({
   task,
   projectTitle,
+  blockerTitle,
+  blockerOptions,
+  onBlockerChange,
   staleDays,
   timezone,
   configLoaded,
@@ -119,6 +148,8 @@ export function TaskCard({
   // A proposal the classifier was not confident enough to apply. Shown with its reasoning and its
   // confidence, because accepting somebody else's guess unseen is not triage. Spec 04.
   const proposal = onAcceptProposal === undefined ? null : task.proposal
+  /** The ids the picker is already offering, so the card knows whether to name its own blocker. */
+  const offered = new Set((blockerOptions ?? []).map((option) => option.id))
 
   /**
    * The due and defer-until inputs are buffered locally and only committed on blur, the same
@@ -226,6 +257,10 @@ export function TaskCard({
                 )}
               </Fact>
             </>
+          )}
+
+          {task.blockedBy !== null && (
+            <Fact label="Blocked by">{blockerTitle ?? 'another task'}</Fact>
           )}
 
           {pullRequest !== undefined && pullRequest.url !== null && (
@@ -388,7 +423,11 @@ export function TaskCard({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {boardStatuses.map((status) => (
+                  {/* Blocked is offered only to a card that is already in it, so the control can
+                      render its own value and still not offer a move the write would refuse: a
+                      task is blocked by naming the blocker below, not by being filed. Spec 08,
+                      criterion 53. */}
+                  {(task.status === 'blocked' ? boardStatuses : movableStatuses).map((status) => (
                     <SelectItem key={status} value={status}>
                       {statusLabel(status)}
                     </SelectItem>
@@ -396,6 +435,44 @@ export function TaskCard({
                 </SelectContent>
               </Select>
             </Field>
+
+            {/* Naming the task that has to finish first. The status follows from it rather than
+                being set beside it, which is what keeps the two from disagreeing. Spec 01. */}
+            {blockerOptions !== undefined && onBlockerChange !== undefined && (
+              <Field label={`Blocked by, for ${task.title}`} hiddenLabel>
+                <Select
+                  value={task.blockedBy ?? NOT_BLOCKED}
+                  onValueChange={(value) =>
+                    onBlockerChange(task.id, value === NOT_BLOCKED ? null : value)
+                  }
+                >
+                  <SelectTrigger size="sm">
+                    <SelectValue placeholder="Not blocked" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NOT_BLOCKED}>Not blocked</SelectItem>
+                    {/* The blocker the card already names, where the surface is not offering it:
+                        the list holds part of the board and completed work is kept out of it, so a
+                        control keyed on the value alone would render blank on the very card whose
+                        blocker it is meant to be showing. Spec 08, criterion 54. */}
+                    {task.blockedBy !== null && !offered.has(task.blockedBy) && (
+                      <SelectItem value={task.blockedBy}>
+                        Behind: {blockerTitle ?? 'another task'}
+                      </SelectItem>
+                    )}
+                    {/* Never itself: the degenerate cycle is refused by the server anyway, and
+                        offering it would be offering a choice that comes back as an error. */}
+                    {blockerOptions
+                      .filter((option) => option.id !== task.id)
+                      .map((option) => (
+                        <SelectItem key={option.id} value={option.id}>
+                          Behind: {option.title}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            )}
 
             {/* Undoing restores the previous actor as well as the previous status, which is the
                 part that matters: a board move locks the classifier out for good. Spec 08. */}

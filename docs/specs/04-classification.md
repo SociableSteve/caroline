@@ -40,7 +40,7 @@ One structured result per task:
 
 ```jsonc
 {
-  "status": "next_action",           // one of the seven, excluding done
+  "status": "next_action",           // one of the six the classifier may propose
   "confidence": 0.0,                  // 0 to 1
   "reasoning": "one or two sentences",
   "suggestedTitle": "Reply to X about Y",   // action-phrased, optional
@@ -98,7 +98,11 @@ that behaviour changes are traceable.
 1. A task with `status_set_by = 'user'` is never selected, regardless of status.
 2. A result at or above the threshold changes the status and sets `status_set_by = 'llm'`.
 3. A result below the threshold leaves status untouched and records the proposal.
-4. A proposed status of `done` is rejected and treated as a validation failure.
+4. A proposed status of `done` is rejected and treated as a validation failure. Extended in
+   place, because the contract is the same one: `blocked` is rejected the same way and for a
+   related reason. Completing something is a human act or a fact a connector reports, and a
+   blocker is the user naming one task in front of another (spec 01). Neither is among the
+   statuses the answer schema accepts.
 5. A result with `status: 'waiting'` and no `waitingOn` fails validation and retries once.
 6. Every run writes one `classifications` row per task processed, including failures.
 7. A provider outage leaves every candidate task in `inbox` with no partial writes, and

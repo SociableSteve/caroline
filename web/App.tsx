@@ -67,6 +67,12 @@ function subjectFor(
         task.projectId === null
           ? null
           : (projects.find((project) => project.id === task.projectId)?.title ?? null),
+      // Null where the blocker is not among the tasks loaded, which the panel says as "another
+      // task" rather than as a bare id. Spec 08, criterion 54.
+      blockerTitle:
+        task.blockedBy === null
+          ? null
+          : (tasks.find((candidate) => candidate.id === task.blockedBy)?.title ?? null),
     }
   }
 
@@ -237,6 +243,12 @@ export function App() {
   const onStatusChange = (id: string, status: TaskStatus) =>
     void write(() => api.patchTask(id, { status }))
   /**
+   * Naming the task that has to finish first, or clearing it. One patch rather than two, because
+   * the status and the reference are one fact and the server sets them together. Spec 01.
+   */
+  const onBlockerChange = (id: string, blockedBy: string | null) =>
+    void write(() => api.patchTask(id, { blockedBy }))
+  /**
    * Setting, changing or clearing a due date or a defer-until date from a card's "More"
    * disclosure. The same three-state contract as `update_task` from chat: a field named `null`
    * is cleared, and a field left out of the patch is left alone. Issue #44.
@@ -317,6 +329,7 @@ export function App() {
 
   const cardHandlers = {
     onStatusChange,
+    onBlockerChange,
     onComplete,
     onDelete,
     onDatesChange,

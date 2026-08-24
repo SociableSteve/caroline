@@ -1019,15 +1019,31 @@ export function Dashboard({
       subtitle: task.waitingOn ?? 'nobody named',
       note: null,
     })),
-    ...(plan?.nudges ?? []).map((nudge): NeedsYouItem => ({
-      key: `chase:${nudge.id}`,
-      tone: 'accent',
-      pill: 'Worth a chase',
-      ageMs: nudge.waitingSince === null ? null : Math.max(0, now - nudge.waitingSince),
-      title: nudge.title,
-      subtitle: nudge.waitingOn ?? 'nobody named',
-      note: nudge.pushedSinceReview ? 'the author has pushed since you reviewed' : null,
-    })),
+    // Two kinds of nudge share these columns, and the entry's own status is what tells them
+    // apart: a chase is somebody else's move, a blocked one is another task of your own that has
+    // to finish first. Both halves come from `currentWaitingOn` and `taskStatus`, which are read
+    // together at the moment of asking: the stored `waitingOn` is what the planner saw, and a task
+    // that changed since then would otherwise be shown as blocked behind a person, or as worth
+    // chasing to a task. Spec 05, criteria 11 and 20.
+    ...(plan?.nudges ?? []).map((nudge): NeedsYouItem => {
+      const blocked = nudge.taskStatus === 'blocked'
+      // The live reading is the whole answer, with no fallback to the record. Where the task has
+      // been deleted there is no status either, so there is nothing to label the recorded value
+      // with: a blocked entry recorded its blocker's title, and printing that under "Worth a
+      // chase" would present a task as a person to chase. Naming nobody is the honest answer, and
+      // it is the same one a live task with nothing named gets.
+      const waitingOn = nudge.currentWaitingOn
+
+      return {
+        key: `chase:${nudge.id}`,
+        tone: blocked ? 'quiet' : 'accent',
+        pill: blocked ? 'Blocked' : 'Worth a chase',
+        ageMs: nudge.waitingSince === null ? null : Math.max(0, now - nudge.waitingSince),
+        title: nudge.title,
+        subtitle: blocked ? `behind ${waitingOn ?? 'another task'}` : (waitingOn ?? 'nobody named'),
+        note: nudge.pushedSinceReview ? 'the author has pushed since you reviewed' : null,
+      }
+    }),
     ...stalled.map((project): NeedsYouItem => ({
       key: `stalled:${project.id}`,
       tone: 'quiet',

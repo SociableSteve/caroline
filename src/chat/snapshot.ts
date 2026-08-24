@@ -76,9 +76,17 @@ function text(row: Record<string, unknown>, key: string): string | null {
   return typeof value === 'string' ? value : null
 }
 
+/**
+ * A nullable field, where absent reads as null. An inverse outlives the version that wrote it, so
+ * a record from before a field existed carries no such key at all, and JSON cannot hold anything
+ * but its absence to say so. Reading that as a snapshot that cannot be understood would make the
+ * first field ever added to a task turn the last turn of every conversation into an undo that
+ * raises. A key that is there and holds the wrong type is a different matter, and still refuses.
+ * Spec 07, criterion 16.
+ */
 function nullableText(row: Record<string, unknown>, key: string): string | null | undefined {
   const value = row[key]
-  if (value === null) return null
+  if (value === null || value === undefined) return null
   return typeof value === 'string' ? value : undefined
 }
 
@@ -87,9 +95,10 @@ function integer(row: Record<string, unknown>, key: string): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
+/** The same tolerance as `nullableText`, and for the same reason. Spec 07, criterion 16. */
 function nullableInteger(row: Record<string, unknown>, key: string): number | null | undefined {
   const value = row[key]
-  if (value === null) return null
+  if (value === null || value === undefined) return null
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
@@ -120,6 +129,7 @@ export function taskFromSnapshot(value: unknown): Task | null {
   const notes = nullableText(row, 'notes')
   const projectId = nullableText(row, 'projectId')
   const waitingOn = nullableText(row, 'waitingOn')
+  const blockedBy = nullableText(row, 'blockedBy')
   const estimateMinutes = nullableInteger(row, 'estimateMinutes')
   const dueAt = nullableInteger(row, 'dueAt')
   const deferUntil = nullableInteger(row, 'deferUntil')
@@ -137,6 +147,7 @@ export function taskFromSnapshot(value: unknown): Task | null {
     notes === undefined ||
     projectId === undefined ||
     waitingOn === undefined ||
+    blockedBy === undefined ||
     estimateMinutes === undefined ||
     dueAt === undefined ||
     deferUntil === undefined ||
@@ -157,6 +168,7 @@ export function taskFromSnapshot(value: unknown): Task | null {
     dueAt,
     deferUntil,
     waitingOn,
+    blockedBy,
     statusSetBy,
     statusSetAt,
     previousStatus: null,

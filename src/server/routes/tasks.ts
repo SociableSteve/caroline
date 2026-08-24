@@ -19,10 +19,13 @@ import {
   getTaskTags,
   listTags,
   listTasks,
+  blockerRefusal,
   setSyncTracking,
+  setTaskBlocker,
   setTaskTags,
   undoTaskStatus,
   updateTask,
+  type BlockerRefusal,
   type TaskPatch,
   type TaskQuery,
 } from '../../db/repositories/tasks.js'
@@ -172,6 +175,22 @@ function missingProject(database: Database, projectId: string | null | undefined
   return projectId !== null && projectId !== undefined && getProject(database, projectId) === null
 }
 
+/** The refusals `setTaskBlocker` returns, in the words a person reads. Spec 08, criterion 52. */
+const blockerMessages: Record<BlockerRefusal, string> = {
+  'not-found': 'No such task',
+  'no-such-blocker': 'No such blocking task',
+  'blocker-done': 'That task is already done, so it would never release this one',
+  cycle: 'That would block the task behind itself, directly or through a chain of blockers',
+}
+
+/**
+ * A status of `blocked` with nothing named to be blocked behind. The body schema cannot say this,
+ * because the status enum and `blockedBy` are two properties and the rule is about the pair, so the
+ * route says it: the bulk route already refuses the same input with `blocker-required` rather than
+ * letting the check constraint raise it as a 500. Spec 01, criterion 12.
+ */
+const blockerRequiredMessage = 'Blocked needs the task to be blocked behind, named in blockedBy'
+
 interface TaskListQuery {
   status?: TaskStatus[]
   projectId?: string
@@ -193,6 +212,7 @@ interface TaskBody {
   dueAt?: number | null
   deferUntil?: number | null
   waitingOn?: string | null
+  blockedBy?: string | null
   tags?: string[]
 }
 
@@ -307,6 +327,19 @@ export function registerTaskRoutes(
         return badRequest(reply, 'No such project')
       }
 
+      if (body.status === 'blocked' && (body.blockedBy ?? null) === null) {
+        return badRequest(reply, blockerRequiredMessage)
+      }
+
+      // A task nothing points at yet cannot be in a cycle, so the walk is the one check the create
+      // path skips; `blockerRefusal` takes a null id and skips exactly that. Spec 01, criteria 13
+      // and 19.
+      const refusedOnCreate =
+        body.blockedBy === undefined ? null : blockerRefusal(database, null, body.blockedBy)
+      if (refusedOnCreate !== null) {
+        return badRequest(reply, blockerMessages[refusedOnCreate])
+      }
+
       const at = now()
       const created = withTransaction(database, () => {
         const task = createTask(
@@ -315,6 +348,9 @@ export function registerTaskRoutes(
             ...toPatch(body),
             // Required by the schema, so it is present whatever the optional type says.
             title: body.title ?? '',
+            // Naming a blocker files the task as blocked, whatever `status` says: the two are
+            // one fact. Spec 01, criterion 12.
+            ...(body.blockedBy === undefined ? {} : { blockedBy: body.blockedBy }),
             // Attribution is not the caller's to give: a status set through the API is the
             // user's, which is what `newTask` defaults to.
             ...(body.status === undefined ? {} : { status: body.status }),
@@ -377,19 +413,63 @@ export function registerTaskRoutes(
       if (existing === null) return notFound(reply, 'task')
       if (missingProject(database, body.projectId)) return badRequest(reply, 'No such project')
 
+      // The same half a fact the create route refuses, and it has to be refused here too: the
+      // reference goes with the status on every move, so a patch asking for `blocked` names the
+      // blocker in the same request or names nothing, whatever the task happens to hold now.
+      // Answered before the transaction, because inside it the status rules refuse the write and
+      // the route would otherwise answer 200 over the top of a row it never changed. Spec 08,
+      // criterion 55.
+      if (body.status === 'blocked' && (body.blockedBy ?? null) === null) {
+        return badRequest(reply, blockerRequiredMessage)
+      }
+
       const at = now()
+
+      // Asked before anything is written, and answered as a bad request rather than as a
+      // constraint violation: a caller that named a blocker that does not exist, or one that
+      // would come back round to this task, has named something wrong. Spec 08, criterion 52.
+      const refused =
+        body.blockedBy === undefined ? null : blockerRefusal(database, id, body.blockedBy)
+      if (refused !== null) {
+        return refused === 'not-found'
+          ? notFound(reply, 'task')
+          : badRequest(reply, blockerMessages[refused])
+      }
+
       withTransaction(database, () => {
+        // Naming a blocker is itself a status change, so a request carrying both halves is one
+        // write rather than two: making the move and then remaking it would overwrite
+        // `previous_status` with `blocked` and spend the task's single step of undo on itself.
+        // An explicit status that is not `blocked` is the later word either way, and takes the
+        // reference with it the way every move out of the column does. Spec 01, criteria 12 and
+        // 13; spec 08, criterion 55.
+        if (body.blockedBy !== undefined && body.status === undefined) {
+          setTaskBlocker(database, id, body.blockedBy, at)
+        }
+
         const patch = toPatch(body)
         if (Object.keys(patch).length > 0) updateTask(database, id, patch, at)
         if (body.tags !== undefined) setTaskTags(database, id, body.tags)
         if (body.status !== undefined) {
           const statuses = trackedStatuses(database, existing)
-          changeTaskStatus(database, id, {
+          const result = changeTaskStatus(database, id, {
             status: body.status,
             by: 'user',
             at,
             ...(statuses === undefined ? {} : { trackedStatuses: statuses }),
+            ...(body.status === 'blocked' ? { blockedBy: body.blockedBy } : {}),
           })
+
+          // Unreachable as the rules stand: the two other refusals are the classifier's and
+          // sync's rather than the user's, and the blocker one is answered above. Raised rather
+          // than passed over, because the alternative is the answer this route used to give,
+          // which was a 200 carrying a task nothing had written to. The throw rolls the
+          // transaction back, so the refusal cannot leave half a patch behind either.
+          if (result !== null && !result.applied) {
+            throw new Error(
+              `the status rules refused a user status change of ${id}: ${result.reason}`,
+            )
+          }
         }
       })
 
@@ -408,10 +488,13 @@ export function registerTaskRoutes(
       },
     },
     async (request, reply) => {
-      // Hard delete, and only ever from here: sync never deletes a task. Spec 01.
-      if (!deleteTask(database, request.params.id)) return notFound(reply, 'task')
+      // Hard delete, and only ever from here: sync never deletes a task. Spec 01. Anything
+      // blocked behind it is released in the same transaction, so nothing is left claiming to
+      // be blocked behind a task that has gone. Criterion 15.
+      const at = now()
+      if (!deleteTask(database, request.params.id, at)) return notFound(reply, 'task')
 
-      announce(now())
+      announce(at)
 
       return reply.status(204).send()
     },
@@ -616,9 +699,15 @@ export function registerTaskRoutes(
       if (result === null) return notFound(reply, 'task')
 
       if (!result.undone) {
-        return reply
-          .status(409)
-          .send(apiError('conflict', 'This task has no status change to put back'))
+        // Two different conflicts, said differently. A move out of `blocked` took the blocker with
+        // it, and the status cannot stand without one, so the way back is to name it again rather
+        // than to undo. Spec 01, criterion 18.
+        const message =
+          result.reason === 'blocked-needs-blocker'
+            ? 'This task was blocked, and the blocker went with the move. Name the blocker again rather than putting the move back.'
+            : 'This task has no status change to put back'
+
+        return reply.status(409).send(apiError('conflict', message))
       }
 
       announce(at)

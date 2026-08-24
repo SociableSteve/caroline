@@ -430,7 +430,7 @@ function suppress(
     // Deleting it takes its `classifications` rows with it, which is right: they are a record of the
     // classifier answering about a card that should never have been on the board.
     if (task !== null && task.id !== ownerTaskId && isUntriaged(task)) {
-      deleteTask(database, task.id)
+      deleteTask(database, task.id, at)
     }
 
     markSourceSuppressed(database, source.id, at)

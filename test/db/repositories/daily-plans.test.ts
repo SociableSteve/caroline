@@ -11,7 +11,7 @@ import {
   recordDailyPlan,
   type RecordDailyPlanInput,
 } from '../../../src/db/repositories/daily-plans.js'
-import { changeTaskStatus, createTask } from '../../../src/db/repositories/tasks.js'
+import { changeTaskStatus, createTask, setTaskBlocker } from '../../../src/db/repositories/tasks.js'
 import type { Database } from '../../../src/db/connection.js'
 import { migratedDatabase } from '../../helpers/temp-database.js'
 
@@ -128,6 +128,66 @@ describe('recording a plan', () => {
     expect(latestDailyPlan(database, '2026-06-08')?.entries[0]).toMatchObject({
       taskStatus: 'done',
       done: true,
+    })
+  })
+
+  /**
+   * Spec 05, criterion 20. `waitingOn` is what the planner recorded and `taskStatus` is read now,
+   * so a surface presenting an entry under its live status needs what it is waiting on read at the
+   * same moment: the blocker's title while it is blocked, the person while it is waiting.
+   */
+  it('reports what each entry is waiting on as it stands now, beside the status', () => {
+    const database = migratedDatabase()
+    const taskId = aTaskIn(database, 'task-a')
+    const blockerId = aTaskIn(database, 'task-blocker')
+    recordDailyPlan(
+      database,
+      aPlan({
+        nudges: [
+          {
+            taskId,
+            title: 'C',
+            rank: 1,
+            waitingOn: 'Sam',
+            waitingSince: NOW,
+            pushedSinceReview: false,
+          },
+        ],
+      }),
+    )
+
+    setTaskBlocker(database, taskId, blockerId, NOW + 60_000)
+
+    expect(latestDailyPlan(database, '2026-06-08')?.nudges[0]).toMatchObject({
+      taskStatus: 'blocked',
+      waitingOn: 'Sam',
+      currentWaitingOn: 'Task task-blocker',
+    })
+  })
+
+  it('has nothing current to report for an entry whose task has gone', () => {
+    const database = migratedDatabase()
+    const taskId = aTaskIn(database, 'task-a')
+    recordDailyPlan(
+      database,
+      aPlan({
+        nudges: [
+          {
+            taskId,
+            title: 'C',
+            rank: 1,
+            waitingOn: 'Sam',
+            waitingSince: NOW,
+            pushedSinceReview: false,
+          },
+        ],
+      }),
+    )
+
+    database.prepare('delete from tasks where id = ?').run(taskId)
+
+    expect(latestDailyPlan(database, '2026-06-08')?.nudges[0]).toMatchObject({
+      currentWaitingOn: null,
     })
   })
 

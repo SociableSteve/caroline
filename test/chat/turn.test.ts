@@ -755,6 +755,47 @@ describe('undo', () => {
   })
 
   /**
+   * Spec 07, criterion 16. An inverse outlives the version that wrote it, and `blockedBy` is the
+   * first field ever added to the stored task snapshot: a record written before this shipped
+   * carries no such key, and reading the absence as a snapshot that cannot be understood would
+   * make the last turn of every conversation raise on the day of the upgrade.
+   */
+  it('undoes a turn whose stored snapshot was written before a task field existed', async () => {
+    const harness = chatHarness({
+      answers: [
+        toolAnswer([{ name: 'update_task', arguments: { id: 'task-1', status: 'next_action' } }]),
+        textAnswer('Moved it.'),
+      ],
+    })
+    createTask(harness.database, { id: 'task-1', title: 'Book the venue' }, CHAT_NOW)
+
+    const { conversation, message } = doneEvent(await harness.turn('Move it'))
+    // The record as the previous version would have written it: every key it knew, and none of
+    // the one it did not.
+    const stored = harness.database.prepare('select rowid, inverse from chat_changes').all()
+    for (const row of stored as { rowid: number; inverse: string }[]) {
+      const operations = JSON.parse(row.inverse) as {
+        kind: string
+        task?: Record<string, unknown>
+      }[]
+      for (const operation of operations) {
+        if (operation.task !== undefined) delete operation.task.blockedBy
+      }
+      harness.database
+        .prepare('update chat_changes set inverse = ? where rowid = ?')
+        .run(JSON.stringify(operations), row.rowid)
+    }
+
+    const result = harness.service.undo(conversation.id, message.id)
+
+    expect(result.undone).toBe(true)
+    expect(getTask(harness.database, 'task-1')).toMatchObject({
+      status: 'inbox',
+      blockedBy: null,
+    })
+  })
+
+  /**
    * The snapshot is Caroline's own JSON and should always read back. If it does not, the batch has to
    * stay exactly as it was: marking it undone without undoing it would leave the task holding what
    * the turn wrote with no way left to put it back.

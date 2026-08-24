@@ -47,7 +47,7 @@ Choose exactly one status:
 
 Rules:
 - If finishing it needs more than one action, suggest a project in projectSuggestion and give the first action as the title.
-- Never propose done. Completing something is a human act, or a fact reported by a connector.
+- Never propose done or blocked. Completing something is a human act, or a fact reported by a connector, and a blocker is the person naming one task of theirs in front of another.
 - Never set a due date. Deadlines come from people and from source metadata.
 - suggestedTitle should be action-phrased and short: what would you actually do. Omit it if the existing title is already that.
 - estimateMinutes is your honest guess at how long the action takes, or null if you cannot tell.

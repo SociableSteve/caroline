@@ -18,6 +18,7 @@ import { aProject, aPullRequestSource, aReviewTask, aTask, DAY, NOW } from './te
 function renderBoard(overrides: Partial<Parameters<typeof Board>[0]> = {}) {
   const handlers = {
     onStatusChange: vi.fn(),
+    onBlockerChange: vi.fn(),
     onComplete: vi.fn(),
     onDelete: vi.fn(),
     onDatesChange: vi.fn(),
@@ -65,6 +66,7 @@ describe('the board columns', () => {
       'Next actions',
       'Review',
       'Waiting for',
+      'Blocked',
       'Someday',
       'Reference',
     ]) {
@@ -76,7 +78,7 @@ describe('the board columns', () => {
   it('shows an empty state per column rather than an error', () => {
     renderBoard()
 
-    expect(screen.getAllByText('Nothing here.')).toHaveLength(6)
+    expect(screen.getAllByText('Nothing here.')).toHaveLength(7)
   })
 
   it('puts each task in the column for its status, and counts them', () => {
@@ -157,6 +159,142 @@ describe('the waiting column as a chase list', () => {
     expect(
       within(screen.getByRole('article', { name: 'Chased yesterday' })).getByText('Stale'),
     ).toBeInTheDocument()
+  })
+})
+
+/**
+ * The Blocked column, spec 08 criterion 53. It is a review surface rather than a target: a task
+ * is blocked by naming the blocker, and the board has no blocker to name.
+ */
+describe('the Blocked column', () => {
+  const blockedTask = () =>
+    aTask({ id: 'task-1', title: 'Book the venue', status: 'blocked', blockedBy: 'blocker' })
+
+  it('names what a blocked card is behind', () => {
+    renderBoard({
+      tasks: [blockedTask(), aTask({ id: 'blocker', title: 'Sign the contract' })],
+    })
+
+    const card = screen.getByRole('article', { name: 'Book the venue' })
+
+    expect(within(card).getByText('Sign the contract')).toBeVisible()
+  })
+
+  it('takes no drop', () => {
+    const handlers = renderBoard({ tasks: [aTask({ id: 'task-1', title: 'Captured' })] })
+
+    fireEvent.drop(column(/^Blocked/), { dataTransfer: { getData: () => 'task-1' } })
+
+    expect(handlers.onStatusChange).not.toHaveBeenCalled()
+  })
+
+  it('takes no digit', () => {
+    const handlers = renderBoard({ tasks: [aTask({ id: 'task-1', title: 'Captured' })] })
+    const card = screen.getByRole('article', { name: 'Captured' })
+    card.focus()
+
+    fireEvent.keyDown(card, { key: '5' })
+
+    expect(handlers.onStatusChange).not.toHaveBeenCalled()
+  })
+
+  it('offers blocked in the status control only to a card already in it', async () => {
+    renderBoard({
+      tasks: [blockedTask(), aTask({ id: 'task-2', title: 'Captured' })],
+    })
+
+    const open = async (title: string) => {
+      const card = screen.getByRole('article', { name: title })
+      await userEvent.click(within(card).getByRole('combobox', { name: /^Status of/ }))
+      const options = screen.getAllByRole('option').map((option) => option.textContent)
+      await userEvent.keyboard('{Escape}')
+      return options
+    }
+
+    expect(await open('Captured')).not.toContain('Blocked')
+    expect(await open('Book the venue')).toContain('Blocked')
+  })
+
+  it('names the blocker from the card, which is the only way a card becomes blocked', async () => {
+    const handlers = renderBoard({
+      tasks: [
+        aTask({ id: 'task-1', title: 'Captured' }),
+        aTask({ id: 'blocker', title: 'Sign the contract' }),
+      ],
+    })
+
+    const card = screen.getByRole('article', { name: 'Captured' })
+    await userEvent.click(within(card).getByText('More'))
+    await userEvent.click(within(card).getByRole('combobox', { name: /^Blocked by/ }))
+    await userEvent.click(screen.getByRole('option', { name: 'Behind: Sign the contract' }))
+
+    expect(handlers.onBlockerChange).toHaveBeenCalledWith('task-1', 'blocker')
+  })
+
+  it('clears the blocker from the same control', async () => {
+    const handlers = renderBoard({
+      tasks: [blockedTask(), aTask({ id: 'blocker', title: 'Sign the contract' })],
+    })
+
+    const card = screen.getByRole('article', { name: 'Book the venue' })
+    await userEvent.click(within(card).getByText('More'))
+    await userEvent.click(within(card).getByRole('combobox', { name: /^Blocked by/ }))
+    await userEvent.click(screen.getByRole('option', { name: 'Not blocked' }))
+
+    expect(handlers.onBlockerChange).toHaveBeenCalledWith('task-1', null)
+  })
+
+  /**
+   * Spec 08, criterion 54. `GET /api/tasks` returns completed work even though no column shows it,
+   * so the picker has to drop it rather than assume the board already has: nothing releases a task
+   * filed behind something that finished, and the server refuses the write in any case.
+   */
+  it('does not offer a task that is already done as a blocker', async () => {
+    renderBoard({
+      tasks: [
+        aTask({ id: 'task-1', title: 'Captured' }),
+        aTask({ id: 'blocker', title: 'Sign the contract' }),
+        aTask({ id: 'finished', title: 'Send the invoice', status: 'done' }),
+      ],
+    })
+
+    const card = screen.getByRole('article', { name: 'Captured' })
+    await userEvent.click(within(card).getByText('More'))
+    await userEvent.click(within(card).getByRole('combobox', { name: /^Blocked by/ }))
+    const options = screen.getAllByRole('option').map((option) => option.textContent)
+
+    expect(options).toContain('Behind: Sign the contract')
+    expect(options).not.toContain('Behind: Send the invoice')
+  })
+
+  /**
+   * Spec 08, criterion 54. The picker holds part of the board, so the value a blocked card carries
+   * is not always among the items: keyed on the value alone the control rendered blank on the one
+   * card it exists to describe.
+   */
+  it('still names the blocker where the picker is not offering it', async () => {
+    renderBoard({
+      tasks: [blockedTask(), aTask({ id: 'blocker', title: 'Sign the contract', status: 'done' })],
+    })
+
+    const card = screen.getByRole('article', { name: 'Book the venue' })
+    await userEvent.click(within(card).getByText('More'))
+
+    expect(within(card).getByRole('combobox', { name: /^Blocked by/ })).toHaveTextContent(
+      'Behind: Sign the contract',
+    )
+  })
+
+  /**
+   * Out of the column is ordinary, and it is the half of criterion 53 the suite did not exercise:
+   * the drop is accepted and the blocker goes with the status the server sets. Spec 08.
+   */
+  it('takes a drop out of it, like any other column', () => {
+    const handlers = renderBoard({ tasks: [blockedTask()] })
+
+    fireEvent.drop(column(/^Next actions/), { dataTransfer: { getData: () => 'task-1' } })
+
+    expect(handlers.onStatusChange).toHaveBeenCalledWith('task-1', 'next_action')
   })
 })
 
@@ -403,7 +541,7 @@ describe('the keyboard', () => {
 
     const help = screen.getByRole('region', { name: 'Keyboard' })
 
-    expect(within(help).getByText('1 to 6')).toBeInTheDocument()
+    expect(within(help).getByText('1 to 7')).toBeInTheDocument()
   })
 })
 
@@ -569,7 +707,7 @@ describe('what a card shows without being asked', () => {
     expect(within(card).getByText('admin')).toBeVisible()
     expect(within(card).getByRole('button', { name: 'Complete' })).toBeVisible()
     // Present in the document and reachable, but not taking a third of the card until asked for.
-    expect(within(card).getByRole('combobox')).not.toBeVisible()
+    expect(within(card).getByRole('combobox', { name: /^Status of/ })).not.toBeVisible()
   })
 
   // Criterion 15: the disclosure is a control, so it is reachable by keyboard like any other.
@@ -579,7 +717,8 @@ describe('what a card shows without being asked', () => {
     const card = screen.getByRole('article', { name: 'Renew the domain' })
     await userEvent.click(within(card).getByText('More'))
 
-    expect(within(card).getByRole('combobox')).toBeVisible()
+    expect(within(card).getByRole('combobox', { name: /^Status of/ })).toBeVisible()
+    expect(within(card).getByRole('combobox', { name: /^Blocked by/ })).toBeVisible()
     expect(within(card).getByRole('button', { name: 'Delete' })).toBeVisible()
   })
 
@@ -810,7 +949,8 @@ describe('undoing the last status change', () => {
     fireEvent.keyDown(summary, { key: 'u' })
     expect(handlers.onUndoStatus).toHaveBeenCalledWith('task-1')
 
-    fireEvent.keyDown(summary, { key: '5' })
+    // Someday is the sixth column now that Blocked is the fifth. Spec 08, criterion 53.
+    fireEvent.keyDown(summary, { key: '6' })
     expect(handlers.onStatusChange).toHaveBeenCalledWith('task-1', 'someday')
   })
 
@@ -821,7 +961,7 @@ describe('undoing the last status change', () => {
 
     const card = screen.getByRole('article', { name: 'Renew the domain' })
     await userEvent.click(within(card).getByText('More'))
-    fireEvent.keyDown(within(card).getByRole('combobox'), { key: 'd' })
+    fireEvent.keyDown(within(card).getByRole('combobox', { name: /^Status of/ }), { key: 'd' })
 
     expect(handlers.onComplete).not.toHaveBeenCalled()
   })

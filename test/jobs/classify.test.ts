@@ -439,6 +439,25 @@ describe('answers the schema refuses', () => {
     expect(listClassifications(database, { taskId })[0]?.error).toMatch(/status/)
   })
 
+  /**
+   * Spec 04, criterion 4, extended: `blocked` is refused the same way `done` is. A blocker is the
+   * user naming one task of theirs in front of another, and the classifier is never shown the
+   * other tasks it would have to pick from. Spec 01.
+   */
+  it('treats a proposed blocked as a validation failure and blocks nothing', async () => {
+    const database = migratedDatabase()
+    const taskId = anIngestedThread(database)
+    const { llm } = runtime([
+      answer({ status: 'blocked', confidence: 0.99, reasoning: 'Something else first.' }),
+    ])
+
+    const result = await run(database, llm)
+
+    expect(getTask(database, taskId)).toMatchObject({ status: 'inbox', blockedBy: null })
+    expect(result.counts.failed).toBe(1)
+    expect(listClassifications(database, { taskId })[0]?.error).toMatch(/status/)
+  })
+
   /** Spec 04, criterion 5. */
   it('retries once when waiting arrives without a waitingOn, and accepts the second answer', async () => {
     const database = migratedDatabase()

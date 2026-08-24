@@ -244,7 +244,7 @@ describe('a source whose task is deleted', () => {
     )
     const source = upsertSource(database, pullRequest({ taskId: task.id }), firstSeenAt)
 
-    deleteTask(database, task.id)
+    deleteTask(database, task.id, firstSeenAt)
 
     expect(getSource(database, source.id)?.taskId).toBeNull()
   })

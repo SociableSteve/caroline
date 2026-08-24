@@ -11,7 +11,7 @@ one command, so nobody's mail is in them: the names, repositories and threads in
 | If you want to | Read |
 | --- | --- |
 | Find your way around | [Five screens and a rail](#five-screens-and-a-rail) |
-| Know what the six columns mean | [Where work lives](#where-work-lives) |
+| Know what the seven columns mean | [Where work lives](#where-work-lives) |
 | Get something out of your head | [Capturing something](#capturing-something) |
 | Empty the inbox | [Triaging, by keyboard](#triaging-by-keyboard) |
 | Understand what Caroline suggested | [What the classifier proposes](#what-the-classifier-proposes) |
@@ -29,7 +29,7 @@ The links in the header are the whole of it: **Dashboard**, **Board**, **Project
 | Screen | What it is for |
 | --- | --- |
 | Dashboard | Today: the plan, the calendar, what has gone quiet, what is stalled |
-| Board | All the work, in six columns, and where triage happens |
+| Board | All the work, in seven columns, and where triage happens |
 | Projects | Anything that takes more than one action, and whether each has a next one |
 | Jobs | The background work: what ran, when, what it did, and what failed |
 | Settings | Your name, the Google connection, and what a call to the model would actually carry |
@@ -55,7 +55,7 @@ long as a login is required, and a session otherwise simply lasts a while before
 
 ## Where work lives
 
-Six columns, and every task is in exactly one of them.
+Seven columns, and every task is in exactly one of them.
 
 | Column | What is in it |
 | --- | --- |
@@ -63,13 +63,40 @@ Six columns, and every task is in exactly one of them.
 | Next actions | One concrete thing you could do next |
 | Review | Somebody is waiting on you to review something. Pull requests land here |
 | Waiting for | The next move belongs to somebody else, who is named on the card |
+| Blocked | Another task of yours has to finish first, and the card names it |
 | Someday | A real commitment, but not now |
 | Reference | Information with no action in it |
 
-Done is the seventh status and is not a column: completing something takes it off the board.
+Waiting for is a person and Blocked is a task of your own. That is the whole of the difference.
 
-![Caroline's board, with six columns and the keyboard reference underneath](images/board.png#gh-light-mode-only)
-![Caroline's board, with six columns and the keyboard reference underneath](images/board-dark.png#gh-dark-mode-only)
+Done is the eighth status and is not a column: completing something takes it off the board.
+
+![Caroline's board and the keyboard reference underneath](images/board.png#gh-light-mode-only)
+![Caroline's board and the keyboard reference underneath](images/board-dark.png#gh-dark-mode-only)
+
+## Blocking one task behind another
+
+A task can name one task of yours that has to finish first. On the board, open a card's **More**
+disclosure and use the picker under the status control, the one whose first choice is **Not
+blocked**; the card moves to the Blocked column and says what it is behind. The picker is a board
+control, so a card shown anywhere else does not carry it, and it offers only work that could still
+finish: something already done would never release what was filed behind it. Chat does the same
+thing with `update_task`, naming `blockedBy`.
+
+The status and the reference are one fact, so you never set them separately. Naming a blocker
+files the task as blocked; clearing it puts the task back in Next actions; and completing or
+deleting the blocker releases everything behind it into Next actions on the spot. That last part is
+the point: nothing has to be remembered, so nothing rots.
+
+Four things follow. Reopening a blocker you completed does not re-block anything, because the
+reference went when it completed, so getting the dependency back means naming it again. Putting a
+move out of Blocked back with `u` is refused for the same reason, while `u` on a card you have just
+blocked works and takes the blocker off with the status. A task already finished cannot be named as
+a blocker at all, since the release happens as a task completes and that moment has gone. And a task
+cannot end up behind itself, directly or through a chain: Caroline refuses that rather than storing
+it.
+
+One blocker, not several. If more than one thing has to finish first, that is a project.
 
 ## Capturing something
 
@@ -90,7 +117,7 @@ takes it. As the list stands:
 | --- | --- |
 | `←` `→` `h` `l` | move between columns |
 | `↑` `↓` `j` `k` | move within a column |
-| `1` to `6` | move the focused task to that column |
+| `1` to `7` | move the focused task to that column, except `5`: Blocked takes no digit and no drag, because there would be no blocker to name |
 | `d` | complete the focused task |
 | `r` | mark the focused review done, moving it to Waiting for |
 | `a` | accept the suggestion on the focused inbox task |
@@ -102,8 +129,8 @@ A worked pass at an inbox of three, from the board:
 
 1. Click the first card in the Inbox column. `j` and `k` move down and up it, `h` and `l` across to
    the next column, keeping your place in the row where the column is long enough.
-2. Read the card. `2` files it as a next action, `4` as something you are waiting on, `5` as someday,
-   `6` as reference. `d` completes it, which is the right answer more often than it looks.
+2. Read the card. `2` files it as a next action, `4` as something you are waiting on, `6` as someday,
+   `7` as reference. `d` completes it, which is the right answer more often than it looks.
 3. Got one wrong? `u` puts that task's last status change back, including the column it came from.
 4. Click the next card and go again, until the column is empty. Only the movement keys hand the focus
    on: `d`, a digit, `r` and `u` all take the card out of the column it was in, and the focus goes with
@@ -116,6 +143,10 @@ Two things that follow from that last rule. Filing a synced item outside the sta
 tracks turns sync tracking off for it permanently, so a pull request you have filed under Reference
 stays there rather than being dragged back to Review on the next sync. And a task you complete stays
 complete: nothing but you closes work.
+
+Blocking is not that kind of filing, so it is the one move that does not turn tracking off. A pull
+request parked behind another task keeps its connection to GitHub, and picks the lifecycle back up
+if you put it back in Review once the blocker clears.
 
 ## What the classifier proposes
 
@@ -132,8 +163,9 @@ on how sure it is:
 unsure case: `Caroline suggests Next actions (62% confident)`, with the reasoning and a proposed
 retitle under it. `a` is **Accept** from the keyboard.
 
-It never proposes done, and it never sets a due date. Completing something is a human act, and
-deadlines come from people rather than from a model.
+It never proposes done or blocked, and it never sets a due date. Completing something is a human
+act, naming a blocker is you putting one task in front of another, and deadlines come from people
+rather than from a model.
 
 ## A worked day
 
@@ -180,8 +212,11 @@ The dashboard is the morning screen. Reading it top to bottom:
   **Worth a chase** is the same list as the planner saw when it drew the plan, so something that
   crossed the threshold since this morning is in the first and not yet in the second. For a pull
   request it adds whether the author has pushed anything since you reviewed it, which is the case
-  where a review is quietly yours again. **Stalled** is a project with no next action, which is the
-  one thing tracking work this way can tell you that you cannot see by looking at a list.
+  where a review is quietly yours again. **Blocked** is work whose deadline has arrived while it is
+  still behind another task, named with the task it is behind: a deadline on something that cannot
+  be started is a decision rather than a work item, so it sits here instead of in the plan.
+  **Stalled** is a project with no next action, which is the one thing tracking work this way can
+  tell you that you cannot see by looking at a list.
 
 At the foot of the rail, **where everything is**: how many tasks are sitting in each status. What
 each background job last did is the Jobs surface's own subject rather than repeated here.
@@ -222,6 +257,7 @@ whole of what chat can do.
 | What is left in the Caroline 1.0 release? | `list_projects` and `search_tasks`: the project, its next action, and whether it is stalled |
 | Add a task to chase Legal about the statement of work, ten minutes | `create_task`. The transcript then shows `Created “Chase Legal about the statement of work” in next_action`, with an **Undo** beside it |
 | File it under reference | `update_task` on the item open in the rail: `Updated “…”: to reference`. A status set this way is yours, so the classifier leaves it alone |
+| This is blocked behind the other one | `update_task` with `blockedBy`. The task moves to Blocked and names the blocker; completing or deleting the blocker puts it back in Next actions on its own |
 | That review is done | `mark_reviewed`: the task moves to Waiting for, named on the author, and the review does not come back until the author does something |
 | Redraw today's plan | `regenerate_daily_plan`. Today only: an earlier day's plan is the record of what was proposed on the day, and the plan it replaces is kept in history |
 | Delete that someday item | `delete_task`, which never runs on the model's word. It is proposed, the transcript says it is held, and it happens when you press **Confirm** |

@@ -5,6 +5,15 @@ export interface Migration {
   /** Unique and ascending. The runner applies them in this order and never re-applies. */
   readonly id: number
   readonly name: string
+  /**
+   * Runs with `pragma foreign_keys = OFF` around its transaction. Only a table rebuild wants this,
+   * and only because SQLite cannot alter a check constraint in place: dropping the old table with
+   * foreign keys on runs an implicit delete that fires every cascade pointing at it. The pragma is
+   * a no-op inside a transaction, so it cannot be set by the migration itself. A migration that
+   * declares it owes the twelve-step procedure a `pragma foreign_key_check` of its own before it
+   * returns, because the runner's transaction commits the moment `up` does.
+   */
+  readonly withoutForeignKeys?: boolean
   up(database: Database): void
 }
 
@@ -68,10 +77,22 @@ export function runMigrations(
 
   for (const migration of pending) {
     try {
-      withTransaction(database, () => {
-        migration.up(database)
-        record.run(migration.id, migration.name, Date.now())
-      })
+      if (migration.withoutForeignKeys === true) {
+        database.exec('pragma foreign_keys = OFF')
+      }
+
+      try {
+        withTransaction(database, () => {
+          migration.up(database)
+          record.run(migration.id, migration.name, Date.now())
+        })
+      } finally {
+        // Back on however the migration ended, failure included: every orphaning rule in the
+        // schema depends on it, and a connection left with it off would enforce none of them.
+        if (migration.withoutForeignKeys === true) {
+          database.exec('pragma foreign_keys = ON')
+        }
+      }
     } catch (error) {
       // The reason goes in the message, not only in `cause`: this surfaces at startup,
       // where an operator sees one line and needs it to say what actually broke.

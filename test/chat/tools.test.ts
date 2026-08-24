@@ -1042,6 +1042,210 @@ describe('delete_task', () => {
   })
 })
 
+/**
+ * Blocking from chat, which is the MCP surface's answer too: one registry serves both. Spec 01,
+ * criteria 12 to 17, and spec 08, criterion 52.
+ */
+describe('blocking from the tool surface', () => {
+  function aBlockedPair(database: Database) {
+    createTask(database, { id: 'blocker', title: 'Sign the contract' }, CHAT_NOW)
+    createTask(database, { id: 'task-1', title: 'Book the venue' }, CHAT_NOW)
+  }
+
+  it('files the task as blocked and names the blocker in the summary', async () => {
+    const database = migratedDatabase()
+    aBlockedPair(database)
+
+    const answer = await run(database, 'update_task', { id: 'task-1', blockedBy: 'blocker' })
+
+    expect(getTask(database, 'task-1')).toMatchObject({
+      status: 'blocked',
+      blockedBy: 'blocker',
+      statusSetBy: 'user',
+    })
+    expect(answer.mutations?.[0]?.summary).toContain('blocked behind blocker')
+  })
+
+  it('clears the blocker and returns the task to next actions', async () => {
+    const database = migratedDatabase()
+    aBlockedPair(database)
+    await run(database, 'update_task', { id: 'task-1', blockedBy: 'blocker' })
+
+    await run(database, 'update_task', { id: 'task-1', blockedBy: null })
+
+    expect(getTask(database, 'task-1')).toMatchObject({
+      status: 'next_action',
+      blockedBy: null,
+    })
+  })
+
+  it('answers with the blocker on the task summary the tools share', async () => {
+    const database = migratedDatabase()
+    aBlockedPair(database)
+
+    const answer = await run(database, 'update_task', { id: 'task-1', blockedBy: 'blocker' })
+
+    expect(answer.data).toMatchObject({ blockedBy: 'blocker' })
+  })
+
+  /** Criterion 17: the refusal is an answer to the model, and the task is left as it was. */
+  it('refuses a cycle and leaves the task where it was', async () => {
+    const database = migratedDatabase()
+    aBlockedPair(database)
+    await run(database, 'update_task', { id: 'task-1', blockedBy: 'blocker' })
+
+    const outcome = await refuse(database, 'update_task', {
+      id: 'blocker',
+      blockedBy: 'task-1',
+    })
+
+    expect(outcome.message).toMatch(/behind itself/i)
+    expect(getTask(database, 'blocker')).toMatchObject({ status: 'inbox', blockedBy: null })
+  })
+
+  it('refuses a blocker that names no task', async () => {
+    const database = migratedDatabase()
+    aBlockedPair(database)
+
+    const outcome = await refuse(database, 'update_task', {
+      id: 'task-1',
+      blockedBy: 'nonexistent',
+    })
+
+    expect(outcome.message).toContain('nonexistent')
+  })
+
+  /**
+   * Criterion 19. `update_task` is the other caller of the same field, so the client not offering a
+   * finished task is not on its own enough: the rule is in the read both write paths ask.
+   */
+  it('refuses a blocker that has already finished, from update_task and from create_task', async () => {
+    const database = migratedDatabase()
+    createTask(database, { id: 'blocker', title: 'Sign the contract', status: 'done' }, CHAT_NOW)
+    createTask(database, { id: 'task-1', title: 'Book the venue' }, CHAT_NOW)
+
+    const updated = await refuse(database, 'update_task', { id: 'task-1', blockedBy: 'blocker' })
+    const created = await refuse(database, 'create_task', {
+      title: 'Another',
+      blockedBy: 'blocker',
+    })
+
+    expect(updated.message).toMatch(/already done/i)
+    expect(created.message).toMatch(/already done/i)
+    expect(getTask(database, 'task-1')).toMatchObject({ status: 'inbox', blockedBy: null })
+  })
+
+  /** Spec 01, criterion 14: nothing has to remember to do this. */
+  it('releases what was behind a task when complete_task finishes it', async () => {
+    const database = migratedDatabase()
+    aBlockedPair(database)
+    await run(database, 'update_task', { id: 'task-1', blockedBy: 'blocker' })
+
+    await run(database, 'complete_task', { id: 'blocker' })
+
+    expect(getTask(database, 'task-1')).toMatchObject({
+      status: 'next_action',
+      blockedBy: null,
+    })
+  })
+
+  /**
+   * Spec 01, criterion 15. The confirmation says it before it happens, because a delete that
+   * quietly freed work somebody had deliberately held back is what the confirmation is for.
+   */
+  it('says what a delete would unblock, in the confirmation and in the answer', async () => {
+    const database = migratedDatabase()
+    aBlockedPair(database)
+    await run(database, 'update_task', { id: 'task-1', blockedBy: 'blocker' })
+
+    const described = tool('delete_task').describe?.(context(database), { id: 'blocker' })
+    const answer = await run(database, 'delete_task', { id: 'blocker' })
+
+    expect(described).toBe('Delete “Sign the contract”, which also unblocks 1 task behind it')
+    expect(answer.data).toMatchObject({ unblocked: ['task-1'] })
+    expect(getTask(database, 'task-1')).toMatchObject({ status: 'next_action', blockedBy: null })
+  })
+
+  /**
+   * Criterion 21, through chat rather than through the routes. `update_task` is the spelling
+   * almost everything uses, so a task blocked from here has to end up tracked exactly as one
+   * blocked from the board does.
+   */
+  function aTrackedReviewTask(database: Database) {
+    createTask(database, { id: 'blocker', title: 'Agree the API shape' }, CHAT_NOW)
+    createTask(
+      database,
+      { id: 'task-1', title: 'Review the helper', status: 'review', statusSetBy: 'sync' },
+      CHAT_NOW,
+    )
+    upsertSource(
+      database,
+      { provider: 'github', externalId: 'example-org/service#42', taskId: 'task-1' },
+      CHAT_NOW,
+    )
+  }
+
+  it('keeps a tracked task tracked when chat blocks it behind another', async () => {
+    const database = migratedDatabase()
+    aTrackedReviewTask(database)
+
+    await run(database, 'update_task', { id: 'task-1', blockedBy: 'blocker' })
+
+    expect(getTask(database, 'task-1')).toMatchObject({
+      status: 'blocked',
+      syncTracked: true,
+    })
+  })
+
+  // Criterion 21, the move back out, in both the spellings chat can say it: clearing the
+  // blocker, and naming the status the cleared task lands on.
+  for (const [spelling, args] of [
+    ['clearing the blocker', { blockedBy: null }],
+    ['naming next_action', { status: 'next_action' }],
+  ] as const) {
+    it(`keeps a tracked task tracked when chat unblocks it by ${spelling}`, async () => {
+      const database = migratedDatabase()
+      aTrackedReviewTask(database)
+      await run(database, 'update_task', { id: 'task-1', blockedBy: 'blocker' })
+
+      await run(database, 'update_task', { id: 'task-1', ...args })
+
+      expect(getTask(database, 'task-1')).toMatchObject({
+        status: 'next_action',
+        blockedBy: null,
+        syncTracked: true,
+      })
+    })
+  }
+
+  // The exemption is the return to next actions and nothing else: filing a blocked task under
+  // someday is still criterion 2a's permanent opt-out.
+  it('opts a blocked tracked task out when chat files it under someday instead', async () => {
+    const database = migratedDatabase()
+    aTrackedReviewTask(database)
+    await run(database, 'update_task', { id: 'task-1', blockedBy: 'blocker' })
+
+    await run(database, 'update_task', { id: 'task-1', status: 'someday' })
+
+    expect(getTask(database, 'task-1')).toMatchObject({
+      status: 'someday',
+      syncTracked: false,
+    })
+  })
+
+  /** `blocked` is not a status a task can be filed into: the blocker is what makes it one. */
+  it('does not offer blocked among the statuses a task may be filed into', () => {
+    const statuses = (
+      tool('update_task').parameters.properties as {
+        status: { enum: readonly string[] }
+      }
+    ).status.enum
+
+    expect(statuses).not.toContain('blocked')
+    expect(statuses).not.toContain('done')
+  })
+})
+
 describe('create_project and update_project', () => {
   it('creates a project and records the change against it', async () => {
     const database = migratedDatabase()

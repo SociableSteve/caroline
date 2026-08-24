@@ -3,14 +3,18 @@ import { withTransaction, type Database } from '../connection.js'
 import { booleanToInteger, toTask, type Row } from '../rows.js'
 import {
   applyStatusChange,
+  blockChange,
+  blockRefusal,
   enableSyncTracking,
   newTask,
+  type BlockRefusal,
   type NewTaskInput,
   type StatusChange,
   type StatusChangeRefusal,
   type StatusChangeResult,
   type Task,
   type TaskStatus,
+  type UndoRefusal,
   undoStatusChange,
 } from '../../domain/task.js'
 
@@ -32,7 +36,7 @@ export interface TaskPatch {
 }
 
 const columns = `id, title, notes, status, project_id, sort_order, estimate_minutes, due_at,
-  defer_until, waiting_on, status_set_by, status_set_at, previous_status,
+  defer_until, waiting_on, blocked_by, status_set_by, status_set_at, previous_status,
   previous_status_set_by, sync_tracked, created_at, updated_at, completed_at`
 
 /** Manual ordering first, then stable tiebreaks so a list never reshuffles between reads. */
@@ -43,7 +47,7 @@ function writeTask(database: Database, task: Task): void {
     .prepare(
       `insert into tasks (${columns}) values (
          :id, :title, :notes, :status, :project_id, :sort_order, :estimate_minutes, :due_at,
-         :defer_until, :waiting_on, :status_set_by, :status_set_at, :previous_status,
+         :defer_until, :waiting_on, :blocked_by, :status_set_by, :status_set_at, :previous_status,
          :previous_status_set_by, :sync_tracked, :created_at, :updated_at, :completed_at
        )
        on conflict (id) do update set
@@ -56,6 +60,7 @@ function writeTask(database: Database, task: Task): void {
          due_at = excluded.due_at,
          defer_until = excluded.defer_until,
          waiting_on = excluded.waiting_on,
+         blocked_by = excluded.blocked_by,
          status_set_by = excluded.status_set_by,
          status_set_at = excluded.status_set_at,
          previous_status = excluded.previous_status,
@@ -75,6 +80,7 @@ function writeTask(database: Database, task: Task): void {
       due_at: task.dueAt,
       defer_until: task.deferUntil,
       waiting_on: task.waitingOn,
+      blocked_by: task.blockedBy,
       status_set_by: task.statusSetBy,
       status_set_at: task.statusSetAt,
       previous_status: task.previousStatus,
@@ -190,9 +196,107 @@ export function changeTaskStatus(
   if (existing === null) return null
 
   const result = applyStatusChange(existing, change)
-  if (result.applied) writeTask(database, result.task)
+  if (!result.applied) return result
+
+  // One transaction, because completing a blocker is two writes that have to be one fact: the task
+  // finishes and what was behind it is released. Spec 01, criterion 14.
+  withTransaction(database, () => {
+    writeTask(database, result.task)
+    if (result.task.status === 'done') releaseBlockedBy(database, id, change.at)
+  })
 
   return result
+}
+
+/** The tasks blocked behind this one. Empty for almost every task, and indexed for the rest. */
+export function listBlockedBy(database: Database, blockerId: string): Task[] {
+  return database
+    .prepare(`select ${columns} from tasks where blocked_by = ? ${ordering}`)
+    .all(blockerId)
+    .map((row) => toTask(row as Row))
+}
+
+/**
+ * Releases everything blocked behind a task that is finishing or going: each dependent loses its
+ * reference and becomes a next action again. Attributed to `user`, because the act that caused it
+ * is the user completing or deleting the blocker and there is no other actor in the story, and
+ * because that keeps the classifier locked out of a task the user had already decided on.
+ * Spec 01, criteria 14 and 15.
+ *
+ * One way only. Reopening a completed blocker does not re-block anything, because the reference
+ * went when it completed, and naming it again is a new decision. Criterion 16.
+ */
+function releaseBlockedBy(database: Database, blockerId: string, at: number): void {
+  for (const dependent of listBlockedBy(database, blockerId)) {
+    const released = applyStatusChange(dependent, blockChange(null, 'user', at))
+    if (released.applied) writeTask(database, released.task)
+  }
+}
+
+/** Why naming a blocker was refused, in the words a route or a tool can turn into a message. */
+export type BlockerRefusal = 'not-found' | 'no-such-blocker' | 'blocker-done' | BlockRefusal
+
+export type BlockerResult =
+  | { readonly ok: true; readonly task: Task }
+  | { readonly ok: false; readonly reason: BlockerRefusal }
+
+/**
+ * Whether naming this blocker would be refused, and why. A read, so a caller can answer before it
+ * writes anything and leave the task exactly as it was. Spec 01, criteria 17 and 19.
+ *
+ * The chain is read from the database and the rule is applied in the domain, so every write path
+ * asks the same question and none of them can answer it differently.
+ *
+ * `id` is null on the create path, where the task being blocked does not exist yet. Everything but
+ * the cycle walk still applies, and a task nothing points at cannot be in a cycle, so the one check
+ * that needs an id is the one skipped.
+ */
+export function blockerRefusal(
+  database: Database,
+  id: string | null,
+  blockedBy: string | null,
+): BlockerRefusal | null {
+  if (id !== null && getTask(database, id) === null) return 'not-found'
+  if (blockedBy === null) return null
+
+  const blocker = getTask(database, blockedBy)
+  if (blocker === null) return 'no-such-blocker'
+  // Nothing would ever release it. `releaseBlockedBy` fires on the transition to `done`, and that
+  // moment has passed, so a task filed behind finished work sits in the Blocked column until
+  // somebody notices. Spec 01, criterion 19.
+  if (blocker.status === 'done') return 'blocker-done'
+
+  if (id === null) return null
+
+  return blockRefusal(id, blockedBy, (of) => getTask(database, of)?.blockedBy ?? null)
+}
+
+/**
+ * Naming the task that has to finish first, or clearing it. The one way the pair is set, because
+ * the status and the reference are one fact and a caller that could set them separately could set
+ * them apart. Spec 01, criteria 12, 13 and 17.
+ */
+export function setTaskBlocker(
+  database: Database,
+  id: string,
+  blockedBy: string | null,
+  at: number,
+): BlockerResult {
+  const refused = blockerRefusal(database, id, blockedBy)
+  if (refused !== null) return { ok: false, reason: refused }
+
+  const result = changeTaskStatus(database, id, blockChange(blockedBy, 'user', at))
+  if (result === null) return { ok: false, reason: 'not-found' }
+
+  if (!result.applied) {
+    // Unreachable as the rules stand: `blockChange` builds both halves of the fact, and the two
+    // other refusals are the classifier's and sync's rather than the user's. Raised rather than
+    // reported as one of the refusals above, because a rule that has grown a case this was not
+    // told about is a defect and should read as one.
+    throw new Error(`the status rules refused a user block of ${id}: ${result.reason}`)
+  }
+
+  return { ok: true, task: result.task }
 }
 
 /**
@@ -204,14 +308,23 @@ export function undoTaskStatus(
   database: Database,
   id: string,
   at: number,
-): { readonly undone: boolean; readonly task: Task } | null {
+):
+  | { readonly undone: true; readonly task: Task }
+  | { readonly undone: false; readonly reason: UndoRefusal; readonly task: Task }
+  | null {
   const existing = getTask(database, id)
   if (existing === null) return null
 
   const result = undoStatusChange(existing, at)
-  if (!result.undone) return { undone: false, task: existing }
+  if (!result.undone) return { undone: false, reason: result.reason, task: existing }
 
-  writeTask(database, result.task)
+  // Putting a completion back is still a completion arriving at the row, so what was blocked
+  // behind it is released here too. Spec 01, criterion 14.
+  withTransaction(database, () => {
+    writeTask(database, result.task)
+    if (result.task.status === 'done') releaseBlockedBy(database, id, at)
+  })
+
   return { undone: true, task: result.task }
 }
 
@@ -259,8 +372,14 @@ export function updateTask(
  * thrown away. Its source row survives and moves to the task that owns the work, so the provenance
  * is kept. Spec 02, notification emails as a backup source.
  */
-export function deleteTask(database: Database, id: string): boolean {
-  return database.prepare('delete from tasks where id = ?').run(id).changes > 0
+export function deleteTask(database: Database, id: string, at: number): boolean {
+  return withTransaction(database, () => {
+    // Before the delete and in the same transaction. `on delete set null` on the column would
+    // null the reference on its own and leave the status saying `blocked`, which the invariant
+    // forbids, so the status has to move with it. Spec 01, criterion 15.
+    releaseBlockedBy(database, id, at)
+    return database.prepare('delete from tasks where id = ?').run(id).changes > 0
+  })
 }
 
 /** Replaces the task's whole tag set. Repeats are ignored rather than failing the write. */

@@ -90,8 +90,8 @@ not a reading path.
    as fragmented and a three-minute crack reads as unusable. The present moment is a position on
    it. The agenda underneath prints the clock times of the same placements, so the two cannot
    disagree about when something is happening.
-2. **Wants a decision.** Waiting items that have gone quiet, worth-a-chase nudges, the plan's
-   overflow, and stalled projects. Second, because each of these is something only the user can
+2. **Wants a decision.** Waiting items that have gone quiet, worth-a-chase nudges, blocked work
+   whose deadline has arrived, the plan's overflow, and stalled projects. Second, because each of these is something only the user can
    resolve. The quiet-waiting panel is a chase list, not a count: it names the item, who it is
    on, and for how long.
 3. **State of the machine.** Counts per status, the last-run state of each job, and per
@@ -103,11 +103,24 @@ Nothing in band 3 may be given the same visual weight as band 1. This is the cri
 previous version of this spec was missing, and its absence is why counts led the surface for
 three milestones.
 
-**Board.** One column per status: Inbox, Next actions, Review, Waiting for, Someday,
+**Board.** One column per status: Inbox, Next actions, Review, Waiting for, Blocked, Someday,
 Reference. Drag between columns to set status, which marks the change as user-set. Inbox
 items carrying a low-confidence proposal show it inline with accept and dismiss.
 
-Six columns are six columns. Where six do not fit at the width available, the board scrolls
+Blocked is the seventh, and it is a deliberate change to the argument this spec used to make for
+six. Blocked work that is not reviewable on its own is blocked work that gets buried, which is the
+failure the state exists to prevent, and a collapsed section at the foot of Next actions is only a
+new place to bury it. The column is a review surface rather than a count: each card names the task
+it is blocked behind, so the wait has something in it to judge rather than being a number. The
+blocker's own status is not on the card; the card is one line about one task, and the blocker is a
+card of its own for whoever wants to know where it stands.
+
+The Blocked column takes no drag and no digit. A task is blocked by naming its blocker, not by
+being moved, and the board has no blocker to name, so offering the move would offer a status the
+write would refuse. Out of the column is ordinary: dragging a card out, or filing it anywhere else,
+clears the blocker with the status (spec 01).
+
+Columns are columns. Where they do not all fit at the width available, the board scrolls
 sideways within its own region; it never wraps some of them onto a second row. A wrapped column
 is below and to the left of a column it is logically to the right of, which puts the layout in
 direct contradiction with the arrow keys, and the keyboard is the point of this surface.
@@ -115,7 +128,8 @@ direct contradiction with the arrow keys, and the keyboard is the point of this 
 Each column scrolls on its own within a bounded height. Without that the page grows to the length
 of the longest column, two columns of very different lengths cannot be compared, and the status a
 card should move to may be off the bottom of the screen when the card is in view. Below the
-breakpoint where six columns stop being usable, the columns stack and each is read whole.
+breakpoint where the columns stop fitting side by side they keep a readable width and the board
+scrolls sideways to reach them, for the reason above: they never stack and they never wrap.
 
 A card's actions are not its facts. Every fact stays visible, per the interaction rules below; the
 controls do not all have to be. The primary action is on the card, and the rest go behind a
@@ -351,9 +365,10 @@ The design pass adds the following, appended rather than renumbered for that rea
 
 11. The dashboard's bands render in the order given above at every width, and no panel of band 3
     is laid out at the size of a band 1 panel.
-12. The board renders all six columns on one row, or scrolls sideways with all six still on one
-    row, or stacks them; it never renders some columns on a second row while others share the
-    first.
+12. The board renders all its columns on one row, or scrolls sideways with all of them still on
+    one row, or stacks them; it never renders some columns on a second row while others share the
+    first. Extended in place from "all six" when Blocked made it seven, because the contract is
+    the same one and it was never a claim about the number.
 13. Each board column scrolls within its own bounded height, and the board's own height does not
     grow with the length of its longest column.
 14. A task card does not render its own status as a fact, and every other fact spec 08 asks for
@@ -516,3 +531,23 @@ Making a sync in progress visible from the header adds the following, appended f
     The age stays readable on the surface, so it is available on demand rather than announced.
     Before the first run there is nothing to say, and the region takes no room in the header rather
     than leaving a gap beside the button.
+
+Issue #91 added blocking, and the following with it, appended rather than renumbered for the same
+reason.
+
+52. `blockedBy` is on every task the API returns, and settable on create and on patch. Setting it
+    files the task as `blocked` and clearing it returns the task to `next_action`, so the two
+    never have to be sent as separate changes. A blocker that does not exist, one that is already
+    `done`, or one that would put a task behind itself directly or through a chain, is a 400 saying
+    which.
+53. The Blocked column is not a drop target, and its digit does not move a card into it. A card
+    leaving the column by any route loses its blocker along with the status, and the card's status
+    control offers `blocked` only to a card that is already in it.
+54. The card's blocker picker offers only tasks that could still finish, so completed work is not
+    among them, and it says which task the card is behind even where that task is not one of the
+    ones loaded. The rail's details panel names the blocker too, since nothing around it does.
+55. A request for status `blocked` that names no task to be blocked behind is refused with its
+    reason, on patch as on create, and nothing is written: the two routes answer alike, and neither
+    returns a success that changed nothing. Where the request names both, they are applied as the
+    one status change the pair is, so a task blocked this way keeps one step of undo rather than
+    spending it twice.

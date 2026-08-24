@@ -11,6 +11,7 @@ import { aProposal, aTask, NOW } from './test-fixtures.js'
 function renderBoard(overrides: Partial<Parameters<typeof Board>[0]> = {}) {
   const handlers = {
     onStatusChange: vi.fn(),
+    onBlockerChange: vi.fn(),
     onComplete: vi.fn(),
     onDelete: vi.fn(),
     onDatesChange: vi.fn(),

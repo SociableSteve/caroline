@@ -69,6 +69,14 @@ export interface DailyPlanEntry {
   readonly pushedSinceReview: boolean
   /** Read at the moment of asking, so the plan view renders a completed entry as done. */
   readonly taskStatus: TaskStatus | null
+  /**
+   * Who or what the task is waiting on, read at the same moment as `taskStatus`: the blocker's
+   * title while it is blocked, the person while it is waiting, and null otherwise. `waitingOn`
+   * above is what the planner recorded, and the two say different things once the task moves, so a
+   * surface that presents an entry under its live status has to name what it is under live too.
+   * Spec 05, criterion 20.
+   */
+  readonly currentWaitingOn: string | null
   readonly done: boolean
 }
 
@@ -140,6 +148,7 @@ function toEntry(row: Row): DailyPlanEntry {
     waitingSince: nullableNumber(row.waiting_since),
     pushedSinceReview: Number(row.pushed_since_review) !== 0,
     taskStatus,
+    currentWaitingOn: nullableText(row.current_waiting_on),
     done: taskStatus === 'done',
   }
 }
@@ -147,9 +156,14 @@ function toEntry(row: Row): DailyPlanEntry {
 function entriesOf(database: Database, planId: string): DailyPlanEntry[] {
   return database
     .prepare(
-      `select ${qualifiedEntryColumns}, tasks.status as task_status
+      `select ${qualifiedEntryColumns}, tasks.status as task_status,
+         case
+           when tasks.status = 'blocked' then blocker.title
+           else tasks.waiting_on
+         end as current_waiting_on
        from daily_plan_entries
        left join tasks on tasks.id = daily_plan_entries.task_id
+       left join tasks as blocker on blocker.id = tasks.blocked_by
        where plan_id = ?
        order by daily_plan_entries.rank, daily_plan_entries.id`,
     )
