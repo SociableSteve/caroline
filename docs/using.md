@@ -121,9 +121,10 @@ one key the app answers, and it works from any screen.
 | **Mark reviewed** | on a review card | moves the pull request to Waiting for |
 | **More** | on the card | the disclosure: the status control, the blocker picker, the due and defer-until dates, **Undo move** and **Delete** |
 
-The status control is the one that files a card, and it offers every column but Blocked: a task is
-blocked by naming the task it is behind, in the picker under it, because there would otherwise be no
-blocker to name. Dragging a card between columns does the same thing, so the pointer and the keyboard
+The status control is the one that files a card, and Blocked is the one column it will not file a card
+into: a task is blocked by naming the task it is behind, in the picker under it, because there would
+otherwise be no blocker to name. A card already in Blocked is the exception, and its control still
+offers the status it is in. Dragging a card between columns does the same thing, so the pointer and the keyboard
 file work the same way.
 
 A worked pass at an inbox of three:

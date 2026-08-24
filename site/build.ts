@@ -577,9 +577,9 @@ function prevNext(page: SitePage, context: BuildContext, steps: readonly SetupSt
  * that would just as happily chip an environment variable or a config path: both pages carry those
  * too, and a chip is a claim about what a reader presses. Short since issue #89: the board's own grid
  * of movement, digit and action keys is gone, so the keys the documents name are quick capture and
- * the three the browser itself provides.
+ * the four the browser itself provides.
  */
-const keyTokens = new Set(['c', 'Enter', 'Escape', 'Tab'])
+const keyTokens = new Set(['c', 'Enter', 'Escape', 'Space', 'Tab'])
 
 function chipKeys(html: string): string {
   return html.replace(/<code>([^<]+)<\/code>/g, (whole, inner: string) =>
