@@ -3,7 +3,7 @@
  * own CSS moved here once both became shadcn/ui components: a `cva` variant string in this
  * directory's own source is where they are declared now, not a rule in `web/styles.css`.
  *
- * Spec 10, criteria 14 and 16.
+ * Spec 10, criteria 14, 16 and 23.
  */
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
@@ -22,6 +22,21 @@ describe('the primary button', () => {
   it('carries the literal `primary` class design-system.test.tsx counts per row of controls', () => {
     render(<Button variant="default">Go</Button>)
     expect(screen.getByRole('button', { name: 'Go' })).toHaveClass('primary')
+  })
+
+  /**
+   * Criterion 23, on the variant that had the gap. `text-destructive-foreground` named a token
+   * neither palette declared, so a filled destructive button's label was drawn in whatever colour it
+   * inherited rather than one chosen against `--destructive`. Stock shadcn writes `text-white` here
+   * instead, which this palette cannot: white on the dark palette's `--destructive` is about 2.9:1.
+   * The pairing check is the assertion; `design-system.test.tsx` is what holds the token to being
+   * declared.
+   */
+  it('pairs the destructive fill with the foreground named for it', () => {
+    const classes = buttonVariants({ variant: 'destructive' })
+
+    expect(classes).toContain('bg-destructive')
+    expect(classes).toContain('text-destructive-foreground')
   })
 })
 

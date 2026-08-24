@@ -17,7 +17,7 @@ import {
   slug,
   type SiteSources,
 } from '../../site/build.js'
-import { declarations } from '../helpers/css.js'
+import { declarations, offTheScales, untokenisedColours } from '../helpers/css.js'
 
 const root = process.cwd()
 const built = buildSite()
@@ -556,35 +556,18 @@ describe('the site and the application look like one thing', () => {
       expect(declaredTokens, `${token}, referenced in site/styles.css`).toContain(token)
     }
   })
-  const exempt = new Set(['0', 'auto', 'inherit', 'initial', 'unset', 'none', '100%'])
-  const tokenised = (value: string): boolean =>
-    value.split(/\s+/).every((part) => exempt.has(part) || part.startsWith('var(--'))
-
   it('has rules of its own to check, so a parse failure cannot pass as a clean sheet', () => {
     expect(own.length).toBeGreaterThan(40)
   })
 
+  // Criteria 1 and 2, through the predicates in `test/helpers/css.ts` rather than a regex written
+  // out again here: two copies of a rule are a rule enforced by whichever copy is the less careful.
   it('spaces, sizes and rounds everything from the scales', () => {
-    const properties =
-      /^(margin|padding)(-(top|right|bottom|left))?$|^(gap|row-gap|column-gap)$|^font-size$|^border-radius$/
-
-    expect(own.filter((rule) => properties.test(rule.property) && !tokenised(rule.value))).toEqual(
-      [],
-    )
+    expect(offTheScales(own)).toEqual([])
   })
 
   it('names a colour only as a token, so no rule is right in one theme alone', () => {
-    const properties =
-      /^(color|background|background-color|border|border-(top|right|bottom|left)|border-color|outline|box-shadow|fill|stroke)$/
-    const literals = own.filter(
-      (rule) =>
-        properties.test(rule.property) &&
-        !rule.value.includes('var(') &&
-        // A removed border and a removed shadow are the absence of a colour rather than one.
-        !['transparent', 'inherit', 'none', '0'].includes(rule.value),
-    )
-
-    expect(literals).toEqual([])
+    expect(untokenisedColours(own)).toEqual([])
   })
 
   /**

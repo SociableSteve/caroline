@@ -13,12 +13,54 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { declarations } from '../test/helpers/css.js'
+import {
+  declarations,
+  hasColourLiteral,
+  offTheScales,
+  untokenisedColours,
+} from '../test/helpers/css.js'
 
 // Read from the project root rather than from `import.meta.url`: these run under jsdom, where
 // the module URL is an `http:` one and `fileURLToPath` refuses it.
 const stylesheet = readFileSync(join(process.cwd(), 'web/styles.css'), 'utf8')
 const all = declarations(stylesheet)
+
+/**
+ * shadcn's own token set, both palettes, as the two sweeps that need it read it: criterion 3 asks
+ * that each name is declared in oklch in both, and criterion 2's whitelist asks which custom
+ * properties are allowed to carry a colour literal at all.
+ */
+const shadcnTokens = [
+  'background',
+  'foreground',
+  'card',
+  'card-foreground',
+  'popover',
+  'popover-foreground',
+  'primary',
+  'primary-foreground',
+  'secondary',
+  'secondary-foreground',
+  'muted',
+  'muted-foreground',
+  'accent',
+  'accent-foreground',
+  'destructive',
+  'destructive-foreground',
+  'border',
+  'input',
+  'ring',
+  'chart-1',
+  'chart-2',
+  'chart-3',
+  'chart-4',
+  'chart-5',
+  'sidebar',
+  'sidebar-foreground',
+  'sidebar-accent',
+  'sidebar-accent-foreground',
+  'sidebar-border',
+]
 
 describe('the stylesheet has declarations to check', () => {
   it('so a parse failure cannot pass as a clean sheet', () => {
@@ -32,9 +74,9 @@ it('imports Tailwind, the engine every surface’s utility classes resolve again
 
 /**
  * shadcn/ui's own token set (`background`, `foreground`, `card`, `primary`, `secondary`, `muted`,
- * `accent`, `destructive`, `border`, `input`, `ring`, and the two `-foreground` pairs), unmodified
- * from what `shadcn init` generates: no bespoke five-ground ramp, no separate accent or alarm
- * ramp, and no `--nav-active`. Dark is the unconditioned default (`:root`, no query, no `.dark`
+ * `accent`, `destructive`, `border`, `input`, `ring`, and the `-foreground` pairs), at the values
+ * `shadcn init` generates apart from the one addition named below: no bespoke five-ground ramp, no
+ * separate accent or alarm ramp, and no `--nav-active`. Dark is the unconditioned default (`:root`, no query, no `.dark`
  * class and no `data-theme` attribute, because this deployment has no manual toggle), and
  * `@media (prefers-color-scheme: light)` overrides the same names for a system that prefers it.
  *
@@ -42,40 +84,14 @@ it('imports Tailwind, the engine every surface’s utility classes resolve again
  * and the carrier for the design's blue accent, and the `sidebar` family, which distinguishes
  * chrome (header, chat rail, needs-you rail) from ordinary panels (`card`).
  *
+ * `destructive-foreground` is in the list and is the one name stock shadcn no longer generates: it
+ * writes `text-white` on the destructive button instead, which this palette does not follow because
+ * white on the dark palette's light red is about 2.9:1. Spec 10, criterion 23 is why it has to be
+ * declared rather than assumed.
+ *
  * Spec 10, criterion 3: the whole set in both palettes, every value in oklch, and no manual toggle.
  */
 describe('shadcn’s token set, in both palettes', () => {
-  const shadcnTokens = [
-    'background',
-    'foreground',
-    'card',
-    'card-foreground',
-    'popover',
-    'popover-foreground',
-    'primary',
-    'primary-foreground',
-    'secondary',
-    'secondary-foreground',
-    'muted',
-    'muted-foreground',
-    'accent',
-    'accent-foreground',
-    'destructive',
-    'border',
-    'input',
-    'ring',
-    'chart-1',
-    'chart-2',
-    'chart-3',
-    'chart-4',
-    'chart-5',
-    'sidebar',
-    'sidebar-foreground',
-    'sidebar-accent',
-    'sidebar-accent-foreground',
-    'sidebar-border',
-  ]
-
   const withoutComments = stylesheet.replace(/\/\*[\s\S]*?\*\//g, '')
   const dark = all.filter(
     (declaration) => declaration.selector === ':root' && declaration.context === '',
@@ -137,38 +153,46 @@ describe('shadcn’s token set, in both palettes', () => {
  */
 describe('the rules the sheet still owns, held to the scales', () => {
   const own = all.filter((declaration) => !declaration.property.startsWith('--'))
-  const exempt = new Set(['0', 'auto', 'inherit', 'initial', 'unset', 'none', '100%'])
-  const tokenised = (value: string): boolean =>
-    value.split(/\s+/).every((part) => exempt.has(part) || part.startsWith('var(--'))
 
   it('has rules of its own to check, so a parse failure cannot pass as a clean sheet', () => {
     expect(own.length).toBeGreaterThan(3)
   })
 
-  // Criterion 1.
+  // Criteria 1 and 2, through the predicates in `test/helpers/css.ts`, which `test/site/build.test.ts`
+  // holds `site/styles.css` to with the same two calls. `outline-offset` is a length rather than a
+  // colour, and `color-scheme` names the two palettes rather than a value in either, so neither is a
+  // colour decision and neither property is in the set.
   it('spaces, sizes and rounds only from the scales', () => {
-    const properties =
-      /^(margin|padding)(-(top|right|bottom|left))?$|^(gap|row-gap|column-gap)$|^font-size$|^border-radius$/
-
-    expect(own.filter((rule) => properties.test(rule.property) && !tokenised(rule.value))).toEqual(
-      [],
-    )
+    expect(offTheScales(own)).toEqual([])
   })
 
-  // Criterion 2. `outline-offset` is a length rather than a colour, and `color-scheme` names the
-  // two palettes rather than a value in either, so neither is a colour decision.
   it('names a colour only as a token, so no rule is right in one theme alone', () => {
-    const properties =
-      /^(color|background|background-color|border|border-(top|right|bottom|left)|border-color|outline|box-shadow|fill|stroke)$/
+    expect(untokenisedColours(own)).toEqual([])
+  })
 
-    expect(
-      own.filter(
-        (rule) =>
-          properties.test(rule.property) &&
-          !rule.value.includes('var(') &&
-          !['transparent', 'inherit', 'none', '0'].includes(rule.value),
-      ),
-    ).toEqual([])
+  /**
+   * Criterion 2's other half, and the reason the criterion is scoped to what a rule applies to an
+   * element rather than to every declaration in the file. A palette is where colour literals live,
+   * so `--background: oklch(...)` is not a violation; a custom property outside the palette that
+   * carries one is, because it is a colour chosen once for both themes under a name that hides it.
+   * `--shadow-1` is the single named exception: a shadow is a colour and two lengths together, there
+   * is no shadow token to point at, and it is restated per palette rather than shared.
+   *
+   * The sweep is a whitelist rather than a blocklist on purpose: the previous version filtered every
+   * `--` property out and so could not have failed on the exception it was silent about.
+   */
+  it('keeps colour literals in the palettes, `--shadow-1` aside', () => {
+    const palette = new Set(shadcnTokens.map((name) => `--${name}`))
+    const strays = all
+      .filter(
+        (declaration) =>
+          declaration.property.startsWith('--') &&
+          hasColourLiteral(declaration.value) &&
+          !palette.has(declaration.property),
+      )
+      .map((declaration) => declaration.property)
+
+    expect([...new Set(strays)]).toEqual(['--shadow-1'])
   })
 })
 
@@ -218,5 +242,20 @@ describe('focus', () => {
 
   it('is never removed by a rule that would undo it', () => {
     expect(stylesheet).not.toMatch(/outline:\s*(none|0)/)
+  })
+
+  /**
+   * Criterion 9's other half, and the reason `outline-none` on shadcn's select trigger and item does
+   * not undo focus. Tailwind emits every utility inside `@layer utilities`, and a declaration in a
+   * cascade layer loses to an unlayered one of the same specificity whatever the source order, so
+   * the rule below wins because it sits outside every layer. Move it into one and the utility starts
+   * winning, silently, which is what this asserts against: the parser records the at-rules a
+   * declaration sits inside, and this one's context has to be empty.
+   */
+  it('sits outside every cascade layer, so a utility cannot beat it', () => {
+    const rule = all.filter((declaration) => declaration.selector === ':focus-visible')
+
+    expect(rule).not.toEqual([])
+    expect(rule.map((declaration) => declaration.context)).toEqual(rule.map(() => ''))
   })
 })

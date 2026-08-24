@@ -10,8 +10,9 @@ What that set is made of changed with the shadcn/ui migration. The scales and th
 below were first built as a hand-written stylesheet over a palette this application invented, in
 hex. The migration replaced both: every surface is now Tailwind CSS v4 utility classes written in
 JSX plus shadcn/ui's own generated components (`web/components/ui/*`), and the palette is shadcn's
-stock token set in oklch, unmodified from what `shadcn init` emits. `web/styles.css` is left with
-the theme import, the two palettes, a compatibility layer the public site build reads out of it, and
+stock token set in oklch at the values `shadcn init` emits, with one addition named in the table
+below. `web/styles.css` is left with the theme import, the two palettes, a compatibility layer the
+public site build reads out of it, and
 the handful of element-level rules that apply everywhere rather than to one surface. A colour
 decision on a surface is checked against the token table below and against the rules that follow it,
 not against a stylesheet rule, because there is no stylesheet rule left to check it against.
@@ -104,7 +105,8 @@ track shaves the first and last minutes of the window it is drawing.
 
 **Colour.** shadcn/ui's stock token set, declared in oklch, in two palettes: `:root` unconditioned
 for dark, and `@media (prefers-color-scheme: light)` overriding the same names for light. Every
-value below is the one `web/styles.css` declares.
+value below is the one `web/styles.css` declares, and the table is the whole of both palettes rather
+than a selection from them.
 
 | Token | Dark (`:root`) | Light | For |
 | --- | --- | --- | --- |
@@ -120,9 +122,10 @@ value below is the one `web/styles.css` declares.
 | `--secondary-foreground` | `oklch(0.985 0 0)` | `oklch(0.205 0 0)` | Text on it |
 | `--muted` | `oklch(0.269 0 0)` | `oklch(0.97 0 0)` | A sunk ground: a keyboard hint, a quiet badge |
 | `--muted-foreground` | `oklch(0.708 0 0)` | `oklch(0.556 0 0)` | Secondary text, still AA on its own ground |
-| `--accent` | `oklch(0.269 0 0)` | `oklch(0.97 0 0)` | A hover or highlighted ground, and nothing else |
+| `--accent` | `oklch(0.269 0 0)` | `oklch(0.97 0 0)` | A hover or highlighted ground in the client, and nothing else there |
 | `--accent-foreground` | `oklch(0.985 0 0)` | `oklch(0.205 0 0)` | Text while that ground is showing |
 | `--destructive` | `oklch(0.704 0.191 22.216)` | `oklch(0.577 0.245 27.325)` | Something wrong, failed or overdue |
+| `--destructive-foreground` | `oklch(0.205 0 0)` | `oklch(0.985 0 0)` | Text on a filled destructive action |
 | `--border` | `oklch(1 0 0 / 10%)` | `oklch(0.922 0 0)` | A hairline: a divider, a card's edge |
 | `--input` | `oklch(1 0 0 / 15%)` | `oklch(0.922 0 0)` | A control's own edge |
 | `--ring` | `oklch(0.556 0 0)` | `oklch(0.708 0 0)` | The focus outline, and only that |
@@ -142,6 +145,15 @@ this design's blue lives. `--chart-1` and `--chart-2` are the same value in the 
 `--chart-2` and `--chart-3` swap between the two: that is shadcn's own ramp, kept rather than
 retuned, and it is why the ramp is used for two ranks (text and fill) rather than five series.
 
+`--destructive-foreground` is the one name in the table that stock shadcn no longer generates. It
+dropped the token and writes `text-white` on `Button`'s destructive variant instead, which this
+palette cannot follow: white on the dark palette's `--destructive` (`oklch(0.704 ...)`, a light red)
+is about 2.9:1, well under the 4.5:1 the contrast rule below asks of a control's label. So the
+pairing is declared rather than assumed, dark text on the light red and white on the dark one, and
+criterion 23 holds every `*-foreground` utility the client writes to a token a palette actually
+declares. `@theme inline` already mapped `--color-destructive-foreground`, so before this the
+utility resolved to nothing and the label fell back to whatever colour it inherited.
+
 **`--accent` is not the accent.** This is the trap in the table and the one that has already caused
 a wrong colour choice on a surface. In the palette this spec used to describe, `--accent` was links,
 focus and the filled primary action. In shadcn's set it is none of those: it is a near-neutral hover
@@ -151,32 +163,41 @@ a reader would call the accent is `--chart-2` as a fill and `--chart-1` as text.
 `bg-accent` because the design wants an accent is the failure mode, and it will pass review by name
 while looking like nothing.
 
+That is a rule about the client. `site/styles.css` does write `var(--accent)` as a resting
+background, four times, and is right to: it is a hand-maintained sheet over the same palette, where
+the near-neutral is exactly what a quoted block and a table stripe want. Criterion 20 is scoped to
+`web/` for that reason, and so is every sentence above about what `--accent` is for.
+
 **What is a fill, what is a state, and what is not a surface's decision.**
 
 - **Grounds a surface chooses.** `bg-background` for the page, `bg-card` for a panel or a card,
   `bg-sidebar` for chrome, `bg-muted` or `bg-secondary` for something sunk inside a component, and
   `bg-chart-2` for the one fill that means "this is the work" (planned time on the day bar).
   `bg-destructive` for a filled destructive action.
-- **Hover and highlight only.** `--accent` and `--accent-foreground`, and their `--sidebar-accent`
-  pair in chrome. Every use of them in the client sits behind a `hover:` or a `data-[highlighted]:`
-  variant, which is what criterion 20 holds them to. A surface never picks `bg-accent` as a resting
-  ground.
+- **State only, never at rest.** `--accent` and `--accent-foreground`, and their `--sidebar-accent`
+  pair in chrome. Every use of them in the client sits behind a state variant: `hover:` on a button
+  and a navigation link, `data-[highlighted]:` on a select's item, and `aria-[current=page]:` on the
+  navigation link for the surface being shown. Those three and no others, which is what criterion 20
+  holds them to. A surface never picks `bg-accent` as a resting ground.
 - **Not a colour decision a surface makes at all.** `--ring` belongs to the one global
   `:focus-visible` rule and to nothing else. `--border` and `--input` are hairlines, chosen by the
   component that owns the edge rather than by the surface drawing it. `--primary` and
   `--primary-foreground` belong to `Button`'s `default` variant, so "which control is the primary"
   is a composition decision and never a colour one. The `*-foreground` pairings are fixed: text on
   `bg-card` is `text-card-foreground`, and pairing a foreground with a ground it is not named for is
-  how a contrast failure gets written.
+  how a contrast failure gets written. A pairing whose foreground token is not declared at all is the
+  same failure with nothing to see: criterion 23 is that check.
 
-**Opacity-derived fills are sanctioned, for a ground and not for text.** `bg-chart-2/35`,
-`bg-foreground/15`, `bg-destructive/5`, `bg-muted/30`, `border-chart-2/50`, `border-border/60` and
-`bg-chart-2/[0.06]` are all in use, and they are the right tool: a tint of a token stays a tint of
-that token in both palettes, where a separately chosen light tone would be a second palette with one
-entry in it. The rule is that the opacity modifier goes on a ground, a border or a hairline, never on
-text: no `text-<token>/<n>` appears anywhere in the client, and none should, because a text colour
-whose contrast ratio depends on an alpha nobody computed is a contrast claim nobody can check.
-Criterion 21 is that rule.
+**Opacity-derived fills are sanctioned, for a ground and not for text.** Sixteen of them are in use
+in `web/`: `bg-chart-2/15`, `bg-chart-2/35`, `bg-chart-2/[0.04]`, `bg-chart-2/[0.06]`,
+`bg-chart-2/[0.08]`, `bg-destructive/5`, `bg-destructive/10`, `bg-destructive/15`,
+`bg-destructive/[0.04]`, `bg-foreground/15`, `bg-muted/30`, `border-border/60`, `border-chart-2/30`,
+`border-chart-2/50`, `border-destructive/25` and `border-destructive/40`. They are the right tool: a
+tint of a token stays a tint of that token in both palettes, where a separately chosen light tone
+would be a second palette with one entry in it. The rule is that the opacity modifier goes on a
+ground, a border or a hairline, never on text: no `text-<token>/<n>` appears anywhere in the client,
+and none should, because a text colour whose contrast ratio depends on an alpha nobody computed is a
+contrast claim nobody can check. Criterion 21 is that rule.
 
 **The scrim is the one non-token colour.** The dialog overlay is `bg-black/65`, a literal rather than
 a token, because the veil over the page is the same veil in both palettes and it is behind everything
@@ -204,17 +225,24 @@ words: a stale wait says "Stale", a completed plan entry says "done" beside the 
 calendar block that costs nothing says "declined" or "marked free", and a failed job prints its
 error. This rule predates this spec and is kept.
 
-**The site build's compatibility layer.** `:root` and the light override each end with a block of
-aliases onto the tokens above: `--page`, `--ink`, `--ink-quiet`, `--surface`, `--surface-sunk`,
-`--surface-raised`, `--line`, `--line-faint`, `--primary-ink`, `--shadow-1`, `--leading-tight`,
-`--measure`, the `--space-*` and `--text-*` scales, `--text-display`, and copies of `--font-sans` and
-`--font-mono`. These are the names the old hand-written palette used, and they survive for one
-reason: `site/build.ts` extracts the two `:root` blocks by regex to build the published site's
-stylesheet, favicon and hero pin, and `site/styles.css` is a hand-maintained sheet that writes
-`var(--ink)` and `var(--space-3)` directly (spec 11, criterion 6). Nothing in the application reads
-any of them. They are aliases and not a second palette: `--surface` is `var(--card)`, `--line` and
-`--line-faint` are both `var(--border)`, and `--surface-raised` is `var(--card)` too, so the names
-that once distinguished four grounds and two lines now point at two values. `--alarm`,
+**The site build's compatibility layer.** Ten aliases onto the tokens above are restated in both
+palettes, because their values differ between the two: `--page`, `--ink`, `--ink-quiet`, `--surface`,
+`--surface-sunk`, `--surface-raised`, `--line`, `--line-faint`, `--primary-ink` and `--shadow-1`.
+Another set sits in `:root` only, because one value serves both palettes: `--leading-tight`,
+`--measure`, `--radius-sm` and `--radius-md`, the `--space-1` to `--space-7` scale, `--text-display`,
+and copies of `--font-sans` and `--font-mono`. These are the names the old hand-written palette used,
+and they survive for one reason: `site/build.ts` extracts the two `:root` blocks by regex to build
+the published site's stylesheet, favicon and hero pin, and `site/styles.css` is a hand-maintained
+sheet that writes `var(--ink)` and `var(--space-3)` directly (spec 11, criterion 6). Nothing in the
+application reads any of the names in either list. They are aliases and not a second palette:
+`--surface` is `var(--card)`, `--line` and `--line-faint` are both `var(--border)`, and
+`--surface-raised` is `var(--card)` too, so the names that once distinguished four grounds and two
+lines now point at two values.
+
+The `--text-*` scale is declared in the same `:root` block and is not part of this layer: the
+application does read it, through Tailwind, as the Type section above says. `--text-display` is the
+one rung of it that is site-only, which is why it is in the second list and the rest of the scale is
+in neither. `--alarm`,
 `--alarm-surface`, `--scrim`, `--shadow-2`, `--accent-ink` and `--radius-pill` do not exist at all,
 in this layer or anywhere else. Adding a name here is adding to the site's vocabulary, not the
 application's, and the application should not start reading one.
@@ -222,9 +250,18 @@ application's, and the application should not start reading one.
 ## Primitives
 
 Five components own the patterns that were being rewritten per surface. A surface composes these; it
-does not restyle them. All five are still in `web/components/primitives.tsx`, and each is now built
-on shadcn's generated component where there is one to build on, so the primitive is this
-application's decision about a pattern and shadcn's implementation of the widget.
+does not restyle them, with one exception the client currently carries and this section names rather
+than hides. The dashboard's rail renders `Panel` as
+`className="mt-auto rounded-lg border border-sidebar-border bg-transparent p-3 shadow-none"`
+(`web/surfaces/Dashboard.tsx`), which replaces the panel's ground, overrides its radius and draws
+the neutral line round a region that the rule below says the grounds are for. That is the client
+failing this section rather than this section describing the client, the same way the `h1` above is:
+criterion 16 constrains the primitive and `Panel` still satisfies it, so nothing fails, and the
+honest record is here until the call site changes.
+
+All five are still in `web/components/primitives.tsx`, and each is now built on shadcn's generated
+component where there is one to build on, so the primitive is this application's decision about a
+pattern and shadcn's implementation of the widget.
 
 **Panel.** A titled region: shadcn's `Card` (`components/ui/card.tsx`) rendered as a `<section>` so
 the `region` role survives, on `bg-card`, `rounded-md`, `p-3`, heading at `text-lg font-normal`, and
@@ -286,19 +323,24 @@ edge; `border-sidebar-border` is chrome's. `border-border/60` is the same hairli
 inside a dense table. No surface draws a neutral line round a region it owns: that is what the
 grounds are for.
 
-**Weight is scarce.** Three weights and no others. `font-semibold` is for a dialog title, the product
-name and the two strip headings that are the point of the strip. `font-medium` marks a panel heading,
-a card title, the current item in the navigation, and the one value in a row that is the point of the
-row. Everything else is `font-normal`. The previous sheet reached for `600` seven times, which is the
-same as reaching for it none.
+**Weight is scarce.** Three weights and no others. `font-semibold` is for four things and no more:
+the dialog title, the product name in the header, the dashboard's "Needs you" heading and the chat
+rail's own heading. `font-medium` marks a card title, a table's column labels, the current item in
+the navigation, and the one value in a row that is the point of the row. A panel heading is not on
+that list: `Panel` sets its heading at `text-lg font-normal` and earns its rank from the size rather
+than the weight. Everything else is `font-normal`. The previous sheet reached for `600` seven times,
+which is the same as reaching for it none.
 
-**Uppercase is a small quiet label and nothing else.** Six places uppercase text, each of them a
-column label, a strip heading or a transcript's role, and each of them at `text-xs` or below with a
-letter-spacing beside it: uppercase without tracking is unreadable, and uppercase at a size a reader
-navigates by costs the word its shape and a screen reader its pronunciation. Running text, headings
-and any word carrying a state are never uppercased. The earlier rule was that nothing is uppercased
-and nothing is tracked at all, which the client does not honour and, at this size, should not:
-criterion 13 is superseded by criterion 18.
+**Uppercase is a small quiet label and nothing else.** Six places uppercase text, each of them at
+`text-xs` or below with a letter-spacing beside it: uppercase without tracking is unreadable, and
+uppercase at a size a reader reads by costs the word its shape and a screen reader its pronunciation.
+What the six are is worth stating exactly, because three of them are headings: a table's column
+labels, a transcript's role twice over, the dashboard's "Needs you" `h2`, the same rail's
+"Where everything is" `h2`, and a Jobs strip's `h3`. Uppercase on a heading is allowed here and only
+here, at `text-[10px]` to `text-xs`, where the heading is a strip label rather than a rank the reader
+navigates the document by. Running text and any word carrying a state are never uppercased. The
+earlier rule was that nothing is uppercased and nothing is tracked at all, which the client does not
+honour and, at this size, should not: criterion 13 is superseded by criterion 18.
 
 **One filled primary per context.** `Button`'s `default` variant is filled in `bg-primary` with
 `text-primary-foreground`, and carries the literal `primary` class, so there is one obvious thing to
@@ -310,7 +352,8 @@ to press, which is none.
 
 **Measure.** Running text is capped at `max-w-[76ch]`, which is roughly 80 characters of this type.
 The board's cards and the dashboard's panels are already narrower than that; the chat transcript, the
-project list and the settings prose need the cap stated.
+project list, the dashboard's plan summary and the login screen need the cap stated, and write it.
+Settings does not: nothing on it is a paragraph wide enough to need one.
 
 **Numbers that line up get tabular figures.** Ages in a chase list, times in the calendar column and
 on the day bar, counts in the history and ranks in the plan are read down the column, and
@@ -329,7 +372,14 @@ the header, which left every surface's outline headless and every browser tab id
 
 **Focus is always visible**, declared once globally as `3px` of `var(--ring)` with a `2px` offset on
 `:focus-visible`, on every interactive element including the cards and any disclosure added to them.
-Nothing anywhere sets `outline: none` on a focusable element to undo it.
+No rule in a stylesheet sets `outline: none` to undo it.
+
+Two components do write the `outline-none` utility, on shadcn's select trigger and on its items, and
+focus survives both. Tailwind emits every utility inside `@layer utilities`, and a declaration in a
+cascade layer loses to an unlayered one of the same specificity whatever the source order, so the
+global `:focus-visible` rule wins because it sits outside every layer. That is a fact about where the
+rule is written rather than about what it says, which is why criterion 9 asserts the position as well
+as the declaration: move the rule into a layer and the utility starts winning, silently.
 
 **Both themes are designed, not inverted.** A colour is only ever a token, written as a Tailwind
 `*-<token>` utility or as `var(--token)` in the stylesheet, so no rule can be correct in one theme
@@ -364,11 +414,18 @@ usual arrangement and is worth knowing before reading the sheet.
    `web/styles.css` has almost no such declarations left, because the application spaces, sizes and
    rounds in Tailwind utilities; `site/styles.css` has many, and that is where this bites (spec 11,
    criterion 6).
-2. No rule in a stylesheet declares a colour literal. Every colour is a `var(--token)`, so no rule
-   can be right in one theme and wrong in the other.
+2. No rule in a stylesheet colours an element with a literal: every colour a selector applies is a
+   `var(--token)`, so no rule can be right in one theme and wrong in the other. The palettes are
+   where the literals necessarily live, and among the custom properties beside them exactly one
+   carries a colour written out rather than pointed at: `--shadow-1`, restated per palette, because a
+   shadow is a colour and two lengths together and there is no shadow token to point at. A test
+   checks both halves, the second as a whitelist, so a second such property fails rather than passing
+   unmentioned.
 3. Both palettes declare shadcn's whole token set, every value in oklch, with dark unconditioned in
    `:root` and light in `@media (prefers-color-scheme: light)`. There is no manual toggle: no `.dark`
-   class and no `data-theme` selector anywhere in the sheet.
+   class and no `data-theme` selector anywhere in the sheet. The set includes
+   `--destructive-foreground`, which stock shadcn no longer generates and which criterion 23 is why
+   this palette declares.
 4. Each of the five primitives has one implementation, and no surface writes its own version of one:
    no surface renders a bare `<dl>`, a bare `<label>`, or an element carrying the literal `badge` or
    `panel` class.
@@ -381,7 +438,10 @@ usual arrangement and is worth knowing before reading the sheet.
    that state, and a later value renders neither.
 9. Focus is visible on every interactive element, the task card and any disclosure on it included:
    declared once globally on `:focus-visible` as `3px solid var(--ring)` with a `2px` offset, and
-   never undone by a rule setting `outline: none`.
+   never undone by a rule setting `outline: none`. The rule sits outside every cascade layer, which
+   is what makes it beat the `outline-none` utility two components write: Tailwind emits utilities
+   inside `@layer utilities`, and a layered declaration loses to an unlayered one of equal
+   specificity. A test asserts the position as well as the declaration.
 10. **Superseded by criterion 16.** The four grounds are four distinct values in both palettes, so a
     card is never the same colour as the page it sits on, and both lines are defined and differ from
     each other. Withdrawn with the palette it described: shadcn's light palette makes `--card` and
@@ -393,8 +453,12 @@ usual arrangement and is worth knowing before reading the sheet.
     stylesheet and lists the offenders. Withdrawn with the stylesheet it parsed: the sheet declares
     no weight at all, and the client sets weight in utilities.
 13. **Superseded by criterion 18.** The stylesheet declares no `text-transform: uppercase` and no
-    `letter-spacing` at all. Withdrawn: the client does uppercase six small labels, deliberately,
-    and each carries the tracking that makes uppercase readable.
+    `letter-spacing` at all. Withdrawn because the rule it was written to enforce is not the rule
+    this design holds: `web/styles.css` does still declare neither, so the criterion is not failing,
+    but `site/styles.css` declares both (its own small labels, on the same terms) and the client
+    uppercases six small labels with tracking, deliberately. A criterion that passes only because the
+    sheet it parses has nothing left in it is not the check this wants, which is criterion 18's sweep
+    of what the client spends.
 14. The one filled primary is `Button`'s `default` variant, filled `bg-primary` with
     `text-primary-foreground` and carrying the literal `primary` class, and no row of controls on any
     surface renders more than one of them.
@@ -413,14 +477,19 @@ suite cite the numbers above.
     `font-semibold`. No component uses `font-light`, `font-thin`, `font-bold`, `font-extrabold` or
     `font-black`.
 18. Every uppercased string in the client is a small quiet label: each occurrence of `uppercase`
-    carries a letter-spacing utility and a size at or below `text-xs` in the same class string, so no
-    heading a reader navigates by and no running text is uppercased.
+    carries a letter-spacing utility and a size at or below `text-xs` in the same class string, so
+    nothing at a size a reader reads the document by is uppercased. Three of the six occurrences are
+    on headings, which the size bound is what makes acceptable: a strip label written as an `h2` or
+    an `h3` for the outline's sake is still small print.
 19. Every colour the client draws comes from a token: no component source writes a hex, `rgb()`,
     `hsl()` or `oklch()` colour literal. The dialog scrim, `bg-black/65`, is the one sanctioned
     exception, and it sits behind everything rather than under any text.
-20. `--accent` is a hover or highlighted ground and never a fill a surface chooses: every `accent`
-    and `sidebar-accent` utility in the client sits behind a `hover:` or `data-[highlighted]:`
-    variant. The design's blue is the chart ramp, not `--accent`.
+20. `--accent` is a state ground and never a fill a surface chooses at rest: every `accent` and
+    `sidebar-accent` utility in `web/` carries one of three variants, `hover:`,
+    `data-[highlighted]:` or `aria-[current=page]:`, and no other. A test whitelists those three and
+    fails on a bare occurrence or on a fourth variant, rather than passing anything with a prefix.
+    Scoped to the client: `site/styles.css` writes `var(--accent)` as a resting background and is
+    outside this. The design's blue is the chart ramp, not `--accent`.
 21. Opacity-derived fills are sanctioned for a ground, a border or a hairline and never for text:
     every opacity modifier in the client names a token, and no `text-<token>/<n>` appears anywhere,
     so no text colour has a contrast ratio that depends on an uncomputed alpha.
@@ -428,3 +497,9 @@ suite cite the numbers above.
     stated in words beside it. The day bar's track is the case: it is `aria-hidden="true"` and its
     legend states each figure (spec 08, criteria 45 and 47), which is what exempts its tints from the
     text contrast ratio.
+23. Every colour utility the client writes resolves to a token a palette declares. Both halves are
+    whitelists: every `--color-*` mapping in `@theme inline` points at a name `:root` declares, and
+    every `*-foreground` utility in `web/` names one of those mappings. `Button`'s destructive variant
+    is the case that failed it, pairing `bg-destructive` with a `text-destructive-foreground` that
+    resolved to nothing, so the label was drawn in whatever colour it inherited and its contrast was
+    a claim nobody could check.

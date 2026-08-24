@@ -1,9 +1,16 @@
 /*
- * The design system: Tailwind CSS v4 plus shadcn/ui's stock theme, unmodified from what `shadcn
- * init` generates. Every surface is built from Tailwind utility classes in JSX and shadcn/ui's
- * generated components (`web/components/ui/*`); this file is left with the theme import, the two
- * colour palettes shadcn's own tokens need, and the handful of element-level resets and rules that
- * apply everywhere rather than to one surface.
+ * The design system: Tailwind CSS v4 plus shadcn/ui's stock theme, which is kept at the values
+ * `shadcn init` generates apart from the one addition named below. Every surface is built from
+ * Tailwind utility classes in JSX and shadcn/ui's generated components (`web/components/ui/*`);
+ * this file is left with the theme import, the two colour palettes shadcn's own tokens need, and
+ * the handful of element-level resets and rules that apply everywhere rather than to one surface.
+ *
+ * The addition is `--destructive-foreground`, in both palettes. Stock shadcn dropped the token and
+ * writes `text-white` on `Button`'s destructive variant instead, which this palette cannot follow:
+ * white on the dark palette's `--destructive` (`oklch(0.704 ...)`, a light red) is about 2.9:1,
+ * under the 4.5:1 spec 10 asks of a control's label. So the pairing is declared rather than
+ * assumed, dark text on the light red and white on the dark one, and spec 10's criterion 23 holds
+ * every `*-foreground` utility the client writes to a token a palette actually declares.
  *
  * Dark is the unconditioned default (`:root`, no query, no `.dark` class and no `data-theme`
  * attribute): this deployment has no manual theme toggle, so `:root` carries shadcn's own dark
@@ -31,6 +38,7 @@
   --accent: oklch(0.269 0 0);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.205 0 0);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
@@ -109,6 +117,7 @@
     --accent: oklch(0.97 0 0);
     --accent-foreground: oklch(0.205 0 0);
     --destructive: oklch(0.577 0.245 27.325);
+    --destructive-foreground: oklch(0.985 0 0);
     --border: oklch(0.922 0 0);
     --input: oklch(0.922 0 0);
     --ring: oklch(0.708 0 0);
