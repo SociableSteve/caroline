@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   listLlmCalls,
-  llmUsageByDay,
-  llmUsageByPurpose,
+  llmTokensForProvider,
+  llmUsageBreakdown,
   recordLlmCall,
   type RecordLlmCallInput,
 } from '../../../src/db/repositories/llm-calls.js'
@@ -82,17 +82,25 @@ describe('listing calls', () => {
 })
 
 describe('usage rollups', () => {
-  it('adds up a day, including the calls that failed after spending tokens', () => {
+  /**
+   * One leaf per day, purpose, provider and model. Every view the spend report builds is rolled up
+   * from these, so the day boundary and the token totals are asserted here once rather than in
+   * each of them. Spec 03.
+   */
+  it('adds up a leaf, including the calls that failed after spending tokens', () => {
     const database = migratedDatabase()
     recordLlmCall(database, aCall({ inputTokens: 100, outputTokens: 10 }))
     recordLlmCall(database, aCall({ inputTokens: 200, outputTokens: 20, status: 'invalid' }))
 
-    const [today] = llmUsageByDay(database, { timeZone: 'UTC' })
-
-    expect(today).toEqual({
-      day: '2026-01-15',
-      usage: { calls: 2, inputTokens: 300, outputTokens: 30 },
-    })
+    expect(llmUsageBreakdown(database, { timeZone: 'UTC' })).toEqual([
+      {
+        day: '2026-01-15',
+        purpose: 'classification',
+        provider: 'anthropic',
+        model: 'claude-sonnet-5',
+        usage: { calls: 2, inputTokens: 300, outputTokens: 30 },
+      },
+    ])
   })
 
   it('separates the days by the local calendar, not by UTC', () => {
@@ -100,8 +108,8 @@ describe('usage rollups', () => {
     // 23:00 UTC is the next day anywhere an hour or more east of Greenwich.
     recordLlmCall(database, aCall({ startedAt: Date.UTC(2026, 0, 15, 23) }))
 
-    expect(llmUsageByDay(database, { timeZone: 'UTC' })[0]?.day).toBe('2026-01-15')
-    expect(llmUsageByDay(database, { timeZone: 'Europe/Berlin' })[0]?.day).toBe('2026-01-16')
+    expect(llmUsageBreakdown(database, { timeZone: 'UTC' })[0]?.day).toBe('2026-01-15')
+    expect(llmUsageBreakdown(database, { timeZone: 'Europe/Berlin' })[0]?.day).toBe('2026-01-16')
   })
 
   /**
@@ -115,41 +123,44 @@ describe('usage rollups', () => {
     recordLlmCall(database, aCall({ startedAt: Date.parse('2026-01-15T04:30:00Z') }))
     recordLlmCall(database, aCall({ startedAt: Date.parse('2026-07-15T03:30:00Z') }))
 
-    expect(llmUsageByDay(database, { timeZone: 'America/New_York' }).map((day) => day.day)).toEqual(
-      ['2026-07-14', '2026-01-14'],
-    )
+    expect(
+      llmUsageBreakdown(database, { timeZone: 'America/New_York' })
+        .map((leaf) => leaf.day)
+        .toSorted(),
+    ).toEqual(['2026-01-14', '2026-07-14'])
   })
 
-  it('answers most recent day first', () => {
-    const database = migratedDatabase()
-    recordLlmCall(database, aCall({ startedAt: noon }))
-    recordLlmCall(database, aCall({ startedAt: noon + 2 * day }))
-
-    expect(llmUsageByDay(database, { timeZone: 'UTC' }).map((entry) => entry.day)).toEqual([
-      '2026-01-17',
-      '2026-01-15',
-    ])
-  })
-
-  it('adds up each purpose separately, which is the per-job view', () => {
+  it('keeps each purpose apart, which is the per-job view', () => {
     const database = migratedDatabase()
     recordLlmCall(database, aCall({ purpose: 'classification', outputTokens: 10 }))
     recordLlmCall(database, aCall({ purpose: 'classification', outputTokens: 20 }))
     recordLlmCall(database, aCall({ purpose: 'chat', outputTokens: 5 }))
 
-    expect(llmUsageByPurpose(database)).toEqual([
-      { purpose: 'chat', usage: { calls: 1, inputTokens: 412, outputTokens: 5 } },
-      {
-        purpose: 'classification',
-        usage: { calls: 2, inputTokens: 824, outputTokens: 30 },
-      },
+    expect(
+      llmUsageBreakdown(database, { timeZone: 'UTC' })
+        .map((leaf) => [leaf.purpose, leaf.usage.outputTokens] as const)
+        .toSorted((left, right) => left[0].localeCompare(right[0])),
+    ).toEqual([
+      ['chat', 5],
+      ['classification', 30],
     ])
   })
 
   it('answers nothing at all with an empty list rather than a zero row', () => {
     const database = migratedDatabase()
 
-    expect(llmUsageByDay(database)).toEqual([])
-    expect(llmUsageByPurpose(database)).toEqual([])
+    expect(llmUsageBreakdown(database)).toEqual([])
+  })
+
+  it('counts a window from an instant, and only the named provider', () => {
+    // The sum the spending ceiling is enforced against. Spec 03, criteria 11 and 12.
+    const database = migratedDatabase()
+    recordLlmCall(database, aCall({ startedAt: noon - day, inputTokens: 5, outputTokens: 0 }))
+    recordLlmCall(database, aCall({ inputTokens: 100, outputTokens: 10 }))
+    recordLlmCall(database, aCall({ provider: 'openai', inputTokens: 7, outputTokens: 0 }))
+
+    expect(llmTokensForProvider(database, { provider: 'anthropic', since: noon })).toBe(110)
+    expect(llmTokensForProvider(database, { provider: 'openai', since: noon })).toBe(7)
+    expect(llmTokensForProvider(database, { provider: 'ollama', since: noon })).toBe(0)
   })
 })

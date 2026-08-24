@@ -132,8 +132,9 @@ key: neither can make a call, and neither is a reason to refuse to start.
 ## Cost and observability
 
 Every call records provider, model, purpose, token usage and duration in an `llm_calls`
-table. The UI shows usage per day and per job. There is no billing integration and no
-attempt to price the tokens, because rates change.
+table. The UI shows usage per day, per job and per model, and prices it against the
+committed table below. There is no billing integration: the figure is Caroline's own
+estimate from the tokens it recorded, not a statement of what the provider will invoice.
 
 One row per call to the provider, not one per request from a caller: a schema failure and
 the retry that follows it are two calls, and both spent tokens. A streamed call is recorded
@@ -151,6 +152,144 @@ following July would file it under the wrong one.
 Writing a usage row never fails a call. Losing a whole mailbox's classification because the
 cost table would not take a row is the wrong trade.
 
+## The spending ceiling
+
+A bound on what Caroline may spend on model calls. It is **configured in currency and enforced
+in tokens**, because those are answers to two different questions: currency is the only unit a
+person can meaningfully choose, and tokens are the only unit that can be enforced honestly.
+
+```jsonc
+{
+  "llm": {
+    "budget": {
+      "currency": "GBP",       // USD | GBP | EUR, one for the install
+      "period": "month",       // day | month, one for the install
+      "anthropic": 20,         // a positive amount in `currency`, or "unlimited"
+      "openai": "unlimited",
+      "ollama": "unlimited"
+    }
+  }
+}
+```
+
+**Every provider defaults to `unlimited`**, and so does an install with no `llm.budget` block at
+all, which is every configuration file in existence today. Nothing about this feature changes what
+such an install does, and nothing about it consults a price for a provider nobody has capped.
+
+### The price table
+
+Prices are a table committed to this repository, keyed by provider and model, each entry carrying
+its price and the date the vendor's own pricing page was read. Ollama is priced at zero, so the
+local provider is never billed by a feature about money. The currencies other than USD are reached
+through a committed exchange rate, carrying its own date, and the date shown beside an estimate is
+the older of the two: an estimate is only as fresh as its stalest input.
+
+Nothing is fetched, at boot or on a schedule. Four reasons, and they are an argument spec 09's
+network posture depends on rather than a preference:
+
+- Neither vendor publishes a pricing API. The de facto sources are third parties, so a fetch does
+  not get closer to the authoritative number, it adds a hop.
+- A fetch relocates staleness rather than removing it. It fails on an offline or firewalled
+  install, so a bundled table is needed anyway, and then two prices are in force and the figure has
+  to say which one it used.
+- It hands a third party silent control over the number that decides when Caroline stops working.
+  An upstream typo becomes a spend incident or a spurious halt with no review step in between. A
+  committed table gets the review every other change to this repository gets.
+- It is a new outbound call for a number that changes a few times a year.
+
+Updating the table is an ordinary reviewed pull request. A scheduled refresh is a non-goal below.
+
+### What is counted, and against what
+
+The ceiling and the reported estimate are computed differently, on purpose.
+
+**Enforcement** converts the ceiling into a token allowance at config load, and counts tokens
+against it. For a provider with a numeric ceiling, the allowance is the number of tokens that
+amount would buy at the **output** rate of the **most expensive model configured for that
+provider**, across the base settings and every override. Output is the dearer of the two rates and
+the dearest configured model is the dearest a call could use, so a token can never cost more than
+the allowance priced it at: whatever the mix of input and output turns out to be, the allowance is
+a bound on the money and not an estimate of it.
+
+What a ceiling is not is a figure the spend cannot reach. The check refuses once the tokens already
+recorded, together with the reservations held for the calls in flight, reach the allowance, so the
+call that crosses the line has been made and charged by the
+time anything can know it crossed. Reaching the ceiling stops the next call, not the one in
+progress, which is the property the issue behind this asked for: "reaching it stops further calls
+rather than slowing them". The overshoot is bounded rather than open-ended, at the cost of the
+calls that were in flight when the line was crossed, and the reservation described below is what
+bounds it.
+
+The conversion also inherits the exchange rate. A ceiling written in GBP or EUR is priced through
+the committed rate, so a stale rate moves the enforced ceiling and not only the reported estimate.
+That is the same staleness the estimate carries a date for, on a figure the spend view does not
+date, and it is a known limit rather than a hidden one.
+
+Tokens are what is counted because they are exact, and because `llm_calls` already holds them. A
+row only exists once a call has returned, though, so counting rows alone would let every call
+started before the first response lands read the same total and pass. Each call that passes the
+check therefore **holds a reservation** for its own estimated cost, taken in the same synchronous
+step as the reading and released once the call's own rows are written. Nothing can interleave
+between the reading and the reservation, because the runtime is single threaded and `node:sqlite`
+is synchronous, so there is no await between them for another call to arrive in. That, rather than
+a database transaction, is what stops a classification run with several calls in flight having all
+of them pass a check only one should have passed.
+
+The reservation is deliberately generous: the request's own prompt, counted in characters and
+converted at a rate that overstates the tokens, plus the output cap the caller asked for, and both
+again for the one retry the validate-and-retry rule permits. The prompt is everything the request
+puts on the wire and not only its prose: the system prompt, each message's text, the tool calls and
+tool results the messages carry, the tool definitions and the output schema. On a chat turn the
+tool traffic is the larger part, so leaving it out would undercount by more than the character rate
+deliberately overcounts by, and turn a hold meant to overstate into one that understates. Overstating it can only refuse a call
+close to the ceiling that would in fact have fitted, which is the safe direction for a guard about
+money, and it is reconciled the moment the call's rows are written, so it never affects a call made
+after the previous one has finished.
+
+**The reported estimate** prices each recorded call at its own model's own two rates, input and
+output separately, which is the more accurate figure and the right one for a number a person
+reads. It is shown as an estimate, in the configured currency, with the date its prices were
+checked beside it, so the figure is never a bare claim about money. A provider with no ceiling
+reads "no ceiling" rather than a blank or a zero, because a decision not to cap and a gap where
+nobody configured anything should not look the same.
+
+The window is the current period in `jobs.timezone`, for the reason a usage day is resolved that
+way rather than by a fixed offset. `day` and `month` are the two periods offered, because a
+calendar day and a calendar month have unambiguous boundaries and a week would need a
+start-of-week decision nothing else in the configuration makes.
+
+### Reaching it
+
+Reaching a provider's ceiling stops further calls **to that provider** and nothing else. What
+happens then is spec 04 criterion 7's rule, the provider outage, applied to a self-inflicted
+outage:
+
+- A scheduled job skips, with a reason naming the provider and the ceiling, recorded in the run
+  history it already writes. No partial writes and no unhandled error.
+- Chat answers in words that it cannot, in the same shape as chat with no provider configured. An
+  MCP tool that would have spent tokens (`regenerate_daily_plan`) refuses with that same reason,
+  because the tool registry is shared and the refusal is written once.
+
+### Why `unlimited` is a literal and not `null`
+
+This is the config schema's first `z.union`, and the alternative would have fitted the file's
+existing idiom better: `model`, `baseUrl` and `auth.provider.clientId` are all nullable with null a
+documented state. It is still wrong here, on the file's own stated principle that absent has to
+stay distinguishable from set. Null is what an absent field would default to, so reading null as
+unlimited collapses "I have chosen not to cap this" into "I never configured it", and only the
+first of those is worth telling anybody about. A literal also survives an environment variable,
+where everything arrives as a string.
+
+The rules that stop a mistake reading as unlimited follow from the same concern:
+
+- `0` is rejected. It is ambiguous between no cap and no spending, and `provider: "none"` already
+  says the second one properly.
+- Negatives and non-finite values are rejected, and an unrecognised string fails config load, the
+  way a malformed content policy refuses to start rather than falling back to a default.
+- A model missing from the price table is a start-up error **only** where that provider has a
+  numeric ceiling. Where it is `unlimited` the table is never consulted for it, so a stale or
+  incomplete table cannot break an install that has not asked for a cap.
+
 ## Non-goals
 
 - Streaming for scheduled jobs. Only chat streams.
@@ -158,6 +297,13 @@ cost table would not take a row is the wrong trade.
   gets its own spec.
 - Automatic provider failover. A failed job fails and retries on schedule.
 - Prompt caching in v1. Worth revisiting once the classification prompt stabilises.
+- Fetching prices, at boot or on a schedule. Argued above: it converts a reviewed number into an
+  unreviewed one. If the committed table turns out to be a burden in practice, that is a separate
+  issue and a separate decision.
+- A billing integration, or any reconciliation against what a provider actually invoiced. The
+  estimate is built from the tokens Caroline recorded and says so.
+- Per-job or per-purpose ceilings. The ceiling is per provider, which is the granularity at which
+  the money is actually spent.
 
 ## Acceptance criteria
 
@@ -173,3 +319,37 @@ cost table would not take a row is the wrong trade.
 6. An API key present in config rather than the environment is rejected at startup with a
    clear message.
 7. Token usage for every call is recorded, including failed calls that consumed tokens.
+
+The spending ceiling adds the following, appended rather than renumbered because criterion numbers
+are cited by the code and the suite.
+
+8. A configuration with no `llm.budget` block, and one whose block names no entry for a provider,
+   leave that provider unlimited: no call is refused, and no price is looked up for it. Asserted on
+   the loaded configuration and on a call made against a model the price table does not carry.
+9. A model absent from the price table is a start-up error naming the provider, the model and the
+   key that asked for the cap, and only where that provider's ceiling is a number. With the ceiling
+   `unlimited` the same configuration starts.
+10. `0`, a negative amount, a non-finite amount and any string other than `unlimited` are each
+    refused at config load with the offending key named. `unlimited` is the only string accepted.
+11. Once a provider's recorded tokens for the current period, together with the reservations held
+    for its calls in flight, reach its allowance, further calls for that provider are refused
+    before anything reaches the network, and a call to a different provider under its own ceiling
+    still goes through.
+12. A call that passes the check holds a reservation for its own estimated cost until its usage
+    rows are written, and the reading, the comparison and the reservation are taken in one
+    synchronous step with no await between them. Calls in flight together therefore cannot each
+    pass a check only one of them should have passed: asserted by driving several concurrent calls
+    through the runtime against a headroom that admits one, and observing that exactly one reaches
+    the provider and records a row. A reservation is released on every exit path, including a
+    provider error, so a failed call consumes no allowance beyond what it actually spent.
+13. A scheduled job that cannot call its provider because the ceiling is reached is recorded as
+    skipped, with a reason naming the provider, in the run history, leaving no partial write and
+    raising no unhandled error. Spec 04 criterion 7's rule for a provider outage, applied to this
+    one. Asserted for the classifier and for the planner.
+14. Chat, and the MCP tool that would have spent tokens, answer with the reason rather than
+    failing, in the same shape as chat with no provider configured. Asserted once, because one
+    registry serves both surfaces.
+15. Spend is reported by day, by purpose and by model, in the configured currency, labelled an
+    estimate and carrying the date its prices were checked, which is the older of the model price's
+    date and the exchange rate's. A provider with no ceiling reports "no ceiling" rather than a
+    blank or a zero.

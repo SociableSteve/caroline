@@ -242,6 +242,9 @@ Four things about a conversation that are rules rather than good intentions:
 - **No model, or a model that cannot call tools, degrades rather than breaks.** The rail says which at
   the top, naming the model where there is one: a model that cannot use tools means chat can answer
   questions but cannot change anything, and no model configured at all means it cannot do either yet.
+  A provider whose spending ceiling has been reached (`llm.budget`, off by default) reads the same
+  way: chat says it has stopped for the period and what the ceiling was, and `regenerate_daily_plan`
+  answers with that reason instead of drawing a plan. Nothing throws, and nothing is half written.
 
 ## Projects
 

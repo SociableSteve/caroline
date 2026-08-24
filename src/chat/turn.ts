@@ -136,15 +136,20 @@ export async function runTurn(
     at,
   )
 
-  // Not configured is a plain answer rather than an error: the rest of Caroline works without a
-  // model, and a conversation that says why it cannot help is more use than a failed request.
-  if (!llm.isConfigured('chat')) {
-    const message =
-      'No language model is configured, so I cannot answer. Set llm.provider and its model, then try again.'
+  // Read out before the closure below, which cannot see that `conversation` was narrowed.
+  const conversationId = conversation.id
+
+  /**
+   * A turn that cannot be taken, answered in words rather than raised as an error: the rest of
+   * Caroline works without a model, and a conversation that says why it cannot help is more use
+   * than a failed request. Two reasons reach here, and they get the same shape because they are
+   * the same thing to the person reading the rail: nothing was sent, and here is what to change.
+   */
+  function cannotAnswer(message: string, error: string): null {
     emit({ type: 'text', text: message })
     finish(
       options,
-      conversation.id,
+      conversationId,
       turn.id,
       {
         content: message,
@@ -154,12 +159,24 @@ export async function runTurn(
         inputTokens: 0,
         outputTokens: 0,
         stopReason: null,
-        error: 'chat is not configured',
+        error,
       },
       emit,
     )
     return null
   }
+
+  if (!llm.isConfigured('chat')) {
+    return cannotAnswer(
+      'No language model is configured, so I cannot answer. Set llm.provider and its model, then try again.',
+      'chat is not configured',
+    )
+  }
+
+  // Spec 03's spending ceiling, spec 07 criterion 7's graceful degradation, criterion 14 here. The
+  // reason itself is the answer: it names the provider, the ceiling and what to change.
+  const overBudget = llm.budgetRefusal('chat')
+  if (overBudget !== null) return cannotAnswer(overBudget, 'chat is over its spending ceiling')
 
   const provider = llm.for('chat')
   // Spec 03: Ollama tool support varies by model, so the configuration declares it. Without it

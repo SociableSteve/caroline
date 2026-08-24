@@ -45,12 +45,18 @@ function config(
  * A runtime over the fake provider, wrapped in the same validate-and-retry rule the real one uses,
  * so that a schema violation behaves here exactly as it would in production. Spec 03.
  */
-function runtime(answers: readonly FakeAnswer[], configured = true) {
+function runtime(
+  answers: readonly FakeAnswer[],
+  configured = true,
+  /** The spending ceiling's answer for this run. Spec 03, criterion 13. */
+  overBudget: string | null = null,
+) {
   const fake = createFakeProvider({ answers, model: 'fake-classifier' })
   const validating = withSchemaValidation(fake, { now: () => NOW })
 
   const llm: LlmRuntime = {
     isConfigured: () => configured,
+    budgetRefusal: () => overBudget,
     for: (): LlmProvider => validating,
   }
 
@@ -347,7 +353,11 @@ describe('applying an answer', () => {
       },
     }
 
-    await run(database, { isConfigured: () => true, for: () => decidedMidCall })
+    await run(database, {
+      isConfigured: () => true,
+      budgetRefusal: () => null,
+      for: () => decidedMidCall,
+    })
 
     expect(getTask(database, taskId)).toMatchObject({ status: 'inbox', statusSetBy: 'user' })
     expect(listClassifications(database, { taskId })[0]).toMatchObject({
@@ -492,6 +502,26 @@ describe('the run as a whole', () => {
     expect(result.status).toBe('skipped')
     expect(result.error).toMatch(/No LLM provider/)
     expect(fake.requests).toHaveLength(0)
+  })
+
+  /**
+   * Spec 04, criterion 10: reaching the spending ceiling is an outage Caroline imposes on itself,
+   * and criterion 7's rule applies to it. Skipped rather than failed, because nothing went wrong.
+   */
+  it('is skipped, leaving every candidate in the inbox, when the spending ceiling is reached', async () => {
+    const database = migratedDatabase()
+    const taskId = anIngestedThread(database)
+    const reason =
+      'The spending ceiling for "anthropic" has been reached: llm.budget sets it to 20 GBP per month.'
+    const { llm, fake } = runtime([], true, reason)
+
+    const result = await run(database, llm)
+
+    expect(result.status).toBe('skipped')
+    expect(result.error).toBe(reason)
+    expect(fake.requests).toHaveLength(0)
+    expect(getTask(database, taskId)?.status).toBe('inbox')
+    expect(listClassifications(database, { taskId })).toEqual([])
   })
 
   /** Spec 09: at `none` there is nothing to classify with, so it is not attempted. */

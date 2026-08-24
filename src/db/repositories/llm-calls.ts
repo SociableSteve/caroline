@@ -109,37 +109,57 @@ export function listLlmCalls(database: Database, query: LlmCallQuery = {}): LlmC
     .map((row) => toLlmCall(row as Row))
 }
 
-function toUsage(row: Row | undefined): LlmUsage {
-  if (row === undefined) return noUsage
-  return {
-    calls: Number(row.calls),
-    inputTokens: Number(row.input_tokens),
-    outputTokens: Number(row.output_tokens),
-  }
+/**
+ * Every token one provider has spent since an instant, input and output together.
+ *
+ * The spending ceiling is enforced against this number (spec 03, criteria 11 and 12), together
+ * with what the calls in flight have reserved, which this cannot see: a row exists only once a
+ * call has returned. Summed in SQL rather than read row by row, because this runs before every
+ * call rather than when somebody opens a screen, and because the caller takes it and its
+ * comparison in one synchronous step: the less that happens inside that step the better.
+ */
+export function llmTokensForProvider(
+  database: Database,
+  { provider, since }: { provider: LlmCall['provider']; since: number },
+): number {
+  const row = database
+    .prepare(
+      `select coalesce(sum(input_tokens + output_tokens), 0) as tokens
+         from llm_calls
+        where provider = ? and started_at >= ?`,
+    )
+    .get(provider, since) as Row | undefined
+
+  return row === undefined ? 0 : Number(row.tokens)
+}
+
+/** One leaf of the spend report: the finest grouping every roll-up in it can be built from. */
+export interface LlmUsageLeaf {
+  /** A local calendar day, `YYYY-MM-DD`, resolved in the given zone. */
+  readonly day: string
+  readonly purpose: LlmPurpose
+  readonly provider: LlmCall['provider']
+  readonly model: string
+  readonly usage: LlmUsage
 }
 
 /**
- * Usage grouped by local calendar day, because "what did today cost" is a question about the
- * day the user is living in and a UTC boundary lands in the middle of one for most of the
- * world.
+ * Usage grouped by day, purpose, provider and model at once. Spec 03's spend view rolls this up
+ * three ways rather than asking three times, because a price belongs to a model: a total taken
+ * across models cannot be priced, so every roll-up has to be built from leaves that carry one.
  *
- * Grouped in JavaScript rather than in SQL, and by time zone rather than by a fixed offset.
- * A single offset applied to every row is only correct until a daylight-saving change: a
- * call made at 04:30 UTC in January belongs to the previous day in New York, but a query run
- * in July would apply that summer's offset and file it under the wrong one. `Intl` knows
- * which offset was in force at each instant; a number cannot.
- *
- * The row count here is one per model call over a reporting window, so reading them to add
- * them up is not a cost worth trading correctness for.
+ * Grouped in JavaScript rather than in SQL because a day here is a local calendar day, and only
+ * `Intl` knows which offset was in force at an instant. The row count is one per
+ * model call over a reporting window, so reading them to add them up is not a cost worth trading
+ * correctness for.
  */
-export function llmUsageByDay(
+export function llmUsageBreakdown(
   database: Database,
   {
     since,
     timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone,
   }: { since?: number; timeZone?: string } = {},
-): Array<{ day: string; usage: LlmUsage }> {
-  // `en-CA` formats as YYYY-MM-DD, which is both the readable form and the sortable one.
+): LlmUsageLeaf[] {
   const asDay = new Intl.DateTimeFormat('en-CA', {
     timeZone,
     year: 'numeric',
@@ -150,47 +170,32 @@ export function llmUsageByDay(
   const where = since === undefined ? '' : 'where started_at >= ?'
   const params = since === undefined ? [] : [since]
 
-  const totals = new Map<string, { calls: number; inputTokens: number; outputTokens: number }>()
+  const totals = new Map<string, LlmUsageLeaf>()
 
   for (const row of database
-    .prepare(`select started_at, input_tokens, output_tokens from llm_calls ${where}`)
+    .prepare(
+      `select started_at, purpose, provider, model, input_tokens, output_tokens
+         from llm_calls ${where}`,
+    )
     .all(...params)) {
-    const { started_at, input_tokens, output_tokens } = row as Row
-    const day = asDay.format(new Date(Number(started_at)))
+    const record = row as Row
+    const day = asDay.format(new Date(Number(record.started_at)))
+    const purpose = String(record.purpose) as LlmPurpose
+    const provider = String(record.provider) as LlmCall['provider']
+    const model = String(record.model)
 
-    const running = totals.get(day) ?? { calls: 0, inputTokens: 0, outputTokens: 0 }
-    running.calls += 1
-    running.inputTokens += Number(input_tokens)
-    running.outputTokens += Number(output_tokens)
-    totals.set(day, running)
+    const key = `${day}\u0000${purpose}\u0000${provider}\u0000${model}`
+    const running = totals.get(key) ?? { day, purpose, provider, model, usage: noUsage }
+
+    totals.set(key, {
+      ...running,
+      usage: {
+        calls: running.usage.calls + 1,
+        inputTokens: running.usage.inputTokens + Number(record.input_tokens),
+        outputTokens: running.usage.outputTokens + Number(record.output_tokens),
+      },
+    })
   }
 
-  return [...totals.entries()]
-    .map(([day, usage]) => ({ day, usage }))
-    .toSorted((left, right) => right.day.localeCompare(left.day))
-}
-
-/** Usage grouped by what the call was for. Spec 03's "per job" view. */
-export function llmUsageByPurpose(
-  database: Database,
-  { since }: { since?: number } = {},
-): Array<{ purpose: LlmPurpose; usage: LlmUsage }> {
-  const where = since === undefined ? '' : 'where started_at >= ?'
-  const params = since === undefined ? [] : [since]
-
-  return database
-    .prepare(
-      `select purpose,
-              count(*) as calls,
-              sum(input_tokens) as input_tokens,
-              sum(output_tokens) as output_tokens
-         from llm_calls ${where}
-        group by purpose
-        order by purpose`,
-    )
-    .all(...params)
-    .map((row) => ({
-      purpose: String((row as Row).purpose) as LlmPurpose,
-      usage: toUsage(row as Row),
-    }))
+  return [...totals.values()]
 }

@@ -53,6 +53,13 @@
     "baseUrl": null,
     "maxTokens": 4096,
     "timeoutMs": 60000,
+    "budget": {
+      "currency": "USD",
+      "period": "month",
+      "anthropic": "unlimited",
+      "openai": "unlimited",
+      "ollama": "unlimited"
+    },
     "overrides": {}
   },
   "integrations": {

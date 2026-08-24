@@ -1,6 +1,15 @@
 import { z } from 'zod'
 import { contentLevelRank, contentLevels, type ContentLevel } from '../domain/content.js'
 import { isValidCron, isValidTimeZone } from '../domain/cron.js'
+import {
+  budgetCurrencies,
+  budgetPeriods,
+  UNLIMITED,
+  type BudgetCurrency,
+  type BudgetLimit,
+  type BudgetPeriod,
+  type PricedProvider,
+} from '../domain/pricing.js'
 
 /**
  * The content policy vocabulary is the domain's, and is re-exported here because this is where
@@ -76,6 +85,24 @@ const llmOverrideSchema = z
     supportsTools: llmField.supportsTools().optional(),
   })
   .strict()
+
+/**
+ * One provider's ceiling. This is the schema's first `z.union`, and deliberately so: spec 03
+ * argues why `unlimited` is a literal rather than `null`, which is that null is what an absent
+ * field would default to and "I have chosen not to cap this" must stay distinguishable from "I
+ * never configured it".
+ *
+ * `0` is refused rather than read as either bound. It is ambiguous between no cap and no spending,
+ * and `llm.provider: "none"` already says the second one properly. Negatives and non-finite values
+ * go the same way, and so does any other string: this is a setting about money, and the ways it
+ * could go quietly wrong are worth refusing loudly.
+ */
+const budgetLimit = z
+  .union([z.number(), z.literal(UNLIMITED)])
+  .refine(
+    (value): boolean => value === UNLIMITED || (Number.isFinite(value) && value > 0),
+    'must be a positive amount, or the string "unlimited". 0 is refused because it is ambiguous between no ceiling and no spending',
+  )
 
 const cronExpression = z.string().refine(isValidCron, {
   message:
@@ -329,6 +356,23 @@ export const fileConfigSchema = z
         timeoutMs: llmField.timeoutMs().default(60_000),
         supportsTools: llmField.supportsTools().optional(),
         /**
+         * The spending ceiling. Spec 03: one currency and one period for the install, and a
+         * ceiling per provider that is either a positive amount or `unlimited`. Every key has a
+         * default and every provider defaults to `unlimited`, so a file naming no `budget` block
+         * at all, which is every configuration file in existence today, behaves exactly as it did
+         * before this feature and never consults a price.
+         */
+        budget: z
+          .object({
+            currency: z.enum(budgetCurrencies).default('USD'),
+            period: z.enum(budgetPeriods).default('month'),
+            anthropic: budgetLimit.default(UNLIMITED),
+            openai: budgetLimit.default(UNLIMITED),
+            ollama: budgetLimit.default(UNLIMITED),
+          })
+          .strict()
+          .default({}),
+        /**
          * Per-job partial configs. Spec 03 names classification and chat; the planner runs
          * on the base settings, because a plan is drawn once a day and is the one place
          * where paying for the better model is obviously worth it.
@@ -451,6 +495,22 @@ export interface LlmSettings {
 }
 
 /**
+ * The spending ceiling as the rest of the process reads it: what the operator asked for, and the
+ * token allowance that was derived from it at load time. Spec 03.
+ *
+ * The two are kept apart because they answer different questions. `limits` is the decision, and it
+ * is what the spend view reads to say "no ceiling" for a provider rather than showing a blank.
+ * `allowances` is the enforcement number: null means nothing is enforced for that provider, which
+ * covers both an unlimited ceiling and a numeric one on a provider no configured settings name.
+ */
+export interface ResolvedBudget {
+  readonly currency: BudgetCurrency
+  readonly period: BudgetPeriod
+  readonly limits: Readonly<Record<PricedProvider, BudgetLimit>>
+  readonly allowances: Readonly<Record<PricedProvider, number | null>>
+}
+
+/**
  * The effective configuration the rest of the process reads: the validated file config
  * plus the secrets from the environment and the derived "is this usable yet" flags.
  */
@@ -530,6 +590,7 @@ export interface Config {
       readonly classification: LlmSettings | null
       readonly chat: LlmSettings | null
     }
+    readonly budget: ResolvedBudget
   }
   readonly mcp: {
     readonly enabled: boolean

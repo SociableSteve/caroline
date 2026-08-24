@@ -613,6 +613,45 @@ rather than this one's: M15 removes it and puts a login in its place. Spec 12's 
 extended to the new boundary. Spec 12's criteria 1 to 4 are superseded by spec 13 and are not part of
 this exit.
 
+### M17. The spending ceiling
+
+Caroline has recorded every model call since M4 and priced none of them. What it costs to run has
+therefore only ever been visible as a token count, and nothing has ever stopped a runaway
+classification run or a chat turn spending more than the person paying for it meant to.
+
+This milestone bounds it. `llm.budget` sets a ceiling per provider, in money, for a day or a
+calendar month, and every provider defaults to `unlimited` so an install that configures nothing
+behaves exactly as it did. The ceiling is configured in currency because that is the only unit a
+person can choose, and enforced in tokens because that is the only unit that can be enforced
+honestly: the amount converts to a token allowance at startup against a price table committed to
+this repository, and the tokens already recorded for the period are counted against it. A recorded
+row only exists once a call has come back, so each call that passes the check also holds a
+reservation for its own estimated cost until its own row is written, taken in the same synchronous
+step as the reading. Calls in flight together therefore cannot each pass a check only one should
+have passed. Reaching the ceiling stops the next call rather than the one in progress, so the
+overshoot is what the calls already in flight cost rather than nothing at all.
+
+The prices are committed rather than fetched, which is the decision worth recording. There is no
+official pricing API; a fetch relocates staleness rather than removing it, fails on an offline
+install, hands a third party silent control over the number that decides when Caroline stops
+working, and adds an outbound call at boot for a number that changes a few times a year. Updating
+the table is an ordinary reviewed pull request, which is the review every other number here gets.
+
+Reaching a ceiling degrades the way a provider outage does (spec 04, criterion 7): the scheduled
+jobs skip and say why in the run history they already write, chat and the MCP tool that would have
+spent tokens answer with the reason, and nothing throws or half writes. Jobs gains a spend panel
+reading by day, by purpose and by model, as an estimate with the date its prices were checked, and
+a provider with no ceiling reading "no ceiling" rather than a blank.
+
+Exit: an install with `anthropic` capped at a small amount sorts its inbox until the allowance is
+gone, then skips with the reason in the run history while an uncapped provider carries on; an
+install with no `llm.budget` block behaves as it did before this milestone and never looks a price
+up; and a model missing from the table stops startup only where somebody asked for a cap on its
+provider. Spec 03 criteria 8 to 15, spec 09 criterion 27, and spec 04 criterion 10. Spec 08 gains
+`GET /api/spend` in its route table and the spend panel in what Jobs shows, and no criterion of its
+own: what the route answers and what the panel says are spec 03 criterion 15's, and a second copy
+here would be one to drift.
+
 ## Test strategy
 
 - **Domain**: pure unit tests, no database.

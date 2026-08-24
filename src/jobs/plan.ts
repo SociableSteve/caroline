@@ -86,6 +86,12 @@ export async function runPlanning(options: PlanJobOptions): Promise<PlanResult> 
     return skipped('No LLM provider is configured, so the day cannot be planned.')
   }
 
+  // Spec 03's spending ceiling. Skipped rather than failed, and no plan at all rather than an
+  // empty one, which is the same trade the failure path below makes: an empty plan is a claim
+  // that there is nothing to do today. Spec 03, criterion 13.
+  const overBudget = llm.budgetRefusal('planning')
+  if (overBudget !== null) return skipped(overBudget)
+
   const timeZone = config.jobs.timezone
   const date = options.date ?? localDateAt(now(), timeZone)
   const day = dayContext(options, date, timeZone)

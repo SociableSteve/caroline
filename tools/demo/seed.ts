@@ -493,7 +493,11 @@ const planner = withSchemaValidation(
   }),
 )
 
-const llm: LlmRuntime = { isConfigured: () => true, for: (): LlmProvider => planner }
+const llm: LlmRuntime = {
+  isConfigured: () => true,
+  budgetRefusal: () => null,
+  for: (): LlmProvider => planner,
+}
 
 /**
  * The plan, drawn by the code that draws plans.

@@ -2,6 +2,14 @@ import { readFileSync } from 'node:fs'
 import { dirname, isAbsolute, resolve as resolvePath } from 'node:path'
 import type { z } from 'zod'
 import { computeAuthRequired, isLoopbackHost, stripHostnameBrackets } from '../auth/boundary.js'
+import {
+  pricedProviders,
+  priceFor,
+  tokenAllowance,
+  UNLIMITED,
+  type ModelPrice,
+  type PricedProvider,
+} from '../domain/pricing.js'
 import { registerEnvironmentSecrets } from './redact.js'
 import {
   credentialFreeUrl,
@@ -11,6 +19,7 @@ import {
   type FileConfig,
   type LlmProviderName,
   type LlmSettings,
+  type ResolvedBudget,
 } from './schema.js'
 
 /** A configuration problem the user has to fix before the process can start. */
@@ -199,6 +208,121 @@ function overrideSettings(
         : { supportsTools: override.supportsTools }),
     },
     env,
+  )
+}
+
+/** One model some part of the configuration is set up to call, and the key that named it. */
+interface ConfiguredModel {
+  readonly provider: PricedProvider
+  readonly model: string
+  readonly path: string
+}
+
+/** A configured model the committed price table does not carry. Spec 03, criterion 9. */
+interface UnpricedModel extends ConfiguredModel {
+  /** The budget key that made the price necessary, so the refusal can name it. */
+  readonly limitPath: string
+}
+
+type SettingsEntry = { readonly path: string; readonly settings: LlmSettings }
+
+/**
+ * Every model this configuration could actually call, across the base settings and each override.
+ * A provider with no model named can make no call, and `none` is not a provider, so neither
+ * contributes one.
+ */
+function configuredModels(entries: readonly SettingsEntry[]): ConfiguredModel[] {
+  return entries.flatMap(({ path, settings }) => {
+    const { provider, model } = settings
+    if (provider === 'none' || model === null) return []
+
+    return [{ provider, model, path }]
+  })
+}
+
+/**
+ * The ceiling as configured, plus the token allowance derived from it. Spec 03.
+ *
+ * The allowance is priced at the **dearest** model configured for that provider, at its **output**
+ * rate. Both halves are what keep the conversion conservative: output is the dearer of the two
+ * rates, and the dearest configured model is the dearest a call could use, so the money that many
+ * tokens can cost is at most the ceiling. The gate that spends the allowance is a separate
+ * question, and spec 03 says what it does and does not promise.
+ *
+ * Nothing here is enforced where the ceiling is `unlimited`, and nothing is even looked up: an
+ * install that has asked for no cap cannot be broken by a stale or incomplete table, which is what
+ * makes this feature strictly additive to an existing install.
+ */
+function resolveBudget(
+  budget: FileConfig['llm']['budget'],
+  models: readonly ConfiguredModel[],
+): { budget: ResolvedBudget; unpriced: readonly UnpricedModel[] } {
+  const limits = {} as Record<PricedProvider, (typeof budget)['anthropic']>
+  const allowances = {} as Record<PricedProvider, number | null>
+  const unpriced: UnpricedModel[] = []
+
+  for (const provider of pricedProviders) {
+    const limit = budget[provider]
+    limits[provider] = limit
+
+    const mine = models.filter((candidate) => candidate.provider === provider)
+    if (limit === UNLIMITED || mine.length === 0) {
+      // A ceiling on a provider nothing is configured to call is a decision worth keeping in
+      // `limits`, and nothing to enforce: no call can be made, so no allowance can be spent.
+      allowances[provider] = null
+      continue
+    }
+
+    let dearest: ModelPrice | null = null
+    // This provider's own, rather than `unpriced.length`: one provider's stale entry must not
+    // quietly disable another provider's ceiling on the path where the start-up check is skipped.
+    let anyUnpriced = false
+
+    for (const candidate of mine) {
+      const price = priceFor(provider, candidate.model)
+      if (price === null) {
+        anyUnpriced = true
+        unpriced.push({ ...candidate, limitPath: `llm.budget.${provider}` })
+        continue
+      }
+      if (dearest === null || price.outputPerMillionUsd > dearest.outputPerMillionUsd) {
+        dearest = price
+      }
+    }
+
+    if (dearest === null || anyUnpriced) {
+      allowances[provider] = null
+      continue
+    }
+
+    // A free model's allowance is unbounded, which is the same thing as nothing to enforce, so it
+    // is recorded as null rather than as a second spelling of it. Ollama is the case: it is priced
+    // at zero, so neither the default nor an explicit figure can bill for a local provider.
+    const allowance = tokenAllowance(limit, budget.currency, dearest)
+    allowances[provider] = Number.isFinite(allowance) ? allowance : null
+  }
+
+  return {
+    budget: { currency: budget.currency, period: budget.period, limits, allowances },
+    unpriced,
+  }
+}
+
+/**
+ * Spec 03, criterion 9: a model absent from the price table is a start-up error, and only where
+ * that provider's ceiling is a number. `resolveBudget` above never looks a price up otherwise, so
+ * an unpriced entry here is always one somebody asked to be capped.
+ *
+ * A runtime check, in the shape the other refusals use: `npm run delete-data` reads this
+ * configuration to find out where the data is and then calls no provider, so refusing to delete
+ * somebody's data over a stale price table would be a refusal to answer the question they asked.
+ */
+function assertConfiguredModelsArePriced(unpriced: readonly UnpricedModel[]): void {
+  const first = unpriced[0]
+  if (first === undefined) return
+
+  throw new ConfigError(
+    `${first.limitPath} sets a spending ceiling for "${first.provider}", but the committed price table has no price for the model "${first.model}" named at ${first.path}.model. Add it to src/domain/pricing.ts, name a model the table carries, or set ${first.limitPath} to "unlimited".`,
   )
 }
 
@@ -424,6 +548,24 @@ export function loadConfig({ file, env, runtimeChecks = true }: LoadOptions): Co
     env,
   )
 
+  const overrides = {
+    classification: overrideSettings(base, parsed.llm.overrides.classification, env),
+    chat: overrideSettings(base, parsed.llm.overrides.chat, env),
+  }
+
+  const { budget, unpriced } = resolveBudget(
+    parsed.llm.budget,
+    configuredModels([
+      { path: 'llm', settings: base },
+      ...(overrides.classification === null
+        ? []
+        : [{ path: 'llm.overrides.classification', settings: overrides.classification }]),
+      ...(overrides.chat === null
+        ? []
+        : [{ path: 'llm.overrides.chat', settings: overrides.chat }]),
+    ]),
+  )
+
   const githubToken = nonEmpty(env.GITHUB_TOKEN)
   const googleClientId = nonEmpty(env.GOOGLE_CLIENT_ID) ?? parsed.integrations.google.clientId
   const googleClientSecret = nonEmpty(env.GOOGLE_CLIENT_SECRET)
@@ -464,13 +606,7 @@ export function loadConfig({ file, env, runtimeChecks = true }: LoadOptions): Co
         scopes: parsed.auth.provider.scopes,
       },
     },
-    llm: {
-      ...base,
-      overrides: {
-        classification: overrideSettings(base, parsed.llm.overrides.classification, env),
-        chat: overrideSettings(base, parsed.llm.overrides.chat, env),
-      },
-    },
+    llm: { ...base, overrides, budget },
     mcp: {
       enabled: parsed.mcp.enabled,
       sessionIdleMinutes: parsed.mcp.sessionIdleMinutes,
@@ -505,6 +641,7 @@ export function loadConfig({ file, env, runtimeChecks = true }: LoadOptions): Co
   if (runtimeChecks) {
     assertWebRootIsAbsolute(config)
     assertContentPolicyIsAllowed(config)
+    assertConfiguredModelsArePriced(unpriced)
     assertNoAccessTokenInEnvironment(env)
     assertProviderIsConfiguredWhenAuthIsRequired(config)
     assertAllowlistIsNonEmptyWhenAuthIsRequired(config)

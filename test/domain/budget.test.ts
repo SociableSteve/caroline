@@ -1,0 +1,64 @@
+import { describe, expect, it } from 'vitest'
+import { budgetReachedMessage, periodStart, reservationTokens } from '../../src/domain/budget.js'
+
+/** Midday UTC on the 15th of January 2026, a Thursday. */
+const midJanuary = Date.UTC(2026, 0, 15, 12, 0, 0)
+
+describe('periodStart', () => {
+  it('starts a day at local midnight, not at a UTC boundary', () => {
+    expect(periodStart(midJanuary, 'day', 'UTC')).toBe(Date.UTC(2026, 0, 15))
+    expect(periodStart(midJanuary, 'day', 'Europe/Berlin')).toBe(Date.UTC(2026, 0, 14, 23))
+  })
+
+  it('starts a month at local midnight on the first', () => {
+    expect(periodStart(midJanuary, 'month', 'UTC')).toBe(Date.UTC(2026, 0, 1))
+    expect(periodStart(midJanuary, 'month', 'America/New_York')).toBe(Date.UTC(2026, 0, 1, 5))
+  })
+
+  it('resolves the boundary by the offset in force then, not by one fixed offset', () => {
+    // The 1st of July in New York is four hours behind UTC, the 1st of January five. A single
+    // offset applied to the whole table gets one of these two wrong, which is the reason a usage
+    // day is resolved this way as well. Spec 03.
+    const midJuly = Date.UTC(2026, 6, 15, 12, 0, 0)
+
+    expect(periodStart(midJuly, 'month', 'America/New_York')).toBe(Date.UTC(2026, 6, 1, 4))
+  })
+})
+
+describe('budgetReachedMessage, spec 03 criteria 13 and 14', () => {
+  it('names the provider, the ceiling and the period, so a person can act on it', () => {
+    const message = budgetReachedMessage('anthropic', 20, 'GBP', 'month')
+
+    expect(message).toContain('anthropic')
+    expect(message).toContain('20')
+    expect(message).toContain('GBP')
+    expect(message).toContain('month')
+    expect(message).toContain('llm.budget')
+  })
+
+  it('says the calls in flight count too, because the gate compares against them as well', () => {
+    // `refusalFor` adds the reservations held to the recorded tokens before it compares, so a
+    // sentence naming only what is recorded would report an in-flight refusal as recorded spend.
+    expect(budgetReachedMessage('anthropic', 20, 'GBP', 'month')).toContain('calls in flight')
+  })
+})
+
+describe('reservationTokens, spec 03 criterion 12', () => {
+  it('counts the prompt generously and adds the output cap the caller asked for', () => {
+    // 300 characters is 100 tokens at three characters each, which overstates a real count of
+    // nearer 75, and that is the direction a hold on a money allowance should err in.
+    expect(reservationTokens({ promptCharacters: 300, maxOutputTokens: 512, attempts: 1 })).toBe(
+      612,
+    )
+  })
+
+  it('covers every attempt the request can turn into, because a retry is a second call', () => {
+    expect(reservationTokens({ promptCharacters: 300, maxOutputTokens: 512, attempts: 2 })).toBe(
+      1_224,
+    )
+  })
+
+  it('reserves for one attempt at least, so a hold is never nothing', () => {
+    expect(reservationTokens({ promptCharacters: 0, maxOutputTokens: 8, attempts: 0 })).toBe(8)
+  })
+})

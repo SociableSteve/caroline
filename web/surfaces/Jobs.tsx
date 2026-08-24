@@ -3,7 +3,7 @@
  * instead: what each job is for, when it last ran and how that went, when it runs next, whether
  * failures are holding it back, and a button to run it now.
  */
-import type { JobRun, JobStatus } from '../api.js'
+import type { JobRun, JobStatus, SpendEstimate, SpendReport } from '../api.js'
 import { ago, formatAge } from '../format.js'
 import { cn } from '../lib/utils.js'
 import {
@@ -21,6 +21,8 @@ export interface JobsProps {
   readonly jobs: readonly JobStatus[]
   /** Recent runs across every job, most recent first. */
   readonly runs: readonly JobRun[]
+  /** What the models have cost this budget period. Null until the read answers. Spec 03. */
+  readonly spend: SpendReport | null
   readonly now: number
   readonly onRun: (job: string) => void
 }
@@ -67,7 +69,111 @@ function when(at: number | null, now: number): string {
   return difference <= 0 ? 'due now' : `in ${formatAge(difference)}`
 }
 
-export function Jobs({ jobs, runs, now, onRun }: JobsProps) {
+/**
+ * An amount, or "not priced" where the price table does not carry the model. Said in words rather
+ * than shown as a zero: an unpriced call cost something, and a zero would say it did not.
+ * Spec 03, criterion 15.
+ */
+function money(estimate: SpendEstimate, currency: string): string {
+  if (estimate === null) return 'not priced'
+
+  try {
+    return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(estimate)
+  } catch {
+    // A currency the runtime does not know would otherwise take the whole panel down over a
+    // formatting detail. The number is the point; the code beside it still says which currency.
+    return `${estimate.toFixed(2)} ${currency}`
+  }
+}
+
+/** What a provider's ceiling is, in words. Spec 03: "no ceiling" rather than a blank or a zero. */
+function ceiling(limit: number | string, currency: string): string {
+  return typeof limit === 'number' ? money(limit, currency) : 'no ceiling'
+}
+
+const tokens = new Intl.NumberFormat()
+
+/**
+ * What the models have cost, by day, by purpose and by model, over the current budget period.
+ * Shown as an estimate with the date its prices were checked, because a figure about money should
+ * say what it is. Spec 03, criterion 15.
+ */
+function Spend({ spend }: { readonly spend: SpendReport }) {
+  const { currency } = spend
+  const nothingYet = spend.byDay.length === 0
+
+  const groups: ReadonlyArray<{ heading: string; rows: ReadonlyArray<[string, SpendEstimate]> }> = [
+    { heading: 'By day', rows: spend.byDay.map((entry) => [entry.day, entry.estimate]) },
+    {
+      heading: 'By purpose',
+      rows: spend.byPurpose.map((entry) => [entry.purpose, entry.estimate]),
+    },
+    {
+      heading: 'By model',
+      rows: spend.byModel.map((entry) => [`${entry.provider} ${entry.model}`, entry.estimate]),
+    },
+  ]
+
+  return (
+    <Panel headingLevel={2} heading="Model spend">
+      <p className="m-0 mb-3 text-[11px] leading-relaxed text-muted-foreground">
+        An estimate for this {spend.period}, priced from a table committed to the repository
+        {spend.checkedOn === null ? '' : `, last checked ${spend.checkedOn}`}. It is what Caroline
+        recorded, not what the provider will invoice.
+      </p>
+
+      <ul className="m-0 mb-4 grid grid-cols-1 gap-3 p-0 sm:grid-cols-3 [list-style:none]">
+        {spend.providers.map((provider) => (
+          <li key={provider.provider}>
+            <Panel
+              headingLevel={3}
+              heading={provider.provider}
+              headingClassName="m-0 mb-1 font-mono text-[13px] font-medium"
+              className="flex h-full flex-col rounded-xl shadow-sm"
+            >
+              <Facts>
+                <Fact label="Ceiling">{ceiling(provider.limit, currency)}</Fact>
+                <Fact label="Spent">{money(provider.estimate, currency)}</Fact>
+                <Fact label="Tokens">
+                  {tokens.format(provider.tokens)}
+                  {provider.allowance === null ? '' : ` of ${tokens.format(provider.allowance)}`}
+                </Fact>
+              </Facts>
+            </Panel>
+          </li>
+        ))}
+      </ul>
+
+      {nothingYet ? (
+        <p className={emptyClassName}>No model calls this {spend.period}.</p>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          {groups.map((group) => (
+            <div key={group.heading}>
+              <h3 className="m-0 mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                {group.heading}
+              </h3>
+              <table className="w-full border-collapse text-xs">
+                <tbody>
+                  {group.rows.map(([label, estimate]) => (
+                    <tr key={label} className="[&>td]:border-b [&>td]:border-border/60 [&>td]:py-1">
+                      <td className="font-mono">{label}</td>
+                      <td className="text-right [font-variant-numeric:tabular-nums]">
+                        {money(estimate, currency)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))}
+        </div>
+      )}
+    </Panel>
+  )
+}
+
+export function Jobs({ jobs, runs, spend, now, onRun }: JobsProps) {
   useSurfaceTitle('Jobs')
 
   return (
@@ -159,6 +265,8 @@ export function Jobs({ jobs, runs, now, onRun }: JobsProps) {
           </ul>
         )}
       </Panel>
+
+      {spend !== null && <Spend spend={spend} />}
 
       <Panel headingLevel={2} heading="Run history">
         {runs.length === 0 ? (

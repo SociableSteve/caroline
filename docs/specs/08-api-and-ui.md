@@ -29,6 +29,7 @@ both validation and typing. Errors follow one shape: `{ error: { code, message, 
 | `POST /api/chat/confirmations/:id` | Confirm or discard an operation the model proposed (spec 07) |
 | `POST /api/chat/conversations/:id/undo` | Undo the last turn's changes (spec 07) |
 | `GET /api/jobs`, `POST /api/jobs/:name/run` | Run history, manual trigger |
+| `GET /api/spend` | What the models have cost this budget period, by day, by purpose and by model, and where each provider stands against its ceiling. Read-only and derived, rolled up from `llm_calls` when it is asked for (spec 03) |
 | `GET /api/config` | Read the effective configuration, secrets redacted. Read-only: nothing in `caroline.config.json` is written back from the UI, per spec 09 |
 | `GET /api/settings`, `PATCH /api/settings` | The settings the person owns rather than the deployment: today, the name Caroline addresses them by (spec 09) |
 | `GET /api/health` | Process, database, per-integration configured and last-run status |
@@ -227,7 +228,10 @@ in whichever state it was left.
 **Jobs.** What each background job is for, when it last ran and how that went, when it runs
 next, whether a run of failures is holding it back, and a button to run it now. Spec 06 owns
 the behaviour; this is where it is discoverable, because a scheduler that says nothing needs a
-surface that does.
+surface that does. A Model spend panel sits beside the run history, reading `GET /api/spend`:
+the period's spend by day, by purpose and by model, and each provider against its ceiling. Spec
+03 owns what it says and how it is priced, and the scheduled jobs are what spends most of it, so
+this is the surface it belongs on.
 
 **Settings.** Integration status and connect flows, schedules, LLM provider and model,
 content policies (spec 09) with their consequences spelled out in plain language, working
