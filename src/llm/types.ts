@@ -121,7 +121,10 @@ export interface LlmProvider {
 
 /** A call that failed on the provider's side: transport, authentication, a rejection. */
 export class LlmError extends Error {
-  override readonly name = 'LlmError'
+  // Typed `string` rather than as the literal, so a subclass can name itself. `LlmBudgetError`
+  // (`src/llm/budget.ts`) is one: a refusal is not a provider failure, but every caller that
+  // already handles one should handle it.
+  override readonly name: string = 'LlmError'
 }
 
 /**

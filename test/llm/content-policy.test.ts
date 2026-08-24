@@ -69,7 +69,11 @@ async function requestsUnder(privacy: Record<string, unknown>): Promise<readonly
     ],
   })
 
-  const llm: LlmRuntime = { isConfigured: () => true, for: (): LlmProvider => fake }
+  const llm: LlmRuntime = {
+    isConfigured: () => true,
+    budgetRefusal: () => null,
+    for: (): LlmProvider => fake,
+  }
 
   await runClassification({ database, config: config(privacy), llm, now: () => NOW })
 

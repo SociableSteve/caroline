@@ -105,3 +105,11 @@ that behaviour changes are traceable.
    records the failure in the run history.
 8. Running the classifier twice with no new input produces no further status changes.
 9. Accepting a low-confidence proposal from the UI sets `status_set_by = 'user'`.
+
+Spec 03's spending ceiling adds the following, appended rather than renumbered because criterion
+numbers are cited by the code and the suite.
+
+10. With the configured provider's spending ceiling already reached, a run leaves every candidate
+    task in `inbox` with no partial writes and records the reason in the run history, naming the
+    provider. Criterion 7's rule for a provider outage, applied to the one Caroline imposes on
+    itself: the run is recorded as skipped rather than failed, because nothing went wrong.

@@ -334,6 +334,12 @@ so failing to set them is worth saying and not worth refusing to run over.
   spec 13 removed: an MCP token is issued by Caroline, scoped to one client, and revocable
   without a restart, which is what `server.accessToken` never was.
 - No inbound webhooks. All integration traffic is outbound polling (spec 02).
+- **The spending ceiling adds no outbound destination.** Spec 03 bounds what Caroline may spend on
+  model calls, and the prices that bound is expressed in come from a table committed to this
+  repository rather than from a pricing feed. That is a decision this section owns as much as spec
+  03 does: a fetched price is a new outbound call at boot, to a third party neither vendor operates,
+  for a number that decides when Caroline stops working. Spec 03 gives the rest of the argument. The
+  list above is unchanged by the feature, which is the point.
 - Outbound destinations are limited to destinations the user named in the configuration:
   GitHub, Google, the configured LLM endpoint, and the identity provider's discovery document
   and token endpoint (spec 13). The identity provider belongs on that list for the same reason
@@ -547,3 +553,11 @@ were: the numbers are cited by the code and by the suite.
     and an unmatched path that does not address the API still gets the shell. Criterion 20's
     reading of a request's own URL, applied to the one other place that read one. Asserted with the
     built SPA present, since with no shell to serve both answers are already a 404.
+
+Spec 03's spending ceiling adds the following, appended for the reason the earlier blocks were.
+
+27. The price table the ceiling is expressed in reaches no network: the module holding it imports
+    nothing at all and names no URL, so it can perform no IO, and criterion 19's assertion over the
+    whole process is unchanged by the feature. A configuration with a ceiling set starts, loads its
+    prices and refuses a call without any outbound destination beyond the ones criterion 19 already
+    names.

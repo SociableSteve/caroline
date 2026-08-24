@@ -104,6 +104,7 @@ export function App() {
     projects,
     jobRuns,
     jobStatus,
+    spend,
     plan,
     planDate,
     calendar,
@@ -561,7 +562,7 @@ export function App() {
                   {...cardHandlers}
                 />
               ) : route.name === 'jobs' ? (
-                <Jobs jobs={jobStatus} runs={jobRuns} now={now} onRun={onRunJob} />
+                <Jobs jobs={jobStatus} runs={jobRuns} spend={spend} now={now} onRun={onRunJob} />
               ) : route.name === 'settings' ? (
                 <Settings
                   google={google}

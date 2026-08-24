@@ -1118,6 +1118,25 @@ describe('regenerate_daily_plan', () => {
 
     expect(outcome.message).toBe('No LLM provider is configured.')
   })
+
+  /**
+   * Spec 03, criterion 14, and the MCP half of it. The planner skips with the ceiling's own
+   * sentence (spec 03, criterion 13), the two `regeneratePlan` wirings both turn a run that did
+   * not succeed into a refusal carrying that sentence, and this tool passes it through. One
+   * registry serves the chat rail and the MCP server, so this is asserted once rather than twice.
+   */
+  it('passes the spending ceiling through, which is how an MCP caller is told', async () => {
+    const reason =
+      'The spending ceiling for "anthropic" has been reached: llm.budget sets it to 20 GBP per month.'
+    const outcome = await refuse(
+      migratedDatabase(),
+      'regenerate_daily_plan',
+      {},
+      { regeneratePlan: () => Promise.resolve({ status: 'refused', detail: reason }) },
+    )
+
+    expect(outcome.message).toBe(reason)
+  })
 })
 
 /**

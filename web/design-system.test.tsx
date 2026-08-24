@@ -110,7 +110,7 @@ const surfaces: ReadonlyArray<{ name: string; title: string; render: () => void 
   {
     name: 'Jobs',
     title: 'Jobs',
-    render: () => void render(<Jobs jobs={[]} runs={[]} now={NOW} onRun={vi.fn()} />),
+    render: () => void render(<Jobs jobs={[]} runs={[]} spend={null} now={NOW} onRun={vi.fn()} />),
   },
   {
     name: 'Settings',

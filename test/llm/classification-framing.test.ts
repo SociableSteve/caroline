@@ -70,7 +70,11 @@ describe('the classification system prompt (criterion 24)', () => {
         },
       ],
     })
-    const llm: LlmRuntime = { isConfigured: () => true, for: (): LlmProvider => fake }
+    const llm: LlmRuntime = {
+      isConfigured: () => true,
+      budgetRefusal: () => null,
+      for: (): LlmProvider => fake,
+    }
 
     await runClassification({ database, config, llm, now: () => NOW })
 

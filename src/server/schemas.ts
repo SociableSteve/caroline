@@ -434,6 +434,97 @@ export const jobStatusResponseSchema = {
   },
 } as const
 
+/** The tokens one grouping of the spend report spent. Spec 03. */
+const spendUsageSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['calls', 'inputTokens', 'outputTokens'],
+  properties: {
+    calls: { type: 'integer' },
+    inputTokens: { type: 'integer' },
+    outputTokens: { type: 'integer' },
+  },
+} as const
+
+/**
+ * An amount in the configured currency, or null where the price table does not carry the model.
+ * Null rather than zero: an unpriced call cost something, and a zero would say it did not.
+ */
+const nullableAmount = { type: ['number', 'null'] } as unknown as Record<string, unknown>
+
+/**
+ * What the models have cost this budget period, rolled up by day, by purpose and by model, plus
+ * where each provider stands against its ceiling. Spec 03, criterion 15.
+ */
+export const spendResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['currency', 'period', 'since', 'byDay', 'byPurpose', 'byModel', 'providers'],
+  properties: {
+    currency: { type: 'string' },
+    period: { type: 'string' },
+    since: { type: 'integer' },
+    /** The oldest price date behind any figure here, so the estimate says how old it is. */
+    checkedOn: nullableString(10),
+    byDay: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['day', 'usage'],
+        properties: {
+          day: { type: 'string' },
+          usage: spendUsageSchema,
+          estimate: nullableAmount,
+        },
+      },
+    },
+    byPurpose: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['purpose', 'usage'],
+        properties: {
+          purpose: { type: 'string' },
+          usage: spendUsageSchema,
+          estimate: nullableAmount,
+        },
+      },
+    },
+    byModel: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['provider', 'model', 'usage'],
+        properties: {
+          provider: { type: 'string' },
+          model: { type: 'string' },
+          usage: spendUsageSchema,
+          estimate: nullableAmount,
+        },
+      },
+    },
+    providers: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['provider', 'limit', 'tokens'],
+        properties: {
+          provider: { type: 'string' },
+          /** A positive amount, or the string `unlimited`, which reads as "no ceiling". */
+          limit: { type: ['number', 'string'] } as unknown as Record<string, unknown>,
+          tokens: { type: 'integer' },
+          allowance: nullableAmount,
+          estimate: nullableAmount,
+        },
+      },
+    },
+  },
+} as const
+
 /**
  * The Google connection as the settings screen sees it. No token, no client secret, nothing that
  * would be a secret on the wire: only whether consent exists and what it covers. Spec 09.

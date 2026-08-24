@@ -103,6 +103,28 @@ describe('a turn', () => {
   })
 
   /**
+   * Spec 03, criterion 14. The reason itself is the answer: it names the provider, the ceiling and
+   * what to change, and it arrives the way "no model configured" does rather than as a failure,
+   * because from the rail they are the same thing. Nothing is sent to the provider.
+   */
+  it('says so plainly, and sends nothing, when the spending ceiling is reached', async () => {
+    const reason =
+      'The spending ceiling for "anthropic" has been reached: llm.budget sets it to 20 GBP per month.'
+    const harness = chatHarness({ answers: [], overBudget: reason })
+
+    const events = await harness.turn('Anything?')
+
+    expect(streamedText(events)).toContain(reason)
+    expect(harness.requests).toHaveLength(0)
+    expect(doneEvent(events).message).toMatchObject({
+      readOnly: true,
+      error: 'chat is over its spending ceiling',
+      inputTokens: 0,
+      outputTokens: 0,
+    })
+  })
+
+  /**
    * A provider that failed part-way is a fact about the turn. The text that arrived is kept, because
    * blanking it would be a second inaccuracy on top of the first.
    */

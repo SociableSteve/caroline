@@ -36,12 +36,18 @@ function config(file: Record<string, unknown> = {}): Config {
   })
 }
 
-function runtime(answers: readonly FakeAnswer[], configured = true) {
+function runtime(
+  answers: readonly FakeAnswer[],
+  configured = true,
+  /** The spending ceiling's answer for this run. Spec 03, criterion 13. */
+  overBudget: string | null = null,
+) {
   const fake = createFakeProvider({ answers, model: 'fake-planner' })
   const validating = withSchemaValidation(fake, { now: () => NOW })
 
   const llm: LlmRuntime = {
     isConfigured: () => configured,
+    budgetRefusal: () => overBudget,
     for: (): LlmProvider => validating,
   }
 
@@ -61,6 +67,8 @@ interface RunOptions {
   readonly database?: Database
   readonly answers?: readonly FakeAnswer[]
   readonly llmConfigured?: boolean
+  /** The spending ceiling's answer for this run, or null when there is nothing to refuse. */
+  readonly overBudget?: string | null
   readonly calendarConnected?: boolean
   readonly config?: Config
   readonly now?: number
@@ -70,11 +78,12 @@ async function planFor({
   database = migratedDatabase(),
   answers = [plan([])],
   llmConfigured = true,
+  overBudget = null,
   calendarConnected = true,
   config: settings = config(),
   now = NOW,
 }: RunOptions = {}) {
-  const { llm, fake } = runtime(answers, llmConfigured)
+  const { llm, fake } = runtime(answers, llmConfigured, overBudget)
 
   const result = await runPlanning({
     database,
@@ -569,6 +578,20 @@ describe('when the planner cannot run', () => {
       status: 'skipped',
       error: expect.stringMatching(/no llm provider/i),
     })
+    expect(stored).toBeNull()
+  })
+
+  /**
+   * Spec 03, criterion 13. Skipped rather than failed, and no plan at all rather than an empty
+   * one: an empty plan is a claim that there is nothing to do today.
+   */
+  it('is skipped, drawing nothing, when the spending ceiling is reached', async () => {
+    const reason =
+      'The spending ceiling for "anthropic" has been reached: llm.budget sets it to 20 GBP per month.'
+    const { result, fake, stored } = await planFor({ overBudget: reason })
+
+    expect(result).toMatchObject({ status: 'skipped', error: reason, plan: null })
+    expect(fake.requests).toHaveLength(0)
     expect(stored).toBeNull()
   })
 

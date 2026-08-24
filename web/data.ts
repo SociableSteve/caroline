@@ -21,6 +21,7 @@ import {
   type PrivacyPreview,
   type ProjectView,
   type SettingsView,
+  type SpendReport,
   type TaskView,
 } from './api.js'
 
@@ -32,6 +33,8 @@ export interface CarolineData {
   readonly jobRuns: readonly JobRun[]
   /** One row per scheduled job: last run, next run, and whether backoff is holding it. */
   readonly jobStatus: readonly JobStatus[]
+  /** What the models have cost this budget period. Null until the first read answers. Spec 03. */
+  readonly spend: SpendReport | null
   /** Today's plan, or null when none has been drawn. Spec 05. */
   readonly plan: PlanView | null
   /** Planned against completed for the last fortnight. */
@@ -109,6 +112,7 @@ export function useCarolineData(enabled = true): CarolineData {
   const [health, setHealth] = useState<Health | null>(null)
   const [jobRuns, setJobRuns] = useState<readonly JobRun[]>([])
   const [jobStatus, setJobStatus] = useState<readonly JobStatus[]>([])
+  const [spend, setSpend] = useState<SpendReport | null>(null)
   const [plan, setPlan] = useState<PlanView | null>(null)
   const [planHistory, setPlanHistory] = useState<readonly PlanHistoryDay[]>([])
   const [planDate, setPlanDate] = useState<string | null>(null)
@@ -158,19 +162,21 @@ export function useCarolineData(enabled = true): CarolineData {
       // changes how the entry renders. Each is defended on its own, so one failing panel does
       // not blank the board. The tasks and the projects are not: they are the board, and a
       // board that cannot be read is the whole screen failing rather than a panel of it.
-      const [taskCollection, projectList, runs, status, day, diary] = await Promise.all([
+      const [taskCollection, projectList, runs, status, day, diary, models] = await Promise.all([
         api.listTasks(),
         api.listProjects(),
         panel('the run history', api.listJobRuns()),
         panel('the job status', api.listJobStatus()),
         panel("today's plan", api.getPlan()),
         panel('the calendar', api.getCalendar()),
+        panel('the model spend', api.getSpend()),
       ])
       if (mine !== generation.current) return
 
       setTasks(taskCollection.tasks)
       setProjects(projectList.projects)
       if (runs !== null) setJobRuns(runs.runs)
+      if (models !== null) setSpend(models)
 
       // The two were asked independently, so they can straddle the server's midnight and
       // describe different days. The plan's date wins and the diary is re-read for it: a
@@ -280,6 +286,7 @@ export function useCarolineData(enabled = true): CarolineData {
     health,
     jobRuns,
     jobStatus,
+    spend,
     plan,
     planHistory,
     planDate,

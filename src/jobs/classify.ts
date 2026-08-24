@@ -320,6 +320,14 @@ export async function runClassification(options: ClassifyOptions): Promise<Class
     }
   }
 
+  // Spec 03's spending ceiling, degrading the way criterion 7's provider outage does: every
+  // candidate stays in `inbox`, nothing is half written, and the run history says why. Skipped
+  // rather than failed, because nothing went wrong. Spec 04, criterion 10.
+  const overBudget = llm.budgetRefusal('classification')
+  if (overBudget !== null) {
+    return { status: 'skipped', counts: { ...tally }, error: overBudget }
+  }
+
   const candidates = listClassificationCandidates(database, config.classification.batchSize)
   if (candidates.length === 0) return { status: 'success', counts: { ...tally }, error: null }
 

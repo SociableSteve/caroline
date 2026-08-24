@@ -9,6 +9,7 @@ import type { Database } from '../db/connection.js'
 import { createAnthropicAdapter } from './adapters/anthropic.js'
 import { createOllamaAdapter } from './adapters/ollama.js'
 import { createOpenAiAdapter } from './adapters/openai.js'
+import { createBudgetGate, withBudget } from './budget.js'
 import { llmCallRecorder } from './recording.js'
 import { withSchemaValidation } from './structured.js'
 import { LlmError, type LlmProvider } from './types.js'
@@ -71,6 +72,13 @@ export interface LlmRuntime {
    */
   for(purpose: LlmPurpose): LlmProvider
   isConfigured(purpose: LlmPurpose): boolean
+  /**
+   * Null when a call for this purpose is within its provider's spending ceiling, otherwise the
+   * reason it is not, in words the person paying can act on. Asked before the call, so that a job
+   * can skip and chat can answer rather than either of them catching an exception. Spec 03,
+   * criteria 13 and 14.
+   */
+  budgetRefusal(purpose: LlmPurpose): string | null
 }
 
 export interface LlmRuntimeOptions extends AdapterOverrides {
@@ -92,11 +100,20 @@ export function createLlmRuntime({
   // Built once per purpose and kept: an adapter holds an SDK client with its own connection
   // pool, and a fresh one per call would throw that away every time.
   const built = new Map<LlmPurpose, LlmProvider>()
+  const gate = createBudgetGate({ config, database, now })
+
+  /** The ceiling is per provider, and a purpose's provider is whatever its settings name. */
+  function refusalFor(purpose: LlmPurpose): string | null {
+    const { provider } = settingsFor(config, purpose)
+    return provider === 'none' ? null : gate.refusalFor(provider)
+  }
 
   return {
     isConfigured(purpose) {
       return settingsFor(config, purpose).configured
     },
+
+    budgetRefusal: refusalFor,
 
     for(purpose) {
       const existing = built.get(purpose)
@@ -106,12 +123,17 @@ export function createLlmRuntime({
         ...(fetch === undefined ? {} : { fetch }),
       })
 
-      const provider = withSchemaValidation(adapter, {
-        ...(database === undefined
-          ? {}
-          : { onAttempt: llmCallRecorder(database, adapter, purpose, onRecordingError) }),
-        ...(now === undefined ? {} : { now }),
-      })
+      // The ceiling is checked outside the validate-and-retry loop, so a refusal is not an attempt:
+      // it spends no tokens and writes no `llm_calls` row. Spec 03, criterion 11.
+      const provider = withBudget(
+        withSchemaValidation(adapter, {
+          ...(database === undefined
+            ? {}
+            : { onAttempt: llmCallRecorder(database, adapter, purpose, onRecordingError) }),
+          ...(now === undefined ? {} : { now }),
+        }),
+        () => refusalFor(purpose),
+      )
 
       built.set(purpose, provider)
       return provider

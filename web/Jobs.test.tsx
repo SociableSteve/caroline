@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { Jobs } from './surfaces/Jobs.js'
-import type { JobRun, JobStatus } from './api.js'
+import type { JobRun, JobStatus, SpendReport } from './api.js'
 import { noCounts } from '../src/domain/job.js'
 import { NOW } from './test-fixtures.js'
 
@@ -42,7 +42,7 @@ function aJob(overrides: Partial<JobStatus> = {}): JobStatus {
 
 function renderJobs(overrides: Partial<Parameters<typeof Jobs>[0]> = {}) {
   const onRun = vi.fn()
-  render(<Jobs jobs={[]} runs={[]} now={NOW} onRun={onRun} {...overrides} />)
+  render(<Jobs jobs={[]} runs={[]} spend={null} now={NOW} onRun={onRun} {...overrides} />)
   return { onRun }
 }
 
@@ -210,5 +210,81 @@ describe('the run history', () => {
     renderJobs()
 
     expect(within(panel(/run history/i)).getByText('Nothing has run yet.')).toBeInTheDocument()
+  })
+})
+
+/** Spec 03, criterion 15: the spend, priced, dated, and legible about what has no ceiling. */
+describe('model spend', () => {
+  const spend: SpendReport = {
+    currency: 'GBP',
+    period: 'month',
+    since: NOW - 15 * 24 * 60 * MINUTE,
+    checkedOn: '2026-08-21',
+    byDay: [
+      { day: '2026-06-01', usage: { calls: 2, inputTokens: 1000, outputTokens: 500 }, estimate: 4 },
+    ],
+    byPurpose: [
+      {
+        purpose: 'classification',
+        usage: { calls: 2, inputTokens: 1000, outputTokens: 500 },
+        estimate: 4,
+      },
+    ],
+    byModel: [
+      {
+        provider: 'anthropic',
+        model: 'claude-sonnet-5',
+        usage: { calls: 2, inputTokens: 1000, outputTokens: 500 },
+        estimate: 4,
+      },
+    ],
+    providers: [
+      { provider: 'anthropic', limit: 20, tokens: 1500, allowance: 2_000_000, estimate: 4 },
+      { provider: 'openai', limit: 'unlimited', tokens: 0, allowance: null, estimate: null },
+    ],
+  }
+
+  it('shows it by day, by purpose and by model, in the configured currency', () => {
+    renderJobs({ spend })
+    const section = panel(/model spend/i)
+
+    for (const heading of ['By day', 'By purpose', 'By model']) {
+      expect(within(section).getByText(heading)).toBeInTheDocument()
+    }
+    expect(within(section).getByText('2026-06-01')).toBeInTheDocument()
+    expect(within(section).getByText('classification')).toBeInTheDocument()
+    expect(within(section).getByText('anthropic claude-sonnet-5')).toBeInTheDocument()
+    expect(within(section).getAllByText('£4.00').length).toBeGreaterThan(0)
+  })
+
+  it('says it is an estimate and how old the prices behind it are', () => {
+    renderJobs({ spend })
+
+    expect(panel(/model spend/i)).toHaveTextContent(/an estimate for this month/i)
+    expect(panel(/model spend/i)).toHaveTextContent('2026-08-21')
+  })
+
+  it('reads "no ceiling" for an unlimited provider rather than a blank or a zero', () => {
+    renderJobs({ spend })
+    const openai = within(panel(/model spend/i)).getByRole('region', { name: /openai/i })
+
+    expect(openai).toHaveTextContent('no ceiling')
+    expect(
+      within(panel(/model spend/i)).getByRole('region', { name: /anthropic/i }),
+    ).toHaveTextContent('£20.00')
+  })
+
+  it('says nothing has been spent rather than showing empty tables', () => {
+    renderJobs({ spend: { ...spend, byDay: [], byPurpose: [], byModel: [] } })
+
+    expect(
+      within(panel(/model spend/i)).getByText('No model calls this month.'),
+    ).toBeInTheDocument()
+  })
+
+  it('shows no panel at all until the read answers', () => {
+    renderJobs()
+
+    expect(screen.queryByRole('region', { name: /model spend/i })).not.toBeInTheDocument()
   })
 })

@@ -97,6 +97,45 @@ export interface JobStatus {
   readonly backoffUntil: number | null
 }
 
+/** The tokens one grouping of the spend report spent. Spec 03. */
+export interface SpendUsage {
+  readonly calls: number
+  readonly inputTokens: number
+  readonly outputTokens: number
+}
+
+/**
+ * An amount in the report's currency, or null where the price table does not carry the model.
+ * Null rather than zero: an unpriced call cost something, and a zero would say it did not.
+ */
+export type SpendEstimate = number | null
+
+/** Where one provider stands against its ceiling. `"unlimited"` reads as "no ceiling". Spec 03. */
+export interface SpendProvider {
+  readonly provider: string
+  readonly limit: number | string
+  readonly tokens: number
+  readonly allowance: number | null
+  readonly estimate: SpendEstimate
+}
+
+/** What the models cost this budget period, as the Jobs surface reads it. Spec 03, criterion 15. */
+export interface SpendReport {
+  readonly currency: string
+  readonly period: string
+  readonly since: number
+  readonly checkedOn: string | null
+  readonly byDay: ReadonlyArray<{ day: string; usage: SpendUsage; estimate: SpendEstimate }>
+  readonly byPurpose: ReadonlyArray<{ purpose: string; usage: SpendUsage; estimate: SpendEstimate }>
+  readonly byModel: ReadonlyArray<{
+    provider: string
+    model: string
+    usage: SpendUsage
+    estimate: SpendEstimate
+  }>
+  readonly providers: readonly SpendProvider[]
+}
+
 /** The Google connection, as Settings reads it. No token ever reaches here. Spec 09. */
 export interface GoogleStatus {
   readonly connected: boolean
@@ -673,6 +712,11 @@ export const api = {
 
   listJobStatus(): Promise<{ jobs: JobStatus[] }> {
     return request('/api/jobs/status')
+  },
+
+  /** What the models have cost this budget period, and where each provider stands. Spec 03. */
+  getSpend(): Promise<SpendReport> {
+    return request('/api/spend')
   },
 
   runJob(name: string): Promise<unknown> {

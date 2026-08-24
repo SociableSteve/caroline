@@ -90,6 +90,27 @@ it off.
 `calendarLookbackDays` and `calendarLookaheadDays` bound the window read: a day back and a
 fortnight forward.
 
+`llm.budget` bounds what Caroline may spend on model calls. One currency and one period for the
+install, and a ceiling per provider that is either a positive amount or the literal `unlimited`:
+
+```json
+"llm": {
+  "budget": { "currency": "GBP", "period": "month", "anthropic": 20, "openai": "unlimited" }
+}
+```
+
+Every provider defaults to `unlimited`, so a config file that never mentions it behaves exactly as
+it always did. `currency` is `USD`, `GBP` or `EUR` and `period` is `day` or `month`, both defaulting
+to `USD` and `month`. The ceiling is set in money and enforced in tokens: at startup the amount is
+converted into a token allowance using a price table committed to this repository, and the tokens
+already recorded for the period are counted against it. Nothing is fetched, so an offline install
+behaves the same as a connected one, and the prices are reviewed like any other change here. Reach a
+ceiling and the scheduled jobs skip with a reason in the run history while chat says it has stopped
+for the period; the other providers are unaffected. **Jobs** shows the spend by day, by purpose and
+by model, as an estimate with the date its prices were checked. `0` is rejected rather than read as
+either bound, and a model missing from the price table is a startup error only where that provider
+has a numeric ceiling. See [spec 03](docs/specs/03-llm-provider.md).
+
 `jobs.schedules` sets when each background job runs, in cron syntax, read in `jobs.timezone`
 so that a daily job stays where you put it across a clock change. `jobs.retainRunDays` is how
 long the run history is kept, and `jobs.backoffCeilingMinutes` how far a run of failures may

@@ -176,6 +176,9 @@ export interface ChatHarnessOptions {
   readonly supportsTools?: boolean
   /** Whether a model is configured at all. */
   readonly configured?: boolean
+  /** The spending ceiling's answer for this turn, or null when there is nothing to refuse.
+   *  Spec 03, criterion 14. */
+  readonly overBudget?: string | null
   readonly regeneratePlan?: () => Promise<PlanRegeneration>
 }
 
@@ -201,6 +204,7 @@ export function chatHarness({
   file = {},
   supportsTools = true,
   configured = true,
+  overBudget = null,
   regeneratePlan = () => Promise.resolve<PlanRegeneration>({ status: 'drawn', summary: 'A plan.' }),
 }: ChatHarnessOptions): ChatHarness {
   // The zone is pinned as it is everywhere else in the suite, and merged one level down: a test
@@ -215,6 +219,7 @@ export function chatHarness({
   const provider = createFakeProvider({ answers, supportsTools })
   const llm: LlmRuntime = {
     isConfigured: () => configured,
+    budgetRefusal: () => overBudget,
     for: (): LlmProvider => provider,
   }
 

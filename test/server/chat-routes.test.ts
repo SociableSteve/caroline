@@ -55,6 +55,7 @@ async function chatServer({
     ...built,
     llm: {
       isConfigured: () => configured,
+      budgetRefusal: () => null,
       for: (): LlmProvider => provider,
     },
   }

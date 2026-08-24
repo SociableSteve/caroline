@@ -176,6 +176,21 @@ function stubApi({
       if (url.startsWith('/api/projects')) return answer({ projects })
       if (url.startsWith('/api/jobs/status')) return answer({ jobs: jobStatus })
       if (url.startsWith('/api/jobs')) return answer({ runs: jobRuns })
+      // No model calls yet, which is what these tests are about. Served rather than left
+      // unstubbed, for the reason the plan and the calendar are: an incomplete harness would put
+      // a second alert on the screen in every test.
+      if (url.startsWith('/api/spend')) {
+        return answer({
+          currency: 'USD',
+          period: 'month',
+          since: 0,
+          checkedOn: null,
+          byDay: [],
+          byPurpose: [],
+          byModel: [],
+          providers: [],
+        })
+      }
       // A server with nothing planned and no calendar connected, which is what these tests are
       // about. Served rather than left unstubbed: a panel whose request fails now says so, and
       // an incomplete harness would put a second alert on the screen in every test.
