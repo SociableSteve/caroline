@@ -59,6 +59,7 @@ export function toTask(row: Row): Task {
     dueAt: nullableInteger(row, 'due_at'),
     deferUntil: nullableInteger(row, 'defer_until'),
     waitingOn: nullableText(row, 'waiting_on'),
+    blockedBy: nullableText(row, 'blocked_by'),
     statusSetBy: text(row, 'status_set_by') as StatusActor,
     statusSetAt: integer(row, 'status_set_at'),
     previousStatus: nullableText(row, 'previous_status') as TaskStatus | null,

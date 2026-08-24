@@ -59,6 +59,15 @@ export const boardStatuses: readonly TaskStatus[] = taskStatuses.filter(
 )
 
 /**
+ * The columns a card can be moved into, which is every one but Blocked. A task is blocked by
+ * naming the task that has to finish first, not by being moved, and the board has no blocker to
+ * name: offering the move would offer a status the write refuses. Spec 08, criterion 53.
+ */
+export const movableStatuses: readonly TaskStatus[] = boardStatuses.filter(
+  (status) => status !== 'blocked',
+)
+
+/**
  * A classifier answer waiting on the user: below the confidence threshold when it was made, so the
  * task stayed in the inbox with this attached. Spec 04.
  */
@@ -466,6 +475,8 @@ export interface TaskInput {
   readonly dueAt?: number | null
   readonly deferUntil?: number | null
   readonly waitingOn?: string | null
+  /** The task that has to finish first, or `null` to clear it. Spec 08, criterion 52. */
+  readonly blockedBy?: string | null
   readonly tags?: string[]
 }
 

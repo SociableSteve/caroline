@@ -20,6 +20,7 @@ import { surfaceTitle } from './title.js'
 
 const boardHandlers = {
   onStatusChange: vi.fn(),
+  onBlockerChange: vi.fn(),
   onComplete: vi.fn(),
   onDelete: vi.fn(),
   onDatesChange: vi.fn(),

@@ -17,6 +17,7 @@ const statusLabels: Record<TaskStatus, string> = {
   next_action: 'Next actions',
   review: 'Review',
   waiting: 'Waiting for',
+  blocked: 'Blocked',
   someday: 'Someday',
   reference: 'Reference',
   done: 'Done',

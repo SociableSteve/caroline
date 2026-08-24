@@ -19,10 +19,13 @@ import {
   getTaskTags,
   listTags,
   listTasks,
+  blockerRefusal,
   setSyncTracking,
+  setTaskBlocker,
   setTaskTags,
   undoTaskStatus,
   updateTask,
+  type BlockerRefusal,
   type TaskPatch,
   type TaskQuery,
 } from '../../db/repositories/tasks.js'
@@ -172,6 +175,13 @@ function missingProject(database: Database, projectId: string | null | undefined
   return projectId !== null && projectId !== undefined && getProject(database, projectId) === null
 }
 
+/** The refusals `setTaskBlocker` returns, in the words a person reads. Spec 08, criterion 52. */
+const blockerMessages: Record<BlockerRefusal, string> = {
+  'not-found': 'No such task',
+  'no-such-blocker': 'No such blocking task',
+  cycle: 'That would block the task behind itself, directly or through a chain of blockers',
+}
+
 interface TaskListQuery {
   status?: TaskStatus[]
   projectId?: string
@@ -193,6 +203,7 @@ interface TaskBody {
   dueAt?: number | null
   deferUntil?: number | null
   waitingOn?: string | null
+  blockedBy?: string | null
   tags?: string[]
 }
 
@@ -307,6 +318,16 @@ export function registerTaskRoutes(
         return badRequest(reply, 'No such project')
       }
 
+      // A task nothing points at yet cannot be in a cycle, so existence is the whole of the check
+      // on the way in. Spec 01, criterion 13.
+      if (
+        body.blockedBy !== null &&
+        body.blockedBy !== undefined &&
+        getTask(database, body.blockedBy) === null
+      ) {
+        return badRequest(reply, blockerMessages['no-such-blocker'])
+      }
+
       const at = now()
       const created = withTransaction(database, () => {
         const task = createTask(
@@ -315,6 +336,9 @@ export function registerTaskRoutes(
             ...toPatch(body),
             // Required by the schema, so it is present whatever the optional type says.
             title: body.title ?? '',
+            // Naming a blocker files the task as blocked, whatever `status` says: the two are
+            // one fact. Spec 01, criterion 12.
+            ...(body.blockedBy === undefined ? {} : { blockedBy: body.blockedBy }),
             // Attribution is not the caller's to give: a status set through the API is the
             // user's, which is what `newTask` defaults to.
             ...(body.status === undefined ? {} : { status: body.status }),
@@ -378,7 +402,23 @@ export function registerTaskRoutes(
       if (missingProject(database, body.projectId)) return badRequest(reply, 'No such project')
 
       const at = now()
+
+      // Asked before anything is written, and answered as a bad request rather than as a
+      // constraint violation: a caller that named a blocker that does not exist, or one that
+      // would come back round to this task, has named something wrong. Spec 08, criterion 52.
+      const refused =
+        body.blockedBy === undefined ? null : blockerRefusal(database, id, body.blockedBy)
+      if (refused !== null) {
+        return refused === 'not-found'
+          ? notFound(reply, 'task')
+          : badRequest(reply, blockerMessages[refused])
+      }
+
       withTransaction(database, () => {
+        // First, because naming a blocker is itself a status change and an explicit `status` in
+        // the same request is the later word. Spec 01, criteria 12 and 13.
+        if (body.blockedBy !== undefined) setTaskBlocker(database, id, body.blockedBy, at)
+
         const patch = toPatch(body)
         if (Object.keys(patch).length > 0) updateTask(database, id, patch, at)
         if (body.tags !== undefined) setTaskTags(database, id, body.tags)
@@ -408,10 +448,13 @@ export function registerTaskRoutes(
       },
     },
     async (request, reply) => {
-      // Hard delete, and only ever from here: sync never deletes a task. Spec 01.
-      if (!deleteTask(database, request.params.id)) return notFound(reply, 'task')
+      // Hard delete, and only ever from here: sync never deletes a task. Spec 01. Anything
+      // blocked behind it is released in the same transaction, so nothing is left claiming to
+      // be blocked behind a task that has gone. Criterion 15.
+      const at = now()
+      if (!deleteTask(database, request.params.id, at)) return notFound(reply, 'task')
 
-      announce(now())
+      announce(at)
 
       return reply.status(204).send()
     },
@@ -616,9 +659,15 @@ export function registerTaskRoutes(
       if (result === null) return notFound(reply, 'task')
 
       if (!result.undone) {
-        return reply
-          .status(409)
-          .send(apiError('conflict', 'This task has no status change to put back'))
+        // Two different conflicts, said differently. A move out of `blocked` took the blocker with
+        // it, and the status cannot stand without one, so the way back is to name it again rather
+        // than to undo. Spec 01, criterion 18.
+        const message =
+          result.reason === 'blocked-needs-blocker'
+            ? 'This task was blocked, and the blocker went with the move. Name the blocker again rather than putting the move back.'
+            : 'This task has no status change to put back'
+
+        return reply.status(409).send(apiError('conflict', message))
       }
 
       announce(at)

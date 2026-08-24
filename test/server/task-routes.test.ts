@@ -39,6 +39,8 @@ describe('GET /api/tasks', () => {
         dueAt: null,
         deferUntil: null,
         waitingOn: null,
+        // Behind nothing, which is every task but the few that are. Spec 01, criterion 12.
+        blockedBy: null,
         statusSetBy: 'user',
         statusSetAt: earlier,
         // Never changed since capture, so there is nothing to put back. Spec 01, criterion 11.
@@ -759,5 +761,142 @@ describe('POST /api/tasks/bulk', () => {
 
     expect(response.statusCode).toBe(400)
     expect(getTask(database, task.id)?.projectId).toBeNull()
+  })
+})
+
+/**
+ * Blocking over the API. Spec 08, criterion 49: `blockedBy` is one field, set on create or on
+ * patch, and the status follows from it rather than being sent beside it.
+ */
+describe('blockedBy on the task routes', () => {
+  it('files a task as blocked when a patch names the blocker', async () => {
+    const { app, database } = await testServer()
+    const blocker = createTask(database, { title: 'Sign the contract' }, earlier)
+    const task = createTask(database, { title: 'Book the venue' }, earlier)
+
+    const response = await app.inject({
+      method: 'PATCH',
+      url: `/api/tasks/${task.id}`,
+      payload: { blockedBy: blocker.id },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({ status: 'blocked', blockedBy: blocker.id })
+  })
+
+  it('returns the task to next actions when the patch clears it', async () => {
+    const { app, database } = await testServer()
+    const blocker = createTask(database, { title: 'Sign the contract' }, earlier)
+    const task = createTask(database, { title: 'Book the venue' }, earlier)
+    await app.inject({
+      method: 'PATCH',
+      url: `/api/tasks/${task.id}`,
+      payload: { blockedBy: blocker.id },
+    })
+
+    const response = await app.inject({
+      method: 'PATCH',
+      url: `/api/tasks/${task.id}`,
+      payload: { blockedBy: null },
+    })
+
+    expect(response.json()).toMatchObject({ status: 'next_action', blockedBy: null })
+  })
+
+  it('creates a task already blocked when the body names a blocker', async () => {
+    const { app, database } = await testServer()
+    const blocker = createTask(database, { title: 'Sign the contract' }, earlier)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/tasks',
+      payload: { title: 'Book the venue', blockedBy: blocker.id },
+    })
+
+    expect(response.statusCode).toBe(201)
+    expect(response.json()).toMatchObject({ status: 'blocked', blockedBy: blocker.id })
+  })
+
+  it('is a 400 naming a blocker that does not exist, on create and on patch alike', async () => {
+    const { app, database } = await testServer()
+    const task = createTask(database, { title: 'Book the venue' }, earlier)
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/tasks',
+      payload: { title: 'Another', blockedBy: 'nonexistent' },
+    })
+    const patched = await app.inject({
+      method: 'PATCH',
+      url: `/api/tasks/${task.id}`,
+      payload: { blockedBy: 'nonexistent' },
+    })
+
+    expect(created.statusCode).toBe(400)
+    expect(patched.statusCode).toBe(400)
+    expect(patched.json()).toMatchObject({ error: { code: 'bad_request' } })
+  })
+
+  /** Criterion 17, over the wire: named rather than left to the constraint to raise as a 500. */
+  it('is a 400 for a blocker that would come back round to the task', async () => {
+    const { app, database } = await testServer()
+    const first = createTask(database, { title: 'One' }, earlier)
+    const second = createTask(database, { title: 'Two' }, earlier)
+    await app.inject({
+      method: 'PATCH',
+      url: `/api/tasks/${second.id}`,
+      payload: { blockedBy: first.id },
+    })
+
+    const response = await app.inject({
+      method: 'PATCH',
+      url: `/api/tasks/${first.id}`,
+      payload: { blockedBy: second.id },
+    })
+
+    expect(response.statusCode).toBe(400)
+    expect(response.json().error.message).toMatch(/behind itself/i)
+    expect(getTask(database, first.id)).toMatchObject({ status: 'inbox', blockedBy: null })
+  })
+
+  /** Spec 01, criterion 15: the delete releases what was behind it before the row goes. */
+  it('releases what was blocked behind a task the delete route removes', async () => {
+    const { app, database } = await testServer()
+    const blocker = createTask(database, { title: 'Sign the contract' }, earlier)
+    const task = createTask(database, { title: 'Book the venue' }, earlier)
+    await app.inject({
+      method: 'PATCH',
+      url: `/api/tasks/${task.id}`,
+      payload: { blockedBy: blocker.id },
+    })
+
+    await app.inject({ method: 'DELETE', url: `/api/tasks/${blocker.id}` })
+
+    expect(getTask(database, task.id)).toMatchObject({ status: 'next_action', blockedBy: null })
+  })
+
+  /** Spec 01, criterion 18: the undo says why rather than restoring half a fact. */
+  it('refuses to put a move out of blocked back, and says what to do instead', async () => {
+    const { app, database } = await testServer()
+    const blocker = createTask(database, { title: 'Sign the contract' }, earlier)
+    const task = createTask(database, { title: 'Book the venue' }, earlier)
+    await app.inject({
+      method: 'PATCH',
+      url: `/api/tasks/${task.id}`,
+      payload: { blockedBy: blocker.id },
+    })
+    await app.inject({
+      method: 'PATCH',
+      url: `/api/tasks/${task.id}`,
+      payload: { status: 'someday' },
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/tasks/${task.id}/undo-status`,
+    })
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json().error.message).toMatch(/name the blocker again/i)
   })
 })

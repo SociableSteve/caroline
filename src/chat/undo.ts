@@ -59,7 +59,7 @@ export function undoTurn(
     // task before the project goes, or the restore would write a task pointing at nothing.
     for (const stored of [...inverses].reverse()) {
       for (const operation of [...stored.operations].reverse()) {
-        apply(database, operation)
+        apply(database, operation, now)
       }
       markChangeUndone(database, stored.changeId, now)
     }
@@ -78,7 +78,7 @@ export function undoTurn(
  * then unretryable and the task keeps what the turn wrote. Raising inside the transaction rolls the
  * whole undo back and leaves the batch exactly as it was.
  */
-function apply(database: Database, operation: ChatInverse): void {
+function apply(database: Database, operation: ChatInverse, at: number): void {
   if (operation.kind === 'restore-task') {
     const task = taskFromSnapshot(operation.task)
     if (task === null) {
@@ -102,7 +102,7 @@ function apply(database: Database, operation: ChatInverse): void {
   }
 
   if (operation.kind === 'delete-task') {
-    deleteTask(database, operation.id)
+    deleteTask(database, operation.id, at)
     return
   }
 

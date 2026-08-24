@@ -5,14 +5,19 @@
  */
 
 /**
- * Seven, fixed. `project` is deliberately absent: a project is a separate entity that owns
+ * Eight, fixed. `project` is deliberately absent: a project is a separate entity that owns
  * tasks, not a bucket of tasks pretending to be one.
+ *
+ * `waiting` is a person and `blocked` is a task of your own. That is the whole of the difference
+ * between them, and the order here is the order the board draws its columns in, so `blocked` sits
+ * beside the other state whose next move is not yours.
  */
 export const taskStatuses = [
   'inbox',
   'next_action',
   'review',
   'waiting',
+  'blocked',
   'someday',
   'reference',
   'done',
@@ -41,6 +46,12 @@ export interface Task {
   readonly dueAt: number | null
   readonly deferUntil: number | null
   readonly waitingOn: string | null
+  /**
+   * The task that has to finish before this one can start. Not null exactly when `status` is
+   * `blocked`: the two are one fact, and the schema refuses the disagreement. Spec 01,
+   * criterion 12.
+   */
+  readonly blockedBy: string | null
   readonly statusSetBy: StatusActor
   readonly statusSetAt: number
   /** What `status` was before the most recent change, so that change can be put back. */
@@ -65,6 +76,8 @@ export interface NewTaskInput {
   readonly dueAt?: number | null
   readonly deferUntil?: number | null
   readonly waitingOn?: string | null
+  /** Naming one here creates the task `blocked`, whatever `status` says. Spec 01, criterion 13. */
+  readonly blockedBy?: string | null
 }
 
 /**
@@ -74,18 +87,24 @@ export interface NewTaskInput {
  */
 export function newTask(input: NewTaskInput, now: number): Task {
   const statusSetBy = input.statusSetBy ?? 'user'
+  // The status and the blocker are one fact, so the two are resolved together rather than taken
+  // as given: a blocker names a blocked task, and a task that is not blocked holds no blocker.
+  // Spec 01, criterion 12.
+  const blockedBy = input.blockedBy ?? null
+  const status = blockedBy === null ? (input.status ?? 'inbox') : 'blocked'
 
   return {
     id: input.id,
     title: input.title,
     notes: input.notes ?? null,
-    status: input.status ?? 'inbox',
+    status,
     projectId: input.projectId ?? null,
     sortOrder: input.sortOrder ?? 0,
     estimateMinutes: input.estimateMinutes ?? null,
     dueAt: input.dueAt ?? null,
     deferUntil: input.deferUntil ?? null,
     waitingOn: input.waitingOn ?? null,
+    blockedBy,
     statusSetBy,
     statusSetAt: now,
     // Never changed, so there is nothing to put back. Spec 01, criterion 11.
@@ -94,7 +113,7 @@ export function newTask(input: NewTaskInput, now: number): Task {
     syncTracked: statusSetBy === 'sync',
     createdAt: now,
     updatedAt: now,
-    completedAt: input.status === 'done' ? now : null,
+    completedAt: status === 'done' ? now : null,
   }
 }
 
@@ -104,10 +123,15 @@ export interface StatusChange {
   readonly at: number
   /** The statuses the owning connector controls. Only consulted for tracked tasks. */
   readonly trackedStatuses?: readonly TaskStatus[]
+  /**
+   * Required with a status of `blocked` and ignored with any other, because the status and the
+   * reference are one fact. `blockChange` below is the way to build both halves at once.
+   */
+  readonly blockedBy?: string | null
 }
 
 /** Why a change was refused, so a caller can record the proposal instead of applying it. */
-export type StatusChangeRefusal = 'user-set' | 'not-tracked'
+export type StatusChangeRefusal = 'user-set' | 'not-tracked' | 'blocker-required'
 
 export type StatusChangeResult =
   | { readonly applied: true; readonly task: Task }
@@ -133,11 +157,22 @@ export function applyStatusChange(task: Task, change: StatusChange): StatusChang
     return { applied: false, reason: 'not-tracked', task }
   }
 
+  // Spec 01, criterion 12. A move to `blocked` with nothing to be blocked behind is half a fact,
+  // and the schema would refuse the row anyway; refusing it here means the caller is told why
+  // rather than handed a constraint violation.
+  const blockedBy = change.status === 'blocked' ? (change.blockedBy ?? null) : null
+  if (change.status === 'blocked' && blockedBy === null) {
+    return { applied: false, reason: 'blocker-required', task }
+  }
+
   return {
     applied: true,
     task: {
       ...task,
       status: change.status,
+      // Cleared by any move out of `blocked`, which is what makes unblocking one way: the
+      // reference goes with the status, and naming it again is a new decision. Criterion 16.
+      blockedBy,
       statusSetBy: change.by,
       statusSetAt: change.at,
       // One step, not a history: each change overwrites the pair, so what is recoverable is the
@@ -151,10 +186,16 @@ export function applyStatusChange(task: Task, change: StatusChange): StatusChang
   }
 }
 
+/**
+ * Why a change could not be put back. `nothing-to-undo` is a task never changed since it was
+ * created; `blocked-needs-blocker` is a move out of `blocked`, whose reference went with the
+ * move and cannot be invented back. Spec 01, criteria 11 and 18.
+ */
+export type UndoRefusal = 'nothing-to-undo' | 'blocked-needs-blocker'
+
 export type UndoStatusResult =
   | { readonly undone: true; readonly task: Task }
-  /** Nothing to put back: the task has not been changed since it was created. */
-  | { readonly undone: false }
+  | { readonly undone: false; readonly reason: UndoRefusal }
 
 /**
  * Putting the last status change back. It restores the actor as well as the status, which is the
@@ -173,7 +214,14 @@ export type UndoStatusResult =
  */
 export function undoStatusChange(task: Task, at: number): UndoStatusResult {
   const { previousStatus, previousStatusSetBy } = task
-  if (previousStatus === null || previousStatusSetBy === null) return { undone: false }
+  if (previousStatus === null || previousStatusSetBy === null) {
+    return { undone: false, reason: 'nothing-to-undo' }
+  }
+
+  // The blocker was cleared by the move being put back, and the status cannot stand without one.
+  // Refused rather than restored from a remembered id, because spec 01 has unblocking one way:
+  // the second block is a new decision rather than the resumption of an old one. Criterion 18.
+  if (previousStatus === 'blocked') return { undone: false, reason: 'blocked-needs-blocker' }
 
   return {
     undone: true,
@@ -230,4 +278,45 @@ export function isUntriaged(task: Pick<Task, 'status' | 'statusSetBy'>): boolean
  */
 export function isDeferred(task: Pick<Task, 'deferUntil'>, now: number): boolean {
   return task.deferUntil !== null && task.deferUntil > now
+}
+
+/**
+ * Naming a blocker is a move to `blocked`, and clearing one is a move back to `next_action`,
+ * which is what an unblocked concrete action is. Built here rather than at each write path so
+ * that the two halves of the fact are never sent separately. Spec 01, criterion 13.
+ */
+export function blockChange(blockedBy: string | null, by: StatusActor, at: number): StatusChange {
+  return blockedBy === null
+    ? { status: 'next_action', by, at }
+    : { status: 'blocked', by, at, blockedBy }
+}
+
+/** Why naming a blocker was refused. Self-reference is the degenerate case of a cycle. */
+export type BlockRefusal = 'cycle'
+
+/**
+ * Whether blocking `taskId` behind `blockerId` would put the task behind itself, directly or
+ * through a chain. Pure: the caller supplies `blockerOf`, which answers what one task is blocked
+ * by, so the rule is testable without a database and every write path asks the same question.
+ * Spec 01, criterion 17.
+ *
+ * The walk is up a single chain, which terminates on the invariant it maintains. It carries the
+ * ids it has seen all the same, so a database edited by hand into a loop cannot hang the process.
+ */
+export function blockRefusal(
+  taskId: string,
+  blockerId: string,
+  blockerOf: (id: string) => string | null,
+): BlockRefusal | null {
+  const seen = new Set<string>()
+  let current: string | null = blockerId
+
+  while (current !== null) {
+    if (current === taskId) return 'cycle'
+    if (seen.has(current)) return null
+    seen.add(current)
+    current = blockerOf(current)
+  }
+
+  return null
 }

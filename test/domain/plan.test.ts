@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   applyPlanRules,
+  blockedNudges,
   chaseNudges,
   planCandidates,
   type PlanCandidate,
@@ -28,6 +29,7 @@ function aTask(overrides: Partial<Task> & { id: string }): Task {
     sortOrder: 0,
     estimateMinutes: null,
     dueAt: null,
+    blockedBy: null,
     deferUntil: null,
     waitingOn: null,
     statusSetBy: 'user',
@@ -488,5 +490,75 @@ describe('chase nudges', () => {
     const nudges = chaseNudges([waiting({ taskId: 'a', waitingOn: null })], NOW, 7)
 
     expect(nudges[0]?.waitingOn).toBeNull()
+  })
+})
+
+/**
+ * Criterion 20. Blocked work is never today's work, and an overdue one comes back as a nudge
+ * rather than vanishing, because something vanishing quietly is the failure this is here to stop.
+ */
+describe('blocked work', () => {
+  it('is never a candidate, even due today', () => {
+    const candidates = planCandidates(
+      [
+        aTask({ id: 'blocked', status: 'blocked', blockedBy: 'blocker', dueAt: END_OF_DAY }),
+        aTask({ id: 'open', status: 'next_action' }),
+      ],
+      END_OF_DAY,
+      { includeReviews: true },
+    )
+
+    expect(candidates.map((candidate) => candidate.taskId)).toEqual(['open'])
+  })
+
+  /**
+   * The catch-all limb at the foot of the candidate rule is what this is really about: a status
+   * absent from `neverPlanned` falls into it and is planned on the strength of a deadline alone.
+   */
+  it('is not a candidate when it is overdue either', () => {
+    const overdue = aTask({
+      id: 'blocked',
+      status: 'blocked',
+      blockedBy: 'blocker',
+      dueAt: END_OF_DAY - DAY,
+    })
+
+    expect(planCandidates([overdue], END_OF_DAY, { includeReviews: true })).toEqual([])
+  })
+
+  const blocked = (overrides: { taskId: string; dueAt: number | null; blockerTitle?: string }) => ({
+    title: `Task ${overrides.taskId}`,
+    blockedSince: NOW - DAY,
+    blockerTitle: overrides.blockerTitle ?? 'Sign the contract',
+    ...overrides,
+  })
+
+  it('returns as a nudge once its deadline has arrived, naming what it is behind', () => {
+    const nudges = blockedNudges([blocked({ taskId: 'a', dueAt: END_OF_DAY })], END_OF_DAY)
+
+    expect(nudges).toEqual([
+      expect.objectContaining({ taskId: 'a', blockerTitle: 'Sign the contract' }),
+    ])
+  })
+
+  it('is not a nudge while its deadline is still ahead, or absent', () => {
+    const items = [
+      blocked({ taskId: 'later', dueAt: END_OF_DAY + DAY }),
+      blocked({ taskId: 'undated', dueAt: null }),
+    ]
+
+    expect(blockedNudges(items, END_OF_DAY)).toEqual([])
+  })
+
+  it('puts the most urgent deadline first', () => {
+    const nudges = blockedNudges(
+      [
+        blocked({ taskId: 'today', dueAt: END_OF_DAY }),
+        blocked({ taskId: 'last week', dueAt: END_OF_DAY - 7 * DAY }),
+      ],
+      END_OF_DAY,
+    )
+
+    expect(nudges.map((nudge) => nudge.taskId)).toEqual(['last week', 'today'])
   })
 })

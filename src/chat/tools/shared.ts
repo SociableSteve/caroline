@@ -107,6 +107,10 @@ export function taskSummary(context: ChatToolContext, task: Task) {
     dueAt: asIso(task.dueAt),
     deferUntil: asIso(task.deferUntil),
     waitingOn: task.waitingOn,
+    // The id of the task this one is behind, and null for the great majority that are behind
+    // nothing. Only on this branch: at a level that withholds an item's text there is no status
+    // either, and half of the pair would be worse than neither. Spec 09, criterion 13.
+    blockedBy: task.blockedBy,
     updatedAt: asIso(task.updatedAt),
   }
 }

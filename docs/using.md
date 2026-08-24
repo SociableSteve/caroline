@@ -55,7 +55,7 @@ long as a login is required, and a session otherwise simply lasts a while before
 
 ## Where work lives
 
-Six columns, and every task is in exactly one of them.
+Seven columns, and every task is in exactly one of them.
 
 | Column | What is in it |
 | --- | --- |
@@ -63,13 +63,34 @@ Six columns, and every task is in exactly one of them.
 | Next actions | One concrete thing you could do next |
 | Review | Somebody is waiting on you to review something. Pull requests land here |
 | Waiting for | The next move belongs to somebody else, who is named on the card |
+| Blocked | Another task of yours has to finish first, and the card names it |
 | Someday | A real commitment, but not now |
 | Reference | Information with no action in it |
 
-Done is the seventh status and is not a column: completing something takes it off the board.
+Waiting for is a person and Blocked is a task of your own. That is the whole of the difference.
 
-![Caroline's board, with six columns and the keyboard reference underneath](images/board.png#gh-light-mode-only)
-![Caroline's board, with six columns and the keyboard reference underneath](images/board-dark.png#gh-dark-mode-only)
+Done is the eighth status and is not a column: completing something takes it off the board.
+
+![Caroline's board and the keyboard reference underneath](images/board.png#gh-light-mode-only)
+![Caroline's board and the keyboard reference underneath](images/board-dark.png#gh-dark-mode-only)
+
+## Blocking one task behind another
+
+A task can name one task of yours that has to finish first. Open a card's **More** disclosure and
+pick the blocker under **Blocked by**; the card moves to the Blocked column and says what it is
+behind. Chat does the same thing with `update_task`, naming `blockedBy`.
+
+The status and the reference are one fact, so you never set them separately. Naming a blocker
+files the task as blocked; clearing it puts the task back in Next actions; and completing or
+deleting the blocker releases everything behind it into Next actions on the spot. That last part is
+the point: nothing has to be remembered, so nothing rots.
+
+Three things follow. Reopening a blocker you completed does not re-block anything, because the
+reference went when it completed, so getting the dependency back means naming it again. Putting a
+move out of Blocked back with `u` is refused for the same reason. And a task cannot end up behind
+itself, directly or through a chain: Caroline refuses that rather than storing it.
+
+One blocker, not several. If more than one thing has to finish first, that is a project.
 
 ## Capturing something
 
@@ -90,7 +111,7 @@ takes it. As the list stands:
 | --- | --- |
 | `←` `→` `h` `l` | move between columns |
 | `↑` `↓` `j` `k` | move within a column |
-| `1` to `6` | move the focused task to that column |
+| `1` to `7` | move the focused task to that column, except `5`: Blocked takes no digit and no drag, because there would be no blocker to name |
 | `d` | complete the focused task |
 | `r` | mark the focused review done, moving it to Waiting for |
 | `a` | accept the suggestion on the focused inbox task |
@@ -102,8 +123,8 @@ A worked pass at an inbox of three, from the board:
 
 1. Click the first card in the Inbox column. `j` and `k` move down and up it, `h` and `l` across to
    the next column, keeping your place in the row where the column is long enough.
-2. Read the card. `2` files it as a next action, `4` as something you are waiting on, `5` as someday,
-   `6` as reference. `d` completes it, which is the right answer more often than it looks.
+2. Read the card. `2` files it as a next action, `4` as something you are waiting on, `6` as someday,
+   `7` as reference. `d` completes it, which is the right answer more often than it looks.
 3. Got one wrong? `u` puts that task's last status change back, including the column it came from.
 4. Click the next card and go again, until the column is empty. Only the movement keys hand the focus
    on: `d`, a digit, `r` and `u` all take the card out of the column it was in, and the focus goes with
@@ -222,6 +243,7 @@ whole of what chat can do.
 | What is left in the Caroline 1.0 release? | `list_projects` and `search_tasks`: the project, its next action, and whether it is stalled |
 | Add a task to chase Legal about the statement of work, ten minutes | `create_task`. The transcript then shows `Created “Chase Legal about the statement of work” in next_action`, with an **Undo** beside it |
 | File it under reference | `update_task` on the item open in the rail: `Updated “…”: to reference`. A status set this way is yours, so the classifier leaves it alone |
+| This is blocked behind the other one | `update_task` with `blockedBy`. The task moves to Blocked and names the blocker; completing or deleting the blocker puts it back in Next actions on its own |
 | That review is done | `mark_reviewed`: the task moves to Waiting for, named on the author, and the review does not come back until the author does something |
 | Redraw today's plan | `regenerate_daily_plan`. Today only: an earlier day's plan is the record of what was proposed on the day, and the plan it replaces is kept in history |
 | Delete that someday item | `delete_task`, which never runs on the model's word. It is proposed, the transcript says it is held, and it happens when you press **Confirm** |

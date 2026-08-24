@@ -1019,15 +1019,24 @@ export function Dashboard({
       subtitle: task.waitingOn ?? 'nobody named',
       note: null,
     })),
-    ...(plan?.nudges ?? []).map((nudge): NeedsYouItem => ({
-      key: `chase:${nudge.id}`,
-      tone: 'accent',
-      pill: 'Worth a chase',
-      ageMs: nudge.waitingSince === null ? null : Math.max(0, now - nudge.waitingSince),
-      title: nudge.title,
-      subtitle: nudge.waitingOn ?? 'nobody named',
-      note: nudge.pushedSinceReview ? 'the author has pushed since you reviewed' : null,
-    })),
+    // Two kinds of nudge share these columns, and the entry's own status is what tells them
+    // apart: a chase is somebody else's move, a blocked one is another task of your own that has
+    // to finish first. Spec 05, criteria 11 and 20.
+    ...(plan?.nudges ?? []).map((nudge): NeedsYouItem => {
+      const blocked = nudge.taskStatus === 'blocked'
+
+      return {
+        key: `chase:${nudge.id}`,
+        tone: blocked ? 'quiet' : 'accent',
+        pill: blocked ? 'Blocked' : 'Worth a chase',
+        ageMs: nudge.waitingSince === null ? null : Math.max(0, now - nudge.waitingSince),
+        title: nudge.title,
+        subtitle: blocked
+          ? `behind ${nudge.waitingOn ?? 'another task'}`
+          : (nudge.waitingOn ?? 'nobody named'),
+        note: nudge.pushedSinceReview ? 'the author has pushed since you reviewed' : null,
+      }
+    }),
     ...stalled.map((project): NeedsYouItem => ({
       key: `stalled:${project.id}`,
       tone: 'quiet',

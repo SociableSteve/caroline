@@ -28,13 +28,18 @@ import { migratedDatabase } from '../helpers/temp-database.js'
 describe('the schema and the domain constants', () => {
   function insertTask(status: string, statusSetBy = 'user'): void {
     const database = migratedDatabase()
-    database
-      .prepare(
-        `insert into tasks (id, title, status, sort_order, status_set_by, status_set_at,
-           sync_tracked, created_at, updated_at)
-         values (?, ?, ?, 0, ?, 0, 0, 0, 0)`,
-      )
-      .run('task-1', 'Book the venue', status, statusSetBy)
+    const insert = database.prepare(
+      `insert into tasks (id, title, status, sort_order, status_set_by, status_set_at,
+         sync_tracked, created_at, updated_at, blocked_by)
+       values (?, ?, ?, 0, ?, 0, 0, 0, 0, ?)`,
+    )
+
+    // `blocked` cannot be inserted on its own: the status and the reference are one fact, so the
+    // row needs something to be blocked behind. Spec 01, criterion 12.
+    const blockedBy = status === 'blocked' ? 'task-0' : null
+    if (blockedBy !== null) insert.run(blockedBy, 'Sign the contract', 'next_action', 'user', null)
+
+    insert.run('task-1', 'Book the venue', status, statusSetBy, blockedBy)
   }
 
   it.each(taskStatuses)('accepts %s, which the domain calls a valid status', (status) => {
@@ -51,6 +56,55 @@ describe('the schema and the domain constants', () => {
 
   it('rejects a status actor the domain does not define', () => {
     expect(() => insertTask('inbox', 'somebody_else')).toThrow(/constraint/i)
+  })
+
+  /**
+   * The invariant, said by the schema rather than remembered by the application. Spec 01,
+   * criterion 12: the two halves are one fact, and the database refuses either half alone.
+   */
+  describe('the blocked invariant', () => {
+    function withBlocker() {
+      const database = migratedDatabase()
+      const insert = database.prepare(
+        `insert into tasks (id, title, status, sort_order, status_set_by, status_set_at,
+           sync_tracked, created_at, updated_at, blocked_by)
+         values (?, ?, ?, 0, 'user', 0, 0, 0, 0, ?)`,
+      )
+      insert.run('blocker', 'Sign the contract', 'next_action', null)
+
+      return { database, insert }
+    }
+
+    it('rejects a blocked task with no blocker', () => {
+      const { insert } = withBlocker()
+
+      expect(() => insert.run('task-1', 'Book the venue', 'blocked', null)).toThrow(/constraint/i)
+    })
+
+    it.each(['inbox', 'next_action', 'waiting', 'someday', 'reference', 'done'])(
+      'rejects a blocker on a task that is %s rather than blocked',
+      (status) => {
+        const { insert } = withBlocker()
+
+        expect(() => insert.run('task-1', 'Book the venue', status, 'blocker')).toThrow(
+          /constraint/i,
+        )
+      },
+    )
+
+    it('accepts the pair, which is the only shape either half may take', () => {
+      const { insert } = withBlocker()
+
+      expect(() => insert.run('task-1', 'Book the venue', 'blocked', 'blocker')).not.toThrow()
+    })
+
+    it('rejects a blocker that names no task', () => {
+      const { insert } = withBlocker()
+
+      expect(() => insert.run('task-1', 'Book the venue', 'blocked', 'nonexistent')).toThrow(
+        /foreign key/i,
+      )
+    })
   })
 
   function insertProject(state: string): void {

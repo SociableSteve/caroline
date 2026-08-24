@@ -58,7 +58,7 @@ const searchTasks = defineTool<SearchArguments>({
     additionalProperties: false,
     properties: {
       query: { type: 'string', maxLength: 200 },
-      status: { type: 'array', items: { type: 'string', enum: taskStatuses }, maxItems: 7 },
+      status: { type: 'array', items: { type: 'string', enum: taskStatuses }, maxItems: 8 },
       projectId: { type: 'string', maxLength: 64 },
       dueBefore: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
       limit: { type: 'integer', minimum: 1, maximum: MAX_ROWS },

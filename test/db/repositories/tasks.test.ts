@@ -2,10 +2,13 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import type { Database } from '../../../src/db/connection.js'
 import { createProject } from '../../../src/db/repositories/projects.js'
 import {
+  blockerRefusal,
   changeTaskStatus,
   createTask,
   deleteTask,
   getTask,
+  listBlockedBy,
+  setTaskBlocker,
   getTaskTags,
   listNextActions,
   listTasksByStatus,
@@ -56,7 +59,7 @@ describe('undoTaskStatus', () => {
 
     const result = undoTaskStatus(database, task.id, undoneAt)
 
-    expect(result).toEqual({ undone: false, task })
+    expect(result).toEqual({ undone: false, reason: 'nothing-to-undo', task })
     expect(getTask(database, task.id)).toEqual(task)
   })
 
@@ -396,19 +399,19 @@ describe('deleteTask', () => {
   it('removes the task', () => {
     const task = createTask(database, { title: 'Book the venue' }, createdAt)
 
-    expect(deleteTask(database, task.id)).toBe(true)
+    expect(deleteTask(database, task.id, createdAt)).toBe(true)
     expect(getTask(database, task.id)).toBeNull()
   })
 
   it('reports false for a task that was not there', () => {
-    expect(deleteTask(database, 'nonexistent')).toBe(false)
+    expect(deleteTask(database, 'nonexistent', createdAt)).toBe(false)
   })
 
   it('takes the task tags with it', () => {
     const task = createTask(database, { title: 'Book the venue' }, createdAt)
     setTaskTags(database, task.id, ['venue'])
 
-    deleteTask(database, task.id)
+    deleteTask(database, task.id, createdAt)
 
     expect(database.prepare('select count(*) as count from task_tags').get()).toMatchObject({
       count: 0,
@@ -446,5 +449,152 @@ describe('task tags', () => {
     const task = createTask(database, { title: 'Book the venue' }, createdAt)
 
     expect(getTaskTags(database, task.id)).toEqual([])
+  })
+})
+
+/**
+ * Blocking, through the database. Spec 01, criteria 12 to 18: the status and the reference are
+ * one fact, completing or deleting the blocker releases what was behind it, and neither an undo
+ * nor a reopening puts a block back.
+ */
+describe('blocking one task behind another', () => {
+  const blockedAt = later
+  const finishedAt = later + 60_000
+
+  /** A blocker and a task filed behind it. */
+  function aBlockedPair() {
+    const blocker = createTask(database, { title: 'Sign the contract' }, createdAt)
+    const dependent = createTask(database, { title: 'Book the venue' }, createdAt)
+    const result = setTaskBlocker(database, dependent.id, blocker.id, blockedAt)
+
+    return { blocker, dependent, result }
+  }
+
+  /** Criterion 13, and criterion 12 with it: both halves are written, attributed to the user. */
+  it('files the task as blocked and names what it is behind', () => {
+    const { blocker, dependent } = aBlockedPair()
+
+    expect(getTask(database, dependent.id)).toMatchObject({
+      status: 'blocked',
+      blockedBy: blocker.id,
+      statusSetBy: 'user',
+    })
+  })
+
+  it('lists what is blocked behind a task', () => {
+    const { blocker, dependent } = aBlockedPair()
+
+    expect(listBlockedBy(database, blocker.id).map((task) => task.id)).toEqual([dependent.id])
+  })
+
+  /** Criterion 13: clearing it leaves no reference behind and returns the task to next actions. */
+  it('returns the task to next_action when the blocker is cleared', () => {
+    const { dependent } = aBlockedPair()
+
+    setTaskBlocker(database, dependent.id, null, finishedAt)
+
+    expect(getTask(database, dependent.id)).toMatchObject({
+      status: 'next_action',
+      blockedBy: null,
+    })
+  })
+
+  /** Criterion 14. The one thing nobody has to remember to do. */
+  it('releases what was behind a task when it is completed', () => {
+    const { blocker, dependent } = aBlockedPair()
+
+    changeTaskStatus(database, blocker.id, { status: 'done', by: 'user', at: finishedAt })
+
+    expect(getTask(database, dependent.id)).toMatchObject({
+      status: 'next_action',
+      blockedBy: null,
+      statusSetBy: 'user',
+    })
+  })
+
+  /** Criterion 16: unblocking is one way, so reopening the blocker re-blocks nothing. */
+  it('does not put the block back when the blocker is reopened', () => {
+    const { blocker, dependent } = aBlockedPair()
+    changeTaskStatus(database, blocker.id, { status: 'done', by: 'user', at: finishedAt })
+
+    changeTaskStatus(database, blocker.id, {
+      status: 'next_action',
+      by: 'user',
+      at: finishedAt + 60_000,
+    })
+
+    expect(getTask(database, dependent.id)).toMatchObject({
+      status: 'next_action',
+      blockedBy: null,
+    })
+  })
+
+  /**
+   * Criterion 15. `on delete set null` alone would null the reference and leave the status saying
+   * `blocked`, which the invariant forbids, so the status moves with it in the same transaction.
+   */
+  it('releases what was behind a task when it is deleted', () => {
+    const { blocker, dependent } = aBlockedPair()
+
+    expect(deleteTask(database, blocker.id, finishedAt)).toBe(true)
+
+    expect(getTask(database, dependent.id)).toMatchObject({
+      status: 'next_action',
+      blockedBy: null,
+    })
+  })
+
+  /** Criterion 18: the blocker went with the move, so there is nothing to put the status back to. */
+  it('refuses to put a move out of blocked back', () => {
+    const { dependent } = aBlockedPair()
+    changeTaskStatus(database, dependent.id, { status: 'someday', by: 'user', at: finishedAt })
+
+    expect(undoTaskStatus(database, dependent.id, finishedAt + 60_000)).toMatchObject({
+      undone: false,
+      reason: 'blocked-needs-blocker',
+    })
+    expect(getTask(database, dependent.id)).toMatchObject({ status: 'someday', blockedBy: null })
+  })
+
+  /** Criterion 17, at the write path rather than only in the pure rule. */
+  it('refuses a task blocked behind itself', () => {
+    const task = createTask(database, { title: 'Book the venue' }, createdAt)
+
+    expect(setTaskBlocker(database, task.id, task.id, blockedAt)).toEqual({
+      ok: false,
+      reason: 'cycle',
+    })
+    expect(getTask(database, task.id)).toMatchObject({ status: 'inbox', blockedBy: null })
+  })
+
+  it('refuses a cycle through a chain of blockers', () => {
+    const first = createTask(database, { title: 'One' }, createdAt)
+    const second = createTask(database, { title: 'Two' }, createdAt)
+    const third = createTask(database, { title: 'Three' }, createdAt)
+    setTaskBlocker(database, second.id, first.id, blockedAt)
+    setTaskBlocker(database, third.id, second.id, blockedAt)
+
+    expect(setTaskBlocker(database, first.id, third.id, blockedAt)).toEqual({
+      ok: false,
+      reason: 'cycle',
+    })
+  })
+
+  it('refuses a blocker that names no task, and one asked about a task that is not there', () => {
+    const task = createTask(database, { title: 'Book the venue' }, createdAt)
+
+    expect(blockerRefusal(database, task.id, 'nonexistent')).toBe('no-such-blocker')
+    expect(blockerRefusal(database, 'nonexistent', task.id)).toBe('not-found')
+  })
+
+  /** A chain is allowed: it is one hop from each task's point of view. Spec 01, non-goals. */
+  it('allows a chain, which is one hop seen from either end', () => {
+    const first = createTask(database, { title: 'One' }, createdAt)
+    const second = createTask(database, { title: 'Two' }, createdAt)
+    const third = createTask(database, { title: 'Three' }, createdAt)
+
+    setTaskBlocker(database, second.id, first.id, blockedAt)
+
+    expect(setTaskBlocker(database, third.id, second.id, blockedAt)).toMatchObject({ ok: true })
   })
 })

@@ -5,12 +5,18 @@
 import { taskStatuses, type TaskStatus } from './task.js'
 
 /**
- * The statuses a model may propose: the seven, less `done`. Completing something is a human
- * act, or a fact reported by sync, so a proposal of `done` is a validation failure rather than
- * a decision to weigh. Spec 04, criterion 4.
+ * The statuses a model may propose: the eight, less `done` and `blocked`. Completing something
+ * is a human act, or a fact reported by sync, and a blocker is the user naming one task in front
+ * of another (spec 01), so a proposal of either is a validation failure rather than a decision to
+ * weigh. Spec 04, criterion 4.
+ *
+ * `blocked` would mean sending the model the titles and ids of every other task so it could pick
+ * one, which is a much larger payload than spec 04's and a content question nobody has asked.
  */
+const unproposableStatuses: readonly TaskStatus[] = ['done', 'blocked']
+
 export const proposableStatuses: readonly TaskStatus[] = taskStatuses.filter(
-  (status) => status !== 'done',
+  (status) => !unproposableStatuses.includes(status),
 )
 
 /** A project the model thinks this belongs to. Never applied automatically. Spec 04. */

@@ -14,7 +14,7 @@ import { upsertCalendarEvent } from '../../src/db/repositories/calendar-events.j
 import { latestDailyPlan, listDailyPlans } from '../../src/db/repositories/daily-plans.js'
 import { setUserName } from '../../src/db/repositories/settings.js'
 import { upsertSource } from '../../src/db/repositories/sources.js'
-import { createTask, getTask, listTasks } from '../../src/db/repositories/tasks.js'
+import { createTask, getTask, listTasks, setTaskBlocker } from '../../src/db/repositories/tasks.js'
 import { runPlanning } from '../../src/jobs/plan.js'
 import { createFakeProvider, type FakeAnswer } from '../../src/llm/fake.js'
 import type { LlmProvider, LlmRuntime } from '../../src/llm/index.js'
@@ -470,6 +470,75 @@ describe('the rules, applied to real rows', () => {
     const { stored } = await planFor({ database, answers: [plan([])] })
 
     expect(stored?.entries.map((entry) => entry.taskId)).toEqual(['task-pr'])
+  })
+})
+
+/**
+ * Criterion 20. Blocked work is never today's work, and an overdue one comes back as a nudge
+ * rather than disappearing from the day's output altogether.
+ */
+describe('blocked work', () => {
+  /** A task blocked behind another, through the one path that sets both halves. */
+  function aBlockedTask(database: Database, id: string, dueAt: number | null) {
+    createTask(database, { id: `${id}-blocker`, title: 'Sign the contract' }, NOW)
+    createTask(database, { id, title: `Task ${id}`, ...(dueAt === null ? {} : { dueAt }) }, NOW)
+    setTaskBlocker(database, id, `${id}-blocker`, NOW)
+  }
+
+  it('is never offered to the model as work, even overdue', async () => {
+    const database = migratedDatabase()
+    aBlockedTask(database, 'task-blocked', NOW - DAY)
+
+    const { fake, stored } = await planFor({ database })
+
+    expect(JSON.stringify(fake.requests)).not.toContain('task-blocked')
+    expect(stored?.entries).toEqual([])
+    expect(stored?.overflow).toEqual([])
+  })
+
+  it('comes back as a nudge once its deadline has arrived, naming what it is behind', async () => {
+    const database = migratedDatabase()
+    aBlockedTask(database, 'task-blocked', NOW - DAY)
+
+    const { stored } = await planFor({ database })
+
+    expect(stored?.nudges).toEqual([
+      expect.objectContaining({
+        taskId: 'task-blocked',
+        waitingOn: 'Sign the contract',
+        // A nudge is a prompt to decide, not a block of work, so it spends nothing.
+        estimateMinutes: null,
+      }),
+    ])
+    expect(stored?.capacityMinutes).toBe(408)
+  })
+
+  it('is neither work nor a nudge while its deadline is still ahead', async () => {
+    const database = migratedDatabase()
+    aBlockedTask(database, 'task-blocked', null)
+
+    const { stored } = await planFor({ database })
+
+    expect(stored?.entries).toEqual([])
+    expect(stored?.nudges).toEqual([])
+  })
+
+  /** The two kinds of nudge share one section, and the ranks within it stay unique. */
+  it('is ranked after the chases rather than colliding with them', async () => {
+    const database = migratedDatabase()
+    createTask(
+      database,
+      { id: 'task-waiting', title: 'Waiting', status: 'waiting', waitingOn: 'Sam' },
+      NOW - 30 * DAY,
+    )
+    aBlockedTask(database, 'task-blocked', NOW - DAY)
+
+    const { stored } = await planFor({ database })
+
+    expect(stored?.nudges.map((nudge) => [nudge.taskId, nudge.rank])).toEqual([
+      ['task-waiting', 1],
+      ['task-blocked', 2],
+    ])
   })
 })
 

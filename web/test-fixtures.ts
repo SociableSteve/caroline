@@ -53,6 +53,7 @@ export function aTask(overrides: Partial<TaskView> & { id: string; title: string
   return {
     notes: null,
     status: 'inbox' as TaskStatus,
+    blockedBy: null,
     projectId: null,
     sortOrder: 0,
     estimateMinutes: null,

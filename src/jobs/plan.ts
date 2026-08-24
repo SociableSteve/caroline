@@ -26,13 +26,17 @@ import { computeCapacity, unverifiedCapacityNotice, type Capacity } from '../dom
 import { noCounts, type JobCounts, type JobRunStatus } from '../domain/job.js'
 import {
   applyPlanRules,
+  blockedNudges,
   chaseNudges,
   planCandidates,
+  type BlockedItem,
+  type BlockedNudge,
   type ChaseNudge,
   type PlanCandidate,
   type PlannedEntry,
   type RankedEntry,
 } from '../domain/plan.js'
+import type { Task } from '../domain/task.js'
 import { formatLocalDate, instantAt, localDateAt, type LocalDate } from '../domain/time.js'
 import type { LlmRuntime } from '../llm/index.js'
 import {
@@ -112,6 +116,8 @@ interface DayContext {
   readonly capacityVerified: boolean
   readonly candidates: readonly PlanCandidate[]
   readonly nudges: readonly ChaseNudge[]
+  /** Blocked work whose deadline has arrived. A prompt to decide, not work. Criterion 20. */
+  readonly blocked: readonly BlockedNudge[]
   readonly projectTitles: ReadonlyMap<string, string>
   readonly dueBy: number
   readonly warnings: readonly string[]
@@ -185,6 +191,7 @@ function dayContext(
         ? []
         : planCandidates(tasks, dueBy, { includeReviews: config.planning.includeReviews }),
     nudges: chaseNudges(waitingItemsFor(database, tasks), now(), config.tasks.waitingStaleDays),
+    blocked: blockedNudges(blockedItems(tasks), dueBy),
     projectTitles: new Map(listProjects(database).map((project) => [project.id, project.title])),
     dueBy,
     warnings,
@@ -239,7 +246,13 @@ async function draw(
     warnings: [...day.warnings, ...rules.warnings],
     entries: rules.entries.map(toEntryInput),
     overflow: rules.overflow.map(toEntryInput),
-    nudges: day.nudges.map(toNudgeInput),
+    // One list, ranked in order: the chases first, then the blocked work whose deadline has
+    // arrived. Both are prompts to decide rather than blocks of work, and neither consumes
+    // capacity. The rank is unique within the section, so the second run continues the first.
+    nudges: [
+      ...day.nudges.map(toNudgeInput),
+      ...day.blocked.map((nudge, index) => toBlockedNudgeInput(nudge, day.nudges.length + index)),
+    ],
   })
 
   return {
@@ -304,6 +317,41 @@ function toEntryInput(entry: PlannedEntry): DailyPlanEntryInput {
     rank: entry.rank,
     rationale: entry.rationale,
     estimateMinutes: entry.estimateMinutes,
+  }
+}
+
+/**
+ * The blocked tasks, with the blocker's own title read from the same list rather than fetched
+ * again. A blocker that is not in the list has been deleted since, which the invariant makes
+ * impossible in practice and the null still says honestly.
+ */
+function blockedItems(tasks: readonly Task[]): BlockedItem[] {
+  const titles = new Map(tasks.map((task) => [task.id, task.title]))
+
+  return tasks
+    .filter((task) => task.status === 'blocked')
+    .map((task) => ({
+      taskId: task.id,
+      title: task.title,
+      dueAt: task.dueAt,
+      blockedSince: task.statusSetAt,
+      blockerTitle: task.blockedBy === null ? null : (titles.get(task.blockedBy) ?? null),
+    }))
+}
+
+/**
+ * A blocked nudge, in the columns a nudge already has. `waitingOn` carries the blocker's title,
+ * because what a blocked task is waiting on is that task; the surface tells the two apart by the
+ * entry's own status rather than by a second set of columns saying the same thing twice.
+ */
+function toBlockedNudgeInput(nudge: BlockedNudge, index: number): DailyPlanNudgeInput {
+  return {
+    taskId: nudge.taskId,
+    title: nudge.title,
+    rank: index + 1,
+    waitingOn: nudge.blockerTitle,
+    waitingSince: nudge.blockedSince,
+    pushedSinceReview: false,
   }
 }
 

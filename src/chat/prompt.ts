@@ -169,7 +169,7 @@ const PRIOR_TURNS_WITHHELD = `The content policy is set to send nothing about an
  * criterion 7 is exactly that it must not.
  */
 export function chatSystemPrompt(context: ChatContext, options: PromptOptions): string {
-  return `${options.preamble} You help them triage their inbox, reshape their projects, and understand what today looks like and why. Caroline is a GTD system: work sits in inbox, next_action, review, waiting, someday, reference or done.
+  return `${options.preamble} You help them triage their inbox, reshape their projects, and understand what today looks like and why. Caroline is a GTD system: work sits in inbox, next_action, review, waiting, blocked, someday, reference or done. A blocked task names the task of theirs that has to finish first, in blockedBy, and the two are one fact: naming a blocker files the task as blocked, and clearing it puts the task back in next_action.
 
 Talk like a colleague who knows the system: short, specific, no preamble and no restating of the question. Where a number matters, give the number.
 

@@ -120,6 +120,7 @@ export function taskFromSnapshot(value: unknown): Task | null {
   const notes = nullableText(row, 'notes')
   const projectId = nullableText(row, 'projectId')
   const waitingOn = nullableText(row, 'waitingOn')
+  const blockedBy = nullableText(row, 'blockedBy')
   const estimateMinutes = nullableInteger(row, 'estimateMinutes')
   const dueAt = nullableInteger(row, 'dueAt')
   const deferUntil = nullableInteger(row, 'deferUntil')
@@ -137,6 +138,7 @@ export function taskFromSnapshot(value: unknown): Task | null {
     notes === undefined ||
     projectId === undefined ||
     waitingOn === undefined ||
+    blockedBy === undefined ||
     estimateMinutes === undefined ||
     dueAt === undefined ||
     deferUntil === undefined ||
@@ -157,6 +159,7 @@ export function taskFromSnapshot(value: unknown): Task | null {
     dueAt,
     deferUntil,
     waitingOn,
+    blockedBy,
     statusSetBy,
     statusSetAt,
     previousStatus: null,

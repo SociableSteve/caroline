@@ -46,6 +46,19 @@ more than a configurable number of days are surfaced separately as chase nudges,
 chasing is itself work. The threshold is `tasks.waitingStaleDays`, the same one the Waiting
 for column and the dashboard read, and it defaults to 7.
 
+`blocked` is excluded from the work list too, and for the plainest reason of all: another task
+has to finish first, so it cannot be started today. It is excluded at the candidate list rather
+than after the model answers, which is where the review exclusion is taken and for the same
+reason. That exclusion has to be stated rather than assumed: the candidate rule ends with a
+catch-all limb reached by any status with no limb of its own, so a new status added and not named
+here would be planned as work on the strength of a deadline alone.
+
+Subtraction alone would make an overdue blocked task vanish, and something vanishing quietly is
+the failure the whole of this is meant to avoid. So a blocked task due today or overdue returns as
+a nudge, in the same sense a stale wait does: it names the task and the task it is blocked behind,
+consumes no capacity, and sits beside the chase nudges. A deadline that has arrived on work that
+cannot start is a decision, not a work item.
+
 A nudge names the item, who it is waiting on and for how long, and offers the chase as a
 one-click next action. For a reviewed pull request it also says whether the author has
 pushed since. Nudges do not consume capacity, because a nudge is a prompt to decide, not a
@@ -160,3 +173,10 @@ value in that file.
     one back.
 19. The setting defaults to including reviews, so an install where nobody has named it plans exactly
     as it did before the setting existed.
+
+Issue #91 added blocking, and the following with it, appended rather than renumbered for the same
+reason.
+
+20. A `blocked` task is never work in the plan or in the overflow list, whatever its deadline says.
+    One due today or overdue returns as a nudge naming the task it is blocked behind, and consumes
+    no capacity.

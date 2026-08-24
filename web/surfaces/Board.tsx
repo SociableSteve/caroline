@@ -5,6 +5,7 @@
 import { useEffect, useRef, type DragEvent, type KeyboardEvent } from 'react'
 import {
   boardStatuses,
+  movableStatuses,
   type ItemRef,
   type ProjectView,
   type TaskInput,
@@ -30,6 +31,8 @@ export interface BoardProps {
   readonly configLoaded: boolean
   readonly now: number
   readonly onStatusChange: (id: string, status: TaskStatus) => void
+  /** Naming the task that has to finish first, or `null` to clear it. Spec 08, criterion 52. */
+  readonly onBlockerChange: (id: string, blockedBy: string | null) => void
   readonly onComplete: (id: string) => void
   readonly onDelete: (id: string) => void
   readonly onDatesChange: (
@@ -48,6 +51,17 @@ export interface BoardProps {
 }
 
 /**
+ * Where Blocked sits, so the drop target, the digit and the help text all refuse the same column
+ * rather than three places each hard-coding the same number. Spec 08, criterion 53.
+ */
+const blockedColumn = boardStatuses.indexOf('blocked')
+
+/** Whether a card may be moved into this column at all. */
+function isMovableInto(status: TaskStatus): boolean {
+  return movableStatuses.includes(status)
+}
+
+/**
  * Digits pick a column, which is why they are numbered in the help text. The rest follow
  * the arrow keys, with the vi keys alongside them because the hands are already there.
  */
@@ -55,7 +69,10 @@ const shortcuts = [
   { keys: '← → h l', does: 'move between columns' },
   { keys: '↑ ↓ j k', does: 'move within a column' },
   // Derived, so the help cannot claim a range the handler does not accept.
-  { keys: `1 to ${boardStatuses.length}`, does: 'move the focused task to that column' },
+  {
+    keys: `1 to ${boardStatuses.length}`,
+    does: `move the focused task to that column, except ${blockedColumn + 1}: Blocked is reached by naming a blocker, not by being moved`,
+  },
   { keys: 'd', does: 'complete the focused task' },
   { keys: 'r', does: 'mark the focused review done, moving it to Waiting for' },
   { keys: 'a', does: 'accept the suggestion on the focused inbox task' },
@@ -86,6 +103,7 @@ export function Board({
   configLoaded,
   now,
   onStatusChange,
+  onBlockerChange,
   onComplete,
   onDelete,
   onDatesChange,
@@ -101,6 +119,13 @@ export function Board({
   const columns = boardStatuses.map((status) => grouped.get(status) ?? [])
   const cards = useRef(new Map<string, HTMLElement>())
   const projectTitles = new Map(projects.map((project) => [project.id, project.title]))
+  const taskTitles = new Map(tasks.map((task) => [task.id, task.title]))
+  /**
+   * What a card may be blocked behind. The whole board, because completed work has already left
+   * it; the card drops itself from the list, and a chain that comes back round is the server's to
+   * refuse. Spec 08, criterion 52.
+   */
+  const blockerOptions = tasks.map((task) => ({ id: task.id, title: task.title }))
 
   const focus = (id: string | undefined) => {
     if (id !== undefined) cards.current.get(id)?.focus()
@@ -272,7 +297,9 @@ export function Board({
     if (Number.isInteger(digit) && digit >= 1 && digit <= boardStatuses.length) {
       const status = boardStatuses[digit - 1]
       event.preventDefault()
-      if (status !== undefined && status !== task.status) {
+      // Silent on Blocked, the same way `u` is silent on a task that has never moved: there is no
+      // blocker for a keypress to name. Spec 08, criterion 53.
+      if (status !== undefined && status !== task.status && isMovableInto(status)) {
         armFocus()
         onStatusChange(task.id, status)
       }
@@ -281,6 +308,10 @@ export function Board({
 
   const onDrop = (event: DragEvent<HTMLElement>, status: TaskStatus) => {
     event.preventDefault()
+    // The second of two: Blocked is given no drop handler at all below, so this is only reached
+    // if that changes. Cheap, and the rule is one a later hand should not be able to lose.
+    if (!isMovableInto(status)) return
+
     const id = event.dataTransfer.getData('text/plain')
     if (id !== '') onStatusChange(id, status)
   }
@@ -292,7 +323,7 @@ export function Board({
       {/* No list role over the columns. Each is a region with an accessible name, which is
           already navigable; wrapping them in list semantics replaces that and costs the headings
           their place in the outline. Spec 08, accessibility. */}
-      <div className="grid min-h-0 flex-1 auto-cols-[minmax(15rem,1fr)] grid-flow-col items-stretch gap-3 overflow-x-auto pb-2 md:grid-flow-row md:grid-cols-6 md:overflow-x-visible">
+      <div className="grid min-h-0 flex-1 auto-cols-[minmax(15rem,1fr)] grid-flow-col items-stretch gap-3 overflow-x-auto pb-2 md:grid-flow-row md:grid-cols-7 md:overflow-x-visible">
         {boardStatuses.map((status, columnIndex) => {
           const column = columns[columnIndex] ?? []
 
@@ -319,8 +350,14 @@ export function Board({
                   </span>
                 </>
               }
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={(event) => onDrop(event, status)}
+              // Blocked is not a drop target at all, so the pointer says so rather than the drop
+              // being accepted and then quietly doing nothing. Spec 08, criterion 53.
+              {...(isMovableInto(status)
+                ? {
+                    onDragOver: (event: DragEvent<HTMLElement>) => event.preventDefault(),
+                    onDrop: (event: DragEvent<HTMLElement>) => onDrop(event, status),
+                  }
+                : {})}
             >
               {column.length === 0 ? (
                 <p className={emptyClassName}>Nothing here.</p>
@@ -333,6 +370,11 @@ export function Board({
                       {...(task.projectId !== null && projectTitles.has(task.projectId)
                         ? { projectTitle: projectTitles.get(task.projectId) }
                         : {})}
+                      {...(task.blockedBy !== null && taskTitles.has(task.blockedBy)
+                        ? { blockerTitle: taskTitles.get(task.blockedBy) }
+                        : {})}
+                      blockerOptions={blockerOptions}
+                      onBlockerChange={onBlockerChange}
                       staleDays={staleDays}
                       timezone={timezone}
                       configLoaded={configLoaded}

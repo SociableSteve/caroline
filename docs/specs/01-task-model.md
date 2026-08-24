@@ -7,17 +7,22 @@ the guarantees around status changes.
 
 ## Statuses
 
-Seven, fixed. They are a property of a task, not a folder.
+Eight, fixed. They are a property of a task, not a folder.
 
 | Status | Meaning | Typical origin |
 | --- | --- | --- |
 | `inbox` | Captured, not yet decided | Gmail sync, manual capture, chat |
 | `next_action` | A concrete thing you can do now | Classifier, human triage |
 | `review` | A pull request awaiting your review | GitHub sync |
-| `waiting` | Blocked on someone or something else | Classifier, human triage |
+| `waiting` | The next move belongs to somebody else, who is named in `waiting_on` | Classifier, human triage |
+| `blocked` | Another task of yours has to finish first, and `blocked_by` names it | Human triage |
 | `someday` | Deliberately not now | Human triage, classifier |
 | `reference` | Information to keep, not an action | Classifier, human triage |
 | `done` | Completed or no longer relevant | Human, or source resolution |
+
+`waiting` is a person and `blocked` is a task of your own. That is the whole of the difference,
+and it is why `waiting`'s meaning above names somebody else rather than "someone or something
+else": the looser wording is what made the two states look like one.
 
 `project` is deliberately **not** a status. A project is a separate entity that owns
 tasks, so that "Projects" in the UI is a view over projects rather than a bucket of tasks
@@ -49,13 +54,14 @@ flags (spec 05).
 | `id` | text (uuid) | |
 | `title` | text | |
 | `notes` | text | Markdown, nullable |
-| `status` | text | One of the seven above |
+| `status` | text | One of the eight above |
 | `project_id` | text | Nullable FK to `projects.id` |
 | `sort_order` | integer | Manual ordering within a status or project |
 | `estimate_minutes` | integer | Nullable. Used for capacity fitting |
 | `due_at` | integer | Nullable, epoch ms |
 | `defer_until` | integer | Nullable. Hidden from Next actions until this passes |
 | `waiting_on` | text | Nullable free text, only meaningful when `status = 'waiting'` |
+| `blocked_by` | text | Nullable FK to `tasks.id`: the task that has to finish first. Not null exactly when `status = 'blocked'`. See below |
 | `status_set_by` | text | `user` \| `llm` \| `sync` |
 | `status_set_at` | integer | epoch ms |
 | `previous_status` | text | Nullable. What `status` was before the most recent change, so that change can be put back. See below |
@@ -119,6 +125,47 @@ nothing to put back. Undo is not itself a status change for the purpose of this 
 change back does not record the state it is undoing as the new previous one, because that would
 make undo a toggle and lose the thing being restored.
 
+### Blocking
+
+A task may name one task of yours that has to finish before it can start. The status and the
+reference are one fact, not two: **a task has status `blocked` if and only if `blocked_by` names
+a task.** That is a table check constraint, `(status = 'blocked') = (blocked_by is not null)`, so
+the database refuses the disagreement rather than the application remembering to avoid it.
+Anything that sets one without the other fails at write time, in the suite as much as in
+production.
+
+Naming a blocker is therefore a status change like any other, and goes through the same rule as
+the rest: it records the actor, the moment, and the pair that came before. Clearing the blocker
+moves the task to `next_action`, which is what an unblocked concrete action is.
+
+**Completing a blocker releases what was behind it.** The dependents lose their reference and move
+to `next_action`, attributed to `user`, because the act that caused it is the user completing the
+blocker and there is no other actor in the story. A fourth value of `status_set_by` would ripple
+through every place that switches on the actor for no behavioural gain, and `user` keeps the
+existing protection working in the dependent's favour, since the classifier may not overrule a
+status the user set.
+
+**Deleting a blocker releases them too, in the same transaction as the delete.** `on delete set
+null` is the right clause on the column and is not sufficient on its own: it would null the
+reference and leave the status saying `blocked`, which the invariant forbids. The move is made in
+the application rather than by a database trigger, because the rules live in the domain and a
+trigger would hide a status change from the layer that owns status changes.
+
+**Unblocking is one way.** Reopening a completed blocker does not re-block its dependents, because
+the reference went when it completed. Getting the dependency back means naming it again, which is
+honest: the second block is a new decision rather than the resumption of an old one. For the same
+reason, putting back a status change that moved a task out of `blocked` is refused: the blocker
+went with the move, and the status cannot stand without one.
+
+**One blocker, not several, and no cycles.** The question a blocked card exists to answer is why
+this cannot be started, and one task is an answer where a set is a research task. Work with more
+than one thing that has to finish first already has a name here, and it is a project. A task may
+not be blocked behind itself, directly or through a chain of blockers; the walk that refuses it is
+a pure function in the domain beside the status rules, returning a refusal rather than throwing,
+so every write path gets the same answer and none of them has to remember to ask a different one.
+It is not a database trigger, because SQLite cannot express a recursive check and a trigger is
+invisible to the type system.
+
 ### Sync tracking
 
 Some source-backed items have a genuine lifecycle: a pull request moves between needing
@@ -168,7 +215,10 @@ Caroline already has.
 ## Non-goals
 
 - Recurring tasks. A recurring commitment is a calendar event.
-- Dependencies between tasks beyond `waiting_on` free text.
+- Dependencies between tasks beyond `waiting_on` free text and a single blocking task. A task
+  may name one task of yours that has to finish before it can start. Several blockers,
+  dependencies between projects, a dependency graph to traverse or display, and any ordering or
+  scheduling derived from dependencies, are out of scope.
 - Contexts (`@home`, `@calls`). Tags cover this if it turns out to be wanted.
 - Subtasks. A task that needs subtasks is a project.
 
@@ -198,3 +248,22 @@ Caroline already has.
     cannot be applied twice to walk further back.
 11. A task never changed since creation has both previous columns null, and there is nothing to
     put back.
+
+Issue #91 added blocking, and the following with it, appended rather than renumbered because the
+code and the suite cite these by number.
+
+12. `blocked` and `blocked_by` are one fact: the schema refuses a task with status `blocked` and no
+    blocker, and refuses a task carrying a blocker under any other status.
+13. Naming a blocker moves the task to `blocked`, attributed to the user; clearing the blocker
+    moves it to `next_action` and leaves no reference behind.
+14. Completing a task clears the reference on every task blocked behind it and moves each of them
+    to `next_action`, attributed to `user`.
+15. Deleting a task moves the tasks blocked behind it to `next_action` with no blocker, in the same
+    transaction as the delete, so no row is left claiming to be blocked behind a task that has gone.
+16. Reopening a completed blocker re-blocks nothing. Unblocking is one way, and the dependency has
+    to be named again. This holds however the blocker is reopened, chat's own undo of the turn that
+    completed it included: that undo restores the blocker, not the tasks the completion released.
+17. A task cannot be blocked behind itself, directly or through a chain of blockers. The attempt is
+    refused with its reason rather than written.
+18. Putting back a status change that moved a task out of `blocked` is refused, because the blocker
+    went with the move and the status cannot stand without one.

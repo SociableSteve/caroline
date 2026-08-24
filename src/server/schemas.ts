@@ -136,6 +136,7 @@ export const taskResponseSchema = {
     dueAt: nullableInteger,
     deferUntil: nullableInteger,
     waitingOn: nullableString(TITLE_MAX),
+    blockedBy: nullableString(64),
     statusSetBy: { type: 'string' },
     statusSetAt: { type: 'integer' },
     previousStatus: { type: 'string', nullable: true },
@@ -188,6 +189,12 @@ const taskWritableProperties = {
   dueAt: nullableInteger,
   deferUntil: nullableInteger,
   waitingOn: nullableString(TITLE_MAX),
+  /**
+   * The task that has to finish first. Naming one files this task as `blocked` and clearing it
+   * returns the task to `next_action`, so the pair is never sent as two changes. Spec 08,
+   * criterion 52.
+   */
+  blockedBy: nullableString(64),
   tags,
 } as const
 

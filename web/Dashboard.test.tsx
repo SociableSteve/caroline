@@ -101,7 +101,7 @@ describe('an empty Caroline', () => {
 
     const counts = screen.getByRole('region', { name: /where everything is/i })
 
-    expect(within(counts).getAllByText('0')).toHaveLength(7)
+    expect(within(counts).getAllByText('0')).toHaveLength(8)
   })
 
   it('says so rather than showing an empty list when nothing needs you', () => {
