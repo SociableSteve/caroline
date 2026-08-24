@@ -45,10 +45,14 @@ const generated = new Set(['package-lock.json'])
 
 /**
  * A regular file present in the working tree. Two things are skipped by this, and neither loses any
- * coverage. A tracked symlink points at something tracked in its own right, `.claude/skills` at a
- * directory and `.github/copilot-instructions.md` at `AGENTS.md`, so its target is read at its real
- * path instead of twice. A path in the index but not on disk, which a sparse checkout or an unstaged
- * deletion leaves, has no content here to read.
+ * coverage. The one tracked symlink, `.claude/skills/pr-review-queue`, points at a directory tracked
+ * in its own right under `.agents/skills`, so the files in it are read at their real paths instead of
+ * twice. A path in the index but not on disk, which a sparse checkout or an unstaged deletion
+ * leaves, has no content here to read.
+ *
+ * `.github/copilot-instructions.md` is a regular file, and read: it is a generated copy of
+ * `AGENTS.md`, so the rule is checked against both, which costs a second read of the same prose and
+ * nothing else.
  */
 const isRegularFile = (path: string): boolean => {
   try {
