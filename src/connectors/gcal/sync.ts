@@ -14,6 +14,7 @@ import {
   upsertCalendarEvent,
 } from '../../db/repositories/calendar-events.js'
 import type { JobTrigger } from '../../domain/job.js'
+import type { OperationalLog } from '../../server/log.js'
 import { instantAt, localDateAt } from '../../domain/time.js'
 import type { CalendarApi, CalendarRange } from './api.js'
 import { toCalendarEventInput } from './map.js'
@@ -60,13 +61,22 @@ export interface CalendarSyncOptions {
   readonly range: CalendarRange
   readonly trigger: JobTrigger
   readonly now: () => number
+  /** Where the pass says what it read. Spec 14. */
+  readonly log?: OperationalLog
 }
 
 export function runCalendarSync(options: CalendarSyncOptions): Promise<ConnectorRunResult> {
-  const { database, isConfigured, trigger, now } = options
+  const { database, isConfigured, trigger, now, log } = options
 
   return runConnectorPass(
-    { database, provider: 'gcal', trigger, isConfigured, now },
+    {
+      database,
+      provider: 'gcal',
+      trigger,
+      isConfigured,
+      now,
+      ...(log === undefined ? {} : { log }),
+    },
     (tally, startedAt) => readEveryCalendar(options, tally, startedAt),
   )
 }

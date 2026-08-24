@@ -27,6 +27,7 @@ import { noCounts, type JobCounts, type JobRunStatus } from '../domain/job.js'
 import type { Source } from '../domain/source.js'
 import type { Task, TaskStatus } from '../domain/task.js'
 import type { LlmRuntime } from '../llm/index.js'
+import type { OperationalLog } from '../server/log.js'
 import {
   buildClassificationPayload,
   classificationRequestText,
@@ -53,6 +54,11 @@ export interface ClassifyOptions {
   readonly llm: LlmRuntime
   readonly content?: ContentFetchers
   readonly now: () => number
+  /**
+   * Where the classifier says what it decided and why it decided it. Spec 14: the task id, the
+   * proposed status and the confidence, and never the subject those were decided from.
+   */
+  readonly log?: OperationalLog
 }
 
 export interface ClassifyResult {
@@ -204,7 +210,7 @@ function apply(
 }
 
 async function classifyOne(
-  { database, config, llm, content, now }: ClassifyOptions,
+  { database, config, llm, content, now, log }: ClassifyOptions,
   task: Task,
 ): Promise<Outcome> {
   const source = sourceOf(database, task)
@@ -265,6 +271,24 @@ async function classifyOne(
       return changed
     })
 
+    // The decision, in the terms the decision was made in. Spec 14, criteria 10 and 11: ids,
+    // statuses and numbers, and not one character of what the model read.
+    log?.debug(
+      {
+        taskId: task.id,
+        provider: source?.provider ?? null,
+        proposedStatus: proposal.status,
+        confidence: proposal.confidence,
+        threshold: config.classification.confidenceThreshold,
+        confident,
+        applied,
+        retitled: applied && proposal.suggestedTitle !== null,
+        estimated: proposal.estimateMinutes !== null,
+        model: provider.model,
+      },
+      applied ? 'classification applied' : 'classification proposed',
+    )
+
     return applied ? { kind: 'applied' } : { kind: 'proposed' }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -285,6 +309,14 @@ async function classifyOne(
       now(),
     )
 
+    // The message, not the answer that produced it: a validation failure names the schema paths
+    // that did not match, and the answer that failed can carry a title the model took from the
+    // item. Spec 14, "An item's own text never appears in a log line".
+    log?.warn(
+      { taskId: task.id, provider: provider.name, model: provider.model, reason: message },
+      'classification failed',
+    )
+
     return { kind: 'failed', error: message }
   }
 }
@@ -299,7 +331,7 @@ async function classifyOne(
  * the whole job off for one malformed item would delay the ones that work.
  */
 export async function runClassification(options: ClassifyOptions): Promise<ClassifyResult> {
-  const { database, config, llm } = options
+  const { database, config, llm, log } = options
   const tally: Tally = { ...noCounts }
 
   // At `none` there is nothing the model could be told about an item, so classification is
@@ -330,6 +362,16 @@ export async function runClassification(options: ClassifyOptions): Promise<Class
 
   const candidates = listClassificationCandidates(database, config.classification.batchSize)
   if (candidates.length === 0) return { status: 'success', counts: { ...tally }, error: null }
+
+  log?.debug(
+    {
+      candidates: candidates.length,
+      batchSize: config.classification.batchSize,
+      concurrency: config.classification.concurrency,
+      llmContent: config.privacy.llmContent,
+    },
+    'classification run starting',
+  )
 
   const outcomes = await mapWithConcurrency(candidates, config.classification.concurrency, (task) =>
     classifyOne(options, task),

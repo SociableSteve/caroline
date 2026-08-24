@@ -1,5 +1,6 @@
 /**
- * Deleting everything Caroline has: the database, its SQLite sidecars and the Google token file.
+ * Deleting everything Caroline has: the database, its SQLite sidecars, the Google token file and
+ * the log (spec 14).
  * Spec 09 promises one documented command, and that nothing Caroline creates lives outside its
  * data directory. This is the half that decides what those files are and removes them; `delete.ts`
  * is the command that reports on it.
@@ -12,6 +13,31 @@ import { existsSync, lstatSync, readdirSync, rmSync, rmdirSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import type { Config } from '../config/schema.js'
 import { isFilePath } from '../db/connection.js'
+import { logDirectory } from '../server/log-destination.js'
+import { isLogFileName } from '../server/log-file.js'
+
+/**
+ * The log files in a directory, by the names this command's own logger gives them: `caroline.log`
+ * and its numbered rotations, and nothing else in there. Enumerated rather than named, because how
+ * many rotations exist depends on how long the instance ran, and enumerated by name rather than by
+ * everything present, because the directory may hold somebody else's file and this command does not
+ * remove those. Spec 14, and spec 09's "it deletes its own files".
+ *
+ * Listed whatever `logging.file.enabled` says: a log written before somebody turned the file off is
+ * still Caroline's, and still there.
+ */
+function logFilesIn(directory: string): readonly string[] {
+  try {
+    return readdirSync(directory)
+      .filter(isLogFileName)
+      .toSorted()
+      .map((name) => join(directory, name))
+  } catch {
+    // Not there, or not readable. Either way there is nothing this can say it would remove; a
+    // directory that cannot be read is reported by `deleteCarolineData`, which reads it too.
+    return []
+  }
+}
 
 /**
  * Every path Caroline writes, in the order a person would want to read them.
@@ -41,6 +67,7 @@ export function carolineDataPaths(config: Config): readonly string[] {
       : []),
     tokens,
     `${tokens}.tmp`,
+    ...logFilesIn(logDirectory(config)),
   ]
 }
 
@@ -151,6 +178,64 @@ export function deleteCarolineData(
     removed.push(path)
   }
 
+  /*
+   * The log directory, which is the one place Caroline writes that is a directory of its own (spec
+   * 14). Its files went with the rest above, and the directory follows the same rule the data
+   * directory follows one level up: it goes only when Caroline had written a file in it, it is empty
+   * afterwards and it is not a link. Anything else in there is somebody's and is reported instead,
+   * which is also what stops the data directory going while it still holds this one.
+   *
+   * A log directory that is the data directory itself, or that is somewhere else entirely, is not
+   * removed by this: the first is decided below, and the second is a directory the user named, where
+   * removing it would be exactly the overreach this command refuses.
+   */
+  const logs = logDirectory(config)
+  const logsAreOurs = logs !== directory && dirname(logs) === directory
+  let logsRemoved = false
+  /** Whether Caroline had written a log file in there, which is what makes the directory its. */
+  let wroteLogs = false
+  const logsLeftBehind: string[] = []
+
+  if (logsAreOurs && existsSync(logs)) {
+    let logEntries: string[] | null = null
+    try {
+      logEntries = readdirSync(logs)
+    } catch (error) {
+      failed.push({ path: logs, message: reason(error) })
+    }
+
+    if (logEntries !== null) {
+      const alreadyAccountedFor = new Set([
+        ...(dryRun ? removed : []),
+        ...failed.map((failure) => failure.path),
+      ])
+      logsLeftBehind.push(
+        ...logEntries
+          .map((entry) => join(logs, entry))
+          .filter((path) => !alreadyAccountedFor.has(path))
+          .toSorted(),
+      )
+
+      wroteLogs = removed.some((path) => dirname(path) === logs && !symlinks.includes(path))
+
+      if (wroteLogs && logsLeftBehind.length === 0 && !isLink(logs)) {
+        logsRemoved = true
+        if (!dryRun) {
+          try {
+            rmdirSync(logs)
+          } catch (error) {
+            logsRemoved = false
+            failed.push({ path: logs, message: reason(error) })
+          }
+        }
+      }
+    }
+  }
+
+  // Reported alongside the files, because it is one more thing this command removed and a dry run
+  // has to say so before a real one does it.
+  if (logsRemoved) removed.push(logs)
+
   // A database that is not a file on disk (`:memory:`, or a `file:` URI) has no directory of
   // Caroline's making: `dirname` of it resolves to the working directory, and neither listing that
   // nor being one empty directory away from removing it is anything this command should do. The
@@ -163,7 +248,16 @@ export function deleteCarolineData(
   // this" about a token file it could not delete would be false about a live refresh token. What is
   // deliberately not subtracted is a directory that collided with one of Caroline's names, which was
   // not removed because it is not Caroline's and belongs in this list.
-  const ours = new Set([...(dryRun ? removed : []), ...failed.map((failure) => failure.path)])
+  // The log directory counts as ours only where Caroline had written a log file in it: an empty one
+  // it never wrote in is indistinguishable from a directory somebody made, and claiming it would
+  // have the data directory removed out from under it. Where it is ours and is still there, what is
+  // in it is listed instead, so the output names the file somebody would want to look at rather than
+  // the directory it is in.
+  const ours = new Set([
+    ...(dryRun ? removed : []),
+    ...failed.map((failure) => failure.path),
+    ...(wroteLogs ? [logs] : []),
+  ])
 
   // Null where the directory was not read: it is not there, it is not Caroline's to read, or reading
   // it failed. An empty list and an unread list are different answers, and the second must not let
@@ -177,10 +271,15 @@ export function deleteCarolineData(
     }
   }
 
-  const leftBehind = (entries ?? [])
-    .map((entry) => join(directory, entry))
-    .filter((path) => !ours.has(path))
-    .toSorted()
+  const leftBehind = [
+    ...(entries ?? [])
+      .map((entry) => join(directory, entry))
+      .filter((path) => !ours.has(path))
+      .toSorted(),
+    // What is in the log directory and is not Caroline's. Listed here rather than as the directory
+    // itself, so the output names the file somebody would want to look at.
+    ...logsLeftBehind,
+  ]
 
   // A file of Caroline's having been removed is what says this directory was Caroline's. Without that
   // check, a `database.path` pointing into an empty directory of somebody's own has that directory

@@ -25,6 +25,7 @@ import { PLAN_JOB } from '../jobs/plan.js'
 import type { CarolineJobs } from '../jobs/registry.js'
 import { formatLocalDate, localDateAt } from '../domain/time.js'
 import type { ChangeFeed } from '../server/changes.js'
+import type { OperationalLog } from '../server/log.js'
 import { callMcpTool } from './call.js'
 import { validateAccessToken } from './oauth/service.js'
 import { protectedResourceMetadataUrl } from './oauth/resource.js'
@@ -190,14 +191,22 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteContext): 
     })
 
     instance.addHook('onRequest', async (request: FastifyRequest, reply: FastifyReply) => {
+      /*
+       * Each refusal is logged as the reason for it and never as the value refused. An `Origin`, a
+       * `Host` and a bearer token are all bytes the caller chose, so the rule that keeps a request's
+       * URL out of the log (spec 09) applies to them unchanged: a secret smuggled into a header in
+       * any encoding would be a secret in the log. Spec 14, criterion 12.
+       */
       const origin = request.headers.origin
       if (origin !== undefined && !isAcceptableMcpOrigin(origin)) {
+        request.log.warn({ refusal: 'origin not accepted' }, 'MCP request refused')
         await reply.status(403).send({ error: 'origin not accepted' })
         return
       }
 
       const hostHeader = request.headers.host
       if (hostHeader === undefined || !isLoopbackHost(hostnameOf(hostHeader))) {
+        request.log.warn({ refusal: 'host not accepted' }, 'MCP request refused')
         await reply.status(403).send({ error: 'host not accepted' })
         return
       }
@@ -206,9 +215,15 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteContext): 
       const validated =
         token === null ? null : validateAccessToken(deps.config, deps.database, token, deps.now())
       if (validated === null) {
+        request.log.warn(
+          { refusal: token === null ? 'no bearer token' : 'token not accepted' },
+          'MCP request refused',
+        )
         await unauthorized(reply, deps.config)
         return
       }
+
+      request.log.debug({ clientId: validated.clientId }, 'MCP request authorised')
     })
 
     instance.post(
@@ -298,7 +313,13 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteContext): 
           }
         }
 
-        return handleMethod(deps, { regeneratePlan }, envelope, isNotification, reply)
+        return handleMethod(
+          deps,
+          { regeneratePlan, log: request.log },
+          envelope,
+          isNotification,
+          reply,
+        )
       },
     )
   })
@@ -306,6 +327,8 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteContext): 
 
 interface HandlerDeps {
   readonly regeneratePlan: () => Promise<PlanRegeneration>
+  /** The request's logger, so a tool call and its refusals are on the same request as the rest. */
+  readonly log: OperationalLog
 }
 
 async function handleMethod(
@@ -413,6 +436,7 @@ async function handleMethod(
         calendarConnected: deps.jobs.calendarConnected,
         regeneratePlan: handlerDeps.regeneratePlan,
         changes: deps.changes,
+        log: handlerDeps.log,
       },
       { clientName: meta.clientName, tool: name, arguments: toolArguments },
     )
@@ -448,6 +472,10 @@ async function handleMethod(
       }),
     )
   }
+
+  // The method is the caller's bytes, so it is not logged: that it was not one of this server's is
+  // the whole of what a reader needs, and the client is told which method it asked for. Spec 14.
+  handlerDeps.log.debug({ method: '(unknown)' }, 'MCP method not found')
 
   return sendJsonRpc(
     reply,

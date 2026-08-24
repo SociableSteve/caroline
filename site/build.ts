@@ -469,7 +469,7 @@ function sidebarGroups(
     {
       heading: 'Reference',
       links: [
-        { label: 'Specs 00–13', target: page('docs/specs/README.md') },
+        { label: 'Specs 00–14', target: page('docs/specs/README.md') },
         ...onSetup('troubleshooting', 'Troubleshooting'),
         { label: 'Implementation plan', target: page('docs/plan.md') },
         { label: 'Caroline in short', target: page('README.md') },

@@ -4,6 +4,9 @@ import { openCarolineDatabase } from '../db/index.js'
 import { buildJobs } from '../jobs/registry.js'
 import { buildServer } from './app.js'
 import { createChangeFeed } from './changes.js'
+import { installCrashHandlers } from './crash.js'
+import { createLogDestination } from './log-destination.js'
+import { deferredLog } from './log.js'
 import { version } from './version.js'
 
 const configPath = resolve(process.env.CAROLINE_CONFIG ?? 'caroline.config.json')
@@ -13,15 +16,22 @@ async function start(): Promise<void> {
   // Before the server, so a schema that cannot be brought up to date stops the process
   // rather than leaving it serving requests against a half-migrated database.
   const database = openCarolineDatabase(config)
+  // Both destinations, behind the one scrubbing stream the server wraps this in: the file that
+  // survives the process, and stdout so a supervisor that captures it still works. Spec 14.
+  const destination = createLogDestination({ config })
   const changes = createChangeFeed()
+  // The jobs are built before the server and the server owns the logger, so they take a handle
+  // that is pointed at it below, before the scheduler starts and before any job can run. Spec 14.
+  const log = deferredLog()
   // The routes and the scheduler share one set of jobs, so the overlap guard covers both: a manual
   // run while a scheduled one is still going is answered rather than queued.
-  const jobs = buildJobs({ database, config, changes })
+  const jobs = buildJobs({ database, config, changes, log })
   const app = await buildServer({
     config,
     database,
     changes,
     jobs,
+    logger: { stream: destination.stream },
     // `resolveWebRoot()`'s own default is right for `npm run dev` and `npm run start`, both
     // run from the repo root; `server.webRoot`/`CAROLINE_WEB_ROOT` is the escape hatch for a
     // deployment whose cwd is not (a Docker WORKDIR, a pm2 config or a systemd unit with no
@@ -29,12 +39,24 @@ async function start(): Promise<void> {
     ...(config.server.webRoot === null ? {} : { webRoot: config.server.webRoot }),
   })
 
+  log.attach(app.log)
+
+  // Before `listen`, so a crash while the port is being bound is in the record too. The line is
+  // written synchronously to the file, which is what makes it survive an exit that follows it
+  // immediately. Spec 14, criterion 8.
+  installCrashHandlers({ log: app.log, close: () => destination.close() })
+
   await app.listen({ host: config.server.host, port: config.server.port })
 
   app.log.info(
     {
       version,
       database: config.database.path,
+      // Named at boot, because the first thing somebody diagnosing a fault needs to know is where
+      // the record of it is. Null says the durable log is off or could not be opened, and the
+      // reason for the second was said on stdout when it happened.
+      log: destination.path,
+      logLevel: config.logging.level,
       github: config.integrations.github.configured ? 'configured' : 'not configured',
       google: jobs.google.isConnected()
         ? 'connected'
@@ -80,6 +102,8 @@ async function start(): Promise<void> {
           app.log.error(error, 'Waiting for jobs to finish failed')
         } finally {
           database.close()
+          // Last, so anything the shutdown had to say is already in the file.
+          destination.close()
         }
         process.exit(exitCode)
       })()

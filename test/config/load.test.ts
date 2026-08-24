@@ -681,3 +681,60 @@ describe('the auth boundary', () => {
     ).toThrow(/server\.accessToken/)
   })
 })
+
+/**
+ * Spec 14's configuration. `CAROLINE_LOG_LEVEL` predates the `logging` section and keeps working,
+ * which means the environment overrides the file here exactly as it does everywhere else.
+ */
+describe('logging (spec 14 criterion 9)', () => {
+  it('defaults to info, to a file, and to the bounds the spec states', () => {
+    const config = loadConfig({ file: null, env: noEnv })
+
+    expect(config.logging.level).toBe('info')
+    expect(config.logging.file.enabled).toBe(true)
+    // Null means `logs` beside the database, resolved where the destination is built.
+    expect(config.logging.file.directory).toBeNull()
+    expect(config.logging.file.maxBytes).toBe(5 * 1_048_576)
+    expect(config.logging.file.maxFiles).toBe(5)
+    expect(config.logging.file.retainDays).toBe(14)
+  })
+
+  it('takes the level from the file', () => {
+    const config = loadConfig({ file: { logging: { level: 'debug' } }, env: noEnv })
+
+    expect(config.logging.level).toBe('debug')
+  })
+
+  it('lets CAROLINE_LOG_LEVEL override the file', () => {
+    const config = loadConfig({
+      file: { logging: { level: 'debug' } },
+      env: { CAROLINE_LOG_LEVEL: 'trace' } as NodeJS.ProcessEnv,
+    })
+
+    expect(config.logging.level).toBe('trace')
+  })
+
+  it('refuses a level in the environment that the logger does not know', () => {
+    expect(() =>
+      loadConfig({ file: null, env: { CAROLINE_LOG_LEVEL: 'chatty' } as NodeJS.ProcessEnv }),
+    ).toThrow(ConfigError)
+    expect(() =>
+      loadConfig({ file: null, env: { CAROLINE_LOG_LEVEL: 'chatty' } as NodeJS.ProcessEnv }),
+    ).toThrow(/logging\.level: CAROLINE_LOG_LEVEL/)
+  })
+
+  it('refuses a level in the file that the logger does not know', () => {
+    expect(() => loadConfig({ file: { logging: { level: 'chatty' } }, env: noEnv })).toThrow(
+      /logging\.level/,
+    )
+  })
+
+  it('ignores an empty CAROLINE_LOG_LEVEL rather than refusing it', () => {
+    const config = loadConfig({
+      file: { logging: { level: 'warn' } },
+      env: { CAROLINE_LOG_LEVEL: '' } as NodeJS.ProcessEnv,
+    })
+
+    expect(config.logging.level).toBe('warn')
+  })
+})

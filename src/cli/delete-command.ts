@@ -12,10 +12,10 @@ import { deleteCarolineData } from './delete-data.js'
 
 export const usage = `Usage: npm run delete-data [-- --yes]
 
-Removes everything Caroline has written: the database, its SQLite sidecars, the Google token file
-and the temporary sibling an interrupted token write leaves. Nothing else in the data directory is
-touched, and the directory itself goes only if Caroline had written something in it and it is empty
-afterwards.
+Removes everything Caroline has written: the database, its SQLite sidecars, the Google token file,
+the temporary sibling an interrupted token write leaves, and the log files and their directory.
+Nothing else in the data directory is touched, and a directory itself goes only if Caroline had
+written something in it and it is empty afterwards.
 
   --yes    Actually delete. Without it, this lists what would go and deletes nothing.
   --help   This.

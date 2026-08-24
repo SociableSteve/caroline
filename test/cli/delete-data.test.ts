@@ -404,3 +404,119 @@ describe('deleteCarolineData', () => {
     expect(existsSync(join(directory, 'backups'))).toBe(true)
   })
 })
+
+/**
+ * The log (spec 14). Deletion has to reach it, or spec 09's promise of one command that removes
+ * everything stops being true the moment an instance has been running for a week. The log directory
+ * is the one directory Caroline creates below the data directory, so it gets the same treatment the
+ * data directory gets one level up: it goes when Caroline wrote in it and it is empty afterwards.
+ */
+describe('the log (spec 14 criterion 14, spec 09 criteria 10 and 28)', () => {
+  /** What an instance that has been running leaves in its log directory. */
+  function writeLogFiles(config: Config, names: readonly string[] = ['caroline.log']): string {
+    const logs = join(dirname(config.database.path), 'logs')
+    mkdirSync(logs, { recursive: true })
+    for (const name of names) writeFileSync(join(logs, name), 'a line\n')
+    return logs
+  }
+
+  it('names the log files it finds, alongside the database and the token file', () => {
+    const config = temporaryConfig()
+    const logs = writeLogFiles(config, ['caroline.log', 'caroline.log.1', 'caroline.log.2'])
+
+    expect(carolineDataPaths(config)).toContain(join(logs, 'caroline.log'))
+    expect(carolineDataPaths(config)).toContain(join(logs, 'caroline.log.1'))
+    expect(carolineDataPaths(config)).toContain(join(logs, 'caroline.log.2'))
+  })
+
+  it('removes the log files, the log directory and then the data directory', () => {
+    const config = temporaryConfig()
+    const directory = dirname(config.database.path)
+    runCaroline(config)
+    const logs = writeLogFiles(config, ['caroline.log', 'caroline.log.1'])
+
+    const report = deleteCarolineData(config)
+
+    expect(report.removed).toContain(join(logs, 'caroline.log'))
+    expect(report.removed).toContain(join(logs, 'caroline.log.1'))
+    expect(report.removed).toContain(logs)
+    expect(report.leftBehind).toEqual([])
+    expect(report.failed).toEqual([])
+    expect(report.directoryRemoved).toBe(true)
+    expect(existsSync(directory)).toBe(false)
+  })
+
+  it('says it would remove them on a dry run, and removes nothing', () => {
+    const config = temporaryConfig()
+    runCaroline(config)
+    const logs = writeLogFiles(config)
+
+    const report = deleteCarolineData(config, { dryRun: true })
+
+    expect(report.removed).toContain(join(logs, 'caroline.log'))
+    expect(report.removed).toContain(logs)
+    expect(report.directoryRemoved).toBe(true)
+    expect(existsSync(join(logs, 'caroline.log'))).toBe(true)
+    expect(existsSync(logs)).toBe(true)
+  })
+
+  it('keeps the log directory, and the data directory, when somebody else has a file in it', () => {
+    const config = temporaryConfig()
+    const directory = dirname(config.database.path)
+    runCaroline(config)
+    const logs = writeLogFiles(config)
+    const theirs = join(logs, 'my-own-notes.txt')
+    writeFileSync(theirs, 'mine\n')
+
+    const report = deleteCarolineData(config)
+
+    expect(report.removed).toContain(join(logs, 'caroline.log'))
+    expect(report.removed).not.toContain(logs)
+    expect(report.leftBehind).toEqual([theirs])
+    expect(report.directoryRemoved).toBe(false)
+    expect(existsSync(theirs)).toBe(true)
+    expect(existsSync(directory)).toBe(true)
+  })
+
+  it('removes the files but not a log directory the user named somewhere of their own', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'caroline-delete-'))
+    directories.push(directory)
+    const elsewhere = mkdtempSync(join(tmpdir(), 'caroline-logs-'))
+    directories.push(elsewhere)
+    const config = loadConfig({
+      file: {
+        database: { path: join(directory, 'caroline.db') },
+        logging: { file: { directory: elsewhere } },
+      },
+      env: {} as NodeJS.ProcessEnv,
+    })
+    runCaroline(config)
+    writeFileSync(join(elsewhere, 'caroline.log'), 'a line\n')
+
+    const report = deleteCarolineData(config)
+
+    // The files are Caroline's wherever they are; the directory is the user's, and deleting one
+    // they named would be the overreach this command refuses everywhere else.
+    expect(report.removed).toContain(join(elsewhere, 'caroline.log'))
+    expect(report.removed).not.toContain(elsewhere)
+    expect(existsSync(elsewhere)).toBe(true)
+    expect(readdirSync(elsewhere)).toEqual([])
+  })
+
+  it('leaves an empty log directory Caroline never wrote in, and says it is there', () => {
+    const config = temporaryConfig()
+    const directory = dirname(config.database.path)
+    runCaroline(config)
+    const logs = join(directory, 'logs')
+    mkdirSync(logs)
+
+    const report = deleteCarolineData(config)
+
+    // Indistinguishable from a directory somebody made, so it is left and reported rather than
+    // claimed. That also stops the data directory going while it is still in there.
+    expect(report.removed).not.toContain(logs)
+    expect(report.leftBehind).toEqual([logs])
+    expect(report.directoryRemoved).toBe(false)
+    expect(existsSync(logs)).toBe(true)
+  })
+})

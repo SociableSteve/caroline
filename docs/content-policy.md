@@ -283,8 +283,8 @@ npm run delete-data -- --yes   # removes it
 ```
 
 The database, the SQLite sidecars a crash leaves behind, the Google token file and the temporary
-sibling an interrupted token write leaves, which holds the same refresh token. That is everything
-Caroline writes. Anything else in the data directory is left alone and named, and the directory
+sibling an interrupted token write leaves, which holds the same refresh token, and the log files and
+the directory they sit in. That is everything Caroline writes. Anything else in the data directory is left alone and named, and the directory
 itself goes only if Caroline had written something in it and it is empty afterwards. Removing the token file revokes
 Caroline's access locally; revoking it at Google is a separate act, at
 <https://myaccount.google.com/permissions>.

@@ -1,8 +1,15 @@
-import { describe, expect, it } from 'vitest'
+import { chmodSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { Writable } from 'node:stream'
+import { afterEach, describe, expect, it } from 'vitest'
 import { loadConfig } from '../../src/config/load.js'
+import type { Config } from '../../src/config/schema.js'
 import { buildServer } from '../../src/server/app.js'
 import { migratedDatabase } from '../helpers/temp-database.js'
 import { NO_BUILT_WEB_ROOT } from '../helpers/test-server.js'
+import { createLogDestination } from '../../src/server/log-destination.js'
+import { LOG_FILE_NAME } from '../../src/server/log-file.js'
 import { UNMATCHED_ROUTE } from '../../src/server/log-redaction.js'
 import { captureLog } from '../helpers/log-capture.js'
 
@@ -357,5 +364,133 @@ describe('no secret reaches a log line (spec 09 criterion 6)', () => {
     expect(response.statusCode).toBe(500)
     expect(response.body).not.toContain('ghp_supersecret')
     expect(lines.join('\n')).not.toContain('ghp_supersecret')
+  })
+})
+
+/**
+ * The durable destination. Spec 14 puts the file behind the same scrubbing stream stdout is behind,
+ * so spec 09 criterion 6 is asserted here against the file on disk rather than only against a stream
+ * a test injected.
+ */
+describe('the durable log file (spec 14 criteria 1, 2, 6 and 7; spec 09 criterion 6)', () => {
+  const directories: string[] = []
+
+  afterEach(() => {
+    for (const directory of directories.splice(0)) {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  function temporaryDirectory(): string {
+    const created = mkdtempSync(join(tmpdir(), 'caroline-log-'))
+    directories.push(created)
+    return created
+  }
+
+  /** A configuration whose log file is in a directory of this test's own. */
+  function loggingTo(directory: string): Config {
+    return loadConfig({ file: { logging: { file: { directory } } }, env: secrets })
+  }
+
+  /** Everything in the log file, as one string. */
+  function logged(directory: string): string {
+    return readFileSync(join(directory, LOG_FILE_NAME), 'utf8')
+  }
+
+  it('writes the same lines to the file and to stdout', async () => {
+    const directory = temporaryDirectory()
+    const config = loggingTo(directory)
+    const { lines, stream: terminal } = captureLog()
+    const destination = createLogDestination({ config, stdout: terminal })
+    const app = await buildServer({
+      config,
+      database: migratedDatabase(),
+      logger: { level: 'info', stream: destination.stream },
+    })
+
+    await app.inject({ method: 'GET', url: '/api/health' })
+    await app.close()
+    destination.close()
+
+    expect(logged(directory)).toContain('"route":"/api/health"')
+    expect(lines.join('')).toBe(logged(directory))
+  })
+
+  it('keeps a secret written at the most verbose level out of the file', async () => {
+    const directory = temporaryDirectory()
+    const config = loggingTo(directory)
+    const destination = createLogDestination({ config, stdout: captureLog().stream })
+    const app = await buildServer({
+      config,
+      database: migratedDatabase(),
+      logger: { level: 'trace', stream: destination.stream },
+    })
+
+    app.log.trace({ upstream: { token: 'ghp_supersecret' } }, 'calling upstream')
+    app.log.debug('calling upstream with sk-ant-supersecret')
+    app.log.trace({ 'access-supersecret': 'used as a field name' }, 'calling upstream')
+    await app.close()
+    destination.close()
+
+    const contents = logged(directory)
+    for (const secret of Object.values(secrets) as string[]) {
+      expect(contents).not.toContain(secret)
+    }
+    expect(contents).toContain('[redacted]')
+  })
+
+  it('keeps writing the file when stdout has gone away', async () => {
+    const directory = temporaryDirectory()
+    const config = loggingTo(directory)
+    // A pipe whose reader has gone: the write throws rather than returning false.
+    const closedTerminal = new Writable({
+      write() {
+        throw new Error('EPIPE: broken pipe')
+      },
+    })
+    const destination = createLogDestination({ config, stdout: closedTerminal })
+    const app = await buildServer({
+      config,
+      database: migratedDatabase(),
+      logger: { level: 'info', stream: destination.stream },
+    })
+
+    app.log.info({ first: true }, 'before the pipe closed')
+    app.log.info({ second: true }, 'after the pipe closed')
+    await app.close()
+    destination.close()
+
+    const contents = logged(directory)
+    expect(contents).toContain('before the pipe closed')
+    expect(contents).toContain('after the pipe closed')
+    // Said once, into the file, rather than per line for the rest of the process's life.
+    expect(contents.match(/no longer write log lines to stdout/g)).toHaveLength(1)
+  })
+
+  it('keeps serving and keeps writing stdout when the log file cannot be opened', async () => {
+    const parent = temporaryDirectory()
+    chmodSync(parent, 0o500)
+    const config = loadConfig({
+      file: { logging: { file: { directory: join(parent, 'logs') } } },
+      env: secrets,
+    })
+    const { lines, stream: terminal } = captureLog()
+    const destination = createLogDestination({ config, stdout: terminal })
+    const app = await buildServer({
+      config,
+      database: migratedDatabase(),
+      logger: { level: 'info', stream: destination.stream },
+    })
+
+    const response = await app.inject({ method: 'GET', url: '/api/health' })
+    await app.close()
+    destination.close()
+    chmodSync(parent, 0o700)
+
+    expect(response.statusCode).toBe(200)
+    expect(destination.path).toBeNull()
+    const said = lines.join('')
+    expect(said).toContain('Logging continues on stdout only')
+    expect(said).toContain('"route":"/api/health"')
   })
 })

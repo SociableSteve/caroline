@@ -23,6 +23,7 @@ import { reviewStates, type ReviewState } from '../domain/review.js'
 import type { LocalDate as PlanDate } from '../domain/time.js'
 import { createLlmRuntime, type LlmRuntime } from '../llm/index.js'
 import type { ChangeFeed } from '../server/changes.js'
+import type { OperationalLog } from '../server/log.js'
 import { CLASSIFY_JOB, runClassification, type ContentFetchers } from './classify.js'
 import { PLAN_JOB, runPlanning, type PlanResult } from './plan.js'
 import { PURGE_JOB, runPurge } from './purge.js'
@@ -209,6 +210,12 @@ export interface BuildJobsOptions {
   /** Injected in tests so that nothing in the suite reaches a network. */
   readonly fetch?: typeof globalThis.fetch
   readonly onError?: (error: unknown, context: string) => void
+  /**
+   * Where every job, connector and provider call says what it decided. Spec 14. Optional, because
+   * the suite builds jobs without a server and a job with nowhere to log still runs; `main.ts`
+   * passes a handle that becomes the server's logger.
+   */
+  readonly log?: OperationalLog
 }
 
 export function buildJobs({
@@ -218,6 +225,7 @@ export function buildJobs({
   now = () => Date.now(),
   fetch,
   onError,
+  log,
 }: BuildJobsOptions): CarolineJobs {
   const google = createGoogleAuth({ config, now, ...(fetch === undefined ? {} : { fetch }) })
   const { connectors, gmail, calendar } = buildConnectors(config, database, google, fetch)
@@ -226,6 +234,7 @@ export function buildJobs({
     config,
     database,
     now,
+    ...(log === undefined ? {} : { log }),
     ...(fetch === undefined ? {} : { fetch }),
     ...(onError === undefined
       ? {}
@@ -251,6 +260,7 @@ export function buildJobs({
       llm,
       calendarConnected,
       now,
+      ...(log === undefined ? {} : { log }),
       ...(date === undefined ? {} : { date }),
     })
 
@@ -264,6 +274,7 @@ export function buildJobs({
           trigger,
           policy: config.privacy,
           now,
+          ...(log === undefined ? {} : { log }),
         })
 
         // The calendar is part of the sync pass, and its own row in the history, but it writes
@@ -281,6 +292,7 @@ export function buildJobs({
           }),
           trigger,
           now,
+          ...(log === undefined ? {} : { log }),
         })
 
         return summariseSync([...summary.results, events])
@@ -288,7 +300,15 @@ export function buildJobs({
     },
     {
       name: CLASSIFY_JOB,
-      run: () => runClassification({ database, config, llm, content, now }),
+      run: () =>
+        runClassification({
+          database,
+          config,
+          llm,
+          content,
+          now,
+          ...(log === undefined ? {} : { log }),
+        }),
     },
     {
       name: PLAN_JOB,
@@ -296,7 +316,15 @@ export function buildJobs({
     },
     {
       name: PURGE_JOB,
-      run: () => Promise.resolve(runPurge({ database, config, now })),
+      run: () => {
+        const result = runPurge({ database, config, now })
+        // Counts only, which is all a purge has to say: how much went, of what. Spec 14.
+        log?.debug(
+          { ...result.counts, retainContentDays: config.privacy.retainContentDays },
+          'purge finished',
+        )
+        return Promise.resolve(result)
+      },
     },
   ]
 
@@ -326,6 +354,7 @@ export function buildJobs({
     now,
     ...(changes === undefined ? {} : { changes }),
     ...(onError === undefined ? {} : { onError }),
+    ...(log === undefined ? {} : { log }),
   })
 
   return { scheduler, google, llm, content, plan, calendarConnected }

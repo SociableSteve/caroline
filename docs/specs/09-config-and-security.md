@@ -222,6 +222,16 @@ mailbox, and it is answered by the same `llmContent` level.
   config file is a startup error like any other secret, and spec 12's third slice deletes it.
 - Secrets are redacted in API responses, logs and error messages. A test asserts that no
   configured secret value appears in any log line or HTTP response body.
+- **A durable log is held to all of this, and to the same test.** Caroline keeps its log on disk as
+  well as writing it to stdout (spec 14), which makes the file a second place a line could carry a
+  secret, and the more dangerous of the two: a line on a terminal is gone when the terminal is, and
+  a line in a file is there until somebody deletes it. So the file sits behind the scrubbing stream
+  rather than beside it, every point below covers it unchanged, and criterion 6's test asserts
+  against the file on disk as well as against the stream. It holds no item content at all, at any
+  level, which spec 14 states as its own contract: a log line names ids, counts, statuses,
+  durations and decisions, and never the subject or title they were decided from. That is what
+  keeps the file out of the content-holding class the policies above govern, and it is a stronger
+  position than scrubbing content out of it would be.
 - Redaction matches secret values literally, and runs on values before anything encodes
   them, because a secret rewritten by an encoder no longer matches itself: JSON escaping
   turns `tok"en` into `tok\"en`. Recognising a secret through its encodings does not
@@ -396,6 +406,19 @@ Two decisions about it:
   those files, a symbolic link is removed as a link rather than followed, and a file that will not go
   is reported with what the filesystem said rather than thrown as a stack trace over a deletion that
   is already half done.
+- **It reaches the log.** Caroline keeps a durable log (spec 14), so a command that removed the
+  database and left the log would no longer be the documented way to remove everything. It removes
+  the log files it names, `caroline.log` and its numbered rotations, and the log directory when that
+  directory is Caroline's, is empty afterwards and is not the data directory itself. Anything else
+  in there is somebody's and is reported rather than removed, which is the same rule the paragraph
+  above states, applied one directory down.
+
+Retention has two answers rather than one, because the two things being retained are different.
+`privacy.retainContentDays` bounds stored content, which is material derived from somebody's mail
+and pull requests. `logging.file.retainDays`, with the size and file-count bounds beside it, bounds
+the log, which holds no item content at all and is bounded so that an instance left running does
+not fill a disk. They sit alongside each other in the configuration and are set independently, for
+the same reason `llmContent` and `storeContent` are: they carry different risks.
 
 ## Non-goals
 
@@ -408,7 +431,12 @@ Two decisions about it:
   there is no `llm_calls` row at all. Writes there are covered by the change records; reads would
   otherwise be covered by nothing, and a client could read the whole board and leave no trace.
   Those rows hold the tool, an arguments digest, whether the call was held, the level and policy
-  version in force and a count of items answered, and never the answered text.
+  version in force and a count of items answered, and never the answered text. Operational logging
+  is a different thing and is not covered by this non-goal: an audit row is a fact about the user's
+  data, with a retention policy of its own and a question of who did what behind it, and a log line
+  is a fact about the machine and what it decided. Spec 14 is that subject, and it is out of this
+  spec's scope apart from the two things above that are genuinely this one's: the log is subject to
+  every redaction rule in this document, and deletion reaches it.
 - Any multi-user access control.
 - **Rate limiting, on `/api/chat`, on the job triggers or anywhere else.** Considered and declined
   rather than overlooked, which is why it is written here. What a limiter would bound is cost and
@@ -433,7 +461,10 @@ Two decisions about it:
 4. Lowering `storeContent` purges previously stored content above the new level and reports
    the count.
 5. Content older than `retainContentDays` is purged while its source row and task survive.
-6. No secret value appears in any log line, API response or error message.
+6. No secret value appears in any log line, API response or error message. Every destination a log
+   line reaches is covered, the durable log file of spec 14 as well as the stream, and the file is
+   asserted against on disk: it sits behind the same scrubbing stream, so a secret written at any
+   level, in a message, a field value or a field name, is `[redacted]` in the file too.
 7. Binding to a non-loopback address without authentication configured fails at startup, naming
    the settings involved. The claim is the one this criterion has always made, that a
    non-loopback bind must not be unprotected; what satisfies it is a login rather than a shared
@@ -561,3 +592,15 @@ Spec 03's spending ceiling adds the following, appended for the reason the earli
     whole process is unchanged by the feature. A configuration with a ceiling set starts, loads its
     prices and refuses a call without any outbound destination beyond the ones criterion 19 already
     names.
+
+The durable log (spec 14) adds the following, appended for the reason the earlier blocks were.
+Criterion 6 and criterion 10 are extended in place rather than joined by criteria of their own,
+because the contracts they state are unchanged and the new destination is one more thing they hold
+over.
+
+28. The durable log holds no item content: with the level at its most verbose, a task whose title,
+    notes and stored body are distinctive appears in the log as its id, its statuses and its
+    confidences, and none of those strings appears in any line. Its retention is configured rather
+    than however much disk is free, alongside `privacy.retainContentDays` and independently of it,
+    and `npm run delete-data` removes the log files and the log directory it created, which is what
+    keeps criterion 10 true of an install that has been running for a week.

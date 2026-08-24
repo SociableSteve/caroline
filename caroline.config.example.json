@@ -40,6 +40,16 @@
     "countAllDayEvents": false,
     "includeReviews": true
   },
+  "logging": {
+    "level": "info",
+    "file": {
+      "enabled": true,
+      "directory": null,
+      "maxBytes": 5242880,
+      "maxFiles": 5,
+      "retainDays": 14
+    }
+  },
   "privacy": {
     "llmContent": "snippet",
     "storeContent": "metadata",
