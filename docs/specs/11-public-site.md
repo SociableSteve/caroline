@@ -47,11 +47,11 @@ not tell you how to set anything up.
 Every page but the home page shares a second piece of navigation beside the top one: a sidebar,
 grouped by what a reader is trying to do rather than by which file the answer lives in.
 
-- **Start here** — what Caroline is, setting it up, using it day to day.
-- **Set up, in order** — the eleven steps of `docs/setup.md`'s own table, each with the time
+- **Start here**: what Caroline is, setting it up, using it day to day.
+- **Set up, in order**: the eleven steps of `docs/setup.md`'s own table, each with the time
   estimate the table states, shown only while a setup page is open.
-- **Trust** — what leaves the machine, logins and exposure, removing everything.
-- **Reference** — the specs, troubleshooting, the implementation plan, and the README.
+- **Trust**: what leaves the machine, logins and exposure, removing everything.
+- **Reference**: the specs, troubleshooting, the implementation plan, and the README.
 
 The eleven-step group and the estimates on every group's entries are read from `docs/setup.md`'s own
 table rather than written a second time in the sidebar, for the same reason spec 10's tokens are
