@@ -203,6 +203,14 @@ describe('the rules the sheet still owns, held to the scales', () => {
  * step above `--text-lg`) with a value that earns the rank.
  */
 describe('the type scale', () => {
+  /**
+   * The unit is asserted rather than stripped. `value.replace('rem', '')` returns the number in
+   * front of whatever unit is actually there, so `--text-xl: 28px` and `--text-lg: 1.125rem` parsed
+   * to 28 and 1.125 and cleared a gap the criterion states in `rem`: the check could not fail on a
+   * unit change, which is one of the two ways the gap can be lost. So the declaration has to be a
+   * `rem` value before its size is compared, and a `px` rung fails here rather than passing as a
+   * number.
+   */
   const rem = (property: string): number => {
     const declaration = all.find(
       (candidate) =>
@@ -211,11 +219,12 @@ describe('the type scale', () => {
         candidate.property === property,
     )
     expect(declaration, property).toBeDefined()
+    expect(declaration?.value.trim(), property).toMatch(/^[\d.]+rem$/)
 
     return Number.parseFloat(declaration?.value.replace('rem', '') ?? 'NaN')
   }
 
-  it('puts --text-xl at least 0.5rem above --text-lg', () => {
+  it('puts --text-xl at least 0.5rem above --text-lg, both in rem', () => {
     expect(rem('--text-xl') - rem('--text-lg')).toBeGreaterThanOrEqual(0.5)
   })
 })

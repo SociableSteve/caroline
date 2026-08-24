@@ -145,13 +145,24 @@ const surfaces: ReadonlyArray<{ name: string; title: string; render: () => void 
  * root-level source added after it, so the criteria would be asserted over part of the client while
  * claiming all of it. Test support is excluded by name, because a fixture is not something the
  * client draws.
+ *
+ * `web/index.html` is in the walk for the same reason `web/main.tsx` is. It is not a TypeScript
+ * source, but it is a place the client writes utility classes: the mount point carries
+ * `class="flex h-screen flex-col overflow-y-auto"` today, and a filter on `.tsx?` left every one of
+ * these criteria stated over "the client" while a file the client ships was outside all of them.
+ * What differs about it is the attribute name, `class` rather than `className`, and criterion 4's
+ * sweep reads the quoted string rather than the attribute, so it needs nothing for that. What it
+ * does need is a comment syntax of its own, which `stripComments` below dispatches on.
  */
 const clientSources = readdirSync(join(process.cwd(), 'web'), {
   recursive: true,
   encoding: 'utf8',
 })
   .map((entry) => `web/${entry}`)
-  .filter((file) => /\.tsx?$/.test(file) && !/(?:^|\/)(?:test-[^/]*|[^/]*\.test)\.tsx?$/.test(file))
+  .filter(
+    (file) =>
+      /\.(?:tsx?|html)$/.test(file) && !/(?:^|\/)(?:test-[^/]*|[^/]*\.test)\.tsx?$/.test(file),
+  )
 
 /**
  * Comments out, code kept, by a scanner rather than by a pair of regexes. Two regexes could not do
@@ -162,10 +173,22 @@ const clientSources = readdirSync(join(process.cwd(), 'web'), {
  * the other half is a line-initial `//` and a URL with no scheme in front of it.
  *
  * So the scan tracks whether it is inside a quoted string, and only outside one does `//` or `/*`
- * open a comment. It is not a parser: a `/`-delimited regex literal or an apostrophe in JSX text
- * can put it in the wrong state. Where it does, it copies the characters through rather than
- * dropping them, so a confused scan strips less than it should and never more, and the failure mode
- * is a sweep reporting a commented-out utility rather than a sweep going blind.
+ * open a comment. It is not a parser, and it has two ways of being wrong, which are not the same
+ * size as each other:
+ *
+ * - An apostrophe in JSX text opens a string that never closes, so the rest of the file reads as
+ *   quoted and a real comment after it is copied through rather than dropped. That direction strips
+ *   less than it should, and the failure mode is a sweep reporting a commented-out utility: loud,
+ *   and wrong in the direction that cannot hide anything.
+ * - A `/`-delimited regex literal containing a quote character inverts the parity for the rest of
+ *   the file. A real string's opening quote then reads as a closing one, the code between strings
+ *   reads as quoted, and a `//` inside the next string opens a comment and blanks the line. That
+ *   direction strips more than it should and the sweeps below go blind, which is the failure this
+ *   suite exists to prevent rather than one it can afford.
+ *
+ * The second is guarded rather than reasoned away: `no regex literal in the client carries a quote`
+ * below fails on one, so the scanner is never asked to survive the case it cannot. Nothing in the
+ * client needs such a literal, and the nine it does write carry none.
  */
 const withoutComments = (source: string): string => {
   let kept = ''
@@ -218,6 +241,57 @@ const withoutComments = (source: string): string => {
   return kept
 }
 
+/**
+ * The comment syntax of whichever language the file is in. `web/index.html` comments with
+ * `<!-- -->`, where the scanner above would read its markup as code, so a commented-out
+ * `<!-- <div class="bg-red-500"> -->` in the shell has to come out by the rule the shell is written
+ * under rather than by JavaScript's.
+ */
+const stripComments = (file: string, source: string): string =>
+  file.endsWith('.html') ? source.replaceAll(/<!--[\s\S]*?-->/g, ' ') : withoutComments(source)
+
+/** Every client source, comments out, which is what all six source sweeps below read. */
+const client = clientSources.map((file) => ({
+  file,
+  source: stripComments(file, readFileSync(join(process.cwd(), file), 'utf8')),
+}))
+
+/**
+ * The scanner above is safe against an apostrophe in JSX text and unsafe against a regex literal
+ * carrying a quote, and this is what keeps the unsafe case out of the client rather than a claim in
+ * a comment that it cannot happen. A literal such as `/'/` inverts the scanner's string parity for
+ * the rest of the file, after which a `//` inside a real string blanks a line and every sweep below
+ * silently stops seeing what is on it.
+ *
+ * Finding a regex literal without parsing is its own heuristic, so the delimiters it will start
+ * from are deliberately few: `=`, `(`, `,`, `:`, `[`, `!`, `&`, `|`, `?`, `;` and `return`. `<` and
+ * `>` are not among them, because `</div>` would read as a literal opening at the `<`, and neither
+ * are `{` and `}`, because `{a} / {b}` in JSX would. Division survives because `= a / b` puts an
+ * operand between the delimiter and the slash. The direction of any remaining error is a false
+ * positive, which fails this test and is read, rather than a false negative, which would let the
+ * case through.
+ */
+describe('the source scanner is never asked to guess', () => {
+  const literal =
+    /(?:^|[=(,:[!&|?;]|\breturn\b)\s*(\/(?![/*])(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\n\\[])+\/[dgimsuvy]*)/g
+
+  const literals = client
+    .filter(({ file }) => !file.endsWith('.html'))
+    .flatMap(({ file, source }) =>
+      [...source.matchAll(literal)].map((match) => ({ file, body: match[1] ?? '' })),
+    )
+
+  it('finds the regex literals the client writes, so the guard below is not vacuous', () => {
+    expect(literals.length).toBeGreaterThan(5)
+  })
+
+  it('no regex literal in the client carries a quote', () => {
+    expect(
+      literals.filter(({ body }) => /['"`]/.test(body)).map(({ file, body }) => `${file}: ${body}`),
+    ).toEqual([])
+  })
+})
+
 describe('one heading outline per surface', () => {
   // Criterion 5. The client had exactly one `h1`, the word "Caroline" in the header, which left
   // every surface's outline headless.
@@ -245,12 +319,7 @@ describe('one heading outline per surface', () => {
  * and a small font size ten times.
  */
 describe('each primitive has one implementation', () => {
-  const sources = clientSources
-    .filter((file) => !file.endsWith('primitives.tsx'))
-    .map((file) => ({
-      file,
-      source: withoutComments(readFileSync(join(process.cwd(), file), 'utf8')),
-    }))
+  const sources = client.filter(({ file }) => !file.endsWith('primitives.tsx'))
 
   it('finds the surfaces, so an empty sweep cannot pass as a clean one', () => {
     expect(sources.length).toBeGreaterThan(5)
@@ -296,15 +365,30 @@ describe('each primitive has one implementation', () => {
  * about an `oklch()` literal in a class string.
  */
 describe('the appearance model, swept from the sources', () => {
-  const client = clientSources.map((file) => ({
-    file,
-    source: withoutComments(readFileSync(join(process.cwd(), file), 'utf8')),
-  }))
-
-  // Every Tailwind prefix that takes a colour, shared by the two sweeps that need to name them.
-  // `text` and `border` take a length as well, which is what the arbitrary-value sweep allows for.
+  /**
+   * Every Tailwind prefix that takes a colour, shared by the four sweeps that need to name them.
+   * `text` and `border` take a length as well, which is what the arbitrary-value sweep allows for.
+   * `ring-offset` is listed beside `ring` rather than left to it: `ring-offset-red-500` and
+   * `ring-offset-[rebeccapurple]` are a colour chosen once for both palettes just as much as
+   * `ring-red-500` is, and a list holding only `ring` reads `offset` where it wants a family name
+   * and matches neither.
+   */
   const colourPrefixes =
-    'bg|text|border|ring|fill|stroke|from|via|to|divide|outline|decoration|shadow|caret|placeholder|accent'
+    'bg|text|border|ring-offset|ring|fill|stroke|from|via|to|divide|outline|decoration|shadow|caret|placeholder|accent'
+
+  /**
+   * The colour token names, derived from the `@theme inline` map rather than restated. A
+   * hand-maintained third copy of the palette is a copy that goes out of date silently, and this
+   * test already parses the sheet the map is in for criterion 23. `black` is added for the dialog
+   * scrim, which is the one sanctioned non-token colour and so has no mapping to be derived from.
+   */
+  const sheet = declarations(readFileSync(join(process.cwd(), 'web/styles.css'), 'utf8'))
+  const colourTokenNames = new Set([
+    ...sheet
+      .filter((rule) => rule.selector === '@theme inline' && rule.property.startsWith('--color-'))
+      .map((rule) => rule.property.slice('--color-'.length)),
+    'black',
+  ])
 
   const offenders = (pattern: RegExp): string[] =>
     client.flatMap((entry) =>
@@ -313,6 +397,11 @@ describe('the appearance model, swept from the sources', () => {
 
   it('finds the client, so an empty sweep cannot pass as a clean one', () => {
     expect(client.length).toBeGreaterThan(10)
+  })
+
+  it('derives the colour tokens from the sheet, so the sweeps naming them are not vacuous', () => {
+    expect(colourTokenNames.size).toBeGreaterThan(20)
+    expect(colourTokenNames).toContain('muted-foreground')
   })
 
   /**
@@ -424,6 +513,12 @@ describe('the appearance model, swept from the sources', () => {
    * palettes. Rather than list CSS's hundred and fifty colour names, the rule is what the value may
    * be: a length, so the four `text-[Npx]` rungs the client spends stay legal, or a `var(--token)`,
    * which is the criterion itself. Anything else on one of these prefixes is a colour.
+   *
+   * A CSS type hint in front of the token counts as the same thing: Tailwind's own escape hatch for
+   * an ambiguous arbitrary value is `bg-[color:var(--card)]`, which names a token exactly as
+   * `bg-[var(--card)]` does, and a check keyed on the value starting `var(--` reported it as a
+   * colour literal. The hint is allowed and what follows it still has to be a token, so
+   * `bg-[color:red]` fails on the value rather than passing on the hint.
    */
   it('writes no arbitrary value on a colour utility but a length or a token', () => {
     const arbitrary = client.flatMap((entry) =>
@@ -435,7 +530,7 @@ describe('the appearance model, swept from the sources', () => {
     expect(arbitrary).not.toEqual([])
     expect(
       arbitrary
-        .filter(({ value }) => !/^\.?\d/.test(value) && !value.startsWith('var(--'))
+        .filter(({ value }) => !/^\.?\d/.test(value) && !/^(?:[a-z-]+:)?var\(--/.test(value))
         .map(({ hit }) => hit),
     ).toEqual([])
   })
@@ -459,7 +554,10 @@ describe('the appearance model, swept from the sources', () => {
     const found = client.flatMap((entry) =>
       [
         ...entry.source.matchAll(
-          /([A-Za-z0-9_[\]=.:-]*:)?\b(?:bg|text|border)-(?:sidebar-)?accent[a-z-]*/g,
+          new RegExp(
+            String.raw`([A-Za-z0-9_[\]=.:-]*:)?\b(?:${colourPrefixes})-(?:sidebar-)?accent[a-z-]*`,
+            'g',
+          ),
         ),
       ].map((match) => ({ hit: `${entry.file}: ${match[0]}`, prefix: match[1] ?? '' })),
     )
@@ -491,7 +589,6 @@ describe('the appearance model, swept from the sources', () => {
    * name missing from the list as well as from the sheet.
    */
   it('names a foreground only where the token behind it is declared', () => {
-    const sheet = declarations(readFileSync(join(process.cwd(), 'web/styles.css'), 'utf8'))
     // Both palettes separately rather than their union. `:root` is the selector of the dark block
     // and of the light one inside the media query, so a set built from the selector alone is
     // satisfied by a token declared in only one of them, which is this criterion's own failure mode
@@ -560,14 +657,59 @@ describe('the appearance model, swept from the sources', () => {
     // depending on what `<x>` is: `text-sm/6` is Tailwind's font-size-with-line-height shorthand and
     // `text-muted-foreground/40` is an opacity on a colour. A blocklist over any word caught the
     // second and false-positived on the first, and missed `text-[11px]/40` (a line height on an
-    // arbitrary size) entirely. Listing the colour tokens is what tells the two apart.
-    const colourTokens =
-      'background|foreground|card|card-foreground|popover|popover-foreground|primary|primary-foreground|secondary|secondary-foreground|muted|muted-foreground|accent|accent-foreground|destructive|destructive-foreground|border|input|ring|chart-[1-5]|sidebar|sidebar-foreground|sidebar-accent|sidebar-accent-foreground|sidebar-border|white|black'
+    // arbitrary size) entirely. Naming the colour tokens is what tells the two apart, and they come
+    // from the sheet rather than from a list restated here.
     const tinted = (property: string): RegExp =>
-      new RegExp(String.raw`\b${property}-(?:${colourTokens})\/(?:\d+|\[[\d.]+\])`, 'g')
+      new RegExp(
+        String.raw`\b${property}-(?:${[...colourTokenNames].join('|')})\/(?:\d+|\[[\d.]+\])`,
+        'g',
+      )
 
     expect(offenders(tinted('text'))).toEqual([])
     expect(offenders(tinted('bg')).concat(offenders(tinted('border')))).not.toEqual([])
+  })
+
+  /**
+   * Criterion 21's other half, and the half the criterion used to state without checking. "Every
+   * opacity modifier in the client names a token" was asserted only in the `text-` direction, so a
+   * `bg-[#abc]/50` or a `border-white/30` satisfied every sweep here while being exactly what the
+   * sentence forbids. This reads the modifier from the other end: whatever the utility tints has to
+   * be a token the sheet declares, and the dialog scrim is excepted by its full name the way
+   * criterion 2 excepts `--shadow-1`, so a second literal has to argue for itself.
+   *
+   * The font-size shorthand is skipped rather than allowed to fail. `text-sm/6` sets a line height
+   * and tints nothing, so it is not an opacity modifier and the criterion says nothing about it. The
+   * client writes none today; the exclusion is here so that writing one is not a spurious failure.
+   */
+  it('tints only tokens, the dialog scrim excepted', () => {
+    const fontSizes = /^(?:xs|sm|base|lg|xl|\d+xl|\[[^\]]+\])$/
+    const tints = client.flatMap((entry) =>
+      [
+        ...entry.source.matchAll(
+          new RegExp(
+            String.raw`\b(${colourPrefixes})-([A-Za-z0-9_.[\]-]+?)\/(?:\d+|\[[\d.]+\])`,
+            'g',
+          ),
+        ),
+      ].map((match) => ({
+        hit: `${entry.file}: ${match[0]}`,
+        prefix: match[1] ?? '',
+        tinted: match[2] ?? '',
+      })),
+    )
+
+    expect(tints).not.toEqual([])
+    expect(
+      tints
+        .filter(({ prefix, tinted }) => !(prefix === 'text' && fontSizes.test(tinted)))
+        .filter(({ tinted }) => !colourTokenNames.has(tinted))
+        .map(({ hit }) => hit),
+    ).toEqual([])
+    // And `black` is in the token set for one utility only, so the exception stays the scrim rather
+    // than becoming a licence.
+    expect(tints.filter(({ tinted }) => tinted === 'black').map(({ hit }) => hit)).toEqual([
+      'web/components/ui/dialog.tsx: bg-black/65',
+    ])
   })
 })
 

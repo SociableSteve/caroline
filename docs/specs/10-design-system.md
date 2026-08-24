@@ -158,11 +158,13 @@ retuned, and it is why the ramp is used for two ranks (text and fill) rather tha
 
 `--destructive-foreground` is the one name in the table that stock shadcn no longer generates. It
 dropped the token and writes `text-white` on `Button`'s destructive variant instead, which this
-palette cannot follow: white on the dark palette's `--destructive` (`oklch(0.704 ...)`, a light red)
-is about 2.9:1, well under the 4.5:1 the contrast rule below asks of a control's label. So the
-pairing is declared rather than assumed, dark text on the light red and white on the dark one, and
-criterion 23 holds every `*-foreground` utility the client writes to a token a palette actually
-declares. `@theme inline` already mapped `--color-destructive-foreground`, so before this the
+palette cannot follow: `#fff` on the dark palette's `--destructive` (`oklch(0.704 ...)`, a light
+red) is about 2.9:1, well under the 4.5:1 the contrast rule below asks of a control's label. So the
+pairing is declared rather than assumed, dark text on the light red and white on the dark one. Those
+two compute to about 6.2:1 on the dark palette and just over 4.5:1 on the light one, so the light
+pairing clears the rule narrowly rather than comfortably and is the one to recheck if either value
+is ever retuned. Criterion 23 holds every `*-foreground` utility the client writes to a token a
+palette actually declares. `@theme inline` already mapped `--color-destructive-foreground`, so before this the
 utility resolved to nothing and the label fell back to whatever colour it inherited.
 
 **`--accent` is not the accent.** This is the trap in the table and the one that has already caused
@@ -340,8 +342,20 @@ rather than quietly reworded, because it was a claim about the palette and the p
 **Hairlines are the component's, not the region's.** `border-border` is a divider between the rows of
 a list, a table or a strip and the edge of a card that has one; `border-input` is a control's own
 edge; `border-sidebar-border` is chrome's. `border-border/60` is the same hairline made quieter
-inside a dense table. No surface draws a neutral line round a region it owns: that is what the
-grounds are for.
+inside a dense table. The intent is that a surface does not draw a neutral line round a region it
+owns, because that is what the grounds are for.
+
+Six call sites currently do, and they are named here rather than left for a reader to discover, the
+same way the `h1` and the `Panel` override are. Four draw `border-border` round a region they own: the
+two agenda cards in `web/surfaces/Dashboard.tsx`, the payload region in
+`web/components/DetailsPanel.tsx`, and the card in `web/components/TaskCard.tsx`. Two draw
+`border-sidebar-border` round one: the dashboard rail's own region in `web/surfaces/Dashboard.tsx`,
+and the `Panel` override in the same file that the Primitives section above already names. Nothing
+fails: criterion 16 constrains shadcn's `Card` and `Panel`'s composition of it, which is where the
+outline habit actually did the damage, and it says nothing about a `<div>` a surface writes for
+itself. That is the client failing this paragraph rather than this paragraph describing the client,
+and the honest record is here until the call sites change. What the paragraph does not do is state
+an absolute the client breaks in six places, which is what it used to.
 
 **Weight is scarce.** Three weights and no others. `font-semibold` is for four things and no more:
 the dialog title, the product name in the header, the dashboard's "Needs you" heading and the chat
@@ -428,6 +442,38 @@ usual arrangement and is worth knowing before reading the sheet.
 
 ## Acceptance criteria
 
+Several of these are stated over "the client", and are checked by sweeping its sources rather than by
+rendering, because the appearance model lives in Tailwind utility classes in JSX and there is no
+stylesheet left to parse for it. Three things about that method bear on what the criteria below can
+and cannot claim, and they are stated here rather than only beside the sweeps, because a reader of a
+criterion is owed the limit the criterion depends on.
+
+- **The client is every source under `web/` that ships**, found by walking the directory rather than
+  by naming directories in it, and it includes `web/index.html`. The shell is not a TypeScript source
+  but it is a place utility classes are written: its mount point carries
+  `class="flex h-screen flex-col overflow-y-auto"`. Test support is excluded, because a fixture is
+  not something the client draws.
+- **Comments come out first, by a scanner and not a parser.** So prose about `oklch()` cannot fail a
+  check about an `oklch()` literal. The scanner tracks whether it is inside a quoted string, and it
+  has one input it cannot survive: a `/`-delimited regex literal containing a quote inverts its
+  parity for the rest of the file, after which it strips more than it should and the sweeps go blind.
+  That case is therefore forbidden rather than reasoned about, and a test fails on one. Nothing in
+  the client needs such a literal, and the nine it writes carry none. The opposite confusion, an
+  apostrophe in JSX text, strips less than it should and shows up as a sweep reporting a
+  commented-out utility, which is loud rather than silent.
+- **A class string is bounded by the line it is on, or by the quote that opened it.** Criterion 4
+  reads from the opening quote to the end of the line, which is what it claims and no more.
+  Criterion 18 is the one that needs a window on both sides, because the tracking and the size have
+  to be in the same string as the `uppercase`: it reads to the closing quote, and falls back to the
+  end of the line where nothing closes it, so a missing quote narrows the window rather than widening
+  it to the whole file. Criteria 17, 19, 20, 21 and 23 need no window at all, because each reads its
+  verdict off the utility itself, the variant chain in front of it included. Prettier keeps each
+  argument of a `cn()` call on its own line, so every class string in the client today is inside
+  those bounds, but a class written into a template literal wrapped over several lines would sit past
+  them. Widening the bound is worse rather than better: a class of anything-but-a-backtick crosses
+  whatever code lies between two template literals, which reports `web/data.ts`, where `panel` is the
+  name of a function, as a surface writing its own `Panel`.
+
 1. Every spacing, font size or border radius a rule applies to an element resolves to a token from
    the scales above. A test parses each sheet in this repository and fails on a literal length in any
    of those three properties, so the scales are enforced rather than encouraged. Scoped to what a
@@ -454,7 +500,9 @@ usual arrangement and is worth knowing before reading the sheet.
    of one: no surface, and no other source in the client either, renders a bare `<dl>`, a bare
    `<label>`, or an element carrying the literal `badge` or `panel` class. The app shell is in scope
    as much as a surface is, because a pattern rebuilt by hand in the chrome is the same duplicate as
-   one rebuilt in a panel. The class is caught in whichever quoted string it is written in,
+   one rebuilt in a panel, and that includes `web/index.html`: the attribute there is `class` rather
+   than `className`, and the sweep reads the quoted string rather than the attribute name, so the
+   shell needs nothing beyond a comment syntax of its own. The class is caught in whichever quoted string it is written in,
    `className={cn('panel p-3')}` included, which is the form `Panel` itself is written in and therefore
    the form a caller has in front of it to copy; comments come out before the sweep, so prose about a
    details panel is not a hit. The bound is the line the string is written on, which is where every
@@ -478,7 +526,9 @@ usual arrangement and is worth knowing before reading the sheet.
     each other. Withdrawn with the palette it described: shadcn's light palette makes `--card` and
     `--background` the same white, and `--line` and `--line-faint` are both `var(--border)`.
 11. `--text-xl` is at least `0.5rem` above `--text-lg`, so a surface heading and a panel heading are
-    a rank apart rather than a rounding error apart.
+    a rank apart rather than a rounding error apart. Both are declared in `rem`, which the test
+    asserts before it compares them: a check that strips the unit and subtracts the numbers cannot
+    fail on `--text-xl: 28px`, and the gap this states is a gap in `rem`.
 12. **Superseded by criterion 17.** `font-weight: 600` is declared for the surface heading and for
     nothing else, and no rule declares a weight above `600` or below `400`. A test parses the
     stylesheet and lists the offenders. Withdrawn with the stylesheet it parsed: the sheet declares
@@ -516,34 +566,55 @@ suite cite the numbers above.
     carries a letter-spacing utility and a size at or below `text-xs` in the same class string, so
     nothing at a size a reader reads the document by is uppercased. Three of the six occurrences are
     on headings, which the size bound is what makes acceptable: a strip label written as an `h2` or
-    an `h3` for the outline's sake is still small print.
+    an `h3` for the outline's sake is still small print. "The same class string" is the window stated
+    above the criteria, and this is the criterion that depends on it: whichever quote opened last to
+    whichever closes it, and the end of the line where nothing does. So the tracking and the size have
+    to be beside the `uppercase` rather than somewhere else in the file, and a class written into a
+    template literal wrapped over several lines sits outside what this can check.
 19. Every colour the client draws comes from a token: no component source writes a hex, `rgb()`,
     `hsl()` or `oklch()` colour literal, and no utility from Tailwind's own palette. An arbitrary
     value on a colour utility is a length or a `var(--token)` and nothing else, which is what closes
     CSS's own colour names: `bg-[rebeccapurple]` and `border-[green]` write no hex, no colour
     function and no family name, and are a colour chosen once for both palettes just the same. The
     dialog scrim, `bg-black/65`, is the one sanctioned exception, and it sits behind everything rather
-    than under any text.
+    than under any text. The prefixes the sweep reads are every Tailwind utility that takes a colour
+    and not a list of three, `ring-offset-` among them: `ring-offset-red-500` and
+    `ring-offset-[rebeccapurple]` are a colour chosen once for both palettes exactly as
+    `ring-red-500` is. A CSS type hint in front of the token is the same thing as the token, so
+    `bg-[color:var(--card)]` is legal and `bg-[color:red]` is not.
 20. `--accent` is a state ground and never a fill a surface chooses at rest: every `accent` and
     `sidebar-accent` utility in `web/` carries one of three variants, `hover:`,
     `data-[highlighted]:` or `aria-[current=page]:`, and no other. A test whitelists those three and
     fails on a bare occurrence or on a fourth variant, rather than passing anything with a prefix.
+    Every utility, and not the three prefixes a sweep is easiest to write for: `ring-accent`,
+    `fill-sidebar-accent`, `divide-accent` and `outline-accent` put the near-neutral on a resting
+    surface exactly as `bg-accent` does, and a sweep naming only `bg-`, `text-` and `border-` could
+    not fail on any of them. The prefix list is the same one criteria 19 and 21 read, and the whole
+    variant chain is read off the utility rather than out of a surrounding window.
     The whole variant chain is read and not only its last link, so `md:hover:bg-accent` and
     `dark:hover:bg-accent` fail as prefixes the whitelist does not name rather than passing as the
     `hover:` on the end of them.
     Scoped to the client: `site/styles.css` writes `var(--accent)` as a resting background and is
     outside this. The design's blue is the chart ramp, not `--accent`.
 21. Opacity-derived fills are sanctioned for a ground, a border or a hairline and never for text:
-    every opacity modifier in the client names a token, and no `text-<token>/<n>` appears anywhere,
-    so no text colour has a contrast ratio that depends on an uncomputed alpha.
+    every opacity modifier in the client tints a token the sheet declares, the dialog scrim
+    `bg-black/65` excepted, and no `text-<token>/<n>` appears anywhere, so no text colour has a
+    contrast ratio that depends on an uncomputed alpha. The exception is carried here rather than
+    left to the prose, the way criterion 2 carries `--shadow-1`: the scrim tints a literal, and a
+    criterion reading "every modifier names a token" was false as written on the one utility the
+    design deliberately allows. Both halves are checked, the second by reading what each modifier
+    tints rather than only by looking for tinted text, so `bg-[#abc]/50` and `border-white/30` fail
+    on the token rather than passing for want of a pattern that names them. Tailwind's
+    font-size-with-line-height shorthand (`text-sm/6`) is not an opacity modifier and is outside
+    this; the client writes none.
 22. Decoration that carries no meaning of its own is `aria-hidden`, and every quantity it draws is
     stated in words beside it. The day bar's track is the case: it is `aria-hidden="true"` and its
     legend states each figure (spec 08, criteria 45 and 47), which is what exempts its tints from the
     text contrast ratio.
-23. Every colour utility the client writes resolves to a token a palette declares. Both halves are
-    whitelists: every `--color-*` mapping in `@theme inline` points at a name both palettes declare,
-    and every `*-foreground` utility in `web/` names one of those mappings, whatever prefix it
-    carries: `ring-`, `fill-`, `stroke-`, `divide-`, `outline-`, `placeholder-`, `caret-` and the
+23. Every `*-foreground` utility the client writes resolves to a token a palette declares. Both
+    halves are whitelists: every `--color-*` mapping in `@theme inline` points at a name both
+    palettes declare, and every `*-foreground` utility in `web/` names one of those mappings,
+    whatever prefix it carries: `ring-`, `fill-`, `stroke-`, `divide-`, `outline-`, `placeholder-`, `caret-` and the
     gradient stops take a colour as much as `bg-`, `text-` and `border-` do, so the sweep reads the
     prefix as any utility name rather than as a list of three. Both palettes, and not
     either: `:root` is the selector of the dark block and of the light one inside the media query, so
@@ -551,3 +622,11 @@ suite cite the numbers above.
     palette narrower. `Button`'s destructive variant is the case that failed it, pairing
     `bg-destructive` with a `text-destructive-foreground` that resolved to nothing, so the label was
     drawn in whatever colour it inherited and its contrast was a claim nobody could check.
+    The `*-foreground` half is the bound, and it is narrower than "every colour utility": a utility
+    naming a token directly (`bg-card`) is a Tailwind theme key that fails the build when it does not
+    exist, where a `*-foreground` resolved through `@theme inline` to an undeclared token failed
+    silently, which is why that is the half worth a criterion. What neither this nor criterion 19
+    catches is an arbitrary value naming a token that does not exist: `bg-[var(--nope)]` is a
+    sanctioned `var(--token)` to criterion 19 and is not a `*-foreground` to this one. None is written
+    today, and a sweep for them would assert over an empty set with nothing to keep it honest, so the
+    gap is stated here rather than guarded by a vacuous check.
