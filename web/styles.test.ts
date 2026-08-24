@@ -41,6 +41,8 @@ it('imports Tailwind, the engine every surface’s utility classes resolve again
  * Also included: the chart ramp (`chart-1`..`chart-5`), the only chromatic tokens in the system
  * and the carrier for the design's blue accent, and the `sidebar` family, which distinguishes
  * chrome (header, chat rail, needs-you rail) from ordinary panels (`card`).
+ *
+ * Spec 10, criterion 3: the whole set in both palettes, every value in oklch, and no manual toggle.
  */
 describe('shadcn’s token set, in both palettes', () => {
   const shadcnTokens = [
@@ -87,6 +89,17 @@ describe('shadcn’s token set, in both palettes', () => {
       .map((line) => line.split(':')[0]?.trim() ?? '')
       .filter((name) => name.startsWith('--')),
   )
+  // The same block again, read through the parser rather than by regex, so criterion 3's
+  // colour-space half has a value to check and not only a name.
+  const lightValues = new Map(
+    all
+      .filter(
+        (declaration) =>
+          declaration.selector === ':root' &&
+          declaration.context === '@media (prefers-color-scheme: light)',
+      )
+      .map((declaration) => [declaration.property, declaration.value] as const),
+  )
 
   it('finds the light override, so an empty match cannot pass as a complete one', () => {
     expect(lightBlock).not.toBeNull()
@@ -101,6 +114,84 @@ describe('shadcn’s token set, in both palettes', () => {
     const withoutComments = stylesheet.replace(/\/\*[\s\S]*?\*\//g, '')
     expect(withoutComments).not.toMatch(/\.dark\b/)
     expect(withoutComments).not.toMatch(/data-theme/)
+  })
+
+  // Criterion 3's colour-space half. A token restated in hex or `rgb()` is a value nobody can
+  // reason about beside the oklch ones around it, and it is how a hand-tuned palette comes back
+  // one token at a time.
+  it.each(shadcnTokens)('declares --%s in oklch, in both palettes', (name) => {
+    const property = `--${name}`
+    const inDark = dark.find((declaration) => declaration.property === property)
+
+    expect(inDark?.value).toMatch(/^oklch\(/)
+    expect(lightValues.get(property)).toMatch(/^oklch\(/)
+  })
+})
+
+/**
+ * Criterion 1 and criterion 2, applied to the application's own stylesheet. Almost nothing is left
+ * for them to catch here, because the surfaces space, size, round and colour themselves in Tailwind
+ * utility classes rather than in rules in this file. That is exactly why the check stays: the next
+ * rule added to this sheet is the one that would reintroduce a literal, and `site/styles.css` (which
+ * does still carry many such rules) is held to the same two criteria by `test/site/build.test.ts`.
+ */
+describe('the rules the sheet still owns, held to the scales', () => {
+  const own = all.filter((declaration) => !declaration.property.startsWith('--'))
+  const exempt = new Set(['0', 'auto', 'inherit', 'initial', 'unset', 'none', '100%'])
+  const tokenised = (value: string): boolean =>
+    value.split(/\s+/).every((part) => exempt.has(part) || part.startsWith('var(--'))
+
+  it('has rules of its own to check, so a parse failure cannot pass as a clean sheet', () => {
+    expect(own.length).toBeGreaterThan(3)
+  })
+
+  // Criterion 1.
+  it('spaces, sizes and rounds only from the scales', () => {
+    const properties =
+      /^(margin|padding)(-(top|right|bottom|left))?$|^(gap|row-gap|column-gap)$|^font-size$|^border-radius$/
+
+    expect(own.filter((rule) => properties.test(rule.property) && !tokenised(rule.value))).toEqual(
+      [],
+    )
+  })
+
+  // Criterion 2. `outline-offset` is a length rather than a colour, and `color-scheme` names the
+  // two palettes rather than a value in either, so neither is a colour decision.
+  it('names a colour only as a token, so no rule is right in one theme alone', () => {
+    const properties =
+      /^(color|background|background-color|border|border-(top|right|bottom|left)|border-color|outline|box-shadow|fill|stroke)$/
+
+    expect(
+      own.filter(
+        (rule) =>
+          properties.test(rule.property) &&
+          !rule.value.includes('var(') &&
+          !['transparent', 'inherit', 'none', '0'].includes(rule.value),
+      ),
+    ).toEqual([])
+  })
+})
+
+/**
+ * Criterion 11. A surface heading and a panel heading are a rank apart rather than a rounding error
+ * apart, which is why this application overrides Tailwind's own `--text-xl` (`1.25rem`, one 0.25rem
+ * step above `--text-lg`) with a value that earns the rank.
+ */
+describe('the type scale', () => {
+  const rem = (property: string): number => {
+    const declaration = all.find(
+      (candidate) =>
+        candidate.selector === ':root' &&
+        candidate.context === '' &&
+        candidate.property === property,
+    )
+    expect(declaration, property).toBeDefined()
+
+    return Number.parseFloat(declaration?.value.replace('rem', '') ?? 'NaN')
+  }
+
+  it('puts --text-xl at least 0.5rem above --text-lg', () => {
+    expect(rem('--text-xl') - rem('--text-lg')).toBeGreaterThanOrEqual(0.5)
   })
 })
 

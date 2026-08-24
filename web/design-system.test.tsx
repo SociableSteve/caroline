@@ -1,5 +1,5 @@
 /**
- * The rules all five surfaces share. Spec 10, criteria 4 to 7 and 9.
+ * The rules all five surfaces share. Spec 10, criteria 4 to 9, 14, and 17 to 21.
  *
  * The scales themselves are asserted against the stylesheet in `styles.test.ts`. What is here is
  * everything that only shows up once a surface is rendered: the heading outline, the title, the
@@ -204,7 +204,124 @@ describe('each primitive has one implementation', () => {
 })
 
 /**
- * One filled primary per context. Spec 10's appearance model: `.primary` is now a filled action, so
+ * The appearance model, checked against what the client actually spends. Every surface writes its
+ * colours, weights and casing as Tailwind utility classes in JSX rather than as rules in
+ * `web/styles.css`, so a sweep of the sources is the only place these can be asserted at all: there
+ * is no stylesheet left to parse for them, and jsdom cannot tell a class applied from a class that
+ * does something.
+ *
+ * Comments come out first, so prose about the `oklch(0.97)` that `--accent` is cannot fail a check
+ * about an `oklch()` literal in a class string.
+ */
+describe('the appearance model, swept from the sources', () => {
+  const sourceFiles = ['web/surfaces', 'web/components']
+    .flatMap((directory) =>
+      readdirSync(join(process.cwd(), directory), { recursive: true, encoding: 'utf8' }).map(
+        (file) => `${directory}/${file}`,
+      ),
+    )
+    .concat('web/App.tsx')
+    .filter((file) => file.endsWith('.tsx') && !file.endsWith('.test.tsx'))
+
+  const withoutComments = (source: string): string =>
+    source.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ')
+
+  const client = sourceFiles.map((file) => ({
+    file,
+    source: withoutComments(readFileSync(join(process.cwd(), file), 'utf8')),
+  }))
+
+  const offenders = (pattern: RegExp): string[] =>
+    client.flatMap((entry) =>
+      (entry.source.match(pattern) ?? []).map((hit) => `${entry.file}: ${hit}`),
+    )
+
+  it('finds the client, so an empty sweep cannot pass as a clean one', () => {
+    expect(client.length).toBeGreaterThan(10)
+  })
+
+  /** Criterion 17: three weights and no others. */
+  it('sets weight in font-normal, font-medium and font-semibold only', () => {
+    expect(offenders(/\bfont-(thin|extralight|light|bold|extrabold|black)\b/g)).toEqual([])
+  })
+
+  /**
+   * Criterion 18. Uppercase without tracking is unreadable, and uppercase at a size a reader
+   * navigates by costs the word its shape, so each occurrence has to carry both.
+   */
+  it('uppercases only small, tracked labels', () => {
+    const small = /\btext-(?:xs|\[(?:9|10|11|12)px\])/
+    // The class string each `uppercase` sits in, bounded by whichever quote opened it: a JSX
+    // attribute, a `cn()` argument and a template literal all delimit differently, and a regex
+    // fixed on one quote reads across the other two.
+    const quoted = (source: string, at: number): string => {
+      const before = source.slice(0, at)
+      const after = source.slice(at)
+      const opens = Math.max(
+        before.lastIndexOf("'"),
+        before.lastIndexOf('"'),
+        before.lastIndexOf('`'),
+      )
+      const closes = [after.indexOf("'"), after.indexOf('"'), after.indexOf('`')].filter(
+        (index) => index >= 0,
+      )
+
+      return source.slice(opens + 1, at + Math.min(...closes))
+    }
+
+    const classStrings = client.flatMap((entry) =>
+      [...entry.source.matchAll(/\buppercase\b/g)].map(
+        (match) => `${entry.file}: ${quoted(entry.source, match.index)}`,
+      ),
+    )
+
+    expect(classStrings).not.toEqual([])
+    expect(classStrings.filter((hit) => !/\btracking-/.test(hit) || !small.test(hit))).toEqual([])
+  })
+
+  /**
+   * Criterion 19: every colour comes from a token, so no rule can be right in one palette and wrong
+   * in the other. The dialog scrim is the one sanctioned literal, and it is excluded by name rather
+   * than by a pattern loose enough to let a second one through.
+   */
+  it('writes no colour literal, the dialog scrim excepted', () => {
+    const literals = offenders(/#[0-9a-fA-F]{3,8}\b|\b(rgba?|hsla?|oklch|oklab|lab|lch)\(/g)
+
+    expect(literals).toEqual([])
+    expect(offenders(/\bbg-black\/\d+\b/g)).toEqual(['web/components/ui/dialog.tsx: bg-black/65'])
+  })
+
+  /**
+   * Criterion 20. `--accent` is shadcn's near-neutral hover ground, not this design's accent: the
+   * blue is the chart ramp. A resting `bg-accent` is invisible, and it is the mistake the token's
+   * name invites.
+   */
+  it('uses accent only behind a hover or highlighted variant', () => {
+    const resting = client.flatMap((entry) =>
+      (
+        entry.source.match(/(?:^|[^:\]])\b(?:bg|text|border)-(?:sidebar-)?accent[a-z-]*/g) ?? []
+      ).map((hit) => `${entry.file}: ${hit.trim()}`),
+    )
+
+    expect(resting).toEqual([])
+    expect(
+      offenders(/(?:hover|data-\[highlighted\]):(?:bg|text)-(?:sidebar-)?accent[a-z-]*/g),
+    ).not.toEqual([])
+  })
+
+  /**
+   * Criterion 21. A tint of a token is still that token in both palettes, so opacity is the right
+   * tool for a ground or a hairline. A text colour whose ratio depends on an alpha nobody computed
+   * is a contrast claim nobody can check, which is why the modifier never goes on text.
+   */
+  it('derives fills and hairlines from opacity, and never text', () => {
+    expect(offenders(/\btext-[a-z0-9-]+\/(?:\d+|\[[\d.]+\])/g)).toEqual([])
+    expect(offenders(/\b(?:bg|border)-[a-z0-9-]+\/(?:\d+|\[[\d.]+\])/g)).not.toEqual([])
+  })
+})
+
+/**
+ * One filled primary per context. Spec 10, criterion 14: `.primary` is a filled action, so
  * two of them in one row of controls is two obvious things to press, which is none.
  *
  * A row of controls is the context, and not the surface: a board of review cards has a primary on
