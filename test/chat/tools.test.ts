@@ -1166,6 +1166,73 @@ describe('blocking from the tool surface', () => {
     expect(getTask(database, 'task-1')).toMatchObject({ status: 'next_action', blockedBy: null })
   })
 
+  /**
+   * Criterion 21, through chat rather than through the routes. `update_task` is the spelling
+   * almost everything uses, so a task blocked from here has to end up tracked exactly as one
+   * blocked from the board does.
+   */
+  function aTrackedReviewTask(database: Database) {
+    createTask(database, { id: 'blocker', title: 'Agree the API shape' }, CHAT_NOW)
+    createTask(
+      database,
+      { id: 'task-1', title: 'Review the helper', status: 'review', statusSetBy: 'sync' },
+      CHAT_NOW,
+    )
+    upsertSource(
+      database,
+      { provider: 'github', externalId: 'example-org/service#42', taskId: 'task-1' },
+      CHAT_NOW,
+    )
+  }
+
+  it('keeps a tracked task tracked when chat blocks it behind another', async () => {
+    const database = migratedDatabase()
+    aTrackedReviewTask(database)
+
+    await run(database, 'update_task', { id: 'task-1', blockedBy: 'blocker' })
+
+    expect(getTask(database, 'task-1')).toMatchObject({
+      status: 'blocked',
+      syncTracked: true,
+    })
+  })
+
+  // Criterion 21, the move back out, in both the spellings chat can say it: clearing the
+  // blocker, and naming the status the cleared task lands on.
+  for (const [spelling, args] of [
+    ['clearing the blocker', { blockedBy: null }],
+    ['naming next_action', { status: 'next_action' }],
+  ] as const) {
+    it(`keeps a tracked task tracked when chat unblocks it by ${spelling}`, async () => {
+      const database = migratedDatabase()
+      aTrackedReviewTask(database)
+      await run(database, 'update_task', { id: 'task-1', blockedBy: 'blocker' })
+
+      await run(database, 'update_task', { id: 'task-1', ...args })
+
+      expect(getTask(database, 'task-1')).toMatchObject({
+        status: 'next_action',
+        blockedBy: null,
+        syncTracked: true,
+      })
+    })
+  }
+
+  // The exemption is the return to next actions and nothing else: filing a blocked task under
+  // someday is still criterion 2a's permanent opt-out.
+  it('opts a blocked tracked task out when chat files it under someday instead', async () => {
+    const database = migratedDatabase()
+    aTrackedReviewTask(database)
+    await run(database, 'update_task', { id: 'task-1', blockedBy: 'blocker' })
+
+    await run(database, 'update_task', { id: 'task-1', status: 'someday' })
+
+    expect(getTask(database, 'task-1')).toMatchObject({
+      status: 'someday',
+      syncTracked: false,
+    })
+  })
+
   /** `blocked` is not a status a task can be filed into: the blocker is what makes it one. */
   it('does not offer blocked among the statuses a task may be filed into', () => {
     const statuses = (

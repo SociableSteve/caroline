@@ -144,6 +144,10 @@ tracks turns sync tracking off for it permanently, so a pull request you have fi
 stays there rather than being dragged back to Review on the next sync. And a task you complete stays
 complete: nothing but you closes work.
 
+Blocking is not that kind of filing, so it is the one move that does not turn tracking off. A pull
+request parked behind another task keeps its connection to GitHub, and picks the lifecycle back up
+if you put it back in Review once the blocker clears.
+
 ## What the classifier proposes
 
 With a model configured, the classify job reads the inbox hourly. What it does with an item depends

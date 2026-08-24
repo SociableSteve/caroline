@@ -255,6 +255,19 @@ function nextSyncTracked(task: Task, change: StatusChange): boolean {
   if (!task.syncTracked) return false
   if (change.by !== 'user') return true
 
+  // Blocking is transparent to tracking, and it is the one status outside a connector's set that
+  // is. Naming a blocker says this cannot start yet, not that the connector's lifecycle is
+  // unwanted, and it takes nothing away from the connector while it lasts, because a connector
+  // owns transitions only for a task currently inside its own set. Spending a permanent opt-out
+  // on a temporary state would detach a pull request from GitHub for good on the strength of a
+  // dropdown. Answered here rather than at the write paths so that both spellings of the act,
+  // naming the blocker alone and naming the status with it, cannot answer it differently.
+  // Spec 01, criterion 21.
+  if (change.status === 'blocked') return true
+  // The same move undone. Leaving `blocked` for anything else is an ordinary filing decision and
+  // still opts out; `next_action` is where a cleared blocker puts the task, so it is not one.
+  if (task.status === 'blocked' && change.status === 'next_action') return true
+
   // A caller that did not name the connector's set has not expressed an opt-out, and an
   // opt-out is permanent, so tracking stands rather than being dropped by omission.
   if (change.trackedStatuses === undefined) return true

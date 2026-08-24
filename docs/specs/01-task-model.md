@@ -136,7 +136,8 @@ production.
 
 Naming a blocker is therefore a status change like any other, and goes through the same rule as
 the rest: it records the actor, the moment, and the pair that came before. Clearing the blocker
-moves the task to `next_action`, which is what an unblocked concrete action is.
+moves the task to `next_action`, which is what an unblocked concrete action is. Sync tracking is
+the one thing neither move touches, for the reason given under Sync tracking above.
 
 **Completing a blocker releases what was behind it.** The dependents lose their reference and move
 to `next_action`, attributed to `user`, because the act that caused it is the user completing the
@@ -192,6 +193,16 @@ Filing a review request under `someday` or `reference` is a decision to opt out 
 lifecycle, and sync respects it: `sync_tracked` becomes false and no further sync changes
 the task. It can be re-enabled explicitly from the UI.
 
+Blocking is the exception, because it is not that kind of decision. A tracked task moved to
+`blocked` stays tracked, and stays tracked when the blocker clears and it returns to
+`next_action`. Naming a blocker says this cannot start yet, not that the connector's lifecycle
+is unwanted, and it takes nothing away from the connector while it lasts: a connector owns
+transitions only for a task currently inside its own set, so a blocked task is out of reach
+whether it is tracked or not. Spending a permanent opt-out on a temporary state would detach a
+pull request from GitHub for good, and the act that did it would be picking a name out of a
+dropdown on a card. That holds however either move is spelled, naming the blocker alone or naming
+the status and the blocker together, because they are the same act. Criterion 21.
+
 Within the tracked set, a user action does not stop tracking, it becomes an input to the
 state machine. Marking a PR reviewed sets `acted_at` and `acted_at_marker` on the source, so
 that sync can distinguish "nothing has happened since you acted" from "the author has since
@@ -239,7 +250,8 @@ Caroline already has.
    different status, and the proposal is still recorded in `classifications`.
 2a. A tracked task moved by the user to a status inside its connector's tracked set stays
    tracked; moved to a status outside it, `sync_tracked` becomes false and no later sync
-   changes it.
+   changes it. `blocked` is the one status outside the set that does not opt out, and
+   criterion 21 states why.
 3. Inserting two sources with the same `(provider, external_id)` updates the existing row
    rather than creating a second.
 4. A project with one `next_action` task reports that task as its next action; with none
@@ -282,3 +294,8 @@ code and the suite cite these by number.
     has passed.
 20. Putting back a status change that moved a task into `blocked` clears the blocker along with the
     status, so the undo can never leave a task holding a reference under another status.
+21. Blocking is transparent to sync tracking. A tracked task moved to `blocked` is still tracked,
+    and is still tracked once the blocker is cleared and it returns to `next_action`, whether
+    either move names the blocker alone or names the status and the blocker together. Criterion
+    2a's opt-out is a decision to file the task away from its connector's lifecycle, and this is
+    not one.

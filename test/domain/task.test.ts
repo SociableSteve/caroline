@@ -244,6 +244,65 @@ describe('sync tracking', () => {
     expect(result.task.syncTracked).toBe(true)
   })
 
+  /**
+   * Criterion 21. `blocked` is outside the GitHub set, so criterion 2a's letter would opt the
+   * task out, but blocking is not a filing decision and the opt-out is permanent.
+   */
+  it('keeps tracking when the user blocks a tracked task behind another', () => {
+    const result = applyStatusChange(trackedReviewTask(), {
+      status: 'blocked',
+      by: 'user',
+      at: changedAt,
+      blockedBy: 'task-blocker',
+      trackedStatuses: githubTrackedStatuses,
+    })
+
+    expect(result.applied).toBe(true)
+    expect(result.task.status).toBe('blocked')
+    expect(result.task.syncTracked).toBe(true)
+  })
+
+  // Criterion 21, the other half: the move back out is the same act undone.
+  it('keeps tracking when a blocked task is cleared back to next_action', () => {
+    const blocked = existingTask({
+      status: 'blocked',
+      blockedBy: 'task-blocker',
+      statusSetBy: 'user',
+      syncTracked: true,
+    })
+
+    const result = applyStatusChange(blocked, {
+      status: 'next_action',
+      by: 'user',
+      at: changedAt,
+      trackedStatuses: githubTrackedStatuses,
+    })
+
+    expect(result.applied).toBe(true)
+    expect(result.task.syncTracked).toBe(true)
+  })
+
+  // Criterion 21 exempts the return to `next_action` and nothing else: filing a blocked task
+  // under someday is still the opt-out criterion 2a describes.
+  it('stops tracking when a blocked task is filed outside the set instead', () => {
+    const blocked = existingTask({
+      status: 'blocked',
+      blockedBy: 'task-blocker',
+      statusSetBy: 'user',
+      syncTracked: true,
+    })
+
+    const result = applyStatusChange(blocked, {
+      status: 'someday',
+      by: 'user',
+      at: changedAt,
+      trackedStatuses: githubTrackedStatuses,
+    })
+
+    expect(result.applied).toBe(true)
+    expect(result.task.syncTracked).toBe(false)
+  })
+
   it('declares review, waiting and done as the GitHub connector tracked set', () => {
     expect([...githubTrackedStatuses]).toEqual(['review', 'waiting', 'done'])
   })

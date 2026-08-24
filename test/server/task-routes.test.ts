@@ -388,6 +388,80 @@ describe('PATCH /api/tasks/:id', () => {
     expect(body.syncTracked).toBe(false)
   })
 
+  /**
+   * Criterion 21, on both spellings of the same act. The reference-only patch is what the
+   * board's blocker picker sends and the combined one is what a client naming both halves
+   * sends, and a task cannot be tracked down one and untracked down the other.
+   */
+  for (const [spelling, payloadFor] of [
+    ['naming the blocker alone', (blockerId: string) => ({ blockedBy: blockerId })],
+    [
+      'naming the status and the blocker together',
+      (blockerId: string) => ({ status: 'blocked', blockedBy: blockerId }),
+    ],
+  ] as const) {
+    it(`keeps a tracked task tracked when it is blocked by ${spelling}`, async () => {
+      const { app, database } = await testServer()
+      const task = createTask(
+        database,
+        { title: 'Review the PR', status: 'review', statusSetBy: 'sync' },
+        earlier,
+      )
+      upsertSource(
+        database,
+        { provider: 'github', externalId: 'owner/repo#1', taskId: task.id },
+        earlier,
+      )
+      const blocker = createTask(database, { title: 'Agree the API shape' }, earlier)
+
+      const body = (
+        await app.inject({
+          method: 'PATCH',
+          url: `/api/tasks/${task.id}`,
+          payload: payloadFor(blocker.id),
+        })
+      ).json()
+
+      expect(body.status).toBe('blocked')
+      expect(body.blockedBy).toBe(blocker.id)
+      expect(body.syncTracked).toBe(true)
+    })
+  }
+
+  // Criterion 21, the move back out, on both spellings again.
+  for (const [spelling, payload] of [
+    ['clearing the blocker', { blockedBy: null }],
+    ['moving the card to next actions', { status: 'next_action' }],
+  ] as const) {
+    it(`keeps a tracked task tracked when it is unblocked by ${spelling}`, async () => {
+      const { app, database } = await testServer()
+      const blocker = createTask(database, { title: 'Agree the API shape' }, earlier)
+      const task = createTask(
+        database,
+        { title: 'Review the PR', status: 'review', statusSetBy: 'sync' },
+        earlier,
+      )
+      upsertSource(
+        database,
+        { provider: 'github', externalId: 'owner/repo#1', taskId: task.id },
+        earlier,
+      )
+      await app.inject({
+        method: 'PATCH',
+        url: `/api/tasks/${task.id}`,
+        payload: { blockedBy: blocker.id },
+      })
+
+      const body = (
+        await app.inject({ method: 'PATCH', url: `/api/tasks/${task.id}`, payload })
+      ).json()
+
+      expect(body.status).toBe('next_action')
+      expect(body.blockedBy).toBeNull()
+      expect(body.syncTracked).toBe(true)
+    })
+  }
+
   it('announces the change on the feed', async () => {
     const { app, database, published } = await testServer()
     const task = createTask(database, { title: 'Renew the domain' }, earlier)
