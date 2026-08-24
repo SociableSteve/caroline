@@ -113,6 +113,9 @@ tool-advertisement line, of which the history has none.
 
 No em-dashes anywhere written for a human audience: prose, code comments, commit messages, PR
 bodies, docs. Use a colon, a comma, parentheses, or two sentences. Ordinary hyphens are fine.
+`test/docs/no-em-dashes.test.ts` reads every tracked file and fails on one, so the rule is checked
+rather than remembered. An en-dash marking a range is left alone, whether its ends are numbers
+(`00–13`) or words (`start–end`).
 
 A change reaches `main` through a branch and a pull request. CI has to be green and the change
 reviewed before it merges, and it is squash-merged, so its subject line ends with its PR number.
