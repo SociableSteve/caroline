@@ -210,7 +210,7 @@ export type UndoStatusResult =
  *
  * Undoing a move that put a task *into* `blocked` clears the blocker along with the status, for
  * the same reason every other move out of the column does: the pair is one fact, and putting the
- * status back while keeping the reference would leave half of one. Criterion 20.
+ * status back while keeping the reference would leave half of one. Spec 01, criterion 20.
  *
  * Sync tracking is deliberately untouched. Opting out is permanent until the user re-enables it,
  * and there is an explicit action for that; guessing at it here would re-enable a lifecycle they
@@ -234,7 +234,7 @@ export function undoStatusChange(task: Task, at: number): UndoStatusResult {
       status: previousStatus,
       // The status being put back is never `blocked`, refused just above, so the reference goes
       // with it: undoing a move into the column is a move out of it like any other, and leaving
-      // the reference behind would be half a fact the schema refuses anyway. Criterion 20.
+      // the reference behind would be half a fact the schema refuses anyway. Spec 01, criterion 20.
       blockedBy: null,
       statusSetBy: previousStatusSetBy,
       statusSetAt: at,

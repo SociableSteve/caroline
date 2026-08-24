@@ -494,7 +494,7 @@ describe('blocking one task behind another', () => {
   })
 
   /**
-   * Criterion 20, the direction the criterion 18 tests do not cover. Restoring the status alone
+   * Spec 01, criterion 20, the direction the criterion 18 tests do not cover. Restoring the status alone
    * left the reference in place, which is the half fact the check constraint refuses, so what the
    * board offered on every freshly blocked card was a 500.
    */
