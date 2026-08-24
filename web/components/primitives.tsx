@@ -65,7 +65,7 @@ export interface PanelProps {
   readonly headingClassName?: string | undefined
   /**
    * An accessible name for the region where the heading is not the whole of it. The board's
-   * columns are the case: the heading carries a digit and a count that read as noise in a name.
+   * columns are the case: the heading carries a count that reads as noise in a name.
    */
   readonly label?: string | undefined
   readonly onDragOver?: ((event: DragEvent<HTMLElement>) => void) | undefined

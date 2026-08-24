@@ -13,7 +13,7 @@ one command, so nobody's mail is in them: the names, repositories and threads in
 | Find your way around | [Five screens and a rail](#five-screens-and-a-rail) |
 | Know what the seven columns mean | [Where work lives](#where-work-lives) |
 | Get something out of your head | [Capturing something](#capturing-something) |
-| Empty the inbox | [Triaging, by keyboard](#triaging-by-keyboard) |
+| Empty the inbox | [Triaging the inbox](#triaging-the-inbox) |
 | Understand what Caroline suggested | [What the classifier proposes](#what-the-classifier-proposes) |
 | Work out what to do today | [A worked day](#a-worked-day) |
 | Talk to it | [The rail: an item, and a conversation about it](#the-rail-an-item-and-a-conversation-about-it) |
@@ -71,8 +71,8 @@ Waiting for is a person and Blocked is a task of your own. That is the whole of 
 
 Done is the eighth status and is not a column: completing something takes it off the board.
 
-![Caroline's board and the keyboard reference underneath](images/board.png#gh-light-mode-only)
-![Caroline's board and the keyboard reference underneath](images/board-dark.png#gh-dark-mode-only)
+![Caroline's board, one column per status, with the cards in each](images/board.png#gh-light-mode-only)
+![Caroline's board, one column per status, with the cards in each](images/board-dark.png#gh-dark-mode-only)
 
 ## Blocking one task behind another
 
@@ -89,10 +89,10 @@ deleting the blocker releases everything behind it into Next actions on the spot
 the point: nothing has to be remembered, so nothing rots.
 
 Four things follow. Reopening a blocker you completed does not re-block anything, because the
-reference went when it completed, so getting the dependency back means naming it again. Putting a
-move out of Blocked back with `u` is refused for the same reason, while `u` on a card you have just
-blocked works and takes the blocker off with the status. A task already finished cannot be named as
-a blocker at all, since the release happens as a task completes and that moment has gone. And a task
+reference went when it completed, so getting the dependency back means naming it again. **Undo move**
+on a card that has left Blocked is refused for the same reason, while the same control on a card you
+have just blocked works and takes the blocker off with the status. A task already finished cannot be
+named as a blocker at all, since the release happens as a task completes and that moment has gone. And a task
 cannot end up behind itself, directly or through a chain: Caroline refuses that rather than storing
 it.
 
@@ -107,34 +107,40 @@ the focus.
 It lands in the inbox and nothing else happens to it until you triage it, or the hourly classify job
 proposes somewhere for it to go. That is the whole point of the inbox: capturing is not deciding.
 
-## Triaging, by keyboard
+## Triaging the inbox
 
-The board lists its own keys along the bottom, which is the copy worth trusting. Every one of them
-acts on the focused card, so the first move is to give a card the focus: click one, or `Tab` until one
-takes it. As the list stands:
+Everything that files a card is a control on the card, so triaging reads the same whether you point at
+it or reach it with `Tab`. The board has no shortcuts of its own to learn: `c` for quick capture is the
+one key the app answers, and it works from any screen.
 
-| Key | What it does |
-| --- | --- |
-| `←` `→` `h` `l` | move between columns |
-| `↑` `↓` `j` `k` | move within a column |
-| `1` to `7` | move the focused task to that column, except `5`: Blocked takes no digit and no drag, because there would be no blocker to name |
-| `d` | complete the focused task |
-| `r` | mark the focused review done, moving it to Waiting for |
-| `a` | accept the suggestion on the focused inbox task |
-| `u` | put the focused task's last status change back |
-| `enter` | open the focused task in the details rail |
-| `c` | quick capture, from anywhere |
+| Control | Where it is | What it does |
+| --- | --- | --- |
+| The title | on the card | opens the task in the details rail |
+| **Complete** | on the card | files it as done, which takes it off the board |
+| **Accept**, **Dismiss** | on an inbox card carrying a suggestion | takes the classifier's suggestion, or drops it |
+| **Mark reviewed** | on a review card | moves the pull request to Waiting for |
+| **More** | on the card | the disclosure: the status control, the blocker picker, the due and defer-until dates, **Undo move** and **Delete** |
 
-A worked pass at an inbox of three, from the board:
+The status control is the one that files a card, and Blocked is the one column it will not file a card
+into: a task is blocked by naming the task it is behind, in the picker under it, because there would
+otherwise be no blocker to name. A card already in Blocked is the exception, and its control still
+offers the status it is in. Dragging a card between columns does the same thing, so the pointer and the keyboard
+file work the same way.
 
-1. Click the first card in the Inbox column. `j` and `k` move down and up it, `h` and `l` across to
-   the next column, keeping your place in the row where the column is long enough.
-2. Read the card. `2` files it as a next action, `4` as something you are waiting on, `6` as someday,
-   `7` as reference. `d` completes it, which is the right answer more often than it looks.
-3. Got one wrong? `u` puts that task's last status change back, including the column it came from.
-4. Click the next card and go again, until the column is empty. Only the movement keys hand the focus
-   on: `d`, a digit, `r` and `u` all take the card out of the column it was in, and the focus goes with
-   it rather than moving to what is left, so each triage decision starts with a click or a `Tab`.
+A worked pass at an inbox of three:
+
+1. `Tab` to the first card in the Inbox column, or click it. `Tab` again walks what is on its face:
+   the title, the actions, then **More**. A closed disclosure keeps what it holds out of the tab
+   order, so `Enter` or `Space` on **More** opens it first, and the status control, the blocker
+   picker, the dates, **Undo move** and **Delete** are the next few `Tab`s from there.
+2. Read the card, then pick from the status control inside **More**: Next actions for the thing you
+   could do next, Waiting for what somebody else owes you, Someday, Reference. **Complete** on the
+   face of the card is the right answer more often than it looks.
+3. Got one wrong? **Undo move**, in the same disclosure, puts that task's last status change back,
+   including the column it came from.
+4. On to the next card, until the column is empty. Nothing hands the focus on for you: filing a card
+   takes it out of the column you were working down, and the focus goes back to the page rather than
+   to what is left, so each triage decision starts with a click or a `Tab`.
 
 Moving a card is a decision by you, and Caroline records it as yours: the classifier will not overrule
 a status you set.
@@ -161,7 +167,8 @@ on how sure it is:
 
 `Re: Q3 capacity numbers for the board pack`, in the Inbox column of the board picture above, is the
 unsure case: `Caroline suggests Next actions (62% confident)`, with the reasoning and a proposed
-retitle under it. `a` is **Accept** from the keyboard.
+retitle under it. **Accept** and **Dismiss** are on the card, a `Tab` away like everything else on
+it.
 
 It never proposes done or blocked, and it never sets a due date. Completing something is a human
 act, naming a blocker is you putting one task in front of another, and deadlines come from people
@@ -223,10 +230,10 @@ each background job last did is the Jobs surface's own subject rather than repea
 
 ## The rail: an item, and a conversation about it
 
-Click a task or a project anywhere, or press `enter` on a board card, and it opens in the rail on the
-right, above the conversation. **Chat** in the header opens the rail without selecting anything. Those
-two kinds are what a panel is for and nothing else has one: a meeting, a job run and a plan entry have
-no tool that names one, and clicking a plan entry selects the task it names.
+Click a task or a project anywhere, by pointer or with the keyboard on its title, and it opens in the
+rail on the right, above the conversation. **Chat** in the header opens the rail without selecting
+anything. Those two kinds are what a panel is for and nothing else has one: a meeting, a job run and a
+plan entry have no tool that names one, and clicking a plan entry selects the task it names.
 
 ![The rail: a pull request's details above a conversation about the day](images/rail.png#gh-light-mode-only)
 ![The rail: a pull request's details above a conversation about the day](images/rail-dark.png#gh-dark-mode-only)

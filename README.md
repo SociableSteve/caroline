@@ -13,7 +13,7 @@ you are on. Nothing is written back to GitHub, Gmail or Calendar, ever.
 | Documentation                                    |                                                                                                                                                            |
 | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [docs/setup.md](docs/setup.md)                   | Setting it up from nothing: Node, the config file, a model, the GitHub token, the Google Cloud project and OAuth consent, and how to check each part works |
-| [docs/using.md](docs/using.md)                   | Using it: capturing, triaging by keyboard, reading the day, and what to say to the chat rail                                                               |
+| [docs/using.md](docs/using.md)                   | Using it: capturing, triaging the inbox, reading the day, and what to say to the chat rail                                                                 |
 | [docs/content-policy.md](docs/content-policy.md) | What leaves the machine, what stays on it, one item at all four content levels, and how to read the payload preview                                        |
 | [docs/specs](docs/specs/README.md)               | What each part is meant to do. The source of truth                                                                                                         |
 | [docs/plan.md](docs/plan.md)                     | The order it was built in                                                                                                                                  |
@@ -134,11 +134,11 @@ review, then refetches every one it already knows about. The second pass is the 
 request disappears from GitHub's search the moment you submit a review, so without it a pull
 request would vanish from Caroline exactly when it became somebody else's turn.
 
-A review card carries **Mark reviewed** (`r` from the keyboard), which moves it to Waiting
-for and stamps where the pull request was when you acted. It comes back to Review only if
-your review is re-requested, or if the author pushes after you asked for changes. An open
-pull request is never completed and never hidden: completion is proposed only when it merges,
-closes, or your review request is withdrawn before you ever reviewed it.
+A review card carries **Mark reviewed**, which moves it to Waiting for and stamps where the pull
+request was when you acted. It comes back to Review only if your review is re-requested, or if the
+author pushes after you asked for changes. An open pull request is never completed and never hidden:
+completion is proposed only when it merges, closes, or your review request is withdrawn before you
+ever reviewed it.
 
 ### Gmail
 
@@ -161,9 +161,9 @@ proposed: triaging in Gmail is not lost work.
 
 With an LLM provider configured, the hourly tick sorts the inbox. An answer at or above
 `classification.confidenceThreshold` is applied and attributed to the model; below it, the task
-stays in the inbox and the card carries the suggestion, its reasoning and how confident it was,
-with **Accept** (`a` from the keyboard) and **Dismiss**. Accepting makes the status yours, which
-locks the classifier out of that task from then on. It never proposes completing anything, and it
+stays in the inbox and the card carries the suggestion, its reasoning and how confident it was, with
+**Accept** and **Dismiss**. Accepting makes the status yours, which locks the classifier out of that
+task from then on. It never proposes completing anything, and it
 never creates a project: a project it thinks you need is a suggestion on the card.
 
 Every answer is recorded, applied or not, including the ones that failed. That table is the audit
@@ -205,16 +205,17 @@ catch-up run rather than ninety-six, and nothing notifies you: the run history i
 
 ### Using the board
 
-The board is operable from the keyboard alone: arrow keys or `h j k l` to move between cards and
-columns, `1` to `7` to move the focused card to that column, `d` to complete it, `u` to put its
-last move back, `r` to mark a review done, `a` to accept the classifier's suggestion, `Enter` to
-open it in the rail, and `c` to capture something new from anywhere. Dragging a card between columns
-does the same thing as the digit. Either way the change is recorded as yours, and the classifier
-will not later overrule it.
+The board is operable from the keyboard alone, through the tab order and the controls on the cards
+themselves rather than a grid of shortcuts: `Tab` reaches every card and everything on it, including
+what is behind the card's **More** disclosure, so filing a task, completing it, marking a review done,
+accepting a suggestion and putting the last move back are each done with the control that does them by
+pointer. `c`, quick capture from any screen, is the one key the app answers. Dragging a card between
+columns does the same thing as picking the status. Either way the change is recorded as yours, and the
+classifier will not later overrule it.
 
-Blocked is the one column neither a digit nor a drag will move a card into. A task is blocked by
-naming the task that has to finish first, from the card's **More** disclosure or from chat, and the
-status and that reference are one fact rather than two. Completing or deleting the blocker releases
+Blocked is the one column neither the status control nor a drag will move a card into. A task is
+blocked by naming the task that has to finish first, from the card's **More** disclosure or from
+chat, and the status and that reference are one fact rather than two. Completing or deleting the blocker releases
 whatever was behind it into Next actions at once, so there is no state left to maintain by hand.
 [docs/using.md](docs/using.md#blocking-one-task-behind-another) has the rest.
 

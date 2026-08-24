@@ -70,6 +70,15 @@ what each document is there to answer.
 - **The running server serves `dist`, not the sources.** `npm start` runs
   `node dist/server/main.js`, and the SPA is served from `dist/web`. A green suite says nothing
   about the running instance until you rebuild.
+- **`.github/copilot-instructions.md` is a copy of this file.** Most of Copilot reads a root
+  `AGENTS.md` natively (the coding agent on github.com, Copilot code review, the cloud agent in the
+  editors, the CLI), but Copilot Chat on every platform, and Visual Studio, read only
+  `.github/copilot-instructions.md`. So that path holds a generated copy, written by
+  [tools/docs/copilot-instructions.ts](tools/docs/copilot-instructions.ts) via
+  `npm run docs:copilot`, and `test/docs/copilot-instructions.test.ts` fails when the copy and this
+  file disagree. Editing this file means running that command in the same commit. It used to be a
+  symlink, which reads correctly in a working tree and is served by the GitHub API as a blob holding
+  the twelve bytes `../AGENTS.md`, so the surface most likely to be reading it got a filename.
 - **Parts of docs/content-policy.md are generated.** Three blocks, each opened by an HTML
   comment naming `tools/docs/content-policy-examples.ts` and closed by an `end of the generated`
   one, come from the schema and the functions the classify job calls. Run

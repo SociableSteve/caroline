@@ -9,7 +9,7 @@ Read it in order. Each integration ends with a way to check it actually works be
 | Step | You get | Roughly |
 | --- | --- | --- |
 | [1. What you need](#1-what-you-need) | Node 24 | 2 minutes |
-| [2. Install and first run](#2-install-and-first-run) | The board, quick capture, the keyboard | 5 minutes |
+| [2. Install and first run](#2-install-and-first-run) | The board, quick capture, a first card | 5 minutes |
 | [3. Where things live](#3-where-things-live) | A config file of your own | 2 minutes |
 | [4. A model](#4-a-model) | Classification, the daily plan, chat | 5 minutes |
 | [5. GitHub](#5-github) | Review requests on the board | 10 minutes |
@@ -71,10 +71,11 @@ configured and nothing captured. That is the expected state of a fresh install a
 Try it before configuring anything, because everything after this point is an addition to it:
 
 - Press `c` anywhere to capture something.
-- Go to the board from the navigation, then `j`, `k`, `h` and `l` to move around it and `1` to `6`
-  to move the focused card between columns.
-- `d` completes the focused card and `u` puts its last move back. The board lists its own keys
-  under the columns.
+- Go to the board from the navigation. What it captured is in the Inbox column, on a card with its
+  own controls: **Complete**, and a **More** disclosure holding the status control that files it
+  anywhere else.
+- Drag the card to another column, or pick the status from that control. **Undo move**, in the same
+  disclosure, puts the last move back.
 
 `Ctrl-C` stops it. Nothing is lost: everything is in SQLite as it happens.
 
