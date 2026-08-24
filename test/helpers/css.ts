@@ -54,3 +54,48 @@ export function declarations(css: string): Declaration[] {
 
   return found
 }
+
+/**
+ * Spec 10, criterion 1, as a predicate rather than a copy per caller. A length written straight into
+ * a rule is the scale being bypassed, and the exempt values are the ones that name an absence
+ * (`0`, `none`) or a containing box (`auto`, `100%`) rather than a rung.
+ */
+const exemptLengths = new Set(['0', 'auto', 'inherit', 'initial', 'unset', 'none', '100%'])
+
+const scaleProperties =
+  /^(margin|padding)(-(top|right|bottom|left))?$|^(gap|row-gap|column-gap)$|^font-size$|^border-radius$/
+
+export function offTheScales(rules: readonly Declaration[]): Declaration[] {
+  const tokenised = (value: string): boolean =>
+    value.split(/\s+/).every((part) => exemptLengths.has(part) || part.startsWith('var(--'))
+
+  return rules.filter((rule) => scaleProperties.test(rule.property) && !tokenised(rule.value))
+}
+
+/**
+ * Spec 10, criterion 2. A colour written as a literal in a rule is a colour that can only be right
+ * in one of the two palettes. A removed border and a removed shadow are the absence of a colour
+ * rather than one, so they are exempt.
+ */
+const colourProperties =
+  /^(color|background|background-color|border|border-(top|right|bottom|left)|border-color|outline|box-shadow|fill|stroke)$/
+
+const absentColours = new Set(['transparent', 'inherit', 'none', '0'])
+
+export function untokenisedColours(rules: readonly Declaration[]): Declaration[] {
+  return rules.filter(
+    (rule) =>
+      colourProperties.test(rule.property) &&
+      !rule.value.includes('var(') &&
+      !absentColours.has(rule.value),
+  )
+}
+
+/**
+ * Whether a value carries a colour written out rather than pointed at. Used on the palettes' own
+ * custom properties, where literals are unavoidable (a palette is where they live) and the question
+ * is only which properties are allowed to carry one.
+ */
+export function hasColourLiteral(value: string): boolean {
+  return /#[0-9a-fA-F]{3,8}\b|\b(rgba?|hsla?|oklch|oklab|lab|lch)\(/.test(value)
+}

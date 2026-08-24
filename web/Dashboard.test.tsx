@@ -639,7 +639,11 @@ describe('the day bar’s track', () => {
     expect(today().getByText('done 4 hours')).toBeInTheDocument()
   })
 
-  /** Criterion 45: the legend is the text carrier, and the strip reads as a clock. */
+  /**
+   * Criterion 45: the legend is the text carrier, and the strip reads as a clock. Also spec 10,
+   * criterion 22: being `aria-hidden` with every figure stated beside it is what exempts the
+   * track's tints from the text contrast ratio.
+   */
   it('hides the track from assistive technology, and labels the window’s ends and its hours', () => {
     renderDashboard({ calendar: aTimedDay() })
 
