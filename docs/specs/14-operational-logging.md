@@ -59,8 +59,13 @@ Three bounds, because one is not enough:
   past it, the file is rotated first, so a line is never split across two files.
 - **A file count** (`logging.file.maxFiles`), counting the live file. Rotation cascades the
   renames (`caroline.log` becomes `caroline.log.1`, `.1` becomes `.2`, and so on) and whatever
-  falls off the end is removed. Size cap times file count is the ceiling on the disk this can
-  ever occupy, and it is a number the operator can read off their own configuration.
+  falls off the end is removed. This is the bound, and it is a number the operator can read off
+  their own configuration: never more than `maxFiles` files, whatever has been written. Size cap
+  times file count is the disk that follows from it in the ordinary case, and it is what to plan
+  for, but it is not a guarantee about bytes. Rotation happens before a write rather than after
+  it, so that a line is never split, and a single line longer than the cap therefore lands whole
+  in a file of its own and takes that file past `maxBytes`. A file count is a bound that holds
+  unconditionally; a byte ceiling would only hold while every line was shorter than the cap.
 - **A day bound** (`logging.file.retainDays`), on the rotated files. A month-old file is not
   evidence anybody is going to read, and the deletion promise (spec 09) is easier to keep about a
   log that is not indefinitely old.
@@ -164,9 +169,16 @@ follows: it deletes its own files, not a directory it did not create, and anythi
 reported rather than removed. Spec 09 owns that promise and its criteria; this is the half that says
 what the files are.
 
-The directory is created 0700 and the files 0600, the modes spec 09 sets on the data directory and
-the database for the same reason: filesystem permissions are the whole of the protection at rest,
-and a default umask leaves a new file world-readable.
+The directory is 0700 and the files 0600, the modes spec 09 sets on the data directory and the
+database for the same reason: filesystem permissions are the whole of the protection at rest, and a
+default umask leaves a new file world-readable. Applied after creating or opening rather than only
+as a creation mode, which the umask masks and which does nothing at all for a path that is already
+there: an install upgrading into this has a log file already, and a configured
+`logging.file.directory` may be one somebody else made. A directory Caroline did not create is
+narrowed no further than the file in it, by the rule the rest of this document follows about a
+directory that is not its own. A filesystem that will not carry the mode (a CIFS or exFAT mount)
+leaves the log where it is rather than losing it, which is the judgement `src/db/connection.ts`
+already makes about the database.
 
 ## Configuration
 
@@ -178,7 +190,7 @@ and a default umask leaves a new file world-readable.
       "enabled": true,
       "directory": null,      // null: <data directory>/logs
       "maxBytes": 5242880,    // rotate the live file past this
-      "maxFiles": 5,          // counting the live one, so maxBytes * maxFiles is the ceiling
+      "maxFiles": 5,          // counting the live one, and the bound that always holds
       "retainDays": 14        // a rotated file older than this is removed
     }
   }
@@ -236,12 +248,16 @@ overrides `logging.level` and nothing else.
    recognises is a startup error naming the setting and the value.
 10. No item's own text appears in any log line at any level: with the level at `trace`, a task
     whose title, notes and stored body are distinctive is taken through ingestion,
-    classification, planning and an MCP tool call, and none of those strings appears in the file
-    or on stdout, while the task's id does.
+    classification, planning and an MCP tool call, and none of those strings appears in any line
+    the logger produced, while the task's id does. Asserted on the finished lines, which is what
+    both destinations receive: criterion 1 is what says the file and stdout carry the same bytes,
+    so a rule about the lines is a rule about the file.
 11. Turning the level to `debug` says materially more than `info` in the paths a fault is likely to
-    be in: the scheduler's decisions, each connector pass, each provider call, the classifier's
-    per-task decision, the planner's arithmetic, and the MCP surface's refusals and calls. Asserted
-    as lines at `debug` from each of those subsystems, not as a count.
+    be in: the scheduler's decisions (a schedule firing, a run skipped for being in flight, a run's
+    outcome, the rearm), each connector pass, each provider call (its outcome, and a refusal by the
+    spending ceiling), the classifier's per-task decision, the planner's arithmetic, the purge's
+    counts, and the MCP surface's refusals and calls. Asserted as lines at `debug` from each of
+    those subsystems, by the message each of them writes, not as a count.
 12. An MCP request refused for its `Origin` or its `Host`, or for a missing or invalid token, is
     logged with the reason and without the refused value, and a `tools/call` naming a tool that is
     not in the registry is logged as `(unknown)` rather than with the name the caller sent.
@@ -250,3 +266,7 @@ overrides `logging.level` and nothing else.
 14. `npm run delete-data` removes the log files and, where it is Caroline's and empty afterwards,
     the log directory, and leaves anything else in that directory alone and reported. Spec 09
     criterion 10 covers this destination as well as the others.
+15. An authorised MCP request is logged by an identifier Caroline assigned, the id of the grant the
+    presented token was found in, and not by the client identifier, which is an https URL the
+    client chose and is therefore caller-chosen bytes like any other. Criterion 12's rule about a
+    refusal, held to over the requests that are not refused.

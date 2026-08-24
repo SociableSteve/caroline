@@ -99,9 +99,12 @@ what each document is there to answer.
   rather than depended on.
 - **No item's own text goes in a log line, at any level.** No subject, title, body, snippet, note or
   plan rationale, at `info` or at `trace`: ids, counts, statuses, durations and decisions only, and a
-  caller's own bytes (an MCP tool name, a refused header) only as what Caroline recognised. Spec 14
-  states it as a contract and `test/server/log-verbosity.test.ts` asserts it, so a new `debug` line
-  carrying a title is a failing test rather than a review comment.
+  caller's own bytes (an MCP tool name, a refused header, a client-chosen identifier) only as what
+  Caroline recognised or as an id Caroline assigned. Spec 14 states it as a contract, and
+  `test/server/log-verbosity.test.ts` asserts it over the paths it drives: classify, plan, the sync
+  engine and an MCP tool call. So a title added on one of those is a failing test, and a title added
+  in the scheduler, in chat, in the routes or in purge is a review comment plus a case that file is
+  missing. The rule is the same everywhere; only the coverage stops there.
 - **Parts of docs/content-policy.md are generated.** Three blocks, each opened by an HTML
   comment naming `tools/docs/content-policy-examples.ts` and closed by an `end of the generated`
   one, come from the schema and the functions the classify job calls. Run

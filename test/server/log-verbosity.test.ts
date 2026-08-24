@@ -8,26 +8,37 @@
  * Every case drives the real logger at `trace` through the real scrubbing stream, rather than a
  * collecting double, so what is asserted is the bytes that would have reached the file.
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { loadConfig } from '../../src/config/load.js'
 import type { Config } from '../../src/config/schema.js'
 import type { Database } from '../../src/db/connection.js'
+import { recordJobRun } from '../../src/db/repositories/job-runs.js'
+import { recordLlmCall } from '../../src/db/repositories/llm-calls.js'
 import { upsertSource } from '../../src/db/repositories/sources.js'
 import { createTask } from '../../src/db/repositories/tasks.js'
 import { runSync } from '../../src/connectors/engine.js'
 import type { Connector, SourceItem } from '../../src/connectors/types.js'
 import { runClassification } from '../../src/jobs/classify.js'
+import { buildJobs } from '../../src/jobs/registry.js'
+import { PURGE_JOB } from '../../src/jobs/purge.js'
+import { createScheduler } from '../../src/jobs/scheduler.js'
 import { runPlanning } from '../../src/jobs/plan.js'
 import { createFakeProvider, type FakeAnswer } from '../../src/llm/fake.js'
-import type { LlmProvider, LlmRuntime } from '../../src/llm/index.js'
+import { createLlmRuntime, type LlmProvider, type LlmRuntime } from '../../src/llm/index.js'
 import { withSchemaValidation } from '../../src/llm/structured.js'
 import { callMcpTool, UNKNOWN_TOOL } from '../../src/mcp/call.js'
 import { buildServer } from '../../src/server/app.js'
 import type { OperationalLog } from '../../src/server/log.js'
 import { migratedDatabase } from '../helpers/temp-database.js'
 import { captureLog } from '../helpers/log-capture.js'
+import { classificationSchema, recordedPayload, stubFetch } from '../helpers/llm.js'
 
 const NOW = Date.UTC(2026, 7, 10, 9, 0, 0)
+
+/** Anything that would have reached the network fails loudly instead. */
+const refuseNetwork: typeof globalThis.fetch = (input) => {
+  throw new Error(`A test tried to reach ${String(input)}`)
+}
 
 /**
  * The strings that must not appear anywhere: a title, a note and a body, each distinctive enough
@@ -327,5 +338,269 @@ describe('turning the level down says more (spec 14 criterion 11)', () => {
     expect(atDebug).toContain('classification run starting')
     expect(atDebug).toContain('classification applied')
     expect(atDebug.length).toBeGreaterThan(atInfo.length)
+  })
+})
+
+/**
+ * The other arms of criterion 11. The classifier, the planner, the connectors and the MCP surface
+ * are asserted above; the scheduler, the provider and the purge are asserted here, by the message
+ * each of them writes rather than by the log being longer.
+ */
+describe('the scheduler says what it decided (spec 14 criterion 11)', () => {
+  it('logs a job run finishing, and the purge counts beside it', async () => {
+    const config = configuration()
+    const { lines, stream } = captureLog()
+    const database = migratedDatabase()
+    const app = await buildServer({ config, database, logger: { level: 'debug', stream } })
+    const log = app.log
+    const jobs = buildJobs({
+      database,
+      config,
+      now: () => NOW,
+      fetch: refuseNetwork,
+      log,
+    })
+
+    await jobs.scheduler.run(PURGE_JOB, 'manual')
+    await app.close()
+
+    const logged = lines.join('')
+    expect(logged).toContain('purge finished')
+    expect(logged).toContain('"retainContentDays"')
+    expect(logged).toContain('job run finished')
+    expect(logged).toContain('"job":"purge"')
+    expect(logged).toContain('"status":"success"')
+  })
+
+  it('logs a run skipped for being in flight, and a failed one at warn', async () => {
+    const config = configuration()
+    const { lines, stream } = captureLog()
+    const database = migratedDatabase()
+    const app = await buildServer({ config, database, logger: { level: 'debug', stream } })
+
+    let release = (): void => {}
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const scheduler = createScheduler({
+      database,
+      steps: [
+        { name: 'sync', run: async () => (await held, { status: 'success' as const }) },
+        {
+          name: 'classify',
+          run: () => Promise.resolve({ status: 'failure' as const, error: 'the provider is down' }),
+        },
+      ],
+      schedules: [],
+      timeZone: 'UTC',
+      backoffBaseMs: 60_000,
+      backoffCeilingMs: 3_600_000,
+      startupStaggerMs: 0,
+      now: () => NOW,
+      log: app.log,
+    })
+
+    const first = scheduler.run('sync', 'manual')
+    const skipped = await scheduler.run('sync', 'manual')
+    release()
+    await first
+    await scheduler.run('classify', 'manual')
+    await app.close()
+
+    const logged = lines.join('')
+    expect(skipped.status).toBe('already-running')
+    expect(logged).toContain('job run skipped')
+    expect(logged).toContain('"reason":"already in flight"')
+    expect(logged).toContain('job run failed')
+    expect(logged).toContain('"reason":"the provider is down"')
+  })
+
+  it('logs a schedule firing and the rearm that follows it', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+    try {
+      const config = configuration()
+      const { lines, stream } = captureLog()
+      const database = migratedDatabase()
+      const app = await buildServer({ config, database, logger: { level: 'debug', stream } })
+
+      // A success just now, so the cold-start catch-up does not count the job as overdue and the
+      // only thing that fires is the tick this test advances the clock to.
+      recordJobRun(database, {
+        job: 'sync',
+        trigger: 'scheduled',
+        startedAt: NOW,
+        finishedAt: NOW,
+        status: 'success',
+      })
+
+      const scheduler = createScheduler({
+        database,
+        steps: [{ name: 'sync', run: () => Promise.resolve({ status: 'success' as const }) }],
+        schedules: [{ job: 'sync', cron: '*/5 * * * *', chain: ['sync'] }],
+        timeZone: 'UTC',
+        backoffBaseMs: 60_000,
+        backoffCeilingMs: 3_600_000,
+        startupStaggerMs: 0,
+        log: app.log,
+      })
+
+      scheduler.start()
+      await vi.advanceTimersByTimeAsync(6 * 60_000)
+      scheduler.stop()
+      await scheduler.drain(0)
+      await app.close()
+
+      const logged = lines.join('')
+      expect(logged).toContain('schedule firing')
+      expect(logged).toContain('"chain":["sync"]')
+      expect(logged).toContain('schedule rearmed')
+      expect(logged).toContain('"nextRunAt"')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('each provider attempt says what it cost (spec 14 criterion 11)', () => {
+  /** $10 of Anthropic a month, which is the ceiling the refusal below is measured against. */
+  function capped(): Config {
+    return loadConfig({
+      file: {
+        jobs: { timezone: 'UTC' },
+        llm: {
+          provider: 'anthropic',
+          model: 'claude-sonnet-5',
+          budget: { currency: 'USD', period: 'month', anthropic: 10 },
+        },
+      },
+      env: { ANTHROPIC_API_KEY: 'sk-ant' } as NodeJS.ProcessEnv,
+    })
+  }
+
+  const request = {
+    system: 'Sort this item.',
+    messages: [{ role: 'user' as const, content: 'Can you sign off the venue booking?' }],
+    schema: classificationSchema,
+    maxTokens: 512,
+  }
+
+  it('logs a call that answered, with its model, duration and tokens', async () => {
+    const config = capped()
+    const { log, lines, close } = await tracingLog(config)
+    const stub = stubFetch([{ body: recordedPayload('anthropic-classification') }])
+
+    await createLlmRuntime({
+      config,
+      database: migratedDatabase(),
+      fetch: stub.fetch,
+      now: () => NOW,
+      log,
+    })
+      .for('classification')
+      .complete(request)
+    await close()
+
+    const logged = lines()
+    expect(logged).toContain('provider call finished')
+    expect(logged).toContain('"provider":"anthropic"')
+    expect(logged).toContain('"model":"claude-sonnet-5"')
+    expect(logged).toContain('"purpose":"classification"')
+    expect(logged).toContain('"inputTokens"')
+    expect(logged).toContain('"durationMs"')
+  })
+
+  it('logs a call that did not answer usably at warn, with the reason', async () => {
+    const config = capped()
+    const { log, lines, close } = await tracingLog(config)
+    const stub = stubFetch([{ status: 500, body: { error: { message: 'overloaded' } } }])
+
+    await expect(
+      createLlmRuntime({
+        config,
+        database: migratedDatabase(),
+        fetch: stub.fetch,
+        now: () => NOW,
+        log,
+      })
+        .for('classification')
+        .complete(request),
+    ).rejects.toThrow()
+    await close()
+
+    expect(lines()).toContain('provider call did not answer usably')
+  })
+
+  it('logs a refusal by the spending ceiling, with the ceiling as the reason', async () => {
+    const config = capped()
+    const { log, lines, close } = await tracingLog(config)
+    const database = migratedDatabase()
+    // Well past $10 at $2 per million input tokens, so the ceiling is reached rather than close.
+    recordLlmCall(database, {
+      provider: 'anthropic',
+      model: 'claude-sonnet-5',
+      purpose: 'classification',
+      startedAt: NOW,
+      durationMs: 10,
+      inputTokens: 50_000_000,
+      outputTokens: 0,
+      status: 'success',
+    })
+
+    const refusal = createLlmRuntime({
+      config,
+      database,
+      fetch: refuseNetwork,
+      now: () => NOW,
+      log,
+    }).budgetRefusal('classification')
+    await close()
+
+    expect(refusal).not.toBeNull()
+    const logged = lines()
+    expect(logged).toContain('provider call refused')
+    expect(logged).toContain('"purpose":"classification"')
+  })
+})
+
+/**
+ * Nothing constrains a rejection to an `Error`. The warn line that reports a failed pass hands the
+ * thrown value to the error serialiser, and a serialiser that assumed an `Error` threw a
+ * `TypeError` from inside the log call, out of the `catch` block: the remaining connectors never
+ * ran and the failure was reported twice. Spec 09 criterion 6, over the path spec 14 added.
+ */
+describe('a connector that rejects with something other than an Error', () => {
+  it('is logged as a failed pass, and the connectors after it still run', async () => {
+    const config = loadConfig({
+      file: { privacy: { storeContent: 'full' } },
+      env: { GITHUB_TOKEN: 'ghp_supersecret' } as NodeJS.ProcessEnv,
+    })
+    const { log, lines, close } = await tracingLog(config)
+
+    const rejecting: Connector = {
+      provider: 'gmail',
+      isConfigured: () => true,
+      // eslint-disable-next-line require-yield -- rejecting before the first item is the point
+      async *fetch() {
+        throw 'Gmail said 401 for ghp_supersecret'
+      },
+    }
+
+    const summary = await runSync({
+      database: migratedDatabase(),
+      connectors: [rejecting, oneItemConnector()],
+      trigger: 'manual',
+      policy: config.privacy,
+      now: () => NOW,
+      log,
+    })
+    await close()
+
+    expect(summary.results.map((result) => result.status)).toEqual(['failure', 'success'])
+    const logged = lines()
+    expect(logged).toContain('connector pass failed')
+    expect(logged).toContain('connector pass finished')
+    expect(logged).not.toContain('ghp_supersecret')
+    expect(logged).toContain('[redacted]')
   })
 })

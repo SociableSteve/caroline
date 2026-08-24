@@ -31,18 +31,50 @@ export function requestSerialiser() {
   })
 }
 
+/** The two fields taken from an error as they are, where they are the scalars they should be. */
+function scalarOrNothing(key: string, value: unknown): Record<string, string | number> {
+  return typeof value === 'string' || typeof value === 'number' ? { [key]: value } : {}
+}
+
+/** A value as a string, without a throwing `toString` becoming the log call's problem. */
+function asText(value: unknown): string {
+  if (typeof value === 'string') return value
+  try {
+    return String(value)
+  } catch {
+    return '(a value that cannot be described)'
+  }
+}
+
+/**
+ * What was thrown, as an `Error`. Nothing constrains a rejection or a `throw` to one: a connector
+ * that rejects with a string or a plain object hands this serialiser a value with no `message`, and
+ * `redactSecrets(undefined)` is a `TypeError` thrown from inside the `log.warn` call, out of the
+ * `catch` block the call sits in. Normalised here rather than at each call site, because the call
+ * sites are `catch` blocks over `unknown` and a new one would have to remember.
+ */
+function asError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(asText(value))
+}
+
 /**
  * Errors are serialised here rather than by pino's default, so the message and stack are
  * redacted while they are still strings. Upstream libraries put tokens in both.
+ *
+ * Takes `unknown` because that is what a `catch` block has. See `asError`: a logger must not be
+ * the thing that turns a handled failure into an unhandled one.
  */
 export function errorSerialiser(config: Config) {
-  return (error: Error & { code?: string; statusCode?: number }) => ({
-    type: error.name,
-    message: redactSecrets(error.message, config),
-    stack: redactSecrets(error.stack ?? '', config),
-    ...(error.code === undefined ? {} : { code: error.code }),
-    ...(error.statusCode === undefined ? {} : { statusCode: error.statusCode }),
-  })
+  return (value: unknown) => {
+    const error = asError(value) as Error & { code?: unknown; statusCode?: unknown }
+    return {
+      type: asText(error.name),
+      message: redactSecrets(asText(error.message), config),
+      stack: redactSecrets(error.stack === undefined ? '' : asText(error.stack), config),
+      ...scalarOrNothing('code', error.code),
+      ...scalarOrNothing('statusCode', error.statusCode),
+    }
+  }
 }
 
 /**
@@ -148,6 +180,10 @@ export function redactLogFields(
  */
 export function scrubbingStream(destination: NodeJS.WritableStream, config: Config): Writable {
   return new Writable({
+    // pino writes strings and `redactSecrets` wants one, so the default `decodeStrings: true` would
+    // encode every line to a Buffer only for `String(chunk)` to decode it straight back: one
+    // pointless transcode of every log line, paid on every request.
+    decodeStrings: false,
     write(chunk: Buffer | string, _encoding, callback) {
       destination.write(redactSecrets(String(chunk), config))
       callback()

@@ -19,17 +19,6 @@ export interface OperationalLog {
   error(fields: Record<string, unknown>, message: string): void
 }
 
-/** For a caller with nowhere to log: the payload preview, and most of the suite. */
-export function silentLog(): OperationalLog {
-  return {
-    trace: () => {},
-    debug: () => {},
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-  }
-}
-
 export interface DeferredLog extends OperationalLog {
   /** Points this at the real logger. Anything logged before it is called goes nowhere. */
   attach(target: OperationalLog): void

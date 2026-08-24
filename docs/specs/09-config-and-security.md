@@ -594,13 +594,16 @@ Spec 03's spending ceiling adds the following, appended for the reason the earli
     names.
 
 The durable log (spec 14) adds the following, appended for the reason the earlier blocks were.
-Criterion 6 and criterion 10 are extended in place rather than joined by criteria of their own,
-because the contracts they state are unchanged and the new destination is one more thing they hold
-over.
+Criterion 6 is extended in place rather than joined by one of its own, because the contract it
+states is unchanged and the new destination is one more thing it holds over. Criterion 10 needed no
+edit at all: "leaves no Caroline-created file on disk" already covers a file spec 14 taught Caroline
+to create, and the deletion command reaching it is what keeps the criterion true rather than a
+change to what it says.
 
 28. The durable log holds no item content: with the level at its most verbose, a task whose title,
     notes and stored body are distinctive appears in the log as its id, its statuses and its
-    confidences, and none of those strings appears in any line. Its retention is configured rather
-    than however much disk is free, alongside `privacy.retainContentDays` and independently of it,
-    and `npm run delete-data` removes the log files and the log directory it created, which is what
-    keeps criterion 10 true of an install that has been running for a week.
+    confidences, and none of those strings appears in any line the logger produced, at either
+    destination. Its retention is configured rather than however much disk is free, alongside
+    `privacy.retainContentDays` and independently of it, and `npm run delete-data` removes the log
+    files and the log directory it created, which is what keeps criterion 10 true of an install
+    that has been running for a week.

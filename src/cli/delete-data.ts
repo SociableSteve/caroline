@@ -294,7 +294,15 @@ export function deleteCarolineData(
   // A symbolic link is not a directory Caroline created either, whatever it points at, and
   // `rmdirSync` throws ENOTDIR on one. Symlinking the data directory onto another volume is the same
   // reasonable thing as symlinking the database, and the link is left where it is.
-  const wroteHere = removed.some((path) => !symlinks.includes(path))
+  //
+  // Filtered by `dirname`, the way the log directory's own version of this check above is, because
+  // `carolineDataPaths` reaches outside this directory: `logging.file.directory` may name a
+  // directory of the user's own, and a `caroline.log` removed from there says nothing whatever
+  // about the data directory. Without the filter, removing that external file made a data
+  // directory Caroline had never written in look like one it had, and the empty directory was then
+  // removed: exactly the overreach this check exists to prevent. The log directory itself counts,
+  // since it is only ever in `removed` after `wroteLogs` proved Caroline wrote in it.
+  const wroteHere = removed.some((path) => dirname(path) === directory && !symlinks.includes(path))
   const directoryEmpty =
     ownsDirectory &&
     entries !== null &&

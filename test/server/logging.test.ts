@@ -9,6 +9,7 @@ import { buildServer } from '../../src/server/app.js'
 import { migratedDatabase } from '../helpers/temp-database.js'
 import { NO_BUILT_WEB_ROOT } from '../helpers/test-server.js'
 import { createLogDestination } from '../../src/server/log-destination.js'
+import { deferredLog } from '../../src/server/log.js'
 import { LOG_FILE_NAME } from '../../src/server/log-file.js'
 import { UNMATCHED_ROUTE } from '../../src/server/log-redaction.js'
 import { captureLog } from '../helpers/log-capture.js'
@@ -492,5 +493,176 @@ describe('the durable log file (spec 14 criteria 1, 2, 6 and 7; spec 09 criterio
     const said = lines.join('')
     expect(said).toContain('Logging continues on stdout only')
     expect(said).toContain('"route":"/api/health"')
+  })
+})
+
+/**
+ * The destination writes two lines of its own, one about a stdout that has gone and one about a file
+ * it could not open, and spec 14 criterion 2 says without exception that every line reaching the
+ * file has been scrubbed. Both interpolate what the stream or the filesystem said, and an errno
+ * message carries a path, so both go through the same function the stream applies.
+ */
+describe('the destination scrubs its own two lines too (spec 14 criterion 2)', () => {
+  const directories: string[] = []
+
+  afterEach(() => {
+    for (const directory of directories.splice(0)) {
+      try {
+        chmodSync(directory, 0o700)
+      } catch {
+        // Only the read-only case needs this, and only so the directory can be removed.
+      }
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  function temporaryDirectory(): string {
+    const created = mkdtempSync(join(tmpdir(), 'caroline-log-'))
+    directories.push(created)
+    return created
+  }
+
+  it('redacts a secret in what the failing stdout said, in the line it writes to the file', () => {
+    const directory = temporaryDirectory()
+    const config = loadConfig({ file: { logging: { file: { directory } } }, env: secrets })
+    const closedTerminal = new Writable({
+      write() {
+        // An upstream message that happens to carry a configured secret. This is the shape the
+        // scrubber exists for: the destination interpolates whatever it was told.
+        throw new Error('EPIPE writing to ghp_supersecret')
+      },
+    })
+    const destination = createLogDestination({ config, stdout: closedTerminal })
+
+    destination.stream.write('{"msg":"a line"}\n')
+    destination.close()
+
+    const contents = readFileSync(join(directory, LOG_FILE_NAME), 'utf8')
+    expect(contents).toContain('no longer write log lines to stdout')
+    expect(contents).not.toContain('ghp_supersecret')
+    expect(contents).toContain('[redacted]')
+  })
+
+  it('redacts a secret in the path it says it could not open, on stdout', () => {
+    const parent = temporaryDirectory()
+    // A path can hold anything, and the errno message names the path. Nothing stops somebody
+    // configuring a directory whose name is also a value the redactor knows.
+    const directory = join(parent, 'ghp_supersecret')
+    chmodSync(parent, 0o500)
+    const config = loadConfig({ file: { logging: { file: { directory } } }, env: secrets })
+    const { lines, stream: terminal } = captureLog()
+
+    const destination = createLogDestination({ config, stdout: terminal })
+    destination.close()
+
+    const said = lines.join('')
+    expect(said).toContain('Logging continues on stdout only')
+    expect(said).not.toContain('ghp_supersecret')
+    expect(said).toContain('[redacted]')
+  })
+
+  /*
+   * `EPIPE` on a pipe whose reader has gone arrives as an `error` event rather than as a throw, so
+   * the listener is a second path into the same disabling and not a duplicate of the `try`. It is
+   * also the worst failure this change could introduce: an unhandled `error` on stdout takes the
+   * process down, which would be a crash caused by logging.
+   */
+  it('disables stdout on an error event, and keeps writing the file', () => {
+    const directory = temporaryDirectory()
+    const config = loadConfig({ file: { logging: { file: { directory } } }, env: secrets })
+    const { lines, stream: terminal } = captureLog()
+    const destination = createLogDestination({ config, stdout: terminal })
+
+    destination.stream.write('{"msg":"before the error event"}\n')
+    terminal.emit('error', new Error('EPIPE: broken pipe'))
+    destination.stream.write('{"msg":"after the error event"}\n')
+    destination.close()
+
+    const contents = readFileSync(join(directory, LOG_FILE_NAME), 'utf8')
+    expect(contents).toContain('before the error event')
+    expect(contents).toContain('after the error event')
+    expect(contents.match(/no longer write log lines to stdout/g)).toHaveLength(1)
+    // Stdout stopped at the point it said it had gone, rather than being written to again.
+    expect(lines.join('')).toBe('{"msg":"before the error event"}\n')
+  })
+})
+
+/**
+ * The bridge between the jobs, which are built first, and the logger, which the server owns. Spec
+ * 14: anything logged before `attach` goes nowhere rather than throwing, and everything after it
+ * reaches the target at the level it was written at.
+ */
+describe('the deferred log handle (spec 14)', () => {
+  it('swallows a line written before there is a logger', () => {
+    const log = deferredLog()
+
+    expect(() => {
+      log.debug({ job: 'sync' }, 'built before the server')
+    }).not.toThrow()
+  })
+
+  it('passes every level through to the logger it is attached to', () => {
+    const log = deferredLog()
+    const seen: Array<[string, Record<string, unknown>, string]> = []
+    const record =
+      (level: string) =>
+      (fields: Record<string, unknown>, message: string): void => {
+        seen.push([level, fields, message])
+      }
+
+    log.attach({
+      trace: record('trace'),
+      debug: record('debug'),
+      info: record('info'),
+      warn: record('warn'),
+      error: record('error'),
+    })
+
+    log.trace({ a: 1 }, 'at trace')
+    log.debug({ a: 2 }, 'at debug')
+    log.info({ a: 3 }, 'at info')
+    log.warn({ a: 4 }, 'at warn')
+    log.error({ a: 5 }, 'at error')
+
+    expect(seen).toEqual([
+      ['trace', { a: 1 }, 'at trace'],
+      ['debug', { a: 2 }, 'at debug'],
+      ['info', { a: 3 }, 'at info'],
+      ['warn', { a: 4 }, 'at warn'],
+      ['error', { a: 5 }, 'at error'],
+    ])
+  })
+})
+
+/**
+ * A logging call is inside a `catch` block, so it is handed whatever was thrown, which need not be
+ * an `Error`. The serialiser redacts the message and the stack while they are still strings, and
+ * `redactSecrets` splits a string: a value with no `message` made that a `TypeError` raised from
+ * inside `log.warn`, out of the `catch` it was reporting. Spec 09 criterion 6.
+ */
+describe('a non-Error handed to the logger', () => {
+  it('is logged with its own text redacted, rather than throwing out of the log call', async () => {
+    const { lines, stream } = captureLog()
+    const config = loadConfig({ file: null, env: secrets })
+    const app = await buildServer({
+      config,
+      database: migratedDatabase(),
+      logger: { level: 'info', stream },
+    })
+
+    expect(() => {
+      app.log.warn({ err: 'the upstream rejected with ghp_supersecret' }, 'something failed')
+    }).not.toThrow()
+    // A rejection with no text at all, which is what `undefined` reaches the serialiser as.
+    expect(() => {
+      app.log.warn({ err: undefined }, 'something else failed')
+    }).not.toThrow()
+    await app.close()
+
+    const logged = lines.join('')
+    expect(logged).toContain('something failed')
+    expect(logged).toContain('something else failed')
+    expect(logged).not.toContain('ghp_supersecret')
+    expect(logged).toContain('[redacted]')
   })
 })

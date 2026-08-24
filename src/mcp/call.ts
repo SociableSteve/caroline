@@ -116,21 +116,27 @@ export async function callMcpTool(
   input: McpToolCallInput,
 ): Promise<McpToolCallResult> {
   const startedAt = deps.now()
-  const result = await executeMcpToolCall(deps, input)
-
-  deps.log?.debug(
-    {
-      tool: findMcpTool(input.tool) === undefined ? UNKNOWN_TOOL : input.tool,
-      outcome: result.outcome,
-      sessionId: result.session?.id ?? null,
-      itemCount: result.outcome === 'ok' ? itemCountOf(result.data) : 0,
-      contentLevel: deps.config.privacy.llmContent,
-      durationMs: deps.now() - startedAt,
-    },
-    'MCP tool call',
-  )
-
-  return result
+  // `finally`, because a call that threw is the branch the line is most wanted for: an unexpected
+  // exception out of a tool is exactly the thing somebody would be reading the log to find, and
+  // logging only the returns would leave that one silent. The outcome then says `threw`, since
+  // there is no result to read one from.
+  let result: McpToolCallResult | null = null
+  try {
+    result = await executeMcpToolCall(deps, input)
+    return result
+  } finally {
+    deps.log?.debug(
+      {
+        tool: findMcpTool(input.tool) === undefined ? UNKNOWN_TOOL : input.tool,
+        outcome: result === null ? 'threw' : result.outcome,
+        sessionId: result?.session?.id ?? null,
+        itemCount: result?.outcome === 'ok' ? itemCountOf(result.data) : 0,
+        contentLevel: deps.config.privacy.llmContent,
+        durationMs: deps.now() - startedAt,
+      },
+      'MCP tool call',
+    )
+  }
 }
 
 async function executeMcpToolCall(

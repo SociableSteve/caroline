@@ -238,6 +238,47 @@ describe('a file it cannot write (spec 14 criterion 6)', () => {
     expect(statSync(directory).mode & 0o777).toBe(0o700)
     expect(statSync(join(directory, LOG_FILE_NAME)).mode & 0o777).toBe(0o600)
   })
+
+  it('tightens a log file that was already there with a wider mode', () => {
+    const directory = temporaryDirectory()
+    // Every install that ran before this change has one, and a `logging.file.directory` somebody
+    // named may hold one written under a default umask. A creation mode does nothing for either:
+    // it is masked by the umask, and it is not consulted at all for a file that exists.
+    writeFileSync(join(directory, LOG_FILE_NAME), line('from the last run'), { mode: 0o644 })
+    chmodSync(join(directory, LOG_FILE_NAME), 0o644)
+
+    const file = openLogFile({ directory, maxBytes: 4096, maxFiles: 5, retainDays: 14 })
+    file.write(line('from this one'))
+    file.close()
+
+    expect(statSync(join(directory, LOG_FILE_NAME)).mode & 0o777).toBe(0o600)
+  })
+
+  it('tightens the file it opens after a rotation too', () => {
+    const directory = temporaryDirectory()
+    const file = openLogFile({ directory, maxBytes: 16, maxFiles: 3, retainDays: 14 })
+
+    file.write(line('a'.repeat(12)))
+    file.write(line('b'.repeat(12)))
+    file.close()
+
+    expect(statSync(join(directory, LOG_FILE_NAME)).mode & 0o777).toBe(0o600)
+    expect(statSync(join(directory, `${LOG_FILE_NAME}.1`)).mode & 0o777).toBe(0o600)
+  })
+
+  it('leaves a directory it did not create as it found it, and still tightens the file', () => {
+    // The rule `src/db/connection.ts` follows and the deletion command follows: narrowing a
+    // directory Caroline did not make is the same overreach as removing one.
+    const directory = temporaryDirectory()
+    chmodSync(directory, 0o755)
+
+    const file = openLogFile({ directory, maxBytes: 4096, maxFiles: 5, retainDays: 14 })
+    file.write(line('a line'))
+    file.close()
+
+    expect(statSync(directory).mode & 0o777).toBe(0o755)
+    expect(statSync(join(directory, LOG_FILE_NAME)).mode & 0o777).toBe(0o600)
+  })
 })
 
 describe('where the log lives (spec 14 criterion 13)', () => {

@@ -1026,12 +1026,54 @@ describe('with mcp.enabled true', () => {
  * request's URL is a rule about caller-chosen bytes rather than about URLs in particular.
  */
 describe('what a refusal says in the log (spec 14 criterion 12)', () => {
-  /*
-   * A cross-site `Origin` and a `Host` this install does not answer to are refused by the
-   * request-level checks of spec 13 before this route's own hook sees them, so what is asserted here
-   * is the credential refusals, which this hook is the only check for. The `Origin` and `Host` arms
-   * of the hook log by the same rule and are read in the source beside these.
+  /**
+   * An install that names a public URL, which is what makes this route's own `Origin` and `Host`
+   * checks reachable over HTTP at all.
+   *
+   * `isAcceptableMcpOrigin` accepts a loopback hostname and nothing else (spec 12, criterion 9),
+   * while the request-level gate of spec 13 also accepts `server.publicUrl`'s origin, and
+   * `isAcceptableHost` its hostname, both a deliberate widening documented in `src/auth/origin.ts`.
+   * So the public origin and the public host pass the gate, reach this hook, and are refused here:
+   * the two arms are ordinary requests rather than shapes only reachable from inside the process.
    */
+  const publicUrlConfig = (): Config => ({
+    ...mcpConfig(),
+    server: { ...testConfig.server, publicUrl: 'https://caroline.example.com' },
+  })
+
+  it('logs that an Origin was refused, and never the Origin', async () => {
+    const config = publicUrlConfig()
+    const { lines, stream } = captureLog()
+    const { app, database } = await testServer({ config, logger: { level: 'debug', stream } })
+
+    const response = await post(app, database, config, rpc('server/discover'), {
+      origin: 'https://caroline.example.com',
+      host: 'caroline.example.com',
+    })
+
+    expect(response.statusCode).toBe(403)
+    expect(response.json()).toEqual({ error: 'origin not accepted' })
+    const logged = lines.join('')
+    expect(logged).toContain('"refusal":"origin not accepted"')
+    expect(logged).not.toContain('caroline.example.com')
+  })
+
+  it('logs that a Host was refused, and never the Host', async () => {
+    const config = publicUrlConfig()
+    const { lines, stream } = captureLog()
+    const { app, database } = await testServer({ config, logger: { level: 'debug', stream } })
+
+    const response = await post(app, database, config, rpc('server/discover'), {
+      host: 'caroline.example.com',
+    })
+
+    expect(response.statusCode).toBe(403)
+    expect(response.json()).toEqual({ error: 'host not accepted' })
+    const logged = lines.join('')
+    expect(logged).toContain('"refusal":"host not accepted"')
+    expect(logged).not.toContain('caroline.example.com')
+  })
+
   it('logs that there was no credential, at all, rather than what arrived', async () => {
     const { lines, stream } = captureLog()
     const { app, database } = await testServer({
@@ -1062,6 +1104,28 @@ describe('what a refusal says in the log (spec 14 criterion 12)', () => {
     const logged = lines.join('')
     expect(logged).toContain('"refusal":"token not accepted"')
     expect(logged).not.toContain('ghp-smuggled-in-a-token')
+  })
+
+  /**
+   * The requests that are not refused, held to the same rule. Spec 14, criterion 15: the client
+   * identifier is an https URL the client chose, so it is caller-chosen bytes exactly as a header
+   * is, and what is logged is the id of the grant Caroline minted for the token presented.
+   */
+  it('logs an authorised request by the grant Caroline issued, not by the client identifier', async () => {
+    const { lines, stream } = captureLog()
+    const { app, database } = await testServer({
+      config: mcpConfig(),
+      logger: { level: 'debug', stream },
+    })
+
+    const response = await post(app, database, mcpConfig(), rpc('server/discover'))
+
+    expect(response.statusCode).toBe(200)
+    const logged = lines.join('')
+    expect(logged).toContain('MCP request authorised')
+    expect(logged).toContain('"grantId"')
+    expect(logged).not.toContain(TEST_CLIENT_ID)
+    expect(logged).not.toContain('clientId')
   })
 
   it('logs a method it does not have as unknown, and not by the name it was sent', async () => {

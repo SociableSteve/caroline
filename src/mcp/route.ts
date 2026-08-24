@@ -223,7 +223,15 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteContext): 
         return
       }
 
-      request.log.debug({ clientId: validated.clientId }, 'MCP request authorised')
+      /*
+       * By the grant Caroline minted, not by the client identifier: that identifier is an https URL
+       * the client chose (`oauth/service.ts` requires the scheme and nothing more), so it is
+       * caller-chosen bytes and the rule above holds for it exactly as it holds for a refused
+       * header. A grant id is Caroline's own, joins straight to `mcp_oauth_tokens` and from there
+       * to the client for anybody who needs to know which one it was, and cannot smuggle anything.
+       * Spec 14, criterion 15.
+       */
+      request.log.debug({ grantId: validated.grantId }, 'MCP request authorised')
     })
 
     instance.post(

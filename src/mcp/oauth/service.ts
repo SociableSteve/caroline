@@ -340,6 +340,12 @@ export function exchangeToken(
 
 export interface ValidatedToken {
   readonly clientId: string
+  /**
+   * The id of the grant the token was found in, which Caroline minted when it issued the pair. It
+   * is what an authorised request is logged by: the client identifier is an https URL the client
+   * chose, and spec 14 says caller-chosen bytes do not reach a log line. Spec 14, criterion 15.
+   */
+  readonly grantId: string
 }
 
 /**
@@ -357,7 +363,7 @@ export function validateAccessToken(
   const grant = findAccessGrant(database, presentedToken, now)
   if (grant === null) return null
   if (grant.resource !== canonicalResourceUri(config)) return null
-  return { clientId: grant.clientId }
+  return { clientId: grant.clientId, grantId: grant.id }
 }
 
 export { listApprovedClients, revokeClient }

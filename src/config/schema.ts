@@ -374,7 +374,8 @@ export const fileConfigSchema = z
               .min(4096)
               .max(1_073_741_824)
               .default(5 * 1_048_576),
-            /** Counting the live file, so `maxBytes * maxFiles` is the ceiling on the disk used. */
+            /** Counting the live file. The bound that always holds: `maxBytes * maxFiles` is the
+             * disk to plan for, not a byte guarantee, since a line longer than the cap lands whole. */
             maxFiles: z.number().int().min(1).max(100).default(5),
             /** A rotated file older than this goes. The live file never does. */
             retainDays: z.number().int().min(1).max(365).default(14),

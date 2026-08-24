@@ -14,8 +14,10 @@
  * a sink with no buffer has no flush to lose.
  */
 import {
+  chmodSync,
   closeSync,
   existsSync,
+  fchmodSync,
   fstatSync,
   mkdirSync,
   openSync,
@@ -46,20 +48,15 @@ export function isLogFileName(name: string): boolean {
   return name === LOG_FILE_NAME || /^caroline\.log\.[1-9][0-9]*$/.test(name)
 }
 
-/** The paths this sink owns, live file first, whether or not they exist. */
-export function logFilePaths(directory: string, maxFiles: number): readonly string[] {
-  return [
-    join(directory, LOG_FILE_NAME),
-    ...Array.from({ length: Math.max(0, maxFiles - 1) }, (_unused, index) =>
-      join(directory, `${LOG_FILE_NAME}.${index + 1}`),
-    ),
-  ]
-}
-
 export interface LogFileOptions {
   readonly directory: string
   readonly maxBytes: number
-  /** Counting the live file, so `maxBytes * maxFiles` is the ceiling on the disk this occupies. */
+  /**
+   * Counting the live file. This is the bound: never more than `maxFiles` files, whatever has been
+   * written. `maxBytes * maxFiles` is the disk that follows from it in the ordinary case, and not a
+   * guarantee about bytes, because a line longer than the cap is written whole rather than split and
+   * takes its own file past `maxBytes`. Spec 14, "What rotates".
+   */
   readonly maxFiles: number
   readonly retainDays: number
   readonly now?: () => number
@@ -154,11 +151,38 @@ export function openLogFile({
     }
   }
 
+  /**
+   * A mode applied after the fact rather than only through a creation mode, for the two reasons
+   * `src/db/connection.ts` gives: a creation mode is masked by the umask, and it does nothing at all
+   * for a path that already exists. An install upgrading into this change has a log file already,
+   * and `logging.file.directory` may name one somebody made with a default umask.
+   *
+   * A filesystem that will not carry the mode is not a reason to lose the log. These modes are
+   * defence in depth on a machine spec 09 already says has one user, and a CIFS or exFAT mount
+   * refusing `chmod` is an ordinary self-hosted arrangement rather than a fault, which is the
+   * judgement `connection.ts` makes about the database for the same reason.
+   */
+  function tighten(apply: () => void): void {
+    try {
+      apply()
+    } catch {
+      // A weaker posture, not a failure. Nothing about the log is lost by it.
+    }
+  }
+
+  /**
+   * Opens the live file and tightens both it and the directory. Only a directory this call created
+   * is narrowed, which is `connection.ts`'s rule and the deletion command's: narrowing a directory
+   * Caroline did not make would be the same overreach as removing one.
+   */
   function open(): void {
     try {
-      mkdirSync(directory, { recursive: true, mode: DIRECTORY_MODE })
-      descriptor = openSync(livePath, 'a', FILE_MODE)
-      size = fstatSync(descriptor).size
+      const created = mkdirSync(directory, { recursive: true, mode: DIRECTORY_MODE })
+      if (created !== undefined) tighten(() => chmodSync(created, DIRECTORY_MODE))
+      const opened = openSync(livePath, 'a', FILE_MODE)
+      descriptor = opened
+      tighten(() => fchmodSync(opened, FILE_MODE))
+      size = fstatSync(opened).size
       // At open, so an instance restarted after a long absence brings what it finds into the bound.
       // A bound that only holds while the process is busy is not a bound. Spec 14, criterion 5.
       prune()
@@ -188,7 +212,9 @@ export function openLogFile({
       // `maxFiles` of 1 keeps no rotations at all, so the live file is simply started again.
       if (maxFiles === 1) rmSync(livePath, { force: true })
 
-      descriptor = openSync(livePath, 'a', FILE_MODE)
+      const opened = openSync(livePath, 'a', FILE_MODE)
+      descriptor = opened
+      tighten(() => fchmodSync(opened, FILE_MODE))
       size = 0
       prune()
     } catch (error) {
@@ -206,16 +232,29 @@ export function openLogFile({
     write(line: string): void {
       if (descriptor === null) return
 
-      const bytes = Buffer.byteLength(line)
+      // Encoded once, here: the byte length the cap is compared against and the bytes handed to
+      // `writeSync` are then the same object rather than two passes over the same string.
+      const buffer = Buffer.from(line, 'utf8')
       // Rotated before the write rather than after it, so a line is never split across two files
       // and a single line longer than the cap still lands whole in a file of its own. Spec 14,
       // criterion 3.
-      if (size > 0 && size + bytes > maxBytes) rotate()
+      if (size > 0 && size + buffer.length > maxBytes) rotate()
       if (descriptor === null) return
 
       try {
-        writeSync(descriptor, line)
-        size += bytes
+        // `writeSync` is allowed to write less than it was given, and this sink's contract is that a
+        // line is never split: a short write that was not finished would truncate the line on disk
+        // and still be counted whole against the size cap. The offset is in bytes, which is why this
+        // goes through a Buffer rather than the string it came as.
+        let written = 0
+        while (written < buffer.length) {
+          const advanced = writeSync(descriptor, buffer, written)
+          // A descriptor that accepts nothing is not going to accept anything on the next pass
+          // either, and looping on it would hang the process inside a log write.
+          if (advanced <= 0) throw new Error('the write made no progress')
+          written += advanced
+          size += advanced
+        }
         // The day bound, on an instance whose log is quiet enough never to rotate. Throttled, so
         // an ordinary write costs a comparison rather than a directory read.
         if (now() - lastPrunedAt >= PRUNE_INTERVAL_MS) prune()

@@ -519,4 +519,50 @@ describe('the log (spec 14 criterion 14, spec 09 criteria 10 and 28)', () => {
     expect(report.directoryRemoved).toBe(false)
     expect(existsSync(logs)).toBe(true)
   })
+
+  it('leaves a data directory alone when the only file removed was in a log directory elsewhere', () => {
+    // The two halves of the shape that made this wrong: a data directory Caroline never wrote a
+    // byte in, and a log directory the user named somewhere else that does hold a log. The log
+    // file is Caroline's and goes; what it must not do is stand as evidence about a directory it
+    // was never in. Without the `dirname` filter on `wroteHere` this reported
+    // `directoryRemoved: true` and removed somebody else's folder.
+    const directory = mkdtempSync(join(tmpdir(), 'caroline-delete-'))
+    directories.push(directory)
+    const elsewhere = mkdtempSync(join(tmpdir(), 'caroline-logs-'))
+    directories.push(elsewhere)
+    const config = loadConfig({
+      file: {
+        database: { path: join(directory, 'caroline.db') },
+        logging: { file: { directory: elsewhere } },
+      },
+      env: {} as NodeJS.ProcessEnv,
+    })
+    writeFileSync(join(elsewhere, 'caroline.log'), 'a line\n')
+
+    const report = deleteCarolineData(config)
+
+    expect(report.removed).toEqual([join(elsewhere, 'caroline.log')])
+    expect(report.directoryRemoved).toBe(false)
+    expect(existsSync(directory)).toBe(true)
+  })
+
+  it('removes a rotation set larger than the default file count', () => {
+    const config = temporaryConfig()
+    runCaroline(config)
+    // Ten rotations against a `maxFiles` of five: an instance whose bound was lowered after it had
+    // been running, or whose configuration named a larger one. `logFilesIn` filters by the
+    // unbounded `isLogFileName` rather than by the current bound, which is what makes this work.
+    const names = [
+      'caroline.log',
+      ...Array.from({ length: 10 }, (_u, i) => `caroline.log.${i + 1}`),
+    ]
+    const logs = writeLogFiles(config, names)
+
+    const report = deleteCarolineData(config)
+
+    for (const name of names) expect(report.removed).toContain(join(logs, name))
+    expect(report.removed).toContain(logs)
+    expect(report.leftBehind).toEqual([])
+    expect(existsSync(logs)).toBe(false)
+  })
 })

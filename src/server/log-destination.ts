@@ -8,6 +8,7 @@
  */
 import { dirname, join, resolve } from 'node:path'
 import { Writable } from 'node:stream'
+import { redactSecrets } from '../config/redact.js'
 import type { Config } from '../config/schema.js'
 import { LOG_FILE_NAME, noLogFile, openLogFile, type LogFile } from './log-file.js'
 
@@ -60,9 +61,22 @@ export function createLogDestination({
   let terminal: NodeJS.WritableStream | null = stdout
   let file: LogFile = noLogFile()
 
+  /**
+   * The two lines this file writes itself, held to the same rule as every line passing through it.
+   *
+   * `scrubbingStream` wraps this destination, so anything written from inside it is downstream of
+   * the scrubber and would reach the terminal or the file uncovered. Spec 14, criterion 2, says
+   * without exception that every line reaching the file has been scrubbed, and an exception in the
+   * one document that exists to say there is no second path is worth more than the two calls it
+   * would save. Literally the same function the stream applies, so the two cannot diverge. Both
+   * messages interpolate what the filesystem or the stream said, which is the sort of string an
+   * upstream errno message can carry a path through, and a path can hold anything.
+   */
+  const scrub = (text: string): string => redactSecrets(text, config)
+
   const say = (message: string): void => {
     try {
-      terminal?.write(`${message}\n`)
+      terminal?.write(scrub(`${message}\n`))
     } catch {
       // Nowhere left to say it. The line itself is still written wherever it can be.
     }
@@ -89,11 +103,13 @@ export function createLogDestination({
     terminal = null
     const detail = error instanceof Error ? error.message : String(error)
     file.write(
-      `${JSON.stringify({
-        level: 40,
-        time: Date.now(),
-        msg: `Caroline can no longer write log lines to stdout: ${detail}. The log file is unaffected.`,
-      })}\n`,
+      scrub(
+        `${JSON.stringify({
+          level: 40,
+          time: Date.now(),
+          msg: `Caroline can no longer write log lines to stdout: ${detail}. The log file is unaffected.`,
+        })}\n`,
+      ),
     )
   }
 
@@ -106,6 +122,10 @@ export function createLogDestination({
   stdout.on('error', disableTerminal)
 
   const stream = new Writable({
+    // pino writes strings and both sides below want a string, so the default `decodeStrings: true`
+    // would encode every line to a Buffer only for `String(chunk)` to decode it straight back. One
+    // transcode of every log line, paid on every request, for nothing.
+    decodeStrings: false,
     write(chunk: Buffer | string, _encoding, callback) {
       const line = String(chunk)
 

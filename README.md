@@ -67,9 +67,11 @@ read from the environment only: a key in the config file is a startup error.
 Caroline's own data directory, `data/logs/caroline.log` by default, so a fault that has already
 happened can be investigated on a machine nobody was watching. What survives is bounded:
 `logging.file.maxBytes` rotates the live file (5 MiB), `logging.file.maxFiles` is how many exist at
-once including it (five, so 25 MiB in total at most), and `logging.file.retainDays` ages the rotated
-ones out (a fortnight). `logging.file.directory` puts them somewhere else, `logging.file.enabled`
-turns the file off, and `npm run delete-data` removes them along with everything else.
+once including it (five, so around 25 MiB to plan for), and `logging.file.retainDays` ages the
+rotated ones out (a fortnight). The bound that always holds is the file count, since a line longer
+than the cap is written whole rather than split and takes its file past 5 MiB.
+`logging.file.directory` puts them somewhere else, `logging.file.enabled` turns the file off, and
+`npm run delete-data` removes them along with everything else.
 
 `logging.level` sets how much is said, and `CAROLINE_LOG_LEVEL` overrides it. At `info` you get the
 boot line, a matched pair per request and each job's outcome; at `debug` you also get the
