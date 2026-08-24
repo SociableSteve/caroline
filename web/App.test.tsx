@@ -49,6 +49,51 @@ interface StubOptions {
   failLogin?: boolean
   /** Every write answered 401, as a revoked session would be. */
   unauthorizedWrites?: boolean
+  /**
+   * Held until the test resolves it, and awaited before any write answers. `POST /api/jobs/:name/run`
+   * really does behave this way: it answers only once the run has finished, so the window between
+   * the press and the answer is the whole of a sync.
+   */
+  heldWrite?: Promise<unknown>
+}
+
+/**
+ * A `GET /api/jobs/status` row for the sync job, with only the parts a test cares about named.
+ * The header reads this row and nothing else about the job, so it is what the sync tests vary.
+ */
+function syncJobStatus(
+  overrides: {
+    running?: boolean
+    status?: 'success' | 'failure' | 'skipped'
+    finishedAt?: number
+    error?: string
+    lastRun?: null
+  } = {},
+) {
+  const finishedAt = overrides.finishedAt ?? NOW - 120_000
+  const lastRun =
+    overrides.lastRun === null
+      ? null
+      : {
+          id: 'run-1',
+          job: 'sync',
+          trigger: 'scheduled',
+          startedAt: finishedAt - 1_000,
+          finishedAt,
+          status: overrides.status ?? 'success',
+          counts: {},
+          error: overrides.error ?? null,
+        }
+
+  return {
+    job: 'sync',
+    cron: '*/15 * * * *',
+    running: overrides.running ?? false,
+    nextRunAt: NOW + 60_000,
+    lastRun,
+    consecutiveFailures: overrides.status === 'failure' ? 1 : 0,
+    backoffUntil: null,
+  }
 }
 
 const noGoogle = {
@@ -109,6 +154,7 @@ function stubApi({
   loginUrl = 'https://provider.example/authorize',
   failLogin = false,
   unauthorizedWrites = false,
+  heldWrite,
 }: StubOptions = {}) {
   const calls: Call[] = []
 
@@ -147,6 +193,7 @@ function stubApi({
       }
       if (method === 'POST' && url === '/api/auth/logout') return answer(undefined, 204)
       if (method !== 'GET') {
+        if (heldWrite !== undefined) await heldWrite
         if (unauthorizedWrites === true) {
           return answer({ error: { code: 'unauthorized', message: 'Sign in to continue' } }, 401)
         }
@@ -564,6 +611,103 @@ describe('writes from the board', () => {
         calls.filter((call) => call.method === 'GET' && call.url.startsWith('/api/tasks')),
       ).toHaveLength(2),
     )
+  })
+
+  /**
+   * Spec 08, criterion 49: the press is acknowledged before the request answers, and the control
+   * is not pressable while the run is under way, so a second press asks the server for nothing.
+   */
+  it('acknowledges the press before the run answers, and refuses a second one', async () => {
+    let finish = () => {}
+    const held = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    const calls = stubApi({ heldWrite: held })
+
+    render(<App />)
+    const button = await screen.findByRole('button', { name: 'Sync now' })
+    await userEvent.click(button)
+
+    const header = within(screen.getByRole('banner'))
+    await waitFor(() => expect(header.getByRole('status')).toHaveTextContent('Syncing'))
+    expect(button).toBeDisabled()
+
+    await userEvent.click(button)
+    expect(calls.filter((call) => call.url === '/api/jobs/sync/run')).toHaveLength(1)
+
+    finish()
+    await waitFor(() => expect(button).toBeEnabled())
+  })
+
+  /**
+   * Spec 08, criterion 50: the header reads the scheduler's own state, so a run nobody pressed the
+   * button for still reports as under way.
+   */
+  it('reports a sync the scheduler started as under way', async () => {
+    stubApi({ jobStatus: [syncJobStatus({ running: true, lastRun: null })] })
+
+    render(<App />)
+
+    const header = within(await screen.findByRole('banner'))
+    await waitFor(() => expect(header.getByRole('status')).toHaveTextContent('Syncing'))
+    expect(await screen.findByRole('button', { name: 'Sync now' })).toBeDisabled()
+  })
+
+  /**
+   * Spec 08, criterion 50: how the last run went is readable from the header, and a failure leaves
+   * the control pressable rather than stuck.
+   */
+  it('says how the last sync went, and leaves the button usable after a failure', async () => {
+    stubApi({ jobStatus: [syncJobStatus({ status: 'failure', error: 'GitHub is unreachable' })] })
+
+    render(<App />)
+
+    const header = within(await screen.findByRole('banner'))
+    await waitFor(() => expect(header.getByRole('status')).toHaveTextContent(/Sync failed/))
+    expect(await screen.findByRole('button', { name: 'Sync now' })).toBeEnabled()
+  })
+
+  /**
+   * Spec 08, criteria 50 and 51: a run that worked says so, and the age sits beside the live
+   * region rather than inside it. The age is bucketed by the minute and the surfaces re-read the
+   * clock every minute, so an age inside the region would announce itself once a minute forever.
+   */
+  it('says a sync succeeded, and keeps how long ago out of the live region', async () => {
+    const finishedAt = Date.now() - 3 * 60_000
+    stubApi({ jobStatus: [syncJobStatus({ status: 'success', finishedAt })] })
+
+    render(<App />)
+
+    const header = within(await screen.findByRole('banner'))
+    await waitFor(() => expect(header.getByRole('status')).toHaveTextContent('Synced'))
+    expect(header.getByRole('status').textContent).toBe('Synced')
+    expect(header.getByText('3 minutes ago')).toBeInTheDocument()
+  })
+
+  /** Spec 08, criterion 50: the third way a run can end reads as itself, not as a success. */
+  it('says a skipped sync was skipped', async () => {
+    const finishedAt = Date.now() - 3 * 60_000
+    stubApi({ jobStatus: [syncJobStatus({ status: 'skipped', finishedAt })] })
+
+    render(<App />)
+
+    const header = within(await screen.findByRole('banner'))
+    await waitFor(() => expect(header.getByRole('status')).toHaveTextContent('Sync skipped'))
+    expect(header.getByText('3 minutes ago')).toBeInTheDocument()
+  })
+
+  /**
+   * Spec 08, criterion 51: before the first run there is nothing to report, so the region is not
+   * on the surface at all rather than sitting there empty and taking a gap beside the button.
+   */
+  it('says nothing at all before the first sync has run', async () => {
+    stubApi({ jobStatus: [syncJobStatus({ lastRun: null })] })
+
+    render(<App />)
+
+    const header = within(await screen.findByRole('banner'))
+    await screen.findByRole('button', { name: 'Sync now' })
+    expect(header.queryByRole('status')).toBeNull()
   })
 })
 

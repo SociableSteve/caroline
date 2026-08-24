@@ -9,6 +9,7 @@ import { sameItem } from '../src/domain/selection.js'
 import {
   api,
   type ItemRef,
+  type JobStatus,
   type McpConsentView,
   type ProjectState,
   type ProjectView,
@@ -19,6 +20,7 @@ import {
 import { useAuthGate } from './auth.js'
 import { useChat } from './chat.js'
 import { useCarolineData } from './data.js'
+import { ago } from './format.js'
 import {
   chatRailHref,
   conversationHref,
@@ -90,6 +92,32 @@ function isTyping(target: EventTarget | null): boolean {
     target.tagName === 'SELECT' ||
     target.isContentEditable
   )
+}
+
+/**
+ * What the header says about syncing: that one is going, or how the last one went. Everything but
+ * the running flag comes from the scheduler's own run history, so the header and the Jobs surface
+ * cannot disagree about a job neither of them owns. It says nothing about when, because this is
+ * the sentence the live region carries and it must change when the job does, not when the clock
+ * does: `syncAgeMessage` has the age. Spec 08, criteria 50 and 51.
+ */
+function syncStatusMessage(job: JobStatus | undefined, running: boolean): string {
+  if (running) return 'Syncing'
+  if (job?.lastRun == null) return ''
+  if (job.lastRun.status === 'failure') return 'Sync failed'
+  if (job.lastRun.status === 'skipped') return 'Sync skipped'
+  return 'Synced'
+}
+
+/**
+ * How long ago the last sync finished, for the plain element beside the live region. Nothing while
+ * one is going, because there is no finished run to date, and nothing before the first one.
+ * Spec 08, criterion 51.
+ */
+function syncAgeMessage(job: JobStatus | undefined, running: boolean, now: number): string {
+  if (running || job?.lastRun == null) return ''
+
+  return ago(job.lastRun.finishedAt, now)
 }
 
 export function App() {
@@ -221,7 +249,30 @@ export function App() {
   const onUndoStatus = (id: string) => void write(() => api.undoStatus(id))
   const onAcceptProposal = (id: string) => void write(() => api.acceptProposal(id))
   const onDismissProposal = (id: string) => void write(() => api.dismissProposal(id))
-  const onSync = () => void write(() => api.runJob('sync'))
+  /**
+   * Whether a sync is going, and what to say about it. The scheduler is the one authority on that
+   * (spec 06), so this reads its answer rather than keeping a second idea of it: a run the schedule
+   * started reports here exactly as one this button started, and the change feed announces a run's
+   * start as well as its finish so the answer arrives while it is still true.
+   *
+   * `syncing` covers only the gap between the press and the server's first word, which
+   * `POST /api/jobs/sync/run` leaves wide open: it does not answer until the run has finished, so
+   * without this the press would show nothing at all for the length of a sync. Spec 08,
+   * criteria 49 and 50.
+   */
+  const [syncing, setSyncing] = useState(false)
+  const syncJob = jobStatus.find((job) => job.job === 'sync')
+  const syncRunning = syncing || syncJob?.running === true
+  const syncFailed = !syncRunning && syncJob?.lastRun?.status === 'failure'
+  const syncMessage = syncStatusMessage(syncJob, syncRunning)
+  const syncAge = syncAgeMessage(syncJob, syncRunning, now)
+
+  const onSync = () => {
+    if (syncRunning) return
+
+    setSyncing(true)
+    void write(() => api.runJob('sync')).finally(() => setSyncing(false))
+  }
   /**
    * Redrawing today's plan. The date comes from the server's answer rather than from this
    * browser's clock: the two can differ across midnight, and the route only regenerates today.
@@ -416,13 +467,38 @@ export function App() {
           {authenticated && (
             <>
               {/* The scheduler runs sync on its own; this is the manual trigger spec 06 asks be
-                  first-class, for when you know something has just landed. */}
+                  first-class, for when you know something has just landed. A trigger that says
+                  nothing when pressed is not first-class, so the state of the run sits beside it,
+                  in a live region: the press is acknowledged before the request answers, and the
+                  outcome is readable without going to Jobs to find it. The words carry it and the
+                  colour only seconds it, per spec 08's rule that colour is never the only carrier.
+                  Spec 08, criteria 49, 50 and 51. */}
+              <span
+                hidden={syncMessage === ''}
+                className={cn(
+                  'items-center gap-1 self-center text-xs',
+                  // Not `flex` while there is nothing to say: an empty element still takes a gap
+                  // from the header's own `gap-2`, which on a fresh install is a space before the
+                  // button with nothing in it. Spec 08, criterion 51.
+                  syncMessage === '' ? undefined : 'flex',
+                  syncFailed ? 'text-destructive' : 'text-muted-foreground',
+                )}
+              >
+                {/* The live region is the state, and only the state. The age is its sibling
+                    rather than its content: it is bucketed by the minute against a clock this
+                    app re-reads every minute, so inside the region it would announce itself to a
+                    screen reader once a minute forever with nothing having happened. Out here it
+                    is read when somebody wants it. Spec 08, criterion 51. */}
+                <span role="status">{syncMessage}</span>
+                {syncAge !== '' && <span>{syncAge}</span>}
+              </span>
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 className="h-7 px-2.5 text-xs"
                 onClick={onSync}
+                disabled={syncRunning}
               >
                 Sync now
               </Button>

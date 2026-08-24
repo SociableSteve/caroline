@@ -163,8 +163,71 @@ describe('running a job', () => {
 
     await scheduler.run('sync', 'manual')
 
-    // `itemsSeen` alone changed nothing on the board, so only the jobs surface is stale.
+    // Once for the start and once for the finish (criterion 8). `itemsSeen` alone changed nothing
+    // on the board, so only the jobs surface is stale either time.
+    expect(published.map((event) => event.kind)).toEqual(['jobs', 'jobs'])
+  })
+
+  /**
+   * Spec 06, criterion 8: the start is announced too, so a surface showing whether a job is going
+   * is told while it is going rather than once it is over.
+   */
+  it('announces the start of a run before the run has finished', async () => {
+    const database = migratedDatabase()
+    let release = () => {}
+    const slow = step(
+      'sync',
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve({ status: 'success' as const, counts: { itemsSeen: 1 } })
+        }),
+    )
+    const { scheduler, published } = build(database, [slow.step], [])
+
+    const running = scheduler.run('sync', 'scheduled')
+    await Promise.resolve()
+
     expect(published.map((event) => event.kind)).toEqual(['jobs'])
+    expect(scheduler.isRunning('sync')).toBe(true)
+    expect(listJobRuns(database)).toEqual([])
+
+    release()
+    await running
+
+    expect(published.map((event) => event.kind)).toEqual(['jobs', 'jobs'])
+  })
+
+  /**
+   * Spec 06, criterion 8: the start and the finish are a pair. Writing the run's row is the one
+   * thing between the two that can throw, and a tab that heard the start and never hears the
+   * finish reads the job as still going until something unrelated happens.
+   */
+  it('announces the finish even when the run row cannot be written', async () => {
+    const database = migratedDatabase()
+    let writesFail = false
+    // The real database, until the step says otherwise: the failure has to land on `record`,
+    // after the start has been announced, rather than on anything the run needed beforehand.
+    const brittle = new Proxy(database, {
+      get(target, property, receiver) {
+        const value: unknown = Reflect.get(target, property, receiver)
+        if (typeof value !== 'function') return value
+        if (property !== 'prepare') return value.bind(target)
+        return (...args: unknown[]) => {
+          if (writesFail) throw new Error('the database has gone away')
+          return (value as (...rest: unknown[]) => unknown).apply(target, args)
+        }
+      },
+    })
+    const breaking = step('sync', () => {
+      writesFail = true
+      return Promise.resolve({ status: 'success' as const, counts: { itemsSeen: 1 } })
+    })
+    const { scheduler, published } = build(brittle, [breaking.step], [])
+
+    await expect(scheduler.run('sync', 'manual')).rejects.toThrow('the database has gone away')
+
+    expect(published.map((event) => event.kind)).toEqual(['jobs', 'jobs'])
+    expect(scheduler.isRunning('sync')).toBe(false)
   })
 
   it('announces the board as well when the run changed something on it', async () => {
@@ -176,7 +239,7 @@ describe('running a job', () => {
 
     await scheduler.run('sync', 'manual')
 
-    expect(published.map((event) => event.kind)).toEqual(['jobs', 'tasks', 'projects'])
+    expect(published.map((event) => event.kind)).toEqual(['jobs', 'jobs', 'tasks', 'projects'])
   })
 })
 
