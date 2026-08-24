@@ -73,12 +73,15 @@ would hand the override back to Tailwind's own defaults. Criterion 9 turns on th
 The client also writes arbitrary pixel sizes, and they are a real part of what the surfaces spend
 rather than an accident. One of them is not small print at all: `text-[13px]` sits between
 `--text-xs` (`0.75rem`, 12px) and `--text-sm` (`0.875rem`, 14px), so it is a sixth rung inside the
-scale rather than a size below it, and with ten uses in `web/` it is the most used of the four. It
-is the card body size. The other three are below `text-xs`: `text-[11px]` for facts, change notes
-and the day bar's legend, `text-[10px]` for a table's column labels, and `text-[9px]` for a
-transcript's role. A sixth rung nobody named, plus three ranks of small print, is more than a scale
-of five sizes wants, and naming them here is the honest version of the claim that the scale is
-short.
+scale rather than a size below it. Its ten uses are a control's own text and a compact title: quick
+capture's five controls, the two Jobs panel headings, a navigation link, a plan item's title on the
+dashboard, and a project's title in the Projects table. No card is among them, and it is not the
+most used of the four either: `text-[11px]` is, with thirty-two uses against these ten. The other
+three are below `text-xs`: `text-[11px]` for facts, change notes, quick capture's own labels and the
+day bar's legend, `text-[10px]` for a table's column labels, the day bar's two end times and the
+dashboard rail's strip heading, and `text-[9px]` for a transcript's role. A sixth rung nobody
+named, plus three ranks of small print, is more than a scale of five sizes wants, and naming them
+here is the honest version of the claim that the scale is short.
 
 Weights are `font-normal` (`400`), `font-medium` (`500`) and `font-semibold` (`600`); nothing is
 bolder than `600` and nothing is lighter than `400`. Line height is Tailwind's own `leading-*` where
@@ -281,8 +284,10 @@ pattern and shadcn's implementation of the widget.
 **Panel.** A titled region: shadcn's `Card` (`components/ui/card.tsx`) rendered as a `<section>` so
 the `region` role survives, on `bg-card`, `rounded-md`, `p-3`, heading at `text-lg font-normal`, and
 no border of its own. The caller supplies the heading level, because the heading outline belongs to
-the surface rather than to the component, and may supply a `label` where the heading carries a digit
-and a count that read as noise in an accessible name.
+the surface rather than to the component, and may supply a `label` where the heading carries a count
+that reads as noise in an accessible name. The board's columns are the case: the heading pairs the
+status with a count pill and the label says the status and the count in words. The digit that used to
+sit beside the name went with the board's keyboard grid (#96, and spec 08's criterion 56).
 
 **Facts.** The label-and-value grid that the task card, the job panel and the settings policy each
 built separately. A plain `<dl>` with `auto` and `1fr` columns, labels and values at `text-[11px]`
@@ -308,10 +313,10 @@ disclosure rather than onto a second line: see spec 08 for the card.
 
 Two layers sit either side of these. Below them, `web/components/ui/*` is shadcn's generated set,
 hand-vendored rather than pulled by the CLI because this environment has no access to the registry:
-`badge`, `button`, `card`, `dialog`, `input`, `kbd`, `label`, `select` and `textarea`. `Button` is
-where the filled primary lives, as its `default` variant. Beside them, `primitives.tsx` also exports
-a handful of shared class strings for patterns too small to be components and too repeated to be
-retyped: `failureClassName`, `emptyClassName`, `changeNoteClassName`, `policyNoteClassName`,
+`badge`, `button`, `card`, `dialog`, `input`, `label`, `select` and `textarea`, eight of them since
+the board's keyboard grid took `kbd` with it (#96). `Button` is where the filled primary lives, as
+its `default` variant. Beside them, `primitives.tsx` also exports a handful of shared class strings
+for patterns too small to be components and too repeated to be retyped: `failureClassName`, `emptyClassName`, `changeNoteClassName`, `policyNoteClassName`,
 `payloadPreviewClassName`, `itemOpenClassName` and `tableHeaderClassName`. A surface reaches for one
 of those rather than writing the same six utilities again.
 
@@ -423,9 +428,13 @@ usual arrangement and is worth knowing before reading the sheet.
 
 ## Acceptance criteria
 
-1. Every declaration of a spacing, font size or border radius in a stylesheet in this repository
-   resolves to a token from the scales above. A test parses each sheet and fails on a literal length
-   in any of those three properties, so the scales are enforced rather than encouraged.
+1. Every spacing, font size or border radius a rule applies to an element resolves to a token from
+   the scales above. A test parses each sheet in this repository and fails on a literal length in any
+   of those three properties, so the scales are enforced rather than encouraged. Scoped to what a
+   rule applies, the same way criterion 2 is scoped to what a selector applies: the custom properties
+   that declare the scales are the rungs being defined rather than a rung being bypassed, so
+   `--radius` (`0.625rem`), `--space-1` to `--space-7` and `--text-display` sit outside this
+   criterion exactly as the palettes' own literals sit outside criterion 2.
    `web/styles.css` has almost no such declarations left, because the application spaces, sizes and
    rounds in Tailwind utilities; `site/styles.css` has many, and that is where this bites (spec 11,
    criterion 6).
@@ -445,7 +454,12 @@ usual arrangement and is worth knowing before reading the sheet.
    of one: no surface, and no other source in the client either, renders a bare `<dl>`, a bare
    `<label>`, or an element carrying the literal `badge` or `panel` class. The app shell is in scope
    as much as a surface is, because a pattern rebuilt by hand in the chrome is the same duplicate as
-   one rebuilt in a panel.
+   one rebuilt in a panel. The class is caught in whichever quoted string it is written in,
+   `className={cn('panel p-3')}` included, which is the form `Panel` itself is written in and therefore
+   the form a caller has in front of it to copy; comments come out before the sweep, so prose about a
+   details panel is not a hit. The bound is the line the string is written on, which is where every
+   class string in the client is written, and it is what a sweep of the text can claim rather than
+   more: a class buried in a template literal wrapped over several lines would sit past it.
 5. Every surface renders exactly one `h1`, and that `h1` names the surface.
 6. Every surface sets `document.title` to a value naming the surface, so the five routes are
    distinguishable in browser history.
@@ -495,19 +509,28 @@ suite cite the numbers above.
     `font-black`. A variant prefix is not an exemption: the navigation's
     `aria-[current=page]:font-medium` is a weight the client sets and counts as one of the three, so
     the sweep matches the prefix rather than anchoring on the bare utility, which would have read
-    `md:font-bold` as no weight at all.
+    `md:font-bold` as no weight at all. Nor does the client set a weight without spelling a `font-`
+    utility at all: no `[font-weight:600]` arbitrary property and no `fontWeight` in an inline style,
+    neither of which the whitelist can see, because there is no prefix in either of them to read.
 18. Every uppercased string in the client is a small quiet label: each occurrence of `uppercase`
     carries a letter-spacing utility and a size at or below `text-xs` in the same class string, so
     nothing at a size a reader reads the document by is uppercased. Three of the six occurrences are
     on headings, which the size bound is what makes acceptable: a strip label written as an `h2` or
     an `h3` for the outline's sake is still small print.
 19. Every colour the client draws comes from a token: no component source writes a hex, `rgb()`,
-    `hsl()` or `oklch()` colour literal. The dialog scrim, `bg-black/65`, is the one sanctioned
-    exception, and it sits behind everything rather than under any text.
+    `hsl()` or `oklch()` colour literal, and no utility from Tailwind's own palette. An arbitrary
+    value on a colour utility is a length or a `var(--token)` and nothing else, which is what closes
+    CSS's own colour names: `bg-[rebeccapurple]` and `border-[green]` write no hex, no colour
+    function and no family name, and are a colour chosen once for both palettes just the same. The
+    dialog scrim, `bg-black/65`, is the one sanctioned exception, and it sits behind everything rather
+    than under any text.
 20. `--accent` is a state ground and never a fill a surface chooses at rest: every `accent` and
     `sidebar-accent` utility in `web/` carries one of three variants, `hover:`,
     `data-[highlighted]:` or `aria-[current=page]:`, and no other. A test whitelists those three and
     fails on a bare occurrence or on a fourth variant, rather than passing anything with a prefix.
+    The whole variant chain is read and not only its last link, so `md:hover:bg-accent` and
+    `dark:hover:bg-accent` fail as prefixes the whitelist does not name rather than passing as the
+    `hover:` on the end of them.
     Scoped to the client: `site/styles.css` writes `var(--accent)` as a resting background and is
     outside this. The design's blue is the chart ramp, not `--accent`.
 21. Opacity-derived fills are sanctioned for a ground, a border or a hairline and never for text:
@@ -519,7 +542,10 @@ suite cite the numbers above.
     text contrast ratio.
 23. Every colour utility the client writes resolves to a token a palette declares. Both halves are
     whitelists: every `--color-*` mapping in `@theme inline` points at a name both palettes declare,
-    and every `*-foreground` utility in `web/` names one of those mappings. Both palettes, and not
+    and every `*-foreground` utility in `web/` names one of those mappings, whatever prefix it
+    carries: `ring-`, `fill-`, `stroke-`, `divide-`, `outline-`, `placeholder-`, `caret-` and the
+    gradient stops take a colour as much as `bg-`, `text-` and `border-` do, so the sweep reads the
+    prefix as any utility name rather than as a list of three. Both palettes, and not
     either: `:root` is the selector of the dark block and of the light one inside the media query, so
     a name declared in one of them resolves to nothing in the other, which is this same failure one
     palette narrower. `Button`'s destructive variant is the case that failed it, pairing
