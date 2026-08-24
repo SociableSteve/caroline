@@ -1027,9 +1027,12 @@ export function Dashboard({
     // chasing to a task. Spec 05, criteria 11 and 20.
     ...(plan?.nudges ?? []).map((nudge): NeedsYouItem => {
       const blocked = nudge.taskStatus === 'blocked'
-      // The record is the fallback, for an entry whose task has been deleted: there is no live
-      // answer then, and what the planner recorded is better than nothing.
-      const waitingOn = nudge.currentWaitingOn ?? nudge.waitingOn
+      // The live reading is the whole answer, with no fallback to the record. Where the task has
+      // been deleted there is no status either, so there is nothing to label the recorded value
+      // with: a blocked entry recorded its blocker's title, and printing that under "Worth a
+      // chase" would present a task as a person to chase. Naming nobody is the honest answer, and
+      // it is the same one a live task with nothing named gets.
+      const waitingOn = nudge.currentWaitingOn
 
       return {
         key: `chase:${nudge.id}`,

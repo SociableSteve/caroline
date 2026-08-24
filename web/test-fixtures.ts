@@ -118,6 +118,10 @@ export function aReviewTask(overrides: Partial<TaskView> = {}): TaskView {
 /** One line of a plan. Spec 05. */
 export function aPlanEntry(overrides: Partial<PlanEntryView> = {}): PlanEntryView {
   return {
+    // The live reading of what the planner recorded. For a task nothing has touched since the
+    // plan was drawn the two are one value, read from the same column, so the default follows the
+    // record and it takes an override to make them disagree.
+    currentWaitingOn: overrides.waitingOn ?? null,
     id: 'entry-1',
     kind: 'plan',
     rank: 1,
@@ -128,7 +132,6 @@ export function aPlanEntry(overrides: Partial<PlanEntryView> = {}): PlanEntryVie
     waitingOn: null,
     waitingSince: null,
     pushedSinceReview: false,
-    currentWaitingOn: null,
     taskStatus: 'next_action',
     done: false,
     ...overrides,

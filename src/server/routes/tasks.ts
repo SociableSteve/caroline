@@ -413,6 +413,16 @@ export function registerTaskRoutes(
       if (existing === null) return notFound(reply, 'task')
       if (missingProject(database, body.projectId)) return badRequest(reply, 'No such project')
 
+      // The same half a fact the create route refuses, and it has to be refused here too: the
+      // reference goes with the status on every move, so a patch asking for `blocked` names the
+      // blocker in the same request or names nothing, whatever the task happens to hold now.
+      // Answered before the transaction, because inside it the status rules refuse the write and
+      // the route would otherwise answer 200 over the top of a row it never changed. Spec 08,
+      // criterion 55.
+      if (body.status === 'blocked' && (body.blockedBy ?? null) === null) {
+        return badRequest(reply, blockerRequiredMessage)
+      }
+
       const at = now()
 
       // Asked before anything is written, and answered as a bad request rather than as a
@@ -427,21 +437,39 @@ export function registerTaskRoutes(
       }
 
       withTransaction(database, () => {
-        // First, because naming a blocker is itself a status change and an explicit `status` in
-        // the same request is the later word. Spec 01, criteria 12 and 13.
-        if (body.blockedBy !== undefined) setTaskBlocker(database, id, body.blockedBy, at)
+        // Naming a blocker is itself a status change, so a request carrying both halves is one
+        // write rather than two: making the move and then remaking it would overwrite
+        // `previous_status` with `blocked` and spend the task's single step of undo on itself.
+        // An explicit status that is not `blocked` is the later word either way, and takes the
+        // reference with it the way every move out of the column does. Spec 01, criteria 12 and
+        // 13; spec 08, criterion 55.
+        if (body.blockedBy !== undefined && body.status === undefined) {
+          setTaskBlocker(database, id, body.blockedBy, at)
+        }
 
         const patch = toPatch(body)
         if (Object.keys(patch).length > 0) updateTask(database, id, patch, at)
         if (body.tags !== undefined) setTaskTags(database, id, body.tags)
         if (body.status !== undefined) {
           const statuses = trackedStatuses(database, existing)
-          changeTaskStatus(database, id, {
+          const result = changeTaskStatus(database, id, {
             status: body.status,
             by: 'user',
             at,
             ...(statuses === undefined ? {} : { trackedStatuses: statuses }),
+            ...(body.status === 'blocked' ? { blockedBy: body.blockedBy } : {}),
           })
+
+          // Unreachable as the rules stand: the two other refusals are the classifier's and
+          // sync's rather than the user's, and the blocker one is answered above. Raised rather
+          // than passed over, because the alternative is the answer this route used to give,
+          // which was a 200 carrying a task nothing had written to. The throw rolls the
+          // transaction back, so the refusal cannot leave half a patch behind either.
+          if (result !== null && !result.applied) {
+            throw new Error(
+              `the status rules refused a user status change of ${id}: ${result.reason}`,
+            )
+          }
         }
       })
 

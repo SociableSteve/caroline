@@ -968,4 +968,82 @@ describe('blockedBy on the task routes', () => {
     expect(patched.json().error.message).toMatch(/already done/i)
     expect(getTask(database, task.id)).toMatchObject({ status: 'inbox', blockedBy: null })
   })
+
+  /**
+   * Spec 08, criterion 55. The create route already refuses this; the patch route used to accept
+   * it, refuse the write under the invariant deep inside the transaction, and answer 200 with the
+   * task exactly as it was. A success that changed nothing is worse than either a refusal or a
+   * write, because the caller has been told the move happened.
+   */
+  it('is a 400 for a patch asking for blocked with no blocker named, and writes nothing', async () => {
+    const { app, database } = await testServer()
+    const task = createTask(database, { title: 'Book the venue', notes: 'the old note' }, earlier)
+
+    const response = await app.inject({
+      method: 'PATCH',
+      url: `/api/tasks/${task.id}`,
+      payload: { status: 'blocked', notes: 'the new note' },
+    })
+
+    expect(response.statusCode).toBe(400)
+    expect(response.json().error.message).toMatch(/blockedBy/i)
+    expect(getTask(database, task.id)).toMatchObject({
+      status: 'inbox',
+      blockedBy: null,
+      notes: 'the old note',
+    })
+  })
+
+  /**
+   * The same criterion's other half, as a guard rather than a repair: a patch may send both, and
+   * they have to stay one status change rather than two, since a second would overwrite
+   * `previous_status` with `blocked` and spend the single step of undo on the move just made.
+   * `previousStatus` is what says which of the two happened.
+   */
+  it('applies a patch sending the status and the blocker together as one status change', async () => {
+    const { app, database } = await testServer()
+    const blocker = createTask(database, { title: 'Sign the contract' }, earlier)
+    const task = createTask(database, { title: 'Book the venue' }, earlier)
+
+    const response = await app.inject({
+      method: 'PATCH',
+      url: `/api/tasks/${task.id}`,
+      payload: { status: 'blocked', blockedBy: blocker.id },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({ status: 'blocked', blockedBy: blocker.id })
+    expect(getTask(database, task.id)).toMatchObject({
+      status: 'blocked',
+      blockedBy: blocker.id,
+      previousStatus: 'inbox',
+    })
+  })
+
+  /**
+   * A patch naming only the status of a task that is already blocked names no blocker either, so
+   * it is the same half a fact as the one above: the reference is not the caller's to leave out.
+   */
+  it('is a 400 for a patch restating blocked on a task that is already blocked', async () => {
+    const { app, database } = await testServer()
+    const blocker = createTask(database, { title: 'Sign the contract' }, earlier)
+    const task = createTask(database, { title: 'Book the venue' }, earlier)
+    await app.inject({
+      method: 'PATCH',
+      url: `/api/tasks/${task.id}`,
+      payload: { blockedBy: blocker.id },
+    })
+
+    const response = await app.inject({
+      method: 'PATCH',
+      url: `/api/tasks/${task.id}`,
+      payload: { status: 'blocked' },
+    })
+
+    expect(response.statusCode).toBe(400)
+    expect(getTask(database, task.id)).toMatchObject({
+      status: 'blocked',
+      blockedBy: blocker.id,
+    })
+  })
 })

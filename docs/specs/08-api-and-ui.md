@@ -128,7 +128,8 @@ direct contradiction with the arrow keys, and the keyboard is the point of this 
 Each column scrolls on its own within a bounded height. Without that the page grows to the length
 of the longest column, two columns of very different lengths cannot be compared, and the status a
 card should move to may be off the bottom of the screen when the card is in view. Below the
-breakpoint where the columns stop being usable side by side, they stack and each is read whole.
+breakpoint where the columns stop fitting side by side they keep a readable width and the board
+scrolls sideways to reach them, for the reason above: they never stack and they never wrap.
 
 A card's actions are not its facts. Every fact stays visible, per the interaction rules below; the
 controls do not all have to be. The primary action is on the card, and the rest go behind a
@@ -545,3 +546,8 @@ reason.
 54. The card's blocker picker offers only tasks that could still finish, so completed work is not
     among them, and it says which task the card is behind even where that task is not one of the
     ones loaded. The rail's details panel names the blocker too, since nothing around it does.
+55. A request for status `blocked` that names no task to be blocked behind is refused with its
+    reason, on patch as on create, and nothing is written: the two routes answer alike, and neither
+    returns a success that changed nothing. Where the request names both, they are applied as the
+    one status change the pair is, so a task blocked this way keeps one step of undo rather than
+    spending it twice.

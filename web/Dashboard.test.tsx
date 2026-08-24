@@ -1249,6 +1249,32 @@ describe('the needs-you rail', () => {
     expect(rail().queryByText('Sign the contract')).not.toBeInTheDocument()
   })
 
+  /**
+   * Spec 05, criterion 20, in the case where the live reading has nothing to say. A nudge whose
+   * task has been deleted has no status, so it cannot be labelled: what the planner recorded for a
+   * blocked one is the blocker's title, and printing that under "Worth a chase" presents a task as
+   * a person to chase.
+   */
+  it('names nobody on a nudge whose task has been deleted, rather than the recorded value', () => {
+    renderDashboard({
+      plan: aPlan({
+        nudges: [
+          aPlanEntry({
+            kind: 'nudge',
+            title: 'Book the venue',
+            taskStatus: null,
+            waitingOn: 'Sign the contract',
+            currentWaitingOn: null,
+            waitingSince: NOW - 2 * DAY,
+          }),
+        ],
+      }),
+    })
+
+    expect(rail().getByText('nobody named')).toBeInTheDocument()
+    expect(rail().queryByText('Sign the contract')).not.toBeInTheDocument()
+  })
+
   it('names each stalled project and links to it, tagged "Stalled"', () => {
     renderDashboard({
       projects: [

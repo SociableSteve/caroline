@@ -157,6 +157,13 @@ user supplied the input; the machine made the move.
   plan that named it. Its classification history is not restored: that cascaded with the delete,
   and an inverse that invented rows would be worse than one that admits the loss.
 
+  An inverse outlives the version that wrote it. A stored snapshot is read back field by field
+  rather than cast, and a nullable field the record does not carry at all reads as empty rather
+  than as a snapshot that cannot be understood: the alternative is that the first upgrade to add
+  a field to a task turns every inverse written before it into a hard failure at the moment
+  somebody presses undo. A field that is present and the wrong type is still a snapshot that
+  cannot be understood, and still refuses.
+
 ## Errors and limits
 
 - Tool calls are validated against their schemas before execution. A malformed call returns
@@ -221,3 +228,9 @@ Paging `search_tasks` adds the following, appended for the same reason.
     is by carrying `offset` and, only while matches remain beyond it, `nextOffset`. Both fields are
     answered at every content level, including the one that withholds item text, because a page
     position is not an item's content.
+
+Blocking (issue #91) added a field to the stored task snapshot, and the following with it.
+
+16. A stored inverse written before a task field existed still undoes. The field it does not carry
+    is restored as empty, so an in-place upgrade does not turn the last turn of every conversation
+    into an undo that raises.
