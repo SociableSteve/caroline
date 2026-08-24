@@ -14,6 +14,7 @@
     "build:web": "vite build",
     "build:site": "tsx site/main.ts",
     "docs:examples": "tsx tools/docs/content-policy-examples.ts",
+    "docs:copilot": "tsx tools/docs/copilot-instructions.ts",
     "start": "node dist/server/main.js",
     "delete-data": "tsx src/cli/delete.ts",
     "test": "vitest run",
