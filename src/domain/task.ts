@@ -200,8 +200,8 @@ export type UndoStatusResult =
 /**
  * Putting the last status change back. It restores the actor as well as the status, which is the
  * half that matters: a board move records `status_set_by = 'user'` and takes the task out of the
- * classifier's reach for good, so a mistyped digit that only had its status restored would leave
- * the classifier locked out and the undo would not have undone the part that cost anything.
+ * classifier's reach for good, so a move made by mistake that only had its status restored would
+ * leave the classifier locked out and the undo would not have undone the part that cost anything.
  * Spec 01, criterion 9.
  *
  * Undo is not itself a status change for the purpose of the previous pair: it clears it rather

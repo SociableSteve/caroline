@@ -128,14 +128,18 @@ file work the same way.
 
 A worked pass at an inbox of three:
 
-1. `Tab` to the first card in the Inbox column, or click it. `Tab` again walks what is on it: the
-   title, the actions on its face, then **More**, then the controls the disclosure holds.
+1. `Tab` to the first card in the Inbox column, or click it. `Tab` again walks what is on its face:
+   the title, the actions, then **More**. A closed disclosure keeps what it holds out of the tab
+   order, so `Enter` or `Space` on **More** opens it first, and the status control, the blocker
+   picker, the dates, **Undo move** and **Delete** are the next few `Tab`s from there.
 2. Read the card, then pick from the status control inside **More**: Next actions for the thing you
    could do next, Waiting for what somebody else owes you, Someday, Reference. **Complete** on the
    face of the card is the right answer more often than it looks.
 3. Got one wrong? **Undo move**, in the same disclosure, puts that task's last status change back,
    including the column it came from.
-4. On to the next card, until the column is empty.
+4. On to the next card, until the column is empty. Nothing hands the focus on for you: filing a card
+   takes it out of the column you were working down, and the focus goes back to the page rather than
+   to what is left, so each triage decision starts with a click or a `Tab`.
 
 Moving a card is a decision by you, and Caroline records it as yours: the classifier will not overrule
 a status you set.

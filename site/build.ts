@@ -703,9 +703,9 @@ function render(markdown: string, page: SitePage, context: BuildContext): Render
     .replaceAll('</table>', '</table></div>')
 
   html = calloutise(html)
-  // The setup guide's own keyboard mentions ("Press `c` anywhere") and using.md's keyboard table and
-  // reference row both name keys, so both pages get the chip treatment; nowhere else does, so a config
-  // path or an environment variable elsewhere keeps its plain `<code>`.
+  // The setup guide's own keyboard mentions ("Press `c` anywhere") and using.md's reference row and
+  // its walkthrough of the inbox both name keys, so both pages get the chip treatment; nowhere else
+  // does, so a config path or an environment variable elsewhere keeps its plain `<code>`.
   if (page.source === 'docs/using.md' || page.source === 'docs/setup.md') html = chipKeys(html)
 
   if (failures.length > 0) throw new Error(failures.join('\n'))

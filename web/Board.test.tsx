@@ -435,9 +435,11 @@ describe('the keyboard, through the controls on a card', () => {
 /**
  * Criterion 56: the board answers no keys of its own. The grid that used to be here moved between
  * cards on the arrows and the vi keys, filed a card with a digit, and completed, reviewed, accepted
- * and undid on single letters. Each of those is asserted dead, because a handler quietly coming back
- * is the regression this criterion exists to catch. `c` is not among them: quick capture is handled
- * for the whole document in `App`, and `App.test.tsx` is where it is asserted.
+ * and undid on single letters. Every key is pressed on its own, from a card the old grid would have
+ * acted on, and the focus is put back before each one: a key checked only after an earlier one has
+ * already moved the focus proves nothing about itself, since the case fails on the first key and
+ * the rest are never really tried. `c` is not among them: quick capture is handled for the whole
+ * document in `App`, and `App.test.tsx` is where it is asserted.
  */
 describe('the keyboard grid the board used to carry', () => {
   const tasks = [
@@ -448,14 +450,41 @@ describe('the keyboard grid the board used to carry', () => {
       previousStatusSetBy: 'llm',
       proposal: aProposal({ status: 'next_action', confidence: 0.62 }),
     }),
-    aTask({ id: 'second', title: 'Second inbox' }),
+    aTask({ id: 'next-first', title: 'First next action', status: 'next_action' }),
+    aTask({ id: 'next-middle', title: 'Middle next action', status: 'next_action' }),
+    aTask({ id: 'next-last', title: 'Last next action', status: 'next_action' }),
     aReviewTask(),
   ]
 
-  it('does nothing on any of its keys, and moves the focus nowhere', async () => {
-    const handlers = renderBoard({ tasks })
-    const card = screen.getByRole('article', { name: 'First inbox' })
-    card.focus()
+  /** The handlers the grid called, so a key that has come back names itself in the failure. */
+  const expectNoActionRan = (handlers: ReturnType<typeof renderBoard>, key: string) => {
+    const ran = (
+      [
+        ['onStatusChange', handlers.onStatusChange],
+        ['onComplete', handlers.onComplete],
+        ['onMarkReviewed', handlers.onMarkReviewed],
+        ['onAcceptProposal', handlers.onAcceptProposal],
+        ['onUndoStatus', handlers.onUndoStatus],
+        ['onSelect', handlers.onSelect],
+      ] as const
+    ).filter(([, handler]) => handler.mock.calls.length > 0)
+
+    expect(
+      ran.map(([name]) => name),
+      key,
+    ).toEqual([])
+  }
+
+  /**
+   * The focused card is the middle of three in Next actions, with Inbox and Review holding one each,
+   * so every direction has a card to land on: down and up within the column, left to Inbox and right
+   * to Review. That is what makes each of the eight a real test. The grid clamped at the edges, so a
+   * movement key pressed on the first card of the leftmost column left the focus where it was, and
+   * six of the eight would have held with the grid still in place.
+   */
+  it('moves the focus nowhere on any of its movement keys', async () => {
+    renderBoard({ tasks })
+    const card = screen.getByRole('article', { name: 'Middle next action' })
 
     for (const key of [
       '{ArrowDown}',
@@ -467,12 +496,27 @@ describe('the keyboard grid the board used to carry', () => {
       'k',
       'l',
     ]) {
+      card.focus()
       await userEvent.keyboard(key)
       expect(card, key).toHaveFocus()
     }
+  })
 
-    for (const key of ['1', '2', '4', '5', '7', 'd', 'r', 'a', 'u', '{Enter}']) {
+  /**
+   * The Inbox card is the one the grid had most to do with: it carries a proposal for `a` and a
+   * previous status for `u`, and every digit but its own column names a column a move was allowed
+   * into. `1`, its own column, and `5`, Blocked, are pressed for the sake of the whole contract
+   * rather than as proof of the removal: the grid was silent on both of those too.
+   */
+  it('calls no action on any of its action keys', async () => {
+    const handlers = renderBoard({ tasks })
+    const card = screen.getByRole('article', { name: 'First inbox' })
+
+    for (const key of ['1', '2', '3', '4', '5', '6', '7', 'd', 'a', 'u', '{Enter}']) {
+      card.focus()
       await userEvent.keyboard(key)
+      expect(card, key).toHaveFocus()
+      expectNoActionRan(handlers, key)
     }
 
     // `r` has to be pressed on a card the action actually applied to. The removed branch was gated
@@ -482,13 +526,7 @@ describe('the keyboard grid the board used to carry', () => {
     reviewCard.focus()
     await userEvent.keyboard('r')
     expect(reviewCard).toHaveFocus()
-
-    expect(handlers.onStatusChange).not.toHaveBeenCalled()
-    expect(handlers.onComplete).not.toHaveBeenCalled()
-    expect(handlers.onMarkReviewed).not.toHaveBeenCalled()
-    expect(handlers.onAcceptProposal).not.toHaveBeenCalled()
-    expect(handlers.onUndoStatus).not.toHaveBeenCalled()
-    expect(handlers.onSelect).not.toHaveBeenCalled()
+    expectNoActionRan(handlers, 'r')
   })
 
   it('shows no shortcut legend under the columns', () => {

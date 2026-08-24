@@ -493,7 +493,7 @@ hr {
   color: var(--chart-3);
 }
 
-/* A key, as a chip rather than a code span: `using.md`'s keyboard tables and `setup.md`'s mentions. */
+/* A key, as a chip rather than a code span: the keys `using.md` and `setup.md` name inline. */
 kbd {
   display: inline-block;
   padding: 0 var(--space-2);
