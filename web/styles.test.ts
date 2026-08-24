@@ -76,9 +76,10 @@ it('imports Tailwind, the engine every surface’s utility classes resolve again
  * shadcn/ui's own token set (`background`, `foreground`, `card`, `primary`, `secondary`, `muted`,
  * `accent`, `destructive`, `border`, `input`, `ring`, and the `-foreground` pairs), at the values
  * `shadcn init` generates apart from the one addition named below: no bespoke five-ground ramp, no
- * separate accent or alarm ramp, and no `--nav-active`. Dark is the unconditioned default (`:root`, no query, no `.dark`
- * class and no `data-theme` attribute, because this deployment has no manual toggle), and
- * `@media (prefers-color-scheme: light)` overrides the same names for a system that prefers it.
+ * separate accent or alarm ramp, and no `--nav-active`. Dark is the unconditioned default (`:root`,
+ * no query, no `.dark` class and no `data-theme` attribute, because this deployment has no manual
+ * toggle), and `@media (prefers-color-scheme: light)` overrides the same names for a system that
+ * prefers it.
  *
  * Also included: the chart ramp (`chart-1`..`chart-5`), the only chromatic tokens in the system
  * and the carrier for the design's blue accent, and the `sidebar` family, which distinguishes

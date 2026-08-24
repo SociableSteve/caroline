@@ -138,6 +138,21 @@ const surfaces: ReadonlyArray<{ name: string; title: string; render: () => void 
   },
 ]
 
+/**
+ * Every source the client ships, found by walking `web/` rather than by naming two directories in
+ * it. Criteria 17 to 21 and 23 are stated over the client and over "every utility in `web/`", and a
+ * sweep that reads only `web/surfaces` and `web/components` reads neither `web/main.tsx` nor any
+ * root-level source added after it, so the criteria would be asserted over part of the client while
+ * claiming all of it. Test support is excluded by name, because a fixture is not something the
+ * client draws.
+ */
+const clientSources = readdirSync(join(process.cwd(), 'web'), {
+  recursive: true,
+  encoding: 'utf8',
+})
+  .map((entry) => `web/${entry}`)
+  .filter((file) => /\.tsx?$/.test(file) && !/(?:^|\/)(?:test-[^/]*|[^/]*\.test)\.tsx?$/.test(file))
+
 describe('one heading outline per surface', () => {
   // Criterion 5. The client had exactly one `h1`, the word "Caroline" in the header, which left
   // every surface's outline headless.
@@ -165,23 +180,12 @@ describe('one heading outline per surface', () => {
  * and a small font size ten times.
  */
 describe('each primitive has one implementation', () => {
-  // Recursive, so a component filed in a subdirectory later is swept too rather than quietly
-  // exempt: an enforcement test with a hole in it enforces nothing in the directory it misses.
-  const componentFiles = ['web/surfaces', 'web/components']
-    .flatMap((directory) =>
-      readdirSync(join(process.cwd(), directory), { recursive: true, encoding: 'utf8' }).map(
-        (file) => `${directory}/${file}`,
-      ),
-    )
-    .filter(
-      (file) =>
-        file.endsWith('.tsx') && !file.endsWith('primitives.tsx') && !file.endsWith('.test.tsx'),
-    )
-
-  const sources = componentFiles.map((file) => ({
-    file,
-    source: readFileSync(join(process.cwd(), file), 'utf8'),
-  }))
+  const sources = clientSources
+    .filter((file) => !file.endsWith('primitives.tsx'))
+    .map((file) => ({
+      file,
+      source: readFileSync(join(process.cwd(), file), 'utf8'),
+    }))
 
   it('finds the surfaces, so an empty sweep cannot pass as a clean one', () => {
     expect(sources.length).toBeGreaterThan(5)
@@ -215,22 +219,13 @@ describe('each primitive has one implementation', () => {
  * about an `oklch()` literal in a class string.
  */
 describe('the appearance model, swept from the sources', () => {
-  const sourceFiles = ['web/surfaces', 'web/components']
-    .flatMap((directory) =>
-      readdirSync(join(process.cwd(), directory), { recursive: true, encoding: 'utf8' }).map(
-        (file) => `${directory}/${file}`,
-      ),
-    )
-    .concat('web/App.tsx')
-    .filter((file) => file.endsWith('.tsx') && !file.endsWith('.test.tsx'))
-
   // `//` opens a line comment, except where it is the `//` of a URL: stripping from a `https://`
   // to the end of the line would blank the rest of that line for every sweep below, which is the
   // quietest way for a sweep to stop seeing what it is supposed to catch.
   const withoutComments = (source: string): string =>
     source.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ')
 
-  const client = sourceFiles.map((file) => ({
+  const client = clientSources.map((file) => ({
     file,
     source: withoutComments(readFileSync(join(process.cwd(), file), 'utf8')),
   }))
@@ -250,17 +245,25 @@ describe('the appearance model, swept from the sources', () => {
    * to a later Tailwind. `font-mono` and `font-sans` share the prefix and are families rather than
    * weights, so they are in the allowed set too, and the match is anchored to a class boundary so
    * the arbitrary property `[font-variant-numeric:tabular-nums]` is not read as a `font-` utility.
+   *
+   * A variant prefix is matched and then ignored, the way criterion 20 matches one and then reads
+   * it: `md:font-bold` is a weight the client sets, and a sweep anchored straight onto `font-` sees
+   * the bare violation and not the prefixed one. `:` is inside the prefix class so a chain
+   * (`md:hover:font-bold`) is caught whole rather than only from its last link, and the class still
+   * cannot swallow `[font-variant-numeric:tabular-nums]`, because what follows that colon is
+   * `tabular-nums` rather than a second `font-`. The navigation's `aria-[current=page]:font-medium`
+   * is the occurrence in the client today, and it counts as a use of `font-medium`.
    */
   it('sets weight in font-normal, font-medium and font-semibold only', () => {
     const allowed = new Set(['normal', 'medium', 'semibold', 'mono', 'sans'])
     const used = client.flatMap((entry) =>
-      [...entry.source.matchAll(/(?:^|[\s'"`])font-([a-z0-9[\].-]+)/g)].map(
-        (match) => `${entry.file}: font-${match[1]}`,
-      ),
+      [
+        ...entry.source.matchAll(/(?:^|[\s'"`])(?:[A-Za-z0-9_[\]=.:-]*:)?font-([a-z0-9[\].-]+)/g),
+      ].map((match) => ({ hit: `${entry.file}: ${match[0].trim()}`, weight: match[1] ?? '' })),
     )
 
     expect(used).not.toEqual([])
-    expect(used.filter((hit) => !allowed.has(hit.split('font-')[1] ?? ''))).toEqual([])
+    expect(used.filter(({ weight }) => !allowed.has(weight)).map(({ hit }) => hit)).toEqual([])
   })
 
   /**
@@ -373,16 +376,38 @@ describe('the appearance model, swept from the sources', () => {
    * `text-destructive-foreground` was, on `Button`'s destructive variant, while `@theme inline`
    * mapped `--color-destructive-foreground` at a token neither palette declared.
    *
-   * Two halves, both whitelists: every mapping in `@theme inline` has to point at a token the
+   * Two halves, both whitelists: every mapping in `@theme inline` has to point at a token both
    * palettes declare, and every `*-foreground` utility the client writes has to name one of those
    * mappings. A hardcoded list of token names could not have caught the gap, because the gap was a
    * name missing from the list as well as from the sheet.
    */
   it('names a foreground only where the token behind it is declared', () => {
     const sheet = declarations(readFileSync(join(process.cwd(), 'web/styles.css'), 'utf8'))
-    const palette = new Set(
-      sheet.filter((rule) => rule.selector === ':root').map((rule) => rule.property),
-    )
+    // Both palettes separately rather than their union. `:root` is the selector of the dark block
+    // and of the light one inside the media query, so a set built from the selector alone is
+    // satisfied by a token declared in only one of them, which is this criterion's own failure mode
+    // one palette narrower: the utility resolves to nothing wherever the name is missing.
+    const declaredIn = (context: string): Set<string> =>
+      new Set(
+        sheet
+          .filter((rule) => rule.selector === ':root' && rule.context === context)
+          .map((rule) => rule.property),
+      )
+    const palettes = [
+      { name: 'the dark palette', tokens: declaredIn('') },
+      {
+        name: 'the light palette',
+        tokens: declaredIn('@media (prefers-color-scheme: light)'),
+      },
+    ]
+
+    for (const { name, tokens } of palettes) {
+      expect(
+        tokens.size,
+        `${name} declares nothing, so the sweep below is vacuous`,
+      ).toBeGreaterThan(20)
+    }
+
     const theme = new Map(
       sheet
         .filter((rule) => rule.selector === '@theme inline')
@@ -394,9 +419,11 @@ describe('the appearance model, swept from the sources', () => {
     const dangling = [...theme]
       .filter(([property]) => property.startsWith('--color-'))
       .flatMap(([property, value]) =>
-        [...value.matchAll(/var\((--[a-z0-9-]+)\)/g)]
-          .filter((match) => !palette.has(match[1] ?? ''))
-          .map((match) => `${property} points at ${match[1]}, which no palette declares`),
+        [...value.matchAll(/var\((--[a-z0-9-]+)\)/g)].flatMap((match) =>
+          palettes
+            .filter(({ tokens }) => !tokens.has(match[1] ?? ''))
+            .map(({ name }) => `${property} points at ${match[1]}, which ${name} does not declare`),
+        ),
       )
 
     expect(dangling).toEqual([])

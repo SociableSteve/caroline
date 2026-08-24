@@ -12,10 +12,10 @@ hex. The migration replaced both: every surface is now Tailwind CSS v4 utility c
 JSX plus shadcn/ui's own generated components (`web/components/ui/*`), and the palette is shadcn's
 stock token set in oklch at the values `shadcn init` emits, with one addition named in the table
 below. `web/styles.css` is left with the theme import, the two palettes, a compatibility layer the
-public site build reads out of it, and
-the handful of element-level rules that apply everywhere rather than to one surface. A colour
-decision on a surface is checked against the token table below and against the rules that follow it,
-not against a stylesheet rule, because there is no stylesheet rule left to check it against.
+public site build reads out of it, and the handful of element-level rules that apply everywhere
+rather than to one surface. A colour decision on a surface is checked against the token table below
+and against the rules that follow it, not against a stylesheet rule, because there is no stylesheet
+rule left to check it against.
 
 Dark is the unconditioned default. `:root` carries shadcn's dark values with no query, no `.dark`
 class and no `data-theme` attribute, and `@media (prefers-color-scheme: light)` overrides the same
@@ -52,8 +52,12 @@ height wants them.
 
 **Type.** Five sizes, three weights, two line heights. This is the one scale of the four that the
 application does consume as tokens: Tailwind v4 resolves `text-lg` to `font-size: var(--text-lg)`,
-and `web/styles.css` declares those names in `:root` after Tailwind's own theme block, so the values
-here are the values the utilities emit.
+and `web/styles.css` declares those names in an unlayered `:root` block, which beats the same names
+in Tailwind's own theme block because that block is inside `@layer theme` and a layered declaration
+loses to an unlayered one of equal specificity. So the values here are the values the utilities
+emit, and it is the layer rather than the source order that decides: moving the block into a layer
+would hand the override back to Tailwind's own defaults. Criterion 9 turns on the same rule, for
+`:focus-visible` against the `outline-none` utility.
 
 | Token | Utility | Value | For |
 | --- | --- | --- | --- |
@@ -66,11 +70,15 @@ here are the values the utilities emit.
 `--text-xl` is the only one of the five this application overrides: Tailwind's own `--text-xl` is
 `1.25rem`, one step above the panel heading below it, which is a difference rather than a hierarchy.
 
-Below `text-xs` the client reaches for arbitrary pixel values, and they are a real part of what the
-surfaces spend rather than an accident: `text-[13px]` for a card's body, `text-[11px]` for facts,
-change notes and the day bar's legend, `text-[10px]` for a table's column labels, and `text-[9px]`
-for a transcript's role. Four ranks of small print is more than a scale of five sizes wants, and
-naming them here is the honest version of the claim that the scale is short.
+The client also writes arbitrary pixel sizes, and they are a real part of what the surfaces spend
+rather than an accident. One of them is not small print at all: `text-[13px]` sits between
+`--text-xs` (`0.75rem`, 12px) and `--text-sm` (`0.875rem`, 14px), so it is a sixth rung inside the
+scale rather than a size below it, and with ten uses in `web/` it is the most used of the four. It
+is the card body size. The other three are below `text-xs`: `text-[11px]` for facts, change notes
+and the day bar's legend, `text-[10px]` for a table's column labels, and `text-[9px]` for a
+transcript's role. A sixth rung nobody named, plus three ranks of small print, is more than a scale
+of five sizes wants, and naming them here is the honest version of the claim that the scale is
+short.
 
 Weights are `font-normal` (`400`), `font-medium` (`500`) and `font-semibold` (`600`); nothing is
 bolder than `600` and nothing is lighter than `400`. Line height is Tailwind's own `leading-*` where
@@ -188,11 +196,14 @@ the near-neutral is exactly what a quoted block and a table stripe want. Criteri
   how a contrast failure gets written. A pairing whose foreground token is not declared at all is the
   same failure with nothing to see: criterion 23 is that check.
 
-**Opacity-derived fills are sanctioned, for a ground and not for text.** Sixteen of them are in use
-in `web/`: `bg-chart-2/15`, `bg-chart-2/35`, `bg-chart-2/[0.04]`, `bg-chart-2/[0.06]`,
-`bg-chart-2/[0.08]`, `bg-destructive/5`, `bg-destructive/10`, `bg-destructive/15`,
-`bg-destructive/[0.04]`, `bg-foreground/15`, `bg-muted/30`, `border-border/60`, `border-chart-2/30`,
-`border-chart-2/50`, `border-destructive/25` and `border-destructive/40`. They are the right tool: a
+**Opacity-derived fills are sanctioned, for a ground and not for text.** Sixteen tints of a token
+are in use in `web/`, and the list is exhaustive of those: `bg-chart-2/15`, `bg-chart-2/35`,
+`bg-chart-2/[0.04]`, `bg-chart-2/[0.06]`, `bg-chart-2/[0.08]`, `bg-destructive/5`,
+`bg-destructive/10`, `bg-destructive/15`, `bg-destructive/[0.04]`, `bg-foreground/15`,
+`bg-muted/30`, `border-border/60`, `border-chart-2/30`, `border-chart-2/50`, `border-destructive/25`
+and `border-destructive/40`. It is not exhaustive of opacity-derived fills: the dialog scrim,
+`bg-black/65`, is a seventeenth, and it is off the list because it tints a literal rather than a
+token, which is the exception the paragraph below states. They are the right tool: a
 tint of a token stays a tint of that token in both palettes, where a separately chosen light tone
 would be a second palette with one entry in it. The rule is that the opacity modifier goes on a
 ground, a border or a hairline, never on text: no `text-<token>/<n>` appears anywhere in the client,
@@ -242,20 +253,24 @@ lines now point at two values.
 The `--text-*` scale is declared in the same `:root` block and is not part of this layer: the
 application does read it, through Tailwind, as the Type section above says. `--text-display` is the
 one rung of it that is site-only, which is why it is in the second list and the rest of the scale is
-in neither. `--alarm`,
-`--alarm-surface`, `--scrim`, `--shadow-2`, `--accent-ink` and `--radius-pill` do not exist at all,
-in this layer or anywhere else. Adding a name here is adding to the site's vocabulary, not the
-application's, and the application should not start reading one.
+in neither. `--alarm`, `--alarm-surface`, `--scrim`, `--shadow-2`, `--accent-ink` and
+`--radius-pill` do not exist at all, in this layer or anywhere else. Adding a name here is adding to
+the site's vocabulary, not the application's, and the application should not start reading one.
 
 ## Primitives
 
 Five components own the patterns that were being rewritten per surface. A surface composes these; it
 does not restyle them, with one exception the client currently carries and this section names rather
-than hides. The dashboard's rail renders `Panel` as
-`className="mt-auto rounded-lg border border-sidebar-border bg-transparent p-3 shadow-none"`
-(`web/surfaces/Dashboard.tsx`), which replaces the panel's ground, overrides its radius and draws
-the neutral line round a region that the rule below says the grounds are for. That is the client
-failing this section rather than this section describing the client, the same way the `h1` above is:
+than hides. The dashboard's rail renders `Panel` with two overrides at the one call site
+(`web/surfaces/Dashboard.tsx`). The region is
+`className="mt-auto rounded-lg border border-sidebar-border bg-transparent p-3 shadow-none"`, which
+replaces the panel's ground, overrides its radius and draws the neutral line round a region that the
+rule below says the grounds are for. The heading is
+`headingClassName="m-0 mb-2 font-mono text-[10px] uppercase tracking-[0.06em] text-muted-foreground"`,
+which drops the panel's own `text-lg font-normal` for a monospaced small label. That second one is a
+sanctioned shape rather than a stray, the strip label the uppercase rule below allows, but it is
+still the primitive being restyled by its caller. That is the client failing this section rather than
+this section describing the client, the same way the `h1` above is:
 criterion 16 constrains the primitive and `Panel` still satisfies it, so nothing fails, and the
 honest record is here until the call site changes.
 
@@ -426,9 +441,11 @@ usual arrangement and is worth knowing before reading the sheet.
    class and no `data-theme` selector anywhere in the sheet. The set includes
    `--destructive-foreground`, which stock shadcn no longer generates and which criterion 23 is why
    this palette declares.
-4. Each of the five primitives has one implementation, and no surface writes its own version of one:
-   no surface renders a bare `<dl>`, a bare `<label>`, or an element carrying the literal `badge` or
-   `panel` class.
+4. Each of the five primitives has one implementation, and nothing in `web/` writes its own version
+   of one: no surface, and no other source in the client either, renders a bare `<dl>`, a bare
+   `<label>`, or an element carrying the literal `badge` or `panel` class. The app shell is in scope
+   as much as a surface is, because a pattern rebuilt by hand in the chrome is the same duplicate as
+   one rebuilt in a panel.
 5. Every surface renders exactly one `h1`, and that `h1` names the surface.
 6. Every surface sets `document.title` to a value naming the surface, so the five routes are
    distinguishable in browser history.
@@ -475,7 +492,10 @@ suite cite the numbers above.
     `Panel` composes it without adding one.
 17. The client sets weight in three utilities and no others: `font-normal`, `font-medium` and
     `font-semibold`. No component uses `font-light`, `font-thin`, `font-bold`, `font-extrabold` or
-    `font-black`.
+    `font-black`. A variant prefix is not an exemption: the navigation's
+    `aria-[current=page]:font-medium` is a weight the client sets and counts as one of the three, so
+    the sweep matches the prefix rather than anchoring on the bare utility, which would have read
+    `md:font-bold` as no weight at all.
 18. Every uppercased string in the client is a small quiet label: each occurrence of `uppercase`
     carries a letter-spacing utility and a size at or below `text-xs` in the same class string, so
     nothing at a size a reader reads the document by is uppercased. Three of the six occurrences are
@@ -498,8 +518,10 @@ suite cite the numbers above.
     legend states each figure (spec 08, criteria 45 and 47), which is what exempts its tints from the
     text contrast ratio.
 23. Every colour utility the client writes resolves to a token a palette declares. Both halves are
-    whitelists: every `--color-*` mapping in `@theme inline` points at a name `:root` declares, and
-    every `*-foreground` utility in `web/` names one of those mappings. `Button`'s destructive variant
-    is the case that failed it, pairing `bg-destructive` with a `text-destructive-foreground` that
-    resolved to nothing, so the label was drawn in whatever colour it inherited and its contrast was
-    a claim nobody could check.
+    whitelists: every `--color-*` mapping in `@theme inline` points at a name both palettes declare,
+    and every `*-foreground` utility in `web/` names one of those mappings. Both palettes, and not
+    either: `:root` is the selector of the dark block and of the light one inside the media query, so
+    a name declared in one of them resolves to nothing in the other, which is this same failure one
+    palette narrower. `Button`'s destructive variant is the case that failed it, pairing
+    `bg-destructive` with a `text-destructive-foreground` that resolved to nothing, so the label was
+    drawn in whatever colour it inherited and its contrast was a claim nobody could check.
