@@ -11,7 +11,7 @@ function load(file: unknown) {
   return loadConfig({ file, env: { ANTHROPIC_API_KEY: 'k' } as NodeJS.ProcessEnv })
 }
 
-describe('the default, spec 03 criterion 9', () => {
+describe('the default, spec 03 criterion 8', () => {
   it('leaves every provider unlimited when no budget block is written', () => {
     const config = loadConfig({ file: {}, env: noEnvironment })
 
@@ -107,7 +107,7 @@ describe('the allowance, spec 03 criterion 11', () => {
   })
 })
 
-describe('a model the price table does not carry, spec 03 criterion 8', () => {
+describe('a model the price table does not carry, spec 03 criterion 9', () => {
   const file = (limit: unknown) => ({
     llm: { provider: 'anthropic', model: 'claude-from-the-future', budget: { anthropic: limit } },
   })

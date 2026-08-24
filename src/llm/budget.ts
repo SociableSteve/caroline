@@ -11,7 +11,13 @@ import { llmTokensForProvider } from '../db/repositories/llm-calls.js'
 import { budgetReachedMessage, periodStart, reservationTokens } from '../domain/budget.js'
 import { UNLIMITED, type PricedProvider } from '../domain/pricing.js'
 import { SCHEMA_RETRIES } from './structured.js'
-import type { CompletionChunk, CompletionRequest, CompletionResult, LlmProvider } from './types.js'
+import type {
+  CompletionChunk,
+  CompletionRequest,
+  CompletionResult,
+  LlmProvider,
+  Message,
+} from './types.js'
 import { LlmError } from './types.js'
 
 /**
@@ -39,7 +45,7 @@ export interface BudgetHold {
 export type BudgetReservation = { readonly refusal: string } | { readonly hold: BudgetHold }
 
 /** A hold on a provider that enforces nothing. Nothing was taken, so nothing is given back. */
-const noHold: BudgetHold = { release: () => {} }
+export const noHold: BudgetHold = { release: () => {} }
 
 export interface BudgetGate {
   /**
@@ -129,14 +135,39 @@ export function createBudgetGate({
 }
 
 /**
+ * Every character a message puts on the wire, not only its prose: a tool result and a tool call's
+ * arguments are sent as part of the turn they belong to, and on a chat request they are usually
+ * larger than the prose is. Serialised rather than measured field by field, because the wire form
+ * is what the provider counts and the punctuation around a value is part of it.
+ */
+function messageCharacters(message: Message): number {
+  const toolCalls = message.toolCalls ?? []
+  const toolResults = message.toolResults ?? []
+
+  return (
+    message.content.length +
+    toolCalls.reduce((total, call) => total + JSON.stringify(call).length, 0) +
+    toolResults.reduce((total, result) => total + JSON.stringify(result).length, 0)
+  )
+}
+
+/**
  * What one `complete` is held against the allowance for: the prompt it carries and the output cap
  * the caller asked for, doubled where a schema brings the validate-and-retry rule with it, because
  * a retry is a second call this same reservation has to cover.
+ *
+ * The prompt is everything that goes with the request, not only the system prompt and the message
+ * prose: the tool definitions, the tool calls and the tool results travel with it too, and on a
+ * chat turn they are the larger part. Leaving them out would undercount by more than the
+ * three-characters-per-token constant deliberately overcounts by, which would turn a hold meant to
+ * overstate into one that understates. Spec 03, "What is counted, and against what".
  */
 export function reservationFor(request: CompletionRequest): number {
   const promptCharacters =
     request.system.length +
-    request.messages.reduce((total, message) => total + message.content.length, 0)
+    request.messages.reduce((total, message) => total + messageCharacters(message), 0) +
+    (request.tools ?? []).reduce((total, tool) => total + JSON.stringify(tool).length, 0) +
+    (request.schema === undefined ? 0 : JSON.stringify(request.schema).length)
 
   return reservationTokens({
     promptCharacters,

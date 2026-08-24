@@ -36,9 +36,9 @@ export function budgetReachedMessage(
 ): string {
   return (
     `The spending ceiling for "${provider}" has been reached: llm.budget sets it to ` +
-    `${amount} ${currency} per ${period}, and the tokens recorded so far this ${period} are ` +
-    `worth at least that. Raise llm.budget.${provider}, set it to "unlimited", or wait for the ` +
-    `next ${period}.`
+    `${amount} ${currency} per ${period}, and the tokens recorded so far this ${period}, with ` +
+    `the calls in flight, are worth at least that. Raise llm.budget.${provider}, set it to ` +
+    `"unlimited", or wait for the next ${period}.`
   )
 }
 
@@ -49,10 +49,15 @@ export function budgetReachedMessage(
  * refuse a call close to the ceiling that would in fact have fitted. For a guard about money that
  * is the safe direction. Spec 03, "What is counted, and against what".
  */
-export const RESERVATION_CHARACTERS_PER_TOKEN = 3
+const RESERVATION_CHARACTERS_PER_TOKEN = 3
 
 export interface ReservationInput {
-  /** Every character of the request that will be sent: system prompt and messages together. */
+  /**
+   * Every character of the request that will be sent: the system prompt, the messages with their
+   * tool calls and tool results, the tool definitions and the output schema. Whoever computes it
+   * is responsible for leaving nothing out, because what is left out is allowance the hold does
+   * not cover. `reservationFor` in `src/llm/budget.ts` is the one caller.
+   */
   readonly promptCharacters: number
   /** The output cap the caller asked for, which is the most output one attempt can produce. */
   readonly maxOutputTokens: number

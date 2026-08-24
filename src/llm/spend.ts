@@ -55,6 +55,10 @@ export interface SpendByProvider {
   readonly tokens: number
   /** The token allowance, or null where there is none to be under. */
   readonly allowance: number | null
+  /**
+   * What this provider has cost. Zero, not null, where it made no calls at all: null says the
+   * calls were made and could not be priced, which is a different thing from having made none.
+   */
   readonly estimate: Estimate
 }
 
@@ -178,7 +182,9 @@ export function spendReport({ config, database, now = Date.now }: SpendReportOpt
     // Every provider, not only the ones that spent something: a ceiling somebody set and has not
     // reached is a fact worth showing, and "no ceiling" is legible where a blank is not.
     providers: pricedProviders.map((provider) => {
-      const spent = byProvider.get(provider) ?? { usage: noUsage, estimate: null }
+      // A provider that made no calls spent nothing, so its estimate is the currency zero rather
+      // than null: null is reserved for calls whose model the price table does not carry.
+      const spent = byProvider.get(provider) ?? { usage: noUsage, estimate: 0 }
 
       return {
         provider,

@@ -103,7 +103,7 @@ describe('tokenAllowance, spec 03 criteria 11 and 12', () => {
   })
 
   it('reads the ceiling in the configured currency', () => {
-    // A ceiling written in GBP buys fewer tokens than the same number written in USD, because a
+    // A ceiling written in GBP buys more tokens than the same number written in USD, because a
     // pound is worth more than a dollar and the prices are quoted in dollars.
     expect(tokenAllowance(30, 'GBP', price)).toBeGreaterThan(tokenAllowance(30, 'USD', price))
   })

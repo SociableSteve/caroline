@@ -157,9 +157,31 @@ describe('where each provider stands', () => {
         allowance: 1_000_000,
         estimate: 1.8,
       },
-      { provider: 'openai', limit: 'unlimited', tokens: 0, allowance: null, estimate: null },
-      { provider: 'ollama', limit: 'unlimited', tokens: 0, allowance: null, estimate: null },
+      { provider: 'openai', limit: 'unlimited', tokens: 0, allowance: null, estimate: 0 },
+      { provider: 'ollama', limit: 'unlimited', tokens: 0, allowance: null, estimate: 0 },
     ])
+  })
+
+  it('reports a provider that made no calls as having spent zero, not as unpriced', () => {
+    const database = migratedDatabase()
+    record(database, [{ at: noon, outputTokens: 1_000 }])
+
+    const report = spendReport({ config: config(), database, now: () => noon })
+    const openai = report.providers.find((entry) => entry.provider === 'openai')
+
+    // Null is reserved for calls whose model the price table does not carry. No call was made
+    // here, so the honest answer is the currency zero.
+    expect(openai).toMatchObject({ tokens: 0, estimate: 0 })
+  })
+
+  it('still reports no estimate for a provider whose calls the price table cannot price', () => {
+    const database = migratedDatabase()
+    record(database, [{ at: noon, model: 'claude-from-the-future', outputTokens: 1_000 }])
+
+    const report = spendReport({ config: config(), database, now: () => noon })
+    const anthropic = report.providers.find((entry) => entry.provider === 'anthropic')
+
+    expect(anthropic).toMatchObject({ tokens: 1_000, estimate: null })
   })
 
   it('counts an unlimited provider’s tokens too, rather than showing it as having spent nothing', () => {

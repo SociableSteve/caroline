@@ -7,7 +7,7 @@ import { loadConfig } from '../../src/config/load.js'
 import type { Config } from '../../src/config/schema.js'
 import type { Database } from '../../src/db/connection.js'
 import { listLlmCalls, recordLlmCall } from '../../src/db/repositories/llm-calls.js'
-import { createBudgetGate, LlmBudgetError } from '../../src/llm/budget.js'
+import { createBudgetGate, LlmBudgetError, reservationFor } from '../../src/llm/budget.js'
 import { createLlmRuntime } from '../../src/llm/index.js'
 import { migratedDatabase } from '../helpers/temp-database.js'
 import { classificationSchema, recordedPayload, stubFetch } from '../helpers/llm.js'
@@ -117,7 +117,7 @@ describe('the gate, spec 03 criterion 11', () => {
   })
 
   it('never consults the database for a provider with no ceiling', () => {
-    // Spec 03 criterion 9: an install that has configured nothing behaves as it did, including
+    // Spec 03 criterion 8: an install that has configured nothing behaves as it did, including
     // making no query it did not make before. A gate with no database at all stands in for that.
     const gate = createBudgetGate({
       config: loadConfig({ file: { llm: { provider: 'anthropic', model: 'x' } }, env: keys }),
@@ -252,5 +252,67 @@ describe('the runtime, spec 03 criteria 11 and 13', () => {
 
     await expect(runtime.for('classification').complete(request)).resolves.toBeDefined()
     expect(runtime.budgetRefusal('classification')).toBeNull()
+  })
+})
+
+describe('what a reservation counts, spec 03 criterion 12', () => {
+  const bare = { system: 'a'.repeat(30), messages: [], maxTokens: 100 }
+
+  it('counts the system prompt and the message prose', () => {
+    // 30 + 30 characters is 20 tokens at three each, plus the 100-token output cap.
+    const reserved = reservationFor({
+      ...bare,
+      messages: [{ role: 'user', content: 'b'.repeat(30) }],
+    })
+
+    expect(reserved).toBe(120)
+  })
+
+  it('counts a tool result, which is where a chat request is largest', () => {
+    const withResult = reservationFor({
+      ...bare,
+      messages: [
+        {
+          role: 'user',
+          content: '',
+          toolResults: [{ toolCallId: 'call-1', name: 'get_task', content: 'c'.repeat(3_000) }],
+        },
+      ],
+    })
+
+    // Undercounting here would understate the hold by a thousand tokens, which is the direction
+    // the three-characters-per-token constant exists to avoid erring in.
+    expect(withResult).toBeGreaterThan(reservationFor(bare) + 1_000)
+  })
+
+  it('counts a tool call’s arguments, which travel with the assistant turn that made it', () => {
+    const withCall = reservationFor({
+      ...bare,
+      messages: [
+        {
+          role: 'assistant',
+          content: '',
+          toolCalls: [{ id: 'call-1', name: 'search_tasks', arguments: { q: 'd'.repeat(3_000) } }],
+        },
+      ],
+    })
+
+    expect(withCall).toBeGreaterThan(reservationFor(bare) + 1_000)
+  })
+
+  it('counts the tool definitions the request carries', () => {
+    const withTools = reservationFor({
+      ...bare,
+      tools: [{ name: 'get_task', description: 'e'.repeat(3_000), parameters: {} }],
+    })
+
+    expect(withTools).toBeGreaterThan(reservationFor(bare) + 1_000)
+  })
+
+  it('counts the output schema, which is sent on every structured call', () => {
+    const withSchema = reservationFor({ ...bare, schema: classificationSchema })
+
+    // A schema also doubles the attempts, because it brings the validate-and-retry rule with it.
+    expect(withSchema).toBeGreaterThan(reservationFor(bare) * 2)
   })
 })

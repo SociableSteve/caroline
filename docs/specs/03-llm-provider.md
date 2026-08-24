@@ -212,7 +212,8 @@ the allowance priced it at: whatever the mix of input and output turns out to be
 a bound on the money and not an estimate of it.
 
 What a ceiling is not is a figure the spend cannot reach. The check refuses once the tokens already
-recorded reach the allowance, so the call that crosses the line has been made and charged by the
+recorded, together with the reservations held for the calls in flight, reach the allowance, so the
+call that crosses the line has been made and charged by the
 time anything can know it crossed. Reaching the ceiling stops the next call, not the one in
 progress, which is the property the issue behind this asked for: "reaching it stops further calls
 rather than slowing them". The overshoot is bounded rather than open-ended, at the cost of the
@@ -236,7 +237,11 @@ of them pass a check only one should have passed.
 
 The reservation is deliberately generous: the request's own prompt, counted in characters and
 converted at a rate that overstates the tokens, plus the output cap the caller asked for, and both
-again for the one retry the validate-and-retry rule permits. Overstating it can only refuse a call
+again for the one retry the validate-and-retry rule permits. The prompt is everything the request
+puts on the wire and not only its prose: the system prompt, each message's text, the tool calls and
+tool results the messages carry, the tool definitions and the output schema. On a chat turn the
+tool traffic is the larger part, so leaving it out would undercount by more than the character rate
+deliberately overcounts by, and turn a hold meant to overstate into one that understates. Overstating it can only refuse a call
 close to the ceiling that would in fact have fitted, which is the safe direction for a guard about
 money, and it is reconciled the moment the call's rows are written, so it never affects a call made
 after the previous one has finished.

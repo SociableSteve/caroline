@@ -647,7 +647,10 @@ Exit: an install with `anthropic` capped at a small amount sorts its inbox until
 gone, then skips with the reason in the run history while an uncapped provider carries on; an
 install with no `llm.budget` block behaves as it did before this milestone and never looks a price
 up; and a model missing from the table stops startup only where somebody asked for a cap on its
-provider. Spec 03 criteria 8 to 15, spec 09 criterion 27, and spec 04 criterion 10.
+provider. Spec 03 criteria 8 to 15, spec 09 criterion 27, and spec 04 criterion 10. Spec 08 gains
+`GET /api/spend` in its route table and the spend panel in what Jobs shows, and no criterion of its
+own: what the route answers and what the panel says are spec 03 criterion 15's, and a second copy
+here would be one to drift.
 
 ## Test strategy
 

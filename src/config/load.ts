@@ -218,7 +218,7 @@ interface ConfiguredModel {
   readonly path: string
 }
 
-/** A configured model the committed price table does not carry. Spec 03, criterion 8. */
+/** A configured model the committed price table does not carry. Spec 03, criterion 9. */
 interface UnpricedModel extends ConfiguredModel {
   /** The budget key that made the price necessary, so the refusal can name it. */
   readonly limitPath: string
@@ -309,7 +309,7 @@ function resolveBudget(
 }
 
 /**
- * Spec 03, criterion 8: a model absent from the price table is a start-up error, and only where
+ * Spec 03, criterion 9: a model absent from the price table is a start-up error, and only where
  * that provider's ceiling is a number. `resolveBudget` above never looks a price up otherwise, so
  * an unpriced entry here is always one somebody asked to be capped.
  *

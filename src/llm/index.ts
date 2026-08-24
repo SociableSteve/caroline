@@ -9,7 +9,7 @@ import type { Database } from '../db/connection.js'
 import { createAnthropicAdapter } from './adapters/anthropic.js'
 import { createOllamaAdapter } from './adapters/ollama.js'
 import { createOpenAiAdapter } from './adapters/openai.js'
-import { createBudgetGate, withBudget, type BudgetReservation } from './budget.js'
+import { createBudgetGate, noHold, withBudget, type BudgetReservation } from './budget.js'
 import { llmCallRecorder } from './recording.js'
 import { withSchemaValidation } from './structured.js'
 import { LlmError, type LlmProvider } from './types.js'
@@ -110,11 +110,14 @@ export function createLlmRuntime({
 
   /**
    * The same check taken as a claim on the allowance, which is what a call about to be made needs.
-   * A purpose with no provider can make no call, so there is nothing to hold for it.
+   *
+   * The `none` arm narrows the type rather than guarding a live path: this is only ever called
+   * through the `withBudget` wrapper built in `for` below, and `createAdapter` has already thrown
+   * for a purpose with no provider by the time that wrapper exists.
    */
   function reserveFor(purpose: LlmPurpose, tokens: number): BudgetReservation {
     const { provider } = settingsFor(config, purpose)
-    return provider === 'none' ? { hold: { release: () => {} } } : gate.reserve(provider, tokens)
+    return provider === 'none' ? { hold: noHold } : gate.reserve(provider, tokens)
   }
 
   return {

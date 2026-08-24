@@ -240,7 +240,8 @@ describe('model spend', () => {
     ],
     providers: [
       { provider: 'anthropic', limit: 20, tokens: 1500, allowance: 2_000_000, estimate: 4 },
-      { provider: 'openai', limit: 'unlimited', tokens: 0, allowance: null, estimate: null },
+      { provider: 'openai', limit: 'unlimited', tokens: 0, allowance: null, estimate: 0 },
+      { provider: 'ollama', limit: 'unlimited', tokens: 4_000, allowance: null, estimate: null },
     ],
   }
 
@@ -272,6 +273,21 @@ describe('model spend', () => {
     expect(
       within(panel(/model spend/i)).getByRole('region', { name: /anthropic/i }),
     ).toHaveTextContent('£20.00')
+  })
+
+  it('reads the currency zero for a provider that made no calls, not "not priced"', () => {
+    renderJobs({ spend })
+    const openai = within(panel(/model spend/i)).getByRole('region', { name: /openai/i })
+
+    expect(openai).toHaveTextContent('£0.00')
+    expect(openai).not.toHaveTextContent('not priced')
+  })
+
+  it('still reads "not priced" where calls were made and their model has no price', () => {
+    renderJobs({ spend })
+    const ollama = within(panel(/model spend/i)).getByRole('region', { name: /ollama/i })
+
+    expect(ollama).toHaveTextContent('not priced')
   })
 
   it('says nothing has been spent rather than showing empty tables', () => {

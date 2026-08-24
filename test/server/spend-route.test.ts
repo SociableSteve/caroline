@@ -78,8 +78,8 @@ describe('GET /api/spend', () => {
     // inferred from an absence. Spec 03, criterion 15.
     expect(body.providers).toEqual([
       { provider: 'anthropic', limit: 20, tokens: 600_000, allowance: 2_000_000, estimate: 2 },
-      { provider: 'openai', limit: 'unlimited', tokens: 0, allowance: null, estimate: null },
-      { provider: 'ollama', limit: 'unlimited', tokens: 0, allowance: null, estimate: null },
+      { provider: 'openai', limit: 'unlimited', tokens: 0, allowance: null, estimate: 0 },
+      { provider: 'ollama', limit: 'unlimited', tokens: 0, allowance: null, estimate: 0 },
     ])
   })
 })

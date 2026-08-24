@@ -35,6 +35,12 @@ describe('budgetReachedMessage, spec 03 criteria 13 and 14', () => {
     expect(message).toContain('month')
     expect(message).toContain('llm.budget')
   })
+
+  it('says the calls in flight count too, because the gate compares against them as well', () => {
+    // `refusalFor` adds the reservations held to the recorded tokens before it compares, so a
+    // sentence naming only what is recorded would report an in-flight refusal as recorded spend.
+    expect(budgetReachedMessage('anthropic', 20, 'GBP', 'month')).toContain('calls in flight')
+  })
 })
 
 describe('reservationTokens, spec 03 criterion 12', () => {
