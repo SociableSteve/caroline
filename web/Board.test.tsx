@@ -1,6 +1,7 @@
 /**
- * Spec 08 criteria 3 and 8: a status change made on the board is the user's, and the whole
- * board is operable from the keyboard alone.
+ * Spec 08 criteria 3, 8 and 56: a status change made on the board is the user's, and the whole board
+ * is operable from the keyboard alone, through the tab order and the controls on the cards rather
+ * than through a grid of shortcuts the board answers itself.
  */
 import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, within } from '@testing-library/react'
@@ -13,7 +14,15 @@ import {
   formatDate,
 } from './format.js'
 import type { SourceView } from './api.js'
-import { aProject, aPullRequestSource, aReviewTask, aTask, DAY, NOW } from './test-fixtures.js'
+import {
+  aProject,
+  aProposal,
+  aPullRequestSource,
+  aReviewTask,
+  aTask,
+  DAY,
+  NOW,
+} from './test-fixtures.js'
 
 function renderBoard(overrides: Partial<Parameters<typeof Board>[0]> = {}) {
   const handlers = {
@@ -188,14 +197,13 @@ describe('the Blocked column', () => {
     expect(handlers.onStatusChange).not.toHaveBeenCalled()
   })
 
-  it('takes no digit', () => {
-    const handlers = renderBoard({ tasks: [aTask({ id: 'task-1', title: 'Captured' })] })
-    const card = screen.getByRole('article', { name: 'Captured' })
-    card.focus()
+  it('is named and counted in its heading, with no digit offering a way in', () => {
+    renderBoard({ tasks: [blockedTask(), aTask({ id: 'blocker', title: 'Sign the contract' })] })
 
-    fireEvent.keyDown(card, { key: '5' })
-
-    expect(handlers.onStatusChange).not.toHaveBeenCalled()
+    // Criteria 53 and 56: the number that used to sit beside every column name said which digit
+    // filed a card into it, and Blocked was the one it had to make an exception of.
+    expect(column(/^Blocked/)).toHaveAccessibleName('Blocked, 1 task')
+    expect(within(column(/^Blocked/)).queryByText('5')).not.toBeInTheDocument()
   })
 
   it('offers blocked in the status control only to a card already in it', async () => {
@@ -327,7 +335,13 @@ describe('changing a status', () => {
   })
 })
 
-describe('the keyboard', () => {
+/**
+ * Criterion 8, as it now reads: the board is operable from the keyboard alone through native focus
+ * order and the card's own controls. Every action the board's removed grid performed is asserted here
+ * as a keyboard path through the control that performs it, so the contract is checked rather than
+ * assumed to have survived the deletion.
+ */
+describe('the keyboard, through the controls on a card', () => {
   const tasks = [
     aTask({ id: 'first', title: 'First inbox' }),
     aTask({ id: 'second', title: 'Second inbox' }),
@@ -342,265 +356,137 @@ describe('the keyboard', () => {
     expect(screen.getByRole('article', { name: 'First inbox' })).toHaveFocus()
   })
 
-  it('moves down and up a column', async () => {
+  /**
+   * The card, then what is on its face, then the disclosure. Where the tab order goes after that is
+   * not asserted here: jsdom offers no layout, so it leaves the contents of a closed `details` in the
+   * tab order where a browser skips them, and a test carried on past `More` would be asserting that
+   * artefact rather than the contract. What the disclosure holds is asserted with it open instead, in
+   * "puts the controls in the tab order once the disclosure is open".
+   */
+  it('reaches the card, its title and its actions in that order by tabbing', async () => {
     renderBoard({ tasks })
-    screen.getByRole('article', { name: 'First inbox' }).focus()
 
-    await userEvent.keyboard('{ArrowDown}')
-    expect(screen.getByRole('article', { name: 'Second inbox' })).toHaveFocus()
-
-    await userEvent.keyboard('{ArrowUp}')
+    await userEvent.tab()
     expect(screen.getByRole('article', { name: 'First inbox' })).toHaveFocus()
+
+    await userEvent.tab()
+    expect(screen.getByRole('button', { name: 'First inbox' })).toHaveFocus()
+
+    await userEvent.tab()
+    expect(screen.getAllByRole('button', { name: 'Complete' })[0]).toHaveFocus()
+
+    await userEvent.tab()
+    expect(screen.getAllByText('More')[0]).toHaveFocus()
   })
 
-  it('moves across columns, and stays put where there is nothing to move to', async () => {
-    renderBoard({ tasks })
-    screen.getByRole('article', { name: 'First inbox' }).focus()
-
-    await userEvent.keyboard('{ArrowRight}')
-    expect(screen.getByRole('article', { name: 'A next action' })).toHaveFocus()
-
-    // Review is empty, so the focus has nowhere to go and does not go there.
-    await userEvent.keyboard('{ArrowRight}')
-    expect(screen.getByRole('article', { name: 'A next action' })).toHaveFocus()
-  })
-
-  it('lands on the last card when the next column is shorter', async () => {
-    renderBoard({ tasks })
-    screen.getByRole('article', { name: 'Second inbox' }).focus()
-
-    await userEvent.keyboard('{ArrowRight}')
-
-    expect(screen.getByRole('article', { name: 'A next action' })).toHaveFocus()
-  })
-
-  it('accepts the vi keys as well as the arrows', async () => {
-    renderBoard({ tasks })
-    screen.getByRole('article', { name: 'First inbox' }).focus()
-
-    await userEvent.keyboard('j')
-    expect(screen.getByRole('article', { name: 'Second inbox' })).toHaveFocus()
-
-    await userEvent.keyboard('k')
-    expect(screen.getByRole('article', { name: 'First inbox' })).toHaveFocus()
-  })
-
-  it('changes the status of the focused task with a digit', async () => {
+  it('completes a task from its button with the keyboard alone', async () => {
     const handlers = renderBoard({ tasks })
-    screen.getByRole('article', { name: 'First inbox' }).focus()
 
-    await userEvent.keyboard('4')
-
-    expect(handlers.onStatusChange).toHaveBeenCalledWith('first', 'waiting')
-  })
-
-  it('does nothing when the digit is the column the task is already in', async () => {
-    const handlers = renderBoard({ tasks })
-    screen.getByRole('article', { name: 'First inbox' }).focus()
-
-    await userEvent.keyboard('1')
-
-    expect(handlers.onStatusChange).not.toHaveBeenCalled()
-  })
-
-  it('ignores a digit with no column behind it', async () => {
-    const handlers = renderBoard({ tasks })
-    screen.getByRole('article', { name: 'First inbox' }).focus()
-
-    await userEvent.keyboard('9')
-
-    expect(handlers.onStatusChange).not.toHaveBeenCalled()
-  })
-
-  it('completes the focused task', async () => {
-    const handlers = renderBoard({ tasks })
-    screen.getByRole('article', { name: 'First inbox' }).focus()
-
-    await userEvent.keyboard('d')
+    const complete = screen.getAllByRole('button', { name: 'Complete' })[0]
+    complete?.focus()
+    await userEvent.keyboard('{Enter}')
 
     expect(handlers.onComplete).toHaveBeenCalledWith('first')
   })
 
-  /**
-   * Issue 19: completing the focused task takes it off the board, and its card unmounts under
-   * the browser's own focus. Left alone the focus falls to `<body>`, which swallows the very
-   * next keypress rather than continuing the triage.
-   */
-  it('lands on the next card down once the completed card leaves the board', async () => {
-    const { rerender } = renderBoard({ tasks })
-    screen.getByRole('article', { name: 'First inbox' }).focus()
+  it('changes a status from the control in the disclosure, with the keyboard alone', async () => {
+    const handlers = renderBoard({ tasks })
 
-    await userEvent.keyboard('d')
+    const card = screen.getByRole('article', { name: 'First inbox' })
+    const summary = within(card).getByText('More')
+    summary.focus()
+    // A native summary opens on Enter, which is what puts the controls it holds in the tab order.
+    await userEvent.keyboard('{Enter}')
 
-    // Stands in for the parent's response to onComplete: the task moves to `done`, which is not
-    // one of the board's columns, so its card disappears the same as a real completion would.
-    rerender({ tasks: tasks.filter((task) => task.id !== 'first') })
+    const status = within(card).getByRole('combobox', { name: 'Status of First inbox' })
+    status.focus()
+    // Enter opens the list on the card's own status, Inbox, and the next option down is the one
+    // the task is being filed as.
+    await userEvent.keyboard('{Enter}')
+    await userEvent.keyboard('{ArrowDown}{Enter}')
 
-    expect(screen.getByRole('article', { name: 'Second inbox' })).toHaveFocus()
+    expect(handlers.onStatusChange).toHaveBeenCalledWith('first', 'next_action')
   })
 
-  it('lands on the card above where the completed card was the last in its column', async () => {
-    const { rerender } = renderBoard({ tasks })
-    screen.getByRole('article', { name: 'Second inbox' }).focus()
-
-    await userEvent.keyboard('d')
-    rerender({ tasks: tasks.filter((task) => task.id !== 'second') })
-
-    expect(screen.getByRole('article', { name: 'First inbox' })).toHaveFocus()
-  })
-
-  /**
-   * Completing the only card in a column empties it, so there is no neighbour in it to land on.
-   * The nearest card in the closest column with one keeps the keyboard grid usable, where
-   * falling back to nothing puts the focus on `<body>`: the bug this is all here to prevent.
-   */
-  it('crosses to the nearest column when the completed card was the only one in its own', async () => {
-    const onlyCardPerColumn = [
-      aTask({ id: 'first', title: 'First inbox' }),
-      aTask({ id: 'next', title: 'A next action', status: 'next_action' }),
-    ]
-    const { rerender } = renderBoard({ tasks: onlyCardPerColumn })
-    screen.getByRole('article', { name: 'First inbox' }).focus()
-
-    await userEvent.keyboard('d')
-    rerender({ tasks: onlyCardPerColumn.filter((task) => task.id !== 'first') })
-
-    expect(screen.getByRole('article', { name: 'A next action' })).toHaveFocus()
-  })
-
-  /**
-   * The write behind a completion is asynchronous, so the render that takes the card off the
-   * board is not the next one: an unrelated render (the clock ticking, a rejected write putting
-   * a message on the screen) comes first, and must not be treated as the completion landing.
-   */
-  it('leaves the focus alone where an unrelated render follows the completion', async () => {
-    const { rerender } = renderBoard({ tasks })
-    screen.getByRole('article', { name: 'First inbox' }).focus()
-
-    await userEvent.keyboard('d')
-
-    // The write was rejected: the task is still on the board, and still under the focus. Moving
-    // it now would put a retry on a different task from the one the user is looking at.
-    rerender({ now: NOW + DAY })
-
-    expect(screen.getByRole('article', { name: 'First inbox' })).toHaveFocus()
-  })
-
-  it('leaves the focus where the user moved it after asking for the completion', async () => {
-    const { rerender } = renderBoard({ tasks })
-    screen.getByRole('article', { name: 'First inbox' }).focus()
-
-    await userEvent.keyboard('d')
-    // The board is still usable while the write is in flight, and where the user has moved on the
-    // completion landing must not drag the focus back across the board.
-    await userEvent.keyboard('l')
-    rerender({ tasks: tasks.filter((task) => task.id !== 'first'), now: NOW + DAY })
-
-    expect(screen.getByRole('article', { name: 'A next action' })).toHaveFocus()
-  })
-
-  /**
-   * `u` puts the last status change back, and a task that was moved out of `done` has `done` to
-   * go back to: the undo takes it off the board exactly as a completion does.
-   */
-  it('lands on a neighbour when an undo puts the focused task back to done', async () => {
-    const undoable = [
-      aTask({
-        id: 'first',
-        title: 'First next',
-        status: 'next_action',
-        previousStatus: 'done',
-        previousStatusSetBy: 'user',
-      }),
-      aTask({ id: 'second', title: 'Second next', status: 'next_action' }),
-    ]
-    const { rerender } = renderBoard({ tasks: undoable })
-    screen.getByRole('article', { name: 'First next' }).focus()
-
-    await userEvent.keyboard('u')
-    rerender({ tasks: undoable.filter((task) => task.id !== 'first') })
-
-    expect(screen.getByRole('article', { name: 'Second next' })).toHaveFocus()
-  })
-
-  it('follows the task to its new column when a digit moves it', async () => {
-    const { rerender } = renderBoard({ tasks })
-    screen.getByRole('article', { name: 'First inbox' }).focus()
-
-    await userEvent.keyboard('4')
-    rerender({
-      tasks: tasks.map((task) => (task.id === 'first' ? { ...task, status: 'waiting' } : task)),
+  it('undoes the last move from the control in the disclosure, with the keyboard alone', async () => {
+    const handlers = renderBoard({
+      tasks: [
+        aTask({
+          id: 'task-1',
+          title: 'Moved',
+          previousStatus: 'inbox',
+          previousStatusSetBy: 'llm',
+        }),
+      ],
     })
 
-    const waiting = column(/Waiting for/)
-    expect(within(waiting).getByRole('article', { name: 'First inbox' })).toHaveFocus()
-  })
+    const card = screen.getByRole('article', { name: 'Moved' })
+    within(card).getByText('More').focus()
+    await userEvent.keyboard('{Enter}')
 
-  it('lists the shortcuts, so they are discoverable rather than folklore', () => {
-    renderBoard({ tasks })
+    const undo = within(card).getByRole('button', { name: 'Undo move' })
+    undo.focus()
+    await userEvent.keyboard('{Enter}')
 
-    const help = screen.getByRole('region', { name: 'Keyboard' })
-
-    expect(within(help).getByText('1 to 7')).toBeInTheDocument()
+    expect(handlers.onUndoStatus).toHaveBeenCalledWith('task-1')
   })
 })
 
 /**
- * The card holds a status select and buttons, and their keys bubble to the card. Taking those
- * as board shortcuts made the select unusable from the keyboard: an ArrowDown to pick an option
- * moved the focus to another card instead, and a letter typed to jump within the list completed
- * the task or changed its status.
+ * Criterion 56: the board answers no keys of its own. The grid that used to be here moved between
+ * cards on the arrows and the vi keys, filed a card with a digit, and completed, reviewed, accepted
+ * and undid on single letters. Each of those is asserted dead, because a handler quietly coming back
+ * is the regression this criterion exists to catch. `c` is not among them: quick capture is handled
+ * for the whole document in `App`, and `App.test.tsx` is where it is asserted.
  */
-describe('the keyboard inside a card control', () => {
+describe('the keyboard grid the board used to carry', () => {
   const tasks = [
-    aTask({ id: 'first', title: 'First inbox' }),
+    aTask({
+      id: 'first',
+      title: 'First inbox',
+      previousStatus: 'next_action',
+      previousStatusSetBy: 'llm',
+      proposal: aProposal({ status: 'next_action', confidence: 0.62 }),
+    }),
     aTask({ id: 'second', title: 'Second inbox' }),
+    aReviewTask(),
   ]
 
-  it('leaves the arrow keys to the status select', async () => {
-    renderBoard({ tasks })
-    const select = screen.getByRole('combobox', { name: 'Status of First inbox' })
-    select.focus()
-
-    await userEvent.keyboard('{ArrowDown}')
-
-    // shadcn's `Select` (Radix underneath) opens on an arrow key and moves the roving focus to
-    // the highlighted option rather than keeping it on the trigger the way a native `<select>`
-    // does; the contract this checks is that the board's own card-to-card arrow navigation never
-    // gets the key, not that focus stays on one particular element inside the control that owns it.
-    expect(screen.getByRole('listbox')).toBeInTheDocument()
-    // `{ hidden: true }`: the open popup marks the rest of the page `aria-hidden`, same as
-    // shadcn's `Dialog`.
-    expect(screen.getByRole('article', { name: 'First inbox', hidden: true })).not.toHaveFocus()
-    expect(screen.getByRole('article', { name: 'Second inbox', hidden: true })).not.toHaveFocus()
-  })
-
-  it('does not complete a task when d is typed into the select', async () => {
+  it('does nothing on any of its keys, and moves the focus nowhere', async () => {
     const handlers = renderBoard({ tasks })
-    screen.getByRole('combobox', { name: 'Status of First inbox' }).focus()
+    const card = screen.getByRole('article', { name: 'First inbox' })
+    card.focus()
 
-    await userEvent.keyboard('d')
+    for (const key of [
+      '{ArrowDown}',
+      '{ArrowUp}',
+      '{ArrowRight}',
+      '{ArrowLeft}',
+      'h',
+      'j',
+      'k',
+      'l',
+    ]) {
+      await userEvent.keyboard(key)
+      expect(card, key).toHaveFocus()
+    }
 
+    for (const key of ['1', '2', '4', '5', '7', 'd', 'r', 'a', 'u', '{Enter}']) {
+      await userEvent.keyboard(key)
+    }
+
+    expect(handlers.onStatusChange).not.toHaveBeenCalled()
     expect(handlers.onComplete).not.toHaveBeenCalled()
+    expect(handlers.onMarkReviewed).not.toHaveBeenCalled()
+    expect(handlers.onAcceptProposal).not.toHaveBeenCalled()
+    expect(handlers.onUndoStatus).not.toHaveBeenCalled()
+    expect(handlers.onSelect).not.toHaveBeenCalled()
   })
 
-  it('does not change a status when a digit is typed into the select', async () => {
-    const handlers = renderBoard({ tasks })
-    screen.getByRole('combobox', { name: 'Status of First inbox' }).focus()
+  it('shows no shortcut legend under the columns', () => {
+    renderBoard({ tasks })
 
-    await userEvent.keyboard('4')
-
-    expect(handlers.onStatusChange).not.toHaveBeenCalled()
-  })
-
-  it('leaves keys pressed on a card button alone as well', async () => {
-    const handlers = renderBoard({ tasks })
-    screen.getAllByRole('button', { name: 'Complete' })[0]?.focus()
-
-    await userEvent.keyboard('{ArrowRight}')
-
-    expect(handlers.onStatusChange).not.toHaveBeenCalled()
-    expect(screen.getAllByRole('button', { name: 'Complete' })[0]).toHaveFocus()
+    expect(screen.queryByRole('region', { name: 'Keyboard' })).not.toBeInTheDocument()
   })
 })
 
@@ -840,9 +726,9 @@ describe('editing a due date and a defer-until date', () => {
 })
 
 /**
- * Putting a board move back. Spec 08, criteria 16 and 17: a move is one keypress and records
- * `status_set_by = 'user'`, which locks the classifier out of the task from then on, so a mistyped
- * digit does not merely misfile a card.
+ * Putting a board move back. Spec 08, criteria 16 and 17: a move is one drag or one pick from the
+ * status control, and it records `status_set_by = 'user'`, which locks the classifier out of the task
+ * from then on, so a card dropped in the wrong column does not merely sit in the wrong column.
  */
 describe('undoing the last status change', () => {
   it('offers the undo only on a task that has been changed', async () => {
@@ -887,9 +773,12 @@ describe('undoing the last status change', () => {
     expect(handlers.onUndoStatus).toHaveBeenCalledWith('task-1')
   })
 
-  // A change is one keypress, so putting one back is one too.
-  it('asks for it from the keyboard, and is silent where there is nothing to put back', () => {
-    const handlers = renderBoard({
+  /**
+   * Criterion 15: the controls the disclosure holds join the tab order with it, which is what makes
+   * the undo, the blocker picker and the dates reachable without a shortcut of their own.
+   */
+  it('puts the controls in the tab order once the disclosure is open', async () => {
+    renderBoard({
       tasks: [
         aTask({
           id: 'task-1',
@@ -897,73 +786,22 @@ describe('undoing the last status change', () => {
           previousStatus: 'inbox',
           previousStatusSetBy: 'llm',
         }),
-        aTask({ id: 'task-2', title: 'Never moved' }),
       ],
     })
 
-    fireEvent.keyDown(screen.getByRole('article', { name: 'Moved' }), { key: 'u' })
-    expect(handlers.onUndoStatus).toHaveBeenCalledWith('task-1')
-
-    handlers.onUndoStatus.mockClear()
-    fireEvent.keyDown(screen.getByRole('article', { name: 'Never moved' }), { key: 'u' })
-    expect(handlers.onUndoStatus).not.toHaveBeenCalled()
-  })
-
-  // Criterion 15: opening the disclosure must not take the board's own keys away.
-  it('leaves the board keys working while the disclosure is open', async () => {
-    const handlers = renderBoard({
-      tasks: [aTask({ id: 'task-1', title: 'Renew the domain' })],
-    })
-
-    const card = screen.getByRole('article', { name: 'Renew the domain' })
-    await userEvent.click(within(card).getByText('More'))
-    fireEvent.keyDown(card, { key: 'd' })
-
-    expect(handlers.onComplete).toHaveBeenCalledWith('task-1')
-  })
-
-  /**
-   * And with the focus still on the disclosure, which is where opening it from the keyboard
-   * leaves it. A summary is not a text field: a digit typed on it is a board command, not typing,
-   * so the shortcuts have to survive the trip into the disclosure and not only the trip back out.
-   */
-  it('keeps the shortcuts working while the summary itself holds the focus', async () => {
-    const handlers = renderBoard({
-      tasks: [
-        aTask({
-          id: 'task-1',
-          title: 'Renew the domain',
-          previousStatus: 'inbox',
-          previousStatusSetBy: 'llm',
-        }),
-      ],
-    })
-
-    const card = screen.getByRole('article', { name: 'Renew the domain' })
+    const card = screen.getByRole('article', { name: 'Moved' })
     const summary = within(card).getByText('More')
     summary.focus()
+    await userEvent.keyboard('{Enter}')
 
-    fireEvent.keyDown(summary, { key: 'd' })
-    expect(handlers.onComplete).toHaveBeenCalledWith('task-1')
+    await userEvent.tab()
+    expect(within(card).getByRole('combobox', { name: 'Status of Moved' })).toHaveFocus()
 
-    fireEvent.keyDown(summary, { key: 'u' })
-    expect(handlers.onUndoStatus).toHaveBeenCalledWith('task-1')
+    await userEvent.tab()
+    expect(within(card).getByRole('combobox', { name: 'Blocked by, for Moved' })).toHaveFocus()
 
-    // Someday is the sixth column now that Blocked is the fifth. Spec 08, criterion 53.
-    fireEvent.keyDown(summary, { key: '6' })
-    expect(handlers.onStatusChange).toHaveBeenCalledWith('task-1', 'someday')
-  })
-
-  // The controls inside it are a different matter: their keys are theirs, which is why the board
-  // reads only from the card and the summary.
-  it('still leaves the keys of the controls inside the disclosure alone', async () => {
-    const handlers = renderBoard({ tasks: [aTask({ id: 'task-1', title: 'Renew the domain' })] })
-
-    const card = screen.getByRole('article', { name: 'Renew the domain' })
-    await userEvent.click(within(card).getByText('More'))
-    fireEvent.keyDown(within(card).getByRole('combobox', { name: /^Status of/ }), { key: 'd' })
-
-    expect(handlers.onComplete).not.toHaveBeenCalled()
+    await userEvent.tab()
+    expect(within(card).getByRole('button', { name: 'Undo move' })).toHaveFocus()
   })
 })
 
@@ -986,12 +824,13 @@ describe('a pull request awaiting review', () => {
     expect(handlers.onMarkReviewed).toHaveBeenCalledWith('task-pr')
   })
 
-  it('offers the same action from the keyboard alone', () => {
+  /** Criterion 8: marking a review done is named in it, so its keyboard path is asserted. */
+  it('offers the same action from the keyboard alone', async () => {
     const handlers = renderBoard({ tasks: [aReviewTask()] })
     const card = screen.getByRole('article', { name: title })
 
-    card.focus()
-    fireEvent.keyDown(card, { key: 'r' })
+    within(card).getByRole('button', { name: 'Mark reviewed' }).focus()
+    await userEvent.keyboard('{Enter}')
 
     expect(handlers.onMarkReviewed).toHaveBeenCalledWith('task-pr')
   })
@@ -1025,18 +864,6 @@ describe('a pull request awaiting review', () => {
     })
 
     expect(screen.queryByRole('button', { name: 'Mark reviewed' })).not.toBeInTheDocument()
-  })
-
-  it('does nothing on the keyboard for a pull request that has already closed', () => {
-    const handlers = renderBoard({
-      tasks: [aReviewTask({ sources: [aPullRequestSource({ resolvedAt: NOW - DAY })] })],
-    })
-    const card = screen.getByRole('article', { name: title })
-
-    card.focus()
-    fireEvent.keyDown(card, { key: 'r' })
-
-    expect(handlers.onMarkReviewed).not.toHaveBeenCalled()
   })
 })
 
@@ -1184,12 +1011,12 @@ describe('opening a task in the details rail', () => {
     expect(handlers.onSelect).toHaveBeenCalledWith({ kind: 'task', id: 'task-1' })
   })
 
-  it('opens the focused task from the keyboard', async () => {
+  /** Criterion 8: the title is a button, so the keyboard opens the task the same way a click does. */
+  it('opens the task from the keyboard, on the title itself', async () => {
     const handlers = renderBoard({ tasks: [aTask({ id: 'task-1', title: 'Captured' })] })
-    const card = screen.getByRole('article', { name: 'Captured' })
-    card.focus()
 
-    fireEvent.keyDown(card, { key: 'Enter' })
+    screen.getByRole('button', { name: 'Captured' }).focus()
+    await userEvent.keyboard('{Enter}')
 
     expect(handlers.onSelect).toHaveBeenCalledWith({ kind: 'task', id: 'task-1' })
   })
@@ -1202,11 +1029,5 @@ describe('opening a task in the details rail', () => {
 
     expect(screen.getByRole('button', { name: 'Captured' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('button', { name: 'Other' })).toHaveAttribute('aria-pressed', 'false')
-  })
-
-  it('lists the key that opens it, so the shortcut is discoverable', () => {
-    renderBoard()
-
-    expect(screen.getByText(/open the focused task in the details rail/)).toBeInTheDocument()
   })
 })

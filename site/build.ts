@@ -575,32 +575,11 @@ function prevNext(page: SitePage, context: BuildContext, steps: readonly SetupSt
  * The keys `using.md` and `setup.md` name inline, as `<kbd>` chips rather than the generic `<code>`
  * every other inline span gets. A fixed set rather than "every inline code span on this page", because
  * that would just as happily chip an environment variable or a config path: both pages carry those
- * too, and a chip is a claim about what a reader presses.
+ * too, and a chip is a claim about what a reader presses. Short since issue #89: the board's own grid
+ * of movement, digit and action keys is gone, so the keys the documents name are quick capture and
+ * the three the browser itself provides.
  */
-const keyTokens = new Set([
-  '←',
-  '→',
-  '↑',
-  '↓',
-  'h',
-  'j',
-  'k',
-  'l',
-  '1',
-  '2',
-  '3',
-  '4',
-  '5',
-  '6',
-  'd',
-  'r',
-  'a',
-  'u',
-  'c',
-  'enter',
-  'escape',
-  'tab',
-])
+const keyTokens = new Set(['c', 'Enter', 'Escape', 'Tab'])
 
 function chipKeys(html: string): string {
   return html.replace(/<code>([^<]+)<\/code>/g, (whole, inner: string) =>

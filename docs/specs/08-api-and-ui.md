@@ -115,15 +115,15 @@ it is blocked behind, so the wait has something in it to judge rather than being
 blocker's own status is not on the card; the card is one line about one task, and the blocker is a
 card of its own for whoever wants to know where it stands.
 
-The Blocked column takes no drag and no digit. A task is blocked by naming its blocker, not by
-being moved, and the board has no blocker to name, so offering the move would offer a status the
-write would refuse. Out of the column is ordinary: dragging a card out, or filing it anywhere else,
-clears the blocker with the status (spec 01).
+The Blocked column takes no drag, and the board offers no other route into it either. A task is
+blocked by naming its blocker, not by being moved, and the board has no blocker to name, so offering
+the move would offer a status the write would refuse. Out of the column is ordinary: dragging a card
+out, or filing it anywhere else, clears the blocker with the status (spec 01).
 
 Columns are columns. Where they do not all fit at the width available, the board scrolls
 sideways within its own region; it never wraps some of them onto a second row. A wrapped column
-is below and to the left of a column it is logically to the right of, which puts the layout in
-direct contradiction with the arrow keys, and the keyboard is the point of this surface.
+sits below and to the left of a column it is logically to the right of, which contradicts the
+reading order: the eye is sent back and up to find what comes next.
 
 Each column scrolls on its own within a bounded height. Without that the page grows to the length
 of the longest column, two columns of very different lengths cannot be compared, and the status a
@@ -133,17 +133,17 @@ scrolls sideways to reach them, for the reason above: they never stack and they 
 
 A card's actions are not its facts. Every fact stays visible, per the interaction rules below; the
 controls do not all have to be. The primary action is on the card, and the rest go behind a
-disclosure on the card, keyboard reachable, that does not capture the arrow keys the board's grid
-needs. Three controls abreast do not fit a column, and a card whose controls are taller than its
-content has the emphasis backwards.
+disclosure on the card, keyboard reachable, whose own controls join the tab order once it is open.
+Three controls abreast do not fit a column, and a card whose controls are taller than its content has
+the emphasis backwards.
 
 A card does not restate its own status. The column it is in says it, and so does the status
 control; a third telling in the fact list is noise, and on the Inbox, Someday and Reference cards
 it is the fact list's only row.
 
-Review cards have a **Mark reviewed** action, on the card and on a keyboard shortcut, which
-moves the PR to Waiting for. It is the primary action on the card, because it is the one
-taken most often.
+Review cards have a **Mark reviewed** action on the card, reached by keyboard the way every other
+control on a card is, which moves the PR to Waiting for. It is the primary action on the card,
+because it is the one taken most often.
 
 The Waiting for column is a chase list. Every card shows how long it has been waiting and on
 whom, ordered oldest first, with items past the staleness threshold visibly flagged. PR
@@ -151,12 +151,12 @@ cards show whether the author has pushed anything since you reviewed. A task tha
 out of sync tracking (spec 01) is marked as such, so it is clear why it stopped moving on
 its own.
 
-The last status change made on the board can be undone. A board move is one keystroke, and by
-design it records `status_set_by = 'user'`, which locks the classifier out of that task from then
-on (spec 01). So a mistyped digit does not merely put a card in the wrong column: it silently
-takes that task out of the classifier's reach for good. Chat, where every change is deliberate and
-described before it happens, has an undo for exactly this reason; the board, where a change is a
-single keypress, needs one more.
+The last status change made on the board can be undone. A board move is a drag, or one pick from the
+card's status control, and by design it records `status_set_by = 'user'`, which locks the classifier
+out of that task from then on (spec 01). So a card dropped in the wrong column does not merely sit in
+the wrong column: it silently takes that task out of the classifier's reach for good. Chat, where
+every change is deliberate and described before it happens, has an undo for exactly this reason; the
+board, where the same change is one unconfirmed gesture, needs one too.
 
 Undoing restores both the previous status and the previous `status_set_by`, because restoring the
 status alone would leave the classifier locked out and the undo would not have undone the part
@@ -295,8 +295,10 @@ says which is which.
 
 ### Interaction rules
 
-- Keyboard first on the board: move between items, change status, complete, capture, open the details
-  of the focused item.
+- The board is operable from the keyboard without a grid of its own. The tab order reaches every card
+  and every control on one, so changing a status, completing an item, marking a review done, accepting
+  a suggestion and opening the details are each done from the keyboard through the same control that
+  does them by pointer. Quick capture is the one shortcut, `c`, and it works from any surface.
 - A task is opened by clicking its title, not by a control added beside the others: a card's action row
   is already at the width it can afford, and the title is the thing being pointed at. A project's name
   is already a link to its own drill-in, so a project is opened from a control in its row instead,
@@ -353,15 +355,21 @@ here is the behaviour each surface owes the reader; what is there is what they a
    same contract.)
 7. Chat streams incrementally and a dropped connection leaves the conversation recoverable
    on reload.
-8. The board is fully operable by keyboard alone, including status changes and marking a
-   review done.
+8. The board is fully operable by keyboard alone, through native focus order and the card's own
+   controls rather than through navigation of the board's own. Tabbing reaches every card and every
+   control on one, including the controls behind the card's disclosure, so a status change, a
+   completion, marking a review done, accepting a suggestion and undoing a move can each be carried
+   out with the keyboard and nothing else. (Reworded by issue #89, which took the board's own grid
+   of movement, digit and action keys out. Keyboard operability is the same contract it always was;
+   what changed is what satisfies it.)
 9. Mark reviewed moves the card to Waiting for and it remains visible there, with its age
    and the author named.
 10. A waiting item past the staleness threshold is visually distinguished in the column and
     listed on the dashboard.
 
-Criteria 1 to 10 are unchanged and are referenced by name throughout the code and the suite.
-The design pass adds the following, appended rather than renumbered for that reason.
+Criteria 1 to 10 keep their numbers, which are referenced by name throughout the code and the suite,
+and criterion 8 is the only one of them that has been reworded since. The design pass adds the
+following, appended rather than renumbered for that reason.
 
 11. The dashboard's bands render in the order given above at every width, and no panel of band 3
     is laid out at the size of a band 1 panel.
@@ -373,8 +381,9 @@ The design pass adds the following, appended rather than renumbered for that rea
     grow with the length of its longest column.
 14. A task card does not render its own status as a fact, and every other fact spec 08 asks for
     remains visible without a hover, a click or a disclosure.
-15. A card's secondary controls are reachable by keyboard, and opening the disclosure that holds
-    them does not stop the board's arrow keys, digits or action shortcuts from working.
+15. A card's secondary controls are reachable by keyboard, and opening the disclosure that holds them
+    puts each of them in the tab order, so a control inside it is reached the same way one on the face
+    of the card is.
 16. `POST /api/tasks/:id/undo-status` restores both the previous status and the previous
     `status_set_by`, so a task moved by mistake and then undone is once again a task the
     classifier may act on.
@@ -540,8 +549,8 @@ reason.
     never have to be sent as separate changes. A blocker that does not exist, one that is already
     `done`, or one that would put a task behind itself directly or through a chain, is a 400 saying
     which.
-53. The Blocked column is not a drop target, and its digit does not move a card into it. A card
-    leaving the column by any route loses its blocker along with the status, and the card's status
+53. The Blocked column is not a drop target, and no other control on the board files a card into it. A
+    card leaving the column by any route loses its blocker along with the status, and the card's status
     control offers `blocked` only to a card that is already in it.
 54. The card's blocker picker offers only tasks that could still finish, so completed work is not
     among them, and it says which task the card is behind even where that task is not one of the
@@ -551,3 +560,13 @@ reason.
     returns a success that changed nothing. Where the request names both, they are applied as the
     one status change the pair is, so a task blocked this way keeps one step of undo rather than
     spending it twice.
+
+Issue #89 took the board's own keyboard grid out, and this says what stands in its place. Appended
+rather than renumbered, for the same reason.
+
+56. The board carries no keyboard grid of its own: no card-to-card movement keys, no digits picking a
+    column, no single-letter action keys and no card-level `Enter`. Nothing on the surface advertises
+    one either, so a column heading is its name and its count and carries no number, and the board has
+    no shortcut legend under it. Quick capture's `c` is the one shortcut the app answers, and it is
+    handled for the whole document rather than by the board. Every action a removed key performed keeps
+    its own control on the card, which is what criterion 8 is satisfied by.
