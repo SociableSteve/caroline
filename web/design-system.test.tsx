@@ -455,9 +455,9 @@ describe('the appearance model, swept from the sources', () => {
    * The side-qualified forms are listed for the same reason and are not exotic: `border-b-red-500`,
    * `border-t-[green]` and `divide-y-red-500` each pick a colour once for both palettes, and a list
    * of family names alone read `b` where it wanted `red`, so all three passed while the bare
-   * `border-red-500` failed. The client already writes nineteen bare side-qualified
-   * borders (`border-b`, `border-t`, `border-s`, `border-x`, `border-r`, `border-l`, and
-   * `border-l-2` twice), so a colour on one of them is a plausible next edit rather than a
+   * `border-red-500` failed. The client already writes seventeen side-qualified borders, none of
+   * them carrying a colour (`border-b` eleven times, `border-x` three, the width `border-l-2` twice
+   * and `border-l` once), so a colour on one of them is a plausible next edit rather than a
    * hypothetical. Each side goes in front of the family it qualifies, so `border-b-red-500` is read
    * as `border-b` plus a family rather than as `border` plus a `b`; a bare `border-b` and the width
    * `border-l-2` still match nothing, because neither is followed by a colour.

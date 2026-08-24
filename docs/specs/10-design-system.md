@@ -588,11 +588,11 @@ suite cite the numbers above.
     and not a list of three, `ring-offset-` and the side-qualified borders and divides among them:
     `ring-offset-red-500`, `ring-offset-[rebeccapurple]`, `border-b-red-500`, `border-t-[green]` and
     `divide-y-red-500` are each a colour chosen once for both palettes exactly as `ring-red-500` is.
-    The side-qualified ones are not hypothetical: the client already writes nineteen bare
-    side-qualified borders, so a colour on one of them is a plausible next edit. A bare `border-b`
-    and the width `border-l-2` are not colours and stay legal. A CSS type hint in front of the
-    token is the same thing as the token, so `bg-[color:var(--card)]` is legal and `bg-[color:red]`
-    is not.
+    The side-qualified ones are not hypothetical: the client already writes seventeen side-qualified
+    borders with no colour on any of them, `border-b` eleven times among them, so a colour on one is
+    a plausible next edit. A bare `border-b` and the width `border-l-2` are not colours and stay
+    legal. A CSS type hint in front of the token is the same thing as the token, so
+    `bg-[color:var(--card)]` is legal and `bg-[color:red]` is not.
 20. `--accent` is a state ground and never a fill a surface chooses at rest: every `accent` and
     `sidebar-accent` utility in `web/` carries one of three variants, `hover:`,
     `data-[highlighted]:` or `aria-[current=page]:`, and no other. A test whitelists those three and
