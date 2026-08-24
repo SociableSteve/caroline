@@ -454,13 +454,20 @@ criterion is owed the limit the criterion depends on.
   `class="flex h-screen flex-col overflow-y-auto"`. Test support is excluded, because a fixture is
   not something the client draws.
 - **Comments come out first, by a scanner and not a parser.** So prose about `oklch()` cannot fail a
-  check about an `oklch()` literal. The scanner tracks whether it is inside a quoted string, and it
-  has one input it cannot survive: a `/`-delimited regex literal containing a quote inverts its
-  parity for the rest of the file, after which it strips more than it should and the sweeps go blind.
-  That case is therefore forbidden rather than reasoned about, and a test fails on one. Nothing in
-  the client needs such a literal, and the nine it writes carry none. The opposite confusion, an
-  apostrophe in JSX text, strips less than it should and shows up as a sweep reporting a
-  commented-out utility, which is loud rather than silent.
+  check about an `oklch()` literal. The scanner tracks whether it is inside a quoted string, and
+  there are two inputs it cannot survive. A `/`-delimited regex literal containing a quote inverts
+  its parity for the rest of the file, after which it strips more than it should and the sweeps go
+  blind. An apostrophe in JSX text inverts it the same way and does the same damage: it was once
+  described here as the loud direction, on the grounds that it strips less than it should and so
+  reports a commented-out utility, and that was wrong, because the phantom string it opens closes on
+  the next real string's opening quote and a `//` after that (in a URL, say) blanks the rest of the
+  line and the violation on it. Both cases are therefore forbidden rather than reasoned about, and a
+  test fails on each. The first is checked by reading the regex literals the client writes, the
+  arrow-prefixed `=> /'/.test(value)` form included, and the nine of them carry no quote. The second
+  is checked on the property that catches it exactly: no `'` or `"` string the scan enters is still
+  open at the end of a line, which the language does not permit and a misread apostrophe always
+  produces. Quote parity over the file would not do, because a `//` swallowed by the phantom string
+  can rebalance it. The client writes its apostrophes as `’`, and passes.
 - **A class string is bounded by the line it is on, or by the quote that opened it.** Criterion 4
   reads from the opening quote to the end of the line, which is what it claims and no more.
   Criterion 18 is the one that needs a window on both sides, because the tracking and the size have
@@ -577,20 +584,25 @@ suite cite the numbers above.
     CSS's own colour names: `bg-[rebeccapurple]` and `border-[green]` write no hex, no colour
     function and no family name, and are a colour chosen once for both palettes just the same. The
     dialog scrim, `bg-black/65`, is the one sanctioned exception, and it sits behind everything rather
-    than under any text. The prefixes the sweep reads are every Tailwind utility that takes a colour
-    and not a list of three, `ring-offset-` among them: `ring-offset-red-500` and
-    `ring-offset-[rebeccapurple]` are a colour chosen once for both palettes exactly as
-    `ring-red-500` is. A CSS type hint in front of the token is the same thing as the token, so
-    `bg-[color:var(--card)]` is legal and `bg-[color:red]` is not.
+    than under any text. The prefixes the sweep reads are the Tailwind utilities that take a colour
+    and not a list of three, `ring-offset-` and the side-qualified borders and divides among them:
+    `ring-offset-red-500`, `ring-offset-[rebeccapurple]`, `border-b-red-500`, `border-t-[green]` and
+    `divide-y-red-500` are each a colour chosen once for both palettes exactly as `ring-red-500` is.
+    The side-qualified ones are not hypothetical: the client already writes nineteen bare
+    side-qualified borders, so a colour on one of them is a plausible next edit. A bare `border-b`
+    and the width `border-l-2` are not colours and stay legal. A CSS type hint in front of the
+    token is the same thing as the token, so `bg-[color:var(--card)]` is legal and `bg-[color:red]`
+    is not.
 20. `--accent` is a state ground and never a fill a surface chooses at rest: every `accent` and
     `sidebar-accent` utility in `web/` carries one of three variants, `hover:`,
     `data-[highlighted]:` or `aria-[current=page]:`, and no other. A test whitelists those three and
     fails on a bare occurrence or on a fourth variant, rather than passing anything with a prefix.
-    Every utility, and not the three prefixes a sweep is easiest to write for: `ring-accent`,
-    `fill-sidebar-accent`, `divide-accent` and `outline-accent` put the near-neutral on a resting
-    surface exactly as `bg-accent` does, and a sweep naming only `bg-`, `text-` and `border-` could
-    not fail on any of them. The prefix list is the same one criteria 19 and 21 read, and the whole
-    variant chain is read off the utility rather than out of a surrounding window.
+    Read off the same prefix list rather than the three a sweep is easiest to write for:
+    `ring-accent`, `fill-sidebar-accent`, `divide-accent`, `outline-accent` and the side-qualified
+    `border-b-accent` put the near-neutral on a resting surface exactly as `bg-accent` does, and a
+    sweep naming only `bg-`, `text-` and `border-` could not fail on any of them. The prefix list
+    is the same one criteria 19 and 21 read, and the whole variant chain is read off the utility
+    rather than out of a surrounding window.
     The whole variant chain is read and not only its last link, so `md:hover:bg-accent` and
     `dark:hover:bg-accent` fail as prefixes the whitelist does not name rather than passing as the
     `hover:` on the end of them.

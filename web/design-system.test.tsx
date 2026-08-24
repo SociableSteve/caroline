@@ -173,27 +173,32 @@ const clientSources = readdirSync(join(process.cwd(), 'web'), {
  * the other half is a line-initial `//` and a URL with no scheme in front of it.
  *
  * So the scan tracks whether it is inside a quoted string, and only outside one does `//` or `/*`
- * open a comment. It is not a parser, and it has two ways of being wrong, which are not the same
- * size as each other:
+ * open a comment. It is not a parser, and it has two ways of being wrong, both of which end up in
+ * the same place:
  *
- * - An apostrophe in JSX text opens a string that never closes, so the rest of the file reads as
- *   quoted and a real comment after it is copied through rather than dropped. That direction strips
- *   less than it should, and the failure mode is a sweep reporting a commented-out utility: loud,
- *   and wrong in the direction that cannot hide anything.
  * - A `/`-delimited regex literal containing a quote character inverts the parity for the rest of
  *   the file. A real string's opening quote then reads as a closing one, the code between strings
- *   reads as quoted, and a `//` inside the next string opens a comment and blanks the line. That
- *   direction strips more than it should and the sweeps below go blind, which is the failure this
- *   suite exists to prevent rather than one it can afford.
+ *   reads as quoted, and a `//` inside the next string opens a comment and blanks the line.
+ * - An apostrophe in JSX text opens a string that never closes, and inverts the parity in exactly
+ *   the same way. It was once described here as the safe direction, on the grounds that it strips
+ *   less than it should and so reports a commented-out utility rather than hiding a real one. That
+ *   was wrong: `const note = <p>Don't panic</p>` followed by
+ *   `const x = 'https://a.com' + 'bg-red-500'` puts the apostrophe's phantom string across the
+ *   first quote of the URL, leaves `https:` outside a string, and lets the `//` in it blank the rest
+ *   of that line. The violation goes missing, silently, by the same mechanism as above.
  *
- * The second is guarded rather than reasoned away: `no regex literal in the client carries a quote`
- * below fails on one, so the scanner is never asked to survive the case it cannot. Nothing in the
- * client needs such a literal, and the nine it does write carry none.
+ * Both are therefore guarded rather than reasoned away, in the describe block below the sources:
+ * `no regex literal in the client carries a quote` fails on the first, and `opens no quote in the
+ * client that runs past the end of its line` fails on the second, so the scanner is never asked to
+ * survive either. What the second checks is that no `'` or `"` string the scan enters is still open
+ * at the end of a line, which the language does not allow and a misread apostrophe always produces.
+ * Every source the client ships passes it today.
  */
-const withoutComments = (source: string): string => {
+const scan = (source: string): { code: string; runaway: string | null } => {
   let kept = ''
   let index = 0
   let delimiter: string | null = null
+  let runaway: string | null = null
 
   while (index < source.length) {
     const character = source[index] as string
@@ -203,6 +208,10 @@ const withoutComments = (source: string): string => {
         kept += source.slice(index, index + 2)
         index += 2
         continue
+      }
+      if (character === '\n' && delimiter !== '`' && runaway === null) {
+        const line = source.slice(0, index).split('\n').length
+        runaway = `line ${line}: a ${delimiter} string runs past the end of its line`
       }
       if (character === delimiter) {
         delimiter = null
@@ -238,8 +247,15 @@ const withoutComments = (source: string): string => {
     index += 1
   }
 
-  return kept
+  if (delimiter !== null && runaway === null) {
+    runaway = `end of file: a ${delimiter} string is never closed`
+  }
+
+  return { code: kept, runaway }
 }
+
+/** The comments-out half of the scan, which is what every sweep below reads. */
+const withoutComments = (source: string): string => scan(source).code
 
 /**
  * The comment syntax of whichever language the file is in. `web/index.html` comments with
@@ -250,30 +266,52 @@ const withoutComments = (source: string): string => {
 const stripComments = (file: string, source: string): string =>
   file.endsWith('.html') ? source.replaceAll(/<!--[\s\S]*?-->/g, ' ') : withoutComments(source)
 
-/** Every client source, comments out, which is what all six source sweeps below read. */
-const client = clientSources.map((file) => ({
+/** Every client source as written, which is what the scanner guards below read. */
+const rawClient = clientSources.map((file) => ({
   file,
-  source: stripComments(file, readFileSync(join(process.cwd(), file), 'utf8')),
+  source: readFileSync(join(process.cwd(), file), 'utf8'),
+}))
+
+/** Every client source, comments out, which is what all six source sweeps below read. */
+const client = rawClient.map(({ file, source }) => ({
+  file,
+  source: stripComments(file, source),
 }))
 
 /**
- * The scanner above is safe against an apostrophe in JSX text and unsafe against a regex literal
- * carrying a quote, and this is what keeps the unsafe case out of the client rather than a claim in
- * a comment that it cannot happen. A literal such as `/'/` inverts the scanner's string parity for
- * the rest of the file, after which a `//` inside a real string blanks a line and every sweep below
- * silently stops seeing what is on it.
+ * Neither confusion the scanner can fall into is reasoned away: both are forbidden, and a test here
+ * fails on each. A `/`-delimited regex literal carrying a quote inverts the scanner's string parity
+ * for the rest of the file, after which a `//` inside a real string blanks a line and every sweep
+ * below silently stops seeing what is on it. An apostrophe in JSX text inverts it the same way and
+ * for the same length of file, so the two need one guard each rather than one guard and a paragraph
+ * about why the other direction is safe.
  *
- * Finding a regex literal without parsing is its own heuristic, so the delimiters it will start
- * from are deliberately few: `=`, `(`, `,`, `:`, `[`, `!`, `&`, `|`, `?`, `;` and `return`. `<` and
- * `>` are not among them, because `</div>` would read as a literal opening at the `<`, and neither
- * are `{` and `}`, because `{a} / {b}` in JSX would. Division survives because `= a / b` puts an
- * operand between the delimiter and the slash. The direction of any remaining error is a false
- * positive, which fails this test and is read, rather than a false negative, which would let the
- * case through.
+ * Finding a regex literal without parsing is its own heuristic, so what may stand in front of one
+ * is deliberately few, and it is two lists rather than one because `>` has to be in the reading and
+ * out of it at the same time. As a whole token, `=>` opens a literal: `const quoted = (value:
+ * string) => /'/.test(value)` is the idiomatic way to write a predicate regex, and a set of single
+ * characters cannot see it, because between the `=` and the slash sits a `>`. As a single character,
+ * `>` must stay out, because it also closes a JSX tag, and `<b>x</b> / <i>y</i>` would then read as
+ * a literal running from the slash after `</b>` to the one inside `</i>`. `<` and `}` stay out for
+ * the same kind of reason: `</div>` would open at the `<`, and `{a} / {b}</span>` would open at the
+ * `}`. `{` is in, because nothing but a regex or a comment can follow it immediately in an
+ * expression position, and a comment is excluded by the lookahead. Division survives because
+ * `= a / b` puts an operand between the opener and the slash. The direction of any remaining error
+ * is a false positive, which fails this test and is read, rather than a false negative, which would
+ * let the case through.
  */
 describe('the source scanner is never asked to guess', () => {
-  const literal =
-    /(?:^|[=(,:[!&|?;]|\breturn\b)\s*(\/(?![/*])(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\n\\[])+\/[dgimsuvy]*)/g
+  /** Openers a character class can express. `>` is deliberately absent: see above. */
+  const characterOpeners = String.raw`[=({,:[!&|?;]`
+  /**
+   * Openers it cannot, being longer than a character. `=>` is here rather than in the class above
+   * because it ends in the one character that has to stay out of it.
+   */
+  const tokenOpeners = String.raw`=>|\breturn\b`
+  const literal = new RegExp(
+    String.raw`(?:^|${tokenOpeners}|${characterOpeners})\s*(\/(?![/*])(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\n\\[])+\/[dgimsuvy]*)`,
+    'g',
+  )
 
   const literals = client
     .filter(({ file }) => !file.endsWith('.html'))
@@ -289,6 +327,47 @@ describe('the source scanner is never asked to guess', () => {
     expect(
       literals.filter(({ body }) => /['"`]/.test(body)).map(({ file, body }) => `${file}: ${body}`),
     ).toEqual([])
+  })
+
+  /**
+   * The other direction, guarded on the one property that catches it exactly. JavaScript has no
+   * `'` or `"` string that contains a raw newline: writing one is a syntax error, so a scan that
+   * finds itself inside one at the end of a line has misread something, and an apostrophe in JSX
+   * text is the way that happens here. A template literal is the exception the language does allow,
+   * so a backtick is not held to it.
+   *
+   * Quote parity over the file was the cheaper check and it is not enough, which is worth recording
+   * because it looks sufficient: `const note = <p>Don't panic</p>` followed by
+   * `const x = 'https://a.com' + 'bg-red-500'` has an odd number of quotes and still balances,
+   * because the `//` in the URL opens a line comment that eats the three quotes after it. The file
+   * comes out even, the violation comes out blank, and a parity check reports nothing. Asking where
+   * the string crossed a line end catches it on the first line instead.
+   *
+   * A source that fails this is not necessarily wrong as TypeScript, and the fix is not to give up
+   * the apostrophe. `&apos;`, `{"'"}` and the typographic `’` the client already writes all say
+   * the same thing and none of them opens a string.
+   */
+  const runaways = rawClient
+    .filter(({ file }) => !file.endsWith('.html'))
+    .flatMap(({ file, source }) => {
+      const { runaway } = scan(source)
+
+      return runaway === null ? [] : [`${file}: ${runaway}`]
+    })
+
+  it('opens no quote in the client that runs past the end of its line', () => {
+    expect(rawClient.length).toBeGreaterThan(10)
+    expect(runaways).toEqual([])
+  })
+
+  it('would say so if one did, so the guard above is not vacuous', () => {
+    expect(scan("const note = <p>Don't panic</p>\n").runaway).toBe(
+      "line 1: a ' string runs past the end of its line",
+    )
+    expect(scan("const note = <p>Don't").runaway).toBe("end of file: a ' string is never closed")
+    expect(scan('const note = <p>All fine</p>\n').runaway).toBeNull()
+    // And the one multi-line string the language does allow is not reported as one.
+    expect(scan('const lines = `one\ntwo`\n').runaway).toBeNull()
   })
 })
 
@@ -372,9 +451,19 @@ describe('the appearance model, swept from the sources', () => {
    * `ring-offset-[rebeccapurple]` are a colour chosen once for both palettes just as much as
    * `ring-red-500` is, and a list holding only `ring` reads `offset` where it wants a family name
    * and matches neither.
+   *
+   * The side-qualified forms are listed for the same reason and are not exotic: `border-b-red-500`,
+   * `border-t-[green]` and `divide-y-red-500` each pick a colour once for both palettes, and a list
+   * of family names alone read `b` where it wanted `red`, so all three passed while the bare
+   * `border-red-500` failed. The client already writes nineteen bare side-qualified
+   * borders (`border-b`, `border-t`, `border-s`, `border-x`, `border-r`, `border-l`, and
+   * `border-l-2` twice), so a colour on one of them is a plausible next edit rather than a
+   * hypothetical. Each side goes in front of the family it qualifies, so `border-b-red-500` is read
+   * as `border-b` plus a family rather than as `border` plus a `b`; a bare `border-b` and the width
+   * `border-l-2` still match nothing, because neither is followed by a colour.
    */
   const colourPrefixes =
-    'bg|text|border|ring-offset|ring|fill|stroke|from|via|to|divide|outline|decoration|shadow|caret|placeholder|accent'
+    'bg|text|border-[trblxyse]|border|ring-offset|ring|fill|stroke|from|via|to|divide-[xy]|divide|outline|decoration|shadow|caret|placeholder|accent'
 
   /**
    * The colour token names, derived from the `@theme inline` map rather than restated. A
@@ -572,11 +661,6 @@ describe('the appearance model, swept from the sources', () => {
   })
 
   /**
-   * Criterion 21. A tint of a token is still that token in both palettes, so opacity is the right
-   * tool for a ground or a hairline. A text colour whose ratio depends on an alpha nobody computed
-   * is a contrast claim nobody can check, which is why the modifier never goes on text.
-   */
-  /**
    * Criterion 23. A `*-foreground` utility is the half of a pairing that carries the text, so a name
    * that resolves to nothing is a label drawn in whatever colour it inherited: no error, no fallback
    * worth the name, and no contrast claim that can be checked. That is what
@@ -652,6 +736,11 @@ describe('the appearance model, swept from the sources', () => {
     ).toEqual([])
   })
 
+  /**
+   * Criterion 21. A tint of a token is still that token in both palettes, so opacity is the right
+   * tool for a ground or a hairline. A text colour whose ratio depends on an alpha nobody computed
+   * is a contrast claim nobody can check, which is why the modifier never goes on text.
+   */
   it('derives fills and hairlines from opacity, and never text', () => {
     // Named tokens rather than `[a-z0-9-]+`, because `text-<x>/<n>` is two different utilities
     // depending on what `<x>` is: `text-sm/6` is Tailwind's font-size-with-line-height shorthand and
