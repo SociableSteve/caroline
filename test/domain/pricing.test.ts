@@ -73,6 +73,15 @@ describe('priceCheckedOn, spec 03 criterion 15', () => {
     expect(priceCheckedOn(stalePrice, 'GBP')).toBe('2020-01-01')
     expect(priceCheckedOn(freshPrice, 'GBP')).toBe(exchangeRates.GBP.checkedOn)
   })
+
+  it('ignores the rate for a free model, whose zero no conversion ever touched', () => {
+    // An Ollama-only install in GBP would otherwise date its zero by an exchange rate that played
+    // no part in producing it.
+    const free = { inputPerMillionUsd: 0, outputPerMillionUsd: 0, checkedOn: '2026-08-24' }
+
+    expect(priceCheckedOn(free, 'GBP')).toBe('2026-08-24')
+    expect(priceCheckedOn(free, 'USD')).toBe('2026-08-24')
+  })
 })
 
 describe('tokenAllowance, spec 03 criteria 11 and 12', () => {

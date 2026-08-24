@@ -112,10 +112,11 @@ export function listLlmCalls(database: Database, query: LlmCallQuery = {}): LlmC
 /**
  * Every token one provider has spent since an instant, input and output together.
  *
- * The spending ceiling is enforced against this number (spec 03, criteria 11 and 12). Summed in
- * SQL rather than read row by row, because this runs before every call rather than when somebody
- * opens a screen, and because the caller wraps it and its comparison in one transaction: the less
- * that happens inside it the better.
+ * The spending ceiling is enforced against this number (spec 03, criteria 11 and 12), together
+ * with what the calls in flight have reserved, which this cannot see: a row exists only once a
+ * call has returned. Summed in SQL rather than read row by row, because this runs before every
+ * call rather than when somebody opens a screen, and because the caller takes it and its
+ * comparison in one synchronous step: the less that happens inside that step the better.
  */
 export function llmTokensForProvider(
   database: Database,
@@ -147,8 +148,8 @@ export interface LlmUsageLeaf {
  * three ways rather than asking three times, because a price belongs to a model: a total taken
  * across models cannot be priced, so every roll-up has to be built from leaves that carry one.
  *
- * Grouped in JavaScript for the reason `llmUsageByDay` is, which is that a day is a local calendar
- * day and only `Intl` knows which offset was in force at an instant. The row count is one per
+ * Grouped in JavaScript rather than in SQL because a day here is a local calendar day, and only
+ * `Intl` knows which offset was in force at an instant. The row count is one per
  * model call over a reporting window, so reading them to add them up is not a cost worth trading
  * correctness for.
  */

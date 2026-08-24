@@ -9,7 +9,7 @@ import type { Database } from '../db/connection.js'
 import { createAnthropicAdapter } from './adapters/anthropic.js'
 import { createOllamaAdapter } from './adapters/ollama.js'
 import { createOpenAiAdapter } from './adapters/openai.js'
-import { createBudgetGate, withBudget } from './budget.js'
+import { createBudgetGate, withBudget, type BudgetReservation } from './budget.js'
 import { llmCallRecorder } from './recording.js'
 import { withSchemaValidation } from './structured.js'
 import { LlmError, type LlmProvider } from './types.js'
@@ -108,6 +108,15 @@ export function createLlmRuntime({
     return provider === 'none' ? null : gate.refusalFor(provider)
   }
 
+  /**
+   * The same check taken as a claim on the allowance, which is what a call about to be made needs.
+   * A purpose with no provider can make no call, so there is nothing to hold for it.
+   */
+  function reserveFor(purpose: LlmPurpose, tokens: number): BudgetReservation {
+    const { provider } = settingsFor(config, purpose)
+    return provider === 'none' ? { hold: { release: () => {} } } : gate.reserve(provider, tokens)
+  }
+
   return {
     isConfigured(purpose) {
       return settingsFor(config, purpose).configured
@@ -124,7 +133,8 @@ export function createLlmRuntime({
       })
 
       // The ceiling is checked outside the validate-and-retry loop, so a refusal is not an attempt:
-      // it spends no tokens and writes no `llm_calls` row. Spec 03, criterion 11.
+      // it spends no tokens and writes no `llm_calls` row, and the one reservation the check takes
+      // covers the retry as well as the first call. Spec 03, criteria 11 and 12.
       const provider = withBudget(
         withSchemaValidation(adapter, {
           ...(database === undefined
@@ -132,7 +142,7 @@ export function createLlmRuntime({
             : { onAttempt: llmCallRecorder(database, adapter, purpose, onRecordingError) }),
           ...(now === undefined ? {} : { now }),
         }),
-        () => refusalFor(purpose),
+        (tokens) => reserveFor(purpose, tokens),
       )
 
       built.set(purpose, provider)

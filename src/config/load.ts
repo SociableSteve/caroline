@@ -244,9 +244,10 @@ function configuredModels(entries: readonly SettingsEntry[]): ConfiguredModel[] 
  * The ceiling as configured, plus the token allowance derived from it. Spec 03.
  *
  * The allowance is priced at the **dearest** model configured for that provider, at its **output**
- * rate. Both halves are what keep the ceiling a bound rather than a target: output is the dearer
- * of the two rates, and the dearest configured model is the dearest a call could use, so the money
- * that many tokens can cost is at most the ceiling.
+ * rate. Both halves are what keep the conversion conservative: output is the dearer of the two
+ * rates, and the dearest configured model is the dearest a call could use, so the money that many
+ * tokens can cost is at most the ceiling. The gate that spends the allowance is a separate
+ * question, and spec 03 says what it does and does not promise.
  *
  * Nothing here is enforced where the ceiling is `unlimited`, and nothing is even looked up: an
  * install that has asked for no cap cannot be broken by a stale or incomplete table, which is what

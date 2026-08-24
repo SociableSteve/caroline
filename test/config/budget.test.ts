@@ -157,6 +157,9 @@ describe('the refusals, spec 03 criterion 10', () => {
   it('refuses any string but "unlimited"', () => {
     expect(() => load(withLimit('none'))).toThrow(/llm\.budget\.anthropic/)
     expect(() => load(withLimit('20'))).toThrow(/llm\.budget\.anthropic/)
+  })
+
+  it('refuses null, which is the value an absent entry would have defaulted to', () => {
     expect(() => load(withLimit(null))).toThrow(/llm\.budget\.anthropic/)
   })
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { budgetReachedMessage, periodStart } from '../../src/domain/budget.js'
+import { budgetReachedMessage, periodStart, reservationTokens } from '../../src/domain/budget.js'
 
 /** Midday UTC on the 15th of January 2026, a Thursday. */
 const midJanuary = Date.UTC(2026, 0, 15, 12, 0, 0)
@@ -34,5 +34,25 @@ describe('budgetReachedMessage, spec 03 criteria 13 and 14', () => {
     expect(message).toContain('GBP')
     expect(message).toContain('month')
     expect(message).toContain('llm.budget')
+  })
+})
+
+describe('reservationTokens, spec 03 criterion 12', () => {
+  it('counts the prompt generously and adds the output cap the caller asked for', () => {
+    // 300 characters is 100 tokens at three characters each, which overstates a real count of
+    // nearer 75, and that is the direction a hold on a money allowance should err in.
+    expect(reservationTokens({ promptCharacters: 300, maxOutputTokens: 512, attempts: 1 })).toBe(
+      612,
+    )
+  })
+
+  it('covers every attempt the request can turn into, because a retry is a second call', () => {
+    expect(reservationTokens({ promptCharacters: 300, maxOutputTokens: 512, attempts: 2 })).toBe(
+      1_224,
+    )
+  })
+
+  it('reserves for one attempt at least, so a hold is never nothing', () => {
+    expect(reservationTokens({ promptCharacters: 0, maxOutputTokens: 8, attempts: 0 })).toBe(8)
   })
 })

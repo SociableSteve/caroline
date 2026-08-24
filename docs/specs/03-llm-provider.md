@@ -207,14 +207,39 @@ The ceiling and the reported estimate are computed differently, on purpose.
 against it. For a provider with a numeric ceiling, the allowance is the number of tokens that
 amount would buy at the **output** rate of the **most expensive model configured for that
 provider**, across the base settings and every override. Output is the dearer of the two rates and
-the dearest configured model is the dearest a call could use, so the allowance is a figure the
-real spend cannot exceed. A ceiling is therefore a bound rather than a target: it stops Caroline
-before the money is spent rather than after.
+the dearest configured model is the dearest a call could use, so a token can never cost more than
+the allowance priced it at: whatever the mix of input and output turns out to be, the allowance is
+a bound on the money and not an estimate of it.
 
-Tokens are what is counted because they are exact. They are already recorded in `llm_calls`, and
-they can be summed in a single transaction, which is what makes the check safe against a
-classification run with several calls in flight: the sum and the comparison happen together, so
-two calls cannot each pass a check only one of them should have passed.
+What a ceiling is not is a figure the spend cannot reach. The check refuses once the tokens already
+recorded reach the allowance, so the call that crosses the line has been made and charged by the
+time anything can know it crossed. Reaching the ceiling stops the next call, not the one in
+progress, which is the property the issue behind this asked for: "reaching it stops further calls
+rather than slowing them". The overshoot is bounded rather than open-ended, at the cost of the
+calls that were in flight when the line was crossed, and the reservation described below is what
+bounds it.
+
+The conversion also inherits the exchange rate. A ceiling written in GBP or EUR is priced through
+the committed rate, so a stale rate moves the enforced ceiling and not only the reported estimate.
+That is the same staleness the estimate carries a date for, on a figure the spend view does not
+date, and it is a known limit rather than a hidden one.
+
+Tokens are what is counted because they are exact, and because `llm_calls` already holds them. A
+row only exists once a call has returned, though, so counting rows alone would let every call
+started before the first response lands read the same total and pass. Each call that passes the
+check therefore **holds a reservation** for its own estimated cost, taken in the same synchronous
+step as the reading and released once the call's own rows are written. Nothing can interleave
+between the reading and the reservation, because the runtime is single threaded and `node:sqlite`
+is synchronous, so there is no await between them for another call to arrive in. That, rather than
+a database transaction, is what stops a classification run with several calls in flight having all
+of them pass a check only one should have passed.
+
+The reservation is deliberately generous: the request's own prompt, counted in characters and
+converted at a rate that overstates the tokens, plus the output cap the caller asked for, and both
+again for the one retry the validate-and-retry rule permits. Overstating it can only refuse a call
+close to the ceiling that would in fact have fitted, which is the safe direction for a guard about
+money, and it is reconciled the moment the call's rows are written, so it never affects a call made
+after the previous one has finished.
 
 **The reported estimate** prices each recorded call at its own model's own two rates, input and
 output separately, which is the more accurate figure and the right one for a number a person
@@ -301,12 +326,17 @@ are cited by the code and the suite.
    `unlimited` the same configuration starts.
 10. `0`, a negative amount, a non-finite amount and any string other than `unlimited` are each
     refused at config load with the offending key named. `unlimited` is the only string accepted.
-11. Once a provider's recorded tokens for the current period reach its allowance, further calls for
-    that provider are refused before anything reaches the network, and a call to a different
-    provider under its own ceiling still goes through.
-12. The check that a call is within the allowance reads the recorded tokens and compares them in a
-    single transaction, so two calls in flight together cannot both pass a check only one of them
-    should have passed.
+11. Once a provider's recorded tokens for the current period, together with the reservations held
+    for its calls in flight, reach its allowance, further calls for that provider are refused
+    before anything reaches the network, and a call to a different provider under its own ceiling
+    still goes through.
+12. A call that passes the check holds a reservation for its own estimated cost until its usage
+    rows are written, and the reading, the comparison and the reservation are taken in one
+    synchronous step with no await between them. Calls in flight together therefore cannot each
+    pass a check only one of them should have passed: asserted by driving several concurrent calls
+    through the runtime against a headroom that admits one, and observing that exactly one reaches
+    the provider and records a row. A reservation is released on every exit path, including a
+    provider error, so a failed call consumes no allowance beyond what it actually spent.
 13. A scheduled job that cannot call its provider because the ceiling is reached is recorded as
     skipped, with a reason naming the provider, in the run history, leaving no partial write and
     raising no unhandled error. Spec 04 criterion 7's rule for a provider outage, applied to this

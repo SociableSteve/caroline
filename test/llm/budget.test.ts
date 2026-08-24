@@ -1,6 +1,6 @@
 /**
- * The spending ceiling, enforced against the tokens `llm_calls` already holds. Spec 03, criteria
- * 11 and 12.
+ * The spending ceiling, enforced against the tokens `llm_calls` already holds and the reservations
+ * held by the calls in flight. Spec 03, criteria 11 and 12.
  */
 import { describe, expect, it } from 'vitest'
 import { loadConfig } from '../../src/config/load.js'
@@ -31,6 +31,31 @@ function capped(file: Record<string, unknown> = {}): Config {
     },
     env: keys,
   })
+}
+
+const request = {
+  system: 'Sort this item.',
+  messages: [{ role: 'user' as const, content: 'Can you sign off the venue booking?' }],
+  schema: classificationSchema,
+  maxTokens: 512,
+}
+
+/**
+ * A `fetch` that answers nothing until it is released, so every call made against it is genuinely
+ * in flight at the same time rather than resolving one at a time.
+ */
+function heldFetch(inner: typeof globalThis.fetch) {
+  let open = () => {}
+  const held = new Promise<void>((resolve) => {
+    open = resolve
+  })
+
+  const fetch: typeof globalThis.fetch = async (input, init) => {
+    await held
+    return inner(input, init)
+  }
+
+  return { fetch, release: () => open() }
 }
 
 function spend(database: Database, tokens: number, at: number, provider = 'anthropic' as const) {
@@ -104,33 +129,87 @@ describe('the gate, spec 03 criterion 11', () => {
 })
 
 describe('the gate under concurrency, spec 03 criterion 12', () => {
-  it('counts and compares in one transaction, so a reading is never taken mid-write', () => {
+  /**
+   * Leaves 100 tokens of the million-token allowance unspent. That is enough for a call to pass
+   * the check, because the check refuses only once the allowance has been reached, and far less
+   * than the reservation any call takes, so the second concurrent call has to be refused.
+   */
+  const nearlySpent = 999_900
+
+  it('lets one of several genuinely concurrent calls through, and refuses the rest', async () => {
     const database = migratedDatabase()
-    const config = capped()
-    const gate = createBudgetGate({ config, database, now: () => noon })
+    spend(database, nearlySpent, noon)
 
-    // `node:sqlite` is synchronous, so the proof is that nothing can interleave with the
-    // transaction rather than that a race was observed. What is asserted here is the consequence:
-    // every check taken against the same committed total agrees, and the check made after the row
-    // that crosses the line refuses. Three calls in flight cannot all be told yes.
-    spend(database, 600_000, noon)
-    const first = gate.refusalFor('anthropic')
-    spend(database, 600_000, noon)
-    const second = gate.refusalFor('anthropic')
+    const stub = stubFetch([{ body: recordedPayload('anthropic-classification') }])
+    const answers = heldFetch(stub.fetch)
+    const runtime = createLlmRuntime({
+      config: capped(),
+      database,
+      now: () => noon,
+      fetch: answers.fetch,
+    })
+    const provider = runtime.for('classification')
 
-    expect(first).toBeNull()
-    expect(second).not.toBeNull()
+    // Started together and left in flight together: nothing is answered until `release`, so the
+    // three checks are all taken before any of the three rows can exist. This is the live path,
+    // not a hypothetical: `runClassification` runs its candidates through `mapWithConcurrency`.
+    const calls = [
+      provider.complete(request),
+      provider.complete(request),
+      provider.complete(request),
+    ]
+    answers.release()
+    const outcomes = await Promise.allSettled(calls)
+
+    expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1)
+    expect(
+      outcomes.filter(
+        (outcome) => outcome.status === 'rejected' && outcome.reason instanceof LlmBudgetError,
+      ),
+    ).toHaveLength(2)
+
+    // The two that were refused reached neither the network nor the cost table.
+    expect(stub.requests).toHaveLength(1)
+    expect(listLlmCalls(database)).toHaveLength(2)
+  })
+
+  it('gives the reservation back when the call fails, so a failure holds nothing for ever', async () => {
+    const database = migratedDatabase()
+    spend(database, nearlySpent, noon)
+
+    const stub = stubFetch([{ status: 500, body: { error: { message: 'overloaded' } } }])
+    const runtime = createLlmRuntime({
+      config: capped(),
+      database,
+      now: () => noon,
+      fetch: stub.fetch,
+    })
+
+    await expect(runtime.for('classification').complete(request)).rejects.toThrow()
+
+    // The failed attempt recorded zero tokens, so the headroom is exactly what it was. A hold left
+    // behind would read as the ceiling having been reached.
+    expect(runtime.budgetRefusal('classification')).toBeNull()
+  })
+
+  it('holds nothing for a provider with no ceiling, so an uncapped install reserves nothing', () => {
+    const database = migratedDatabase()
+    const gate = createBudgetGate({
+      config: loadConfig({
+        file: { llm: { provider: 'anthropic', model: 'claude-sonnet-5' } },
+        env: keys,
+      }),
+      database,
+      now: () => noon,
+    })
+
+    const first = gate.reserve('anthropic', 1_000_000_000)
+    expect('hold' in first).toBe(true)
+    expect(gate.refusalFor('anthropic')).toBeNull()
   })
 })
 
 describe('the runtime, spec 03 criteria 11 and 13', () => {
-  const request = {
-    system: 'Sort this item.',
-    messages: [{ role: 'user' as const, content: 'Can you sign off the venue booking?' }],
-    schema: classificationSchema,
-    maxTokens: 512,
-  }
-
   it('says why a purpose cannot call before anything is attempted', () => {
     const database = migratedDatabase()
     spend(database, 1_000_000, noon)

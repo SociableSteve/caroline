@@ -624,8 +624,12 @@ calendar month, and every provider defaults to `unlimited` so an install that co
 behaves exactly as it did. The ceiling is configured in currency because that is the only unit a
 person can choose, and enforced in tokens because that is the only unit that can be enforced
 honestly: the amount converts to a token allowance at startup against a price table committed to
-this repository, and the tokens already recorded for the period are counted against it in a single
-transaction, so calls in flight together cannot each pass a check only one should have passed.
+this repository, and the tokens already recorded for the period are counted against it. A recorded
+row only exists once a call has come back, so each call that passes the check also holds a
+reservation for its own estimated cost until its own row is written, taken in the same synchronous
+step as the reading. Calls in flight together therefore cannot each pass a check only one should
+have passed. Reaching the ceiling stops the next call rather than the one in progress, so the
+overshoot is what the calls already in flight cost rather than nothing at all.
 
 The prices are committed rather than fetched, which is the decision worth recording. There is no
 official pricing API; a fetch relocates staleness rather than removing it, fails on an offline

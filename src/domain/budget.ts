@@ -41,3 +41,37 @@ export function budgetReachedMessage(
     `next ${period}.`
   )
 }
+
+/**
+ * How many characters of prompt a reservation counts as one token. English against these models
+ * runs closer to four, so three deliberately overstates: a reservation is a hold taken while a
+ * call is in flight and given back the moment its row is written, so overstating it can only
+ * refuse a call close to the ceiling that would in fact have fitted. For a guard about money that
+ * is the safe direction. Spec 03, "What is counted, and against what".
+ */
+export const RESERVATION_CHARACTERS_PER_TOKEN = 3
+
+export interface ReservationInput {
+  /** Every character of the request that will be sent: system prompt and messages together. */
+  readonly promptCharacters: number
+  /** The output cap the caller asked for, which is the most output one attempt can produce. */
+  readonly maxOutputTokens: number
+  /** How many provider calls the request can turn into, retries included. At least one. */
+  readonly attempts: number
+}
+
+/**
+ * What one call is held against the allowance for, at worst. Not an accurate token count and not
+ * meant to be one: the accurate figure is what the provider reports, and it replaces this the
+ * moment the call is recorded. Spec 03, criterion 12.
+ */
+export function reservationTokens({
+  promptCharacters,
+  maxOutputTokens,
+  attempts,
+}: ReservationInput): number {
+  const perAttempt =
+    Math.ceil(promptCharacters / RESERVATION_CHARACTERS_PER_TOKEN) + maxOutputTokens
+
+  return perAttempt * Math.max(attempts, 1)
+}

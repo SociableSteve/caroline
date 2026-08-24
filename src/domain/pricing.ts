@@ -162,6 +162,11 @@ export function estimateCost(
  * and the answer is the price's date alone.
  */
 export function priceCheckedOn(price: ModelPrice, currency: BudgetCurrency): string {
+  // A free model's estimate is zero in every currency, and converting zero uses no rate, so the
+  // rate is not one of its inputs. Without this an Ollama-only install in GBP or EUR reads its
+  // zero as dated by an exchange rate that never touched it.
+  if (price.inputPerMillionUsd === 0 && price.outputPerMillionUsd === 0) return price.checkedOn
+
   const rateCheckedOn: string | null = exchangeRates[currency].checkedOn
   if (rateCheckedOn === null) return price.checkedOn
 
@@ -172,8 +177,10 @@ export function priceCheckedOn(price: ModelPrice, currency: BudgetCurrency): str
 /**
  * How many tokens a ceiling buys: the amount, at the model's **output** rate. Output is the dearer
  * of the two rates, so the real spend for that many tokens is at most the ceiling whatever the mix
- * of input and output turns out to be. A ceiling is a bound rather than a target, and this is the
- * arithmetic that makes it one. Spec 03.
+ * of input and output turns out to be. That makes the allowance a bound on the money rather than
+ * an estimate of it. What it does not make it is a figure the spend cannot reach: the gate refuses
+ * once the recorded tokens reach the allowance, so the call that crossed the line has already been
+ * charged. Spec 03, "What is counted, and against what".
  *
  * A free model has no allowance to run out of, so it is unbounded rather than zero: dividing by a
  * zero rate would otherwise make Ollama the one provider a ceiling could stop.
