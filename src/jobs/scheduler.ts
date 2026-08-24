@@ -195,7 +195,9 @@ export function createScheduler({
    * exactly the window somebody is watching it in. Spec 06, criterion 8.
    */
   function announceStart(): void {
-    changes?.publish({ kind: 'jobs', at: now() })
+    if (changes === undefined) return
+
+    changes.publish({ kind: 'jobs', at: now() })
   }
 
   function announce(counts: Partial<JobCounts>): void {
@@ -259,13 +261,21 @@ export function createScheduler({
     inFlight.set(job, running)
     announceStart()
 
+    // The finish is announced from the `finally`, paired with the start rather than conditional on
+    // the rest of the block having worked: writing the row can throw, and a surface told that a run
+    // started and never told that it ended reads the job as going until something unrelated
+    // happens. Announced after `inFlight.delete`, so the status a tab reads back is the settled
+    // one. Spec 06, criterion 8.
+    let counts: Partial<JobCounts> = {}
+
     try {
       const result = await running
+      counts = result.counts ?? {}
       const run = record(job, trigger, startedAt, result)
-      announce(result.counts ?? {})
       return { status: 'ran', run }
     } finally {
       inFlight.delete(job)
+      announce(counts)
     }
   }
 

@@ -54,7 +54,9 @@ configurable window, default 30 days.
 A run announces itself on the change feed (spec 08) twice: once when it starts and once when it
 finishes. Announcing only the finish would have every open surface report the job as idle for the
 whole time it was running, which is precisely the window somebody watching for a result is looking
-at it in.
+at it in. The pair is what a surface reads, so the finish is announced whether the run succeeded,
+failed, or could not even have its row written: a tab told that a run started and never told that
+it ended reports the job as going until something unrelated happens.
 
 The sync job writes a row per connector, named `sync:<provider>`, and one aggregate row named
 `sync`. The aggregate answers "did the pass work at all", so it fails only when every
@@ -96,4 +98,6 @@ renumbered because the code and the suite cite these by number.
 
 8. A run announces itself on the change feed when it starts, as well as when it finishes, whichever
    trigger asked for it. A surface showing whether a job is going is therefore told at the start of
-   a scheduled run rather than only at the end of one.
+   a scheduled run rather than only at the end of one. The two are paired: once a start has been
+   announced the finish is announced too, even where writing the run's row failed, so a surface can
+   never be left holding a start it is never told the end of.

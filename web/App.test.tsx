@@ -57,6 +57,45 @@ interface StubOptions {
   heldWrite?: Promise<unknown>
 }
 
+/**
+ * A `GET /api/jobs/status` row for the sync job, with only the parts a test cares about named.
+ * The header reads this row and nothing else about the job, so it is what the sync tests vary.
+ */
+function syncJobStatus(
+  overrides: {
+    running?: boolean
+    status?: 'success' | 'failure' | 'skipped'
+    finishedAt?: number
+    error?: string
+    lastRun?: null
+  } = {},
+) {
+  const finishedAt = overrides.finishedAt ?? NOW - 120_000
+  const lastRun =
+    overrides.lastRun === null
+      ? null
+      : {
+          id: 'run-1',
+          job: 'sync',
+          trigger: 'scheduled',
+          startedAt: finishedAt - 1_000,
+          finishedAt,
+          status: overrides.status ?? 'success',
+          counts: {},
+          error: overrides.error ?? null,
+        }
+
+  return {
+    job: 'sync',
+    cron: '*/15 * * * *',
+    running: overrides.running ?? false,
+    nextRunAt: NOW + 60_000,
+    lastRun,
+    consecutiveFailures: overrides.status === 'failure' ? 1 : 0,
+    backoffUntil: null,
+  }
+}
+
 const noGoogle = {
   connected: false,
   configured: false,
@@ -605,19 +644,7 @@ describe('writes from the board', () => {
    * button for still reports as under way.
    */
   it('reports a sync the scheduler started as under way', async () => {
-    stubApi({
-      jobStatus: [
-        {
-          job: 'sync',
-          cron: '*/15 * * * *',
-          running: true,
-          nextRunAt: NOW + 60_000,
-          lastRun: null,
-          consecutiveFailures: 0,
-          backoffUntil: null,
-        },
-      ],
-    })
+    stubApi({ jobStatus: [syncJobStatus({ running: true, lastRun: null })] })
 
     render(<App />)
 
@@ -631,34 +658,56 @@ describe('writes from the board', () => {
    * the control pressable rather than stuck.
    */
   it('says how the last sync went, and leaves the button usable after a failure', async () => {
-    stubApi({
-      jobStatus: [
-        {
-          job: 'sync',
-          cron: '*/15 * * * *',
-          running: false,
-          nextRunAt: NOW + 60_000,
-          lastRun: {
-            id: 'run-1',
-            job: 'sync',
-            trigger: 'scheduled',
-            startedAt: NOW - 120_000,
-            finishedAt: NOW - 120_000,
-            status: 'failure',
-            counts: {},
-            error: 'GitHub is unreachable',
-          },
-          consecutiveFailures: 1,
-          backoffUntil: null,
-        },
-      ],
-    })
+    stubApi({ jobStatus: [syncJobStatus({ status: 'failure', error: 'GitHub is unreachable' })] })
 
     render(<App />)
 
     const header = within(await screen.findByRole('banner'))
     await waitFor(() => expect(header.getByRole('status')).toHaveTextContent(/Sync failed/))
     expect(await screen.findByRole('button', { name: 'Sync now' })).toBeEnabled()
+  })
+
+  /**
+   * Spec 08, criteria 50 and 51: a run that worked says so, and the age sits beside the live
+   * region rather than inside it. The age is bucketed by the minute and the surfaces re-read the
+   * clock every minute, so an age inside the region would announce itself once a minute forever.
+   */
+  it('says a sync succeeded, and keeps how long ago out of the live region', async () => {
+    const finishedAt = Date.now() - 3 * 60_000
+    stubApi({ jobStatus: [syncJobStatus({ status: 'success', finishedAt })] })
+
+    render(<App />)
+
+    const header = within(await screen.findByRole('banner'))
+    await waitFor(() => expect(header.getByRole('status')).toHaveTextContent('Synced'))
+    expect(header.getByRole('status').textContent).toBe('Synced')
+    expect(header.getByText('3 minutes ago')).toBeInTheDocument()
+  })
+
+  /** Spec 08, criterion 50: the third way a run can end reads as itself, not as a success. */
+  it('says a skipped sync was skipped', async () => {
+    const finishedAt = Date.now() - 3 * 60_000
+    stubApi({ jobStatus: [syncJobStatus({ status: 'skipped', finishedAt })] })
+
+    render(<App />)
+
+    const header = within(await screen.findByRole('banner'))
+    await waitFor(() => expect(header.getByRole('status')).toHaveTextContent('Sync skipped'))
+    expect(header.getByText('3 minutes ago')).toBeInTheDocument()
+  })
+
+  /**
+   * Spec 08, criterion 51: before the first run there is nothing to report, so the region is not
+   * on the surface at all rather than sitting there empty and taking a gap beside the button.
+   */
+  it('says nothing at all before the first sync has run', async () => {
+    stubApi({ jobStatus: [syncJobStatus({ lastRun: null })] })
+
+    render(<App />)
+
+    const header = within(await screen.findByRole('banner'))
+    await screen.findByRole('button', { name: 'Sync now' })
+    expect(header.queryByRole('status')).toBeNull()
   })
 })
 

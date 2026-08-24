@@ -255,6 +255,14 @@ says so and is not pressable, so a second press cannot ask for a second run; and
 says how the last one went and when, which is what tells the reader a failed sync failed rather than
 stalled. A failure leaves it pressable, because the answer to a failed sync is usually to try again.
 
+What is said out loud is narrower than what is on the screen. The words sit in a live region, so a
+screen reader is told about them whenever they change, and what is worth being told is that a run
+started and that one finished. How long ago the last one finished is not: the age is counted in
+whole minutes and the surfaces re-read the clock every minute, so an age inside the live region
+would announce itself roughly once a minute, forever, with nothing having happened. The age is
+therefore rendered beside the region rather than inside it, where it is read on demand and never
+volunteered.
+
 What it reports is the sync job's own state, read from `GET /api/jobs/status` alongside everything
 else the client loads, rather than a second idea of its own kept beside the scheduler's. The
 scheduler is the one authority on whether a job is going (spec 06), so a run the scheduler started
@@ -501,3 +509,10 @@ Making a sync in progress visible from the header adds the following, appended f
     keeping one of its own, so a run the scheduler started reports as under way in the header too.
     Between runs the header says how the last sync went, success or failure, and when, without
     leaving the surface to find out; a failed run leaves the control pressable.
+51. The header's sync region announces the change and not the clock. What it carries is that a run
+    is going and how the finished one went; how long ago it finished is rendered beside it, outside
+    the live region, because the age changes on every minute's tick and a live region carrying it
+    would interrupt a screen reader once a minute indefinitely without anything having happened.
+    The age stays readable on the surface, so it is available on demand rather than announced.
+    Before the first run there is nothing to say, and the region takes no room in the header rather
+    than leaving a gap beside the button.
