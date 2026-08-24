@@ -155,7 +155,17 @@ trigger would hide a status change from the layer that owns status changes.
 the reference went when it completed. Getting the dependency back means naming it again, which is
 honest: the second block is a new decision rather than the resumption of an old one. For the same
 reason, putting back a status change that moved a task out of `blocked` is refused: the blocker
-went with the move, and the status cannot stand without one.
+went with the move, and the status cannot stand without one. The other direction is not refused
+but it is not a resumption either: putting back a change that moved a task *into* `blocked` clears
+the reference along with the status, exactly as any other move out of the column does, so the undo
+leaves a whole fact rather than half of one.
+
+**A task that is already finished cannot be named as a blocker.** The release happens on the
+transition to `done`, so nothing would ever release a task filed behind work that finished last
+week: it would sit in the Blocked column until somebody noticed, which is the burial this state
+exists to prevent. The attempt is refused with its reason, in the same read that refuses a blocker
+that does not exist and one that would come back round, so every write path answers it the same
+way and the picker on the board has nothing to offer that the write would take and then strand.
 
 **One blocker, not several, and no cycles.** The question a blocked card exists to answer is why
 this cannot be started, and one task is an answer where a set is a research task. Work with more
@@ -267,3 +277,8 @@ code and the suite cite these by number.
     refused with its reason rather than written.
 18. Putting back a status change that moved a task out of `blocked` is refused, because the blocker
     went with the move and the status cannot stand without one.
+19. A task that is already `done` cannot be named as a blocker. The attempt is refused with its
+    reason rather than written, because completing it is what releases a dependent and that moment
+    has passed.
+20. Putting back a status change that moved a task into `blocked` clears the blocker along with the
+    status, so the undo can never leave a task holding a reference under another status.

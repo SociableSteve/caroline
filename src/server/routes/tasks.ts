@@ -179,8 +179,17 @@ function missingProject(database: Database, projectId: string | null | undefined
 const blockerMessages: Record<BlockerRefusal, string> = {
   'not-found': 'No such task',
   'no-such-blocker': 'No such blocking task',
+  'blocker-done': 'That task is already done, so it would never release this one',
   cycle: 'That would block the task behind itself, directly or through a chain of blockers',
 }
+
+/**
+ * A status of `blocked` with nothing named to be blocked behind. The body schema cannot say this,
+ * because the status enum and `blockedBy` are two properties and the rule is about the pair, so the
+ * route says it: the bulk route already refuses the same input with `blocker-required` rather than
+ * letting the check constraint raise it as a 500. Spec 01, criterion 12.
+ */
+const blockerRequiredMessage = 'Blocked needs the task to be blocked behind, named in blockedBy'
 
 interface TaskListQuery {
   status?: TaskStatus[]
@@ -318,14 +327,17 @@ export function registerTaskRoutes(
         return badRequest(reply, 'No such project')
       }
 
-      // A task nothing points at yet cannot be in a cycle, so existence is the whole of the check
-      // on the way in. Spec 01, criterion 13.
-      if (
-        body.blockedBy !== null &&
-        body.blockedBy !== undefined &&
-        getTask(database, body.blockedBy) === null
-      ) {
-        return badRequest(reply, blockerMessages['no-such-blocker'])
+      if (body.status === 'blocked' && (body.blockedBy ?? null) === null) {
+        return badRequest(reply, blockerRequiredMessage)
+      }
+
+      // A task nothing points at yet cannot be in a cycle, so the walk is the one check the create
+      // path skips; `blockerRefusal` takes a null id and skips exactly that. Spec 01, criteria 13
+      // and 19.
+      const refusedOnCreate =
+        body.blockedBy === undefined ? null : blockerRefusal(database, null, body.blockedBy)
+      if (refusedOnCreate !== null) {
+        return badRequest(reply, blockerMessages[refusedOnCreate])
       }
 
       const at = now()

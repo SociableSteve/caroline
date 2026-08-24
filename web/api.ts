@@ -218,6 +218,11 @@ export interface PlanEntryView {
   readonly waitingSince: number | null
   readonly pushedSinceReview: boolean
   readonly taskStatus: TaskStatus | null
+  /**
+   * What the task is waiting on as it stands now, read at the same moment as `taskStatus`, against
+   * `waitingOn` above which is what the planner recorded. Spec 05, criterion 20.
+   */
+  readonly currentWaitingOn: string | null
   readonly done: boolean
 }
 

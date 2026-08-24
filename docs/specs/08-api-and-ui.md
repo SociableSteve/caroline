@@ -90,8 +90,8 @@ not a reading path.
    as fragmented and a three-minute crack reads as unusable. The present moment is a position on
    it. The agenda underneath prints the clock times of the same placements, so the two cannot
    disagree about when something is happening.
-2. **Wants a decision.** Waiting items that have gone quiet, worth-a-chase nudges, the plan's
-   overflow, and stalled projects. Second, because each of these is something only the user can
+2. **Wants a decision.** Waiting items that have gone quiet, worth-a-chase nudges, blocked work
+   whose deadline has arrived, the plan's overflow, and stalled projects. Second, because each of these is something only the user can
    resolve. The quiet-waiting panel is a chase list, not a count: it names the item, who it is
    on, and for how long.
 3. **State of the machine.** Counts per status, the last-run state of each job, and per
@@ -111,8 +111,9 @@ Blocked is the seventh, and it is a deliberate change to the argument this spec 
 six. Blocked work that is not reviewable on its own is blocked work that gets buried, which is the
 failure the state exists to prevent, and a collapsed section at the foot of Next actions is only a
 new place to bury it. The column is a review surface rather than a count: each card names the task
-it is blocked behind, so a blocker parked in Someday reads as an indefinite wait rather than an
-imminent one.
+it is blocked behind, so the wait has something in it to judge rather than being a number. The
+blocker's own status is not on the card; the card is one line about one task, and the blocker is a
+card of its own for whoever wants to know where it stands.
 
 The Blocked column takes no drag and no digit. A task is blocked by naming its blocker, not by
 being moved, and the board has no blocker to name, so offering the move would offer a status the
@@ -535,8 +536,12 @@ reason.
 
 52. `blockedBy` is on every task the API returns, and settable on create and on patch. Setting it
     files the task as `blocked` and clearing it returns the task to `next_action`, so the two
-    never have to be sent as separate changes. A blocker that does not exist, or one that would
-    put a task behind itself directly or through a chain, is a 400 saying which.
+    never have to be sent as separate changes. A blocker that does not exist, one that is already
+    `done`, or one that would put a task behind itself directly or through a chain, is a 400 saying
+    which.
 53. The Blocked column is not a drop target, and its digit does not move a card into it. A card
     leaving the column by any route loses its blocker along with the status, and the card's status
     control offers `blocked` only to a card that is already in it.
+54. The card's blocker picker offers only tasks that could still finish, so completed work is not
+    among them, and it says which task the card is behind even where that task is not one of the
+    ones loaded. The rail's details panel names the blocker too, since nothing around it does.

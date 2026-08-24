@@ -243,6 +243,59 @@ describe('the Blocked column', () => {
 
     expect(handlers.onBlockerChange).toHaveBeenCalledWith('task-1', null)
   })
+
+  /**
+   * Spec 08, criterion 54. `GET /api/tasks` returns completed work even though no column shows it,
+   * so the picker has to drop it rather than assume the board already has: nothing releases a task
+   * filed behind something that finished, and the server refuses the write in any case.
+   */
+  it('does not offer a task that is already done as a blocker', async () => {
+    renderBoard({
+      tasks: [
+        aTask({ id: 'task-1', title: 'Captured' }),
+        aTask({ id: 'blocker', title: 'Sign the contract' }),
+        aTask({ id: 'finished', title: 'Send the invoice', status: 'done' }),
+      ],
+    })
+
+    const card = screen.getByRole('article', { name: 'Captured' })
+    await userEvent.click(within(card).getByText('More'))
+    await userEvent.click(within(card).getByRole('combobox', { name: /^Blocked by/ }))
+    const options = screen.getAllByRole('option').map((option) => option.textContent)
+
+    expect(options).toContain('Behind: Sign the contract')
+    expect(options).not.toContain('Behind: Send the invoice')
+  })
+
+  /**
+   * Spec 08, criterion 54. The picker holds part of the board, so the value a blocked card carries
+   * is not always among the items: keyed on the value alone the control rendered blank on the one
+   * card it exists to describe.
+   */
+  it('still names the blocker where the picker is not offering it', async () => {
+    renderBoard({
+      tasks: [blockedTask(), aTask({ id: 'blocker', title: 'Sign the contract', status: 'done' })],
+    })
+
+    const card = screen.getByRole('article', { name: 'Book the venue' })
+    await userEvent.click(within(card).getByText('More'))
+
+    expect(within(card).getByRole('combobox', { name: /^Blocked by/ })).toHaveTextContent(
+      'Behind: Sign the contract',
+    )
+  })
+
+  /**
+   * Out of the column is ordinary, and it is the half of criterion 53 the suite did not exercise:
+   * the drop is accepted and the blocker goes with the status the server sets. Spec 08.
+   */
+  it('takes a drop out of it, like any other column', () => {
+    const handlers = renderBoard({ tasks: [blockedTask()] })
+
+    fireEvent.drop(column(/^Next actions/), { dataTransfer: { getData: () => 'task-1' } })
+
+    expect(handlers.onStatusChange).toHaveBeenCalledWith('task-1', 'next_action')
+  })
 })
 
 describe('changing a status', () => {

@@ -8,14 +8,17 @@ import { userEvent } from '@testing-library/user-event'
 import { DetailsPanel } from './components/DetailsPanel.js'
 import { aProject, aPullRequestSource, aTask, DAY, NOW } from './test-fixtures.js'
 
-function renderTask(overrides: Partial<Parameters<typeof aTask>[0]> = {}) {
+function renderTask(
+  overrides: Partial<Parameters<typeof aTask>[0]> = {},
+  blockerTitle: string | null = null,
+) {
   const task = aTask({ id: 'task-1', title: 'Review the contract', ...overrides })
   const onClose = vi.fn()
 
   render(
     <DetailsPanel
       item={{ kind: 'task', id: task.id }}
-      subject={{ kind: 'task', task, projectTitle: null }}
+      subject={{ kind: 'task', task, projectTitle: null, blockerTitle }}
       staleDays={7}
       now={NOW}
       onClose={onClose}
@@ -45,6 +48,23 @@ describe('a task in the details panel', () => {
     expect(screen.getByText('Status')).toBeInTheDocument()
     expect(screen.getByText('Inbox')).toBeInTheDocument()
     expect(screen.getByText('you')).toBeInTheDocument()
+  })
+
+  /**
+   * Spec 08, criterion 54. A status of Blocked that does not say what it is behind is the question
+   * and not the answer, and unlike a card the panel has room for the answer.
+   */
+  it('names the task a blocked item is behind', () => {
+    renderTask({ status: 'blocked', blockedBy: 'blocker' }, 'Sign the contract')
+
+    expect(screen.getByText('Blocked by')).toBeInTheDocument()
+    expect(screen.getByText('Sign the contract')).toBeInTheDocument()
+  })
+
+  it('says "another task" where the blocker is not among the ones loaded', () => {
+    renderTask({ status: 'blocked', blockedBy: 'blocker' })
+
+    expect(screen.getByText('another task')).toBeInTheDocument()
   })
 
   it('shows the notes a card has no room for', () => {

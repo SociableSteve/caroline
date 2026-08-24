@@ -128,6 +128,7 @@ export function aPlanEntry(overrides: Partial<PlanEntryView> = {}): PlanEntryVie
     waitingOn: null,
     waitingSince: null,
     pushedSinceReview: false,
+    currentWaitingOn: null,
     taskStatus: 'next_action',
     done: false,
     ...overrides,

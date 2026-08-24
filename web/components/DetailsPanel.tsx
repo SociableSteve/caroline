@@ -41,6 +41,11 @@ export type DetailsSubject =
       readonly kind: 'task'
       readonly task: TaskView
       readonly projectTitle: string | null
+      /**
+       * The blocker's own title, or null where the task is not blocked or the blocker is not among
+       * the tasks loaded here. Spec 08, criterion 54.
+       */
+      readonly blockerTitle: string | null
     }
   | {
       readonly kind: 'project'
@@ -94,6 +99,7 @@ export function DetailsPanel({ item, subject, staleDays, now, onClose }: Details
         <TaskDetails
           task={subject.task}
           projectTitle={subject.projectTitle}
+          blockerTitle={subject.blockerTitle}
           staleDays={staleDays}
           now={now}
         />
@@ -117,11 +123,13 @@ export function DetailsPanel({ item, subject, staleDays, now, onClose }: Details
 function TaskDetails({
   task,
   projectTitle,
+  blockerTitle,
   staleDays,
   now,
 }: {
   readonly task: TaskView
   readonly projectTitle: string | null
+  readonly blockerTitle: string | null
   readonly staleDays: number
   readonly now: number
 }) {
@@ -135,6 +143,11 @@ function TaskDetails({
         {/* The panel is not a column, so unlike a card it does say the status: nothing around it
             does. Spec 08's criterion 14 is a rule about the board's cards. */}
         <Fact label="Status">{statusLabel(task.status)}</Fact>
+        {/* A status of Blocked that does not say what it is behind is the question and not the
+            answer, and here there is room for the answer. Spec 08, criterion 54. */}
+        {task.blockedBy !== null && (
+          <Fact label="Blocked by">{blockerTitle ?? 'another task'}</Fact>
+        )}
         <Fact label="Set by">{task.statusSetBy === 'user' ? 'you' : task.statusSetBy}</Fact>
         {projectTitle !== null && <Fact label="Project">{projectTitle}</Fact>}
         {task.estimateMinutes !== null && (

@@ -682,11 +682,12 @@ them can answer differently. The classifier never proposes `blocked`, and migrat
 limb made necessary rather than tidy, and an overdue blocked task returns as a nudge naming what it
 is behind rather than vanishing.
 
-Exit: a task filed behind another leaves Next actions and appears in the board's seventh column
+Exit: a task filed behind another leaves Next actions and appears in the board's Blocked column
 naming its blocker; completing or deleting that blocker puts it back in Next actions with no
 further action; a chain that would come back round is refused with its reason; and an overdue
-blocked task is a nudge on the dashboard rather than work in the plan. Spec 01 criteria 12 to 18,
-spec 05 criterion 20, spec 08 criteria 52 and 53, and spec 04 criterion 4 extended in place.
+blocked task is a nudge on the dashboard rather than work in the plan; a task already finished is
+refused as a blocker, because nothing would release what was filed behind it. Spec 01 criteria 12 to
+20, spec 05 criterion 20, spec 08 criteria 52 to 54, and spec 04 criterion 4 extended in place.
 
 ## Test strategy
 

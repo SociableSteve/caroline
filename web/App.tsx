@@ -67,6 +67,12 @@ function subjectFor(
         task.projectId === null
           ? null
           : (projects.find((project) => project.id === task.projectId)?.title ?? null),
+      // Null where the blocker is not among the tasks loaded, which the panel says as "another
+      // task" rather than as a bare id. Spec 08, criterion 54.
+      blockerTitle:
+        task.blockedBy === null
+          ? null
+          : (tasks.find((candidate) => candidate.id === task.blockedBy)?.title ?? null),
     }
   }
 

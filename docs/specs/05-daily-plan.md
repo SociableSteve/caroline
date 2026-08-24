@@ -179,4 +179,6 @@ reason.
 
 20. A `blocked` task is never work in the plan or in the overflow list, whatever its deadline says.
     One due today or overdue returns as a nudge naming the task it is blocked behind, and consumes
-    no capacity.
+    no capacity. What a nudge names is read at the same moment as the status it is presented under,
+    so a task whose state changed after the plan was drawn cannot be shown as blocked behind a
+    person or as worth chasing to a task.

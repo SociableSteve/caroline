@@ -587,6 +587,36 @@ describe('blocking one task behind another', () => {
     expect(blockerRefusal(database, 'nonexistent', task.id)).toBe('not-found')
   })
 
+  /**
+   * Criterion 19. `releaseBlockedBy` runs on the transition to `done`, so a blocker that finished
+   * earlier will never release anything: the task would sit in the Blocked column for good, which
+   * is the burial the state exists to prevent.
+   */
+  it('refuses a blocker that is already done', () => {
+    const blocker = createTask(database, { title: 'Sign the contract', status: 'done' }, createdAt)
+    const task = createTask(database, { title: 'Book the venue' }, createdAt)
+
+    expect(blockerRefusal(database, task.id, blocker.id)).toBe('blocker-done')
+    expect(setTaskBlocker(database, task.id, blocker.id, blockedAt)).toEqual({
+      ok: false,
+      reason: 'blocker-done',
+    })
+    expect(getTask(database, task.id)).toMatchObject({ status: 'inbox', blockedBy: null })
+  })
+
+  /**
+   * The create path, where the task being blocked does not exist yet. A null id skips the cycle
+   * walk, which is the only check that needs one, and leaves every other refusal in force.
+   */
+  it('answers for a task that does not exist yet, skipping only the cycle walk', () => {
+    const blocker = createTask(database, { title: 'Sign the contract' }, createdAt)
+    const finished = createTask(database, { title: 'Already done', status: 'done' }, createdAt)
+
+    expect(blockerRefusal(database, null, blocker.id)).toBeNull()
+    expect(blockerRefusal(database, null, 'nonexistent')).toBe('no-such-blocker')
+    expect(blockerRefusal(database, null, finished.id)).toBe('blocker-done')
+  })
+
   /** A chain is allowed: it is one hop from each task's point of view. Spec 01, non-goals. */
   it('allows a chain, which is one hop seen from either end', () => {
     const first = createTask(database, { title: 'One' }, createdAt)

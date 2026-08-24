@@ -1201,6 +1201,54 @@ describe('the needs-you rail', () => {
     expect(rail().getByText('Worth a chase')).toBeInTheDocument()
   })
 
+  /**
+   * Spec 05, criterion 20. The pill comes from the live status and what it names has to come from
+   * the same moment: `waitingOn` is what the planner recorded, so a task blocked after the plan was
+   * drawn used to read as blocked behind a person.
+   */
+  it('names the blocker on a nudge whose task is blocked, not what the plan recorded', () => {
+    renderDashboard({
+      plan: aPlan({
+        nudges: [
+          aPlanEntry({
+            kind: 'nudge',
+            title: 'Book the venue',
+            taskStatus: 'blocked',
+            waitingOn: 'Priya',
+            currentWaitingOn: 'Sign the contract',
+            waitingSince: NOW - 2 * DAY,
+          }),
+        ],
+      }),
+    })
+
+    expect(rail().getByText('Blocked')).toBeInTheDocument()
+    expect(rail().getByText('behind Sign the contract')).toBeInTheDocument()
+    expect(rail().queryByText('behind Priya')).not.toBeInTheDocument()
+  })
+
+  /** The same criterion the other way round: a task that is waiting now names the person. */
+  it('names the person on a nudge whose task is waiting, whatever the plan recorded', () => {
+    renderDashboard({
+      plan: aPlan({
+        nudges: [
+          aPlanEntry({
+            kind: 'nudge',
+            title: 'Book the venue',
+            taskStatus: 'waiting',
+            waitingOn: 'Sign the contract',
+            currentWaitingOn: 'Priya',
+            waitingSince: NOW - 2 * DAY,
+          }),
+        ],
+      }),
+    })
+
+    expect(rail().getByText('Worth a chase')).toBeInTheDocument()
+    expect(rail().getByText('Priya')).toBeInTheDocument()
+    expect(rail().queryByText('Sign the contract')).not.toBeInTheDocument()
+  })
+
   it('names each stalled project and links to it, tagged "Stalled"', () => {
     renderDashboard({
       projects: [

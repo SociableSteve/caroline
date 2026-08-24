@@ -18,7 +18,7 @@ import { workingWindowForDate } from '../../src/actions/capacity.js'
 import { loadConfig, readConfigFile } from '../../src/config/load.js'
 import { openCarolineDatabase } from '../../src/db/index.js'
 import { createProject } from '../../src/db/repositories/projects.js'
-import { createTask, setTaskTags } from '../../src/db/repositories/tasks.js'
+import { createTask, setTaskBlocker, setTaskTags } from '../../src/db/repositories/tasks.js'
 import { upsertSource } from '../../src/db/repositories/sources.js'
 import { recordDailyPlan } from '../../src/db/repositories/daily-plans.js'
 import { upsertCalendarEvent } from '../../src/db/repositories/calendar-events.js'
@@ -160,6 +160,11 @@ interface Seed {
   readonly setAt?: number
   readonly tags?: readonly string[]
   readonly notes?: string | null
+  /**
+   * The title of the task this one has to wait for. Applied after the whole list is created, since
+   * a blocker is a reference to a row and the list is written in titles. Spec 01, "Blocking".
+   */
+  readonly blockedBehind?: string
 }
 
 const seeds: Seed[] = [
@@ -219,6 +224,19 @@ const seeds: Seed[] = [
     setAt: NOW - 2 * DAY,
   },
 
+  /**
+   * Blocked, so the seventh column is not an empty box in the published pictures. It is filed
+   * behind a next action rather than behind a wait, because what the column exists to show is one
+   * task of yours in front of another. It carries no deadline: an overdue blocked task is a nudge
+   * on the dashboard, which is a different picture from this one.
+   */
+  {
+    title: 'Send the H2 review round for comment',
+    status: 'next_action',
+    project: hub.id,
+    blockedBehind: 'Write the H2 throughput section',
+  },
+
   { title: 'Look at whether the planner could learn from corrections', status: 'someday' },
   { title: 'A team dashboard that reads itself out on a Monday', status: 'someday' },
 
@@ -253,6 +271,29 @@ const created = seeds.map((seed, index) => {
   )
   if (seed.tags !== undefined) setTaskTags(database, task.id, [...seed.tags])
   return task
+})
+
+/**
+ * The blockers, once every task exists and can be named. `setTaskBlocker` writes both halves of the
+ * fact, so the status follows from the reference rather than being seeded beside it.
+ */
+seeds.forEach((seed, index) => {
+  if (seed.blockedBehind === undefined) return
+
+  const task = created[index]
+  const blocker = created.find((candidate) => candidate.title === seed.blockedBehind)
+  if (task === undefined || blocker === undefined) {
+    throw new Error(
+      `"${seed.title}" is seeded behind "${String(seed.blockedBehind)}", which this file does not create.`,
+    )
+  }
+
+  const outcome = setTaskBlocker(database, task.id, blocker.id, NOW - 2 * DAY)
+  if (!outcome.ok) {
+    throw new Error(
+      `Seeding "${seed.title}" behind "${blocker.title}" was refused: ${outcome.reason}.`,
+    )
+  }
 })
 
 /** The onboarding project deliberately gets no next action, so it reads as stalled. */

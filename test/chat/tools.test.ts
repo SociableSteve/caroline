@@ -1044,7 +1044,7 @@ describe('delete_task', () => {
 
 /**
  * Blocking from chat, which is the MCP surface's answer too: one registry serves both. Spec 01,
- * criteria 12 to 17, and spec 08, criterion 49.
+ * criteria 12 to 17, and spec 08, criterion 52.
  */
 describe('blocking from the tool surface', () => {
   function aBlockedPair(database: Database) {
@@ -1113,6 +1113,26 @@ describe('blocking from the tool surface', () => {
     })
 
     expect(outcome.message).toContain('nonexistent')
+  })
+
+  /**
+   * Criterion 19. `update_task` is the other caller of the same field, so the client not offering a
+   * finished task is not on its own enough: the rule is in the read both write paths ask.
+   */
+  it('refuses a blocker that has already finished, from update_task and from create_task', async () => {
+    const database = migratedDatabase()
+    createTask(database, { id: 'blocker', title: 'Sign the contract', status: 'done' }, CHAT_NOW)
+    createTask(database, { id: 'task-1', title: 'Book the venue' }, CHAT_NOW)
+
+    const updated = await refuse(database, 'update_task', { id: 'task-1', blockedBy: 'blocker' })
+    const created = await refuse(database, 'create_task', {
+      title: 'Another',
+      blockedBy: 'blocker',
+    })
+
+    expect(updated.message).toMatch(/already done/i)
+    expect(created.message).toMatch(/already done/i)
+    expect(getTask(database, 'task-1')).toMatchObject({ status: 'inbox', blockedBy: null })
   })
 
   /** Spec 01, criterion 14: nothing has to remember to do this. */

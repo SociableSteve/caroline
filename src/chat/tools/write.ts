@@ -169,14 +169,11 @@ const createTaskTool = defineTool<TaskFieldArguments & { readonly title: string 
       return { ok: false, message: `There is no project with the id ${String(args.projectId)}.` }
     }
 
-    // A task nothing points at yet cannot be in a cycle, so existence is the whole of the check
-    // here. Spec 01, criterion 13.
-    if (
-      args.blockedBy !== undefined &&
-      args.blockedBy !== null &&
-      getTask(context.database, args.blockedBy) === null
-    ) {
-      return { ok: false, message: `There is no task with the id ${args.blockedBy}.` }
+    // A task nothing points at yet cannot be in a cycle, so the walk is the one check the create
+    // path skips, and a null id is how the read is told so. Spec 01, criteria 13 and 19.
+    if (args.blockedBy !== undefined) {
+      const refusal = blockerRefusalMessage(context, null, args.blockedBy)
+      if (refusal !== null) return { ok: false, message: refusal }
     }
 
     const dates = readDates(context, args)
@@ -312,7 +309,7 @@ const updateTaskTool = defineTool<{ readonly id: string } & TaskFieldArguments>(
  */
 function blockerRefusalMessage(
   context: ChatToolContext,
-  id: string,
+  id: string | null,
   blockedBy: string | null,
 ): string | null {
   const refusal = blockerRefusal(context.database, id, blockedBy)
@@ -321,9 +318,13 @@ function blockerRefusalMessage(
     case null:
       return null
     case 'not-found':
-      return `There is no task with the id ${id}.`
+      return `There is no task with the id ${String(id)}.`
     case 'no-such-blocker':
       return `There is no task with the id ${String(blockedBy)}.`
+    // Nothing releases a task filed behind work that has already finished, because the release
+    // happens as the blocker completes. Spec 01, criterion 19.
+    case 'blocker-done':
+      return 'That task is already done, so blocking behind it would never come undone.'
     case 'cycle':
       return 'That would block the task behind itself, directly or through a chain of blockers.'
   }

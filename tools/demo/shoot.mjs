@@ -29,7 +29,7 @@ const OUT = process.env.OUT ?? (forDocumentation ? 'docs/images' : '/tmp/carolin
  * Each surface, and the width to look at it at. Chat is no longer one of them: it is a rail beside a
  * surface, so it is shot where it is actually used. The rail is open unless the hash says it was
  * closed, which is why the bare hashes carry it and `?chat=closed` is what shows a surface alone.
- * The narrow pair is where the rail collapses to an overlay and the six columns stack.
+ * The narrow pair is where the rail collapses to an overlay and the columns scroll sideways.
  */
 const surfaces = [
   { name: 'dashboard', hash: '#/', width: 1440, height: 1100 },
@@ -71,12 +71,13 @@ const documentationShots = forDocumentation
   ? [
       { name: 'dashboard', hash: '#/?chat=closed', width: 1440, height: 1100, scale: 1 },
       /**
-       * Wider than the rest, because the document's subject here is that there are six columns and its
-       * alt text says so. Six at their 15rem minimum plus the gaps and the surface padding need a little
-       * over 1500px, and `captureBeyondViewport` extends the shot downwards only, so at 1440 the sixth
-       * column was cut through its cards.
+       * Wider than the rest, because the document's subject here is that every column is on screen at
+       * once and its alt text says so. `captureBeyondViewport` extends the shot downwards only, so a
+       * width that leaves a column off the right cuts it through its cards, which is what 1440 did.
+       * There are seven columns now, and 1750 is where each still reads at about the 15rem the
+       * sideways-scrolling layout below the breakpoint gives them.
        */
-      { name: 'board', hash: '#/board?chat=closed', width: 1600, height: 1100, scale: 1 },
+      { name: 'board', hash: '#/board?chat=closed', width: 1750, height: 1100, scale: 1 },
       {
         name: 'rail',
         // The item open above the conversation it is about, which is the whole of what the rail is:

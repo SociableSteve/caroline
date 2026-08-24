@@ -1021,9 +1021,15 @@ export function Dashboard({
     })),
     // Two kinds of nudge share these columns, and the entry's own status is what tells them
     // apart: a chase is somebody else's move, a blocked one is another task of your own that has
-    // to finish first. Spec 05, criteria 11 and 20.
+    // to finish first. Both halves come from `currentWaitingOn` and `taskStatus`, which are read
+    // together at the moment of asking: the stored `waitingOn` is what the planner saw, and a task
+    // that changed since then would otherwise be shown as blocked behind a person, or as worth
+    // chasing to a task. Spec 05, criteria 11 and 20.
     ...(plan?.nudges ?? []).map((nudge): NeedsYouItem => {
       const blocked = nudge.taskStatus === 'blocked'
+      // The record is the fallback, for an entry whose task has been deleted: there is no live
+      // answer then, and what the planner recorded is better than nothing.
+      const waitingOn = nudge.currentWaitingOn ?? nudge.waitingOn
 
       return {
         key: `chase:${nudge.id}`,
@@ -1031,9 +1037,7 @@ export function Dashboard({
         pill: blocked ? 'Blocked' : 'Worth a chase',
         ageMs: nudge.waitingSince === null ? null : Math.max(0, now - nudge.waitingSince),
         title: nudge.title,
-        subtitle: blocked
-          ? `behind ${nudge.waitingOn ?? 'another task'}`
-          : (nudge.waitingOn ?? 'nobody named'),
+        subtitle: blocked ? `behind ${waitingOn ?? 'another task'}` : (waitingOn ?? 'nobody named'),
         note: nudge.pushedSinceReview ? 'the author has pushed since you reviewed' : null,
       }
     }),

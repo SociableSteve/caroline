@@ -492,6 +492,25 @@ describe('blocking one task behind another', () => {
       reason: 'blocked-needs-blocker',
     })
   })
+
+  /**
+   * Criterion 20, the direction the criterion 18 tests do not cover. Restoring the status alone
+   * left the reference in place, which is the half fact the check constraint refuses, so what the
+   * board offered on every freshly blocked card was a 500.
+   */
+  it('clears the blocker when it puts a move into blocked back', () => {
+    const blocked = existingTask({
+      status: 'blocked',
+      blockedBy: 'blocker',
+      previousStatus: 'next_action',
+      previousStatusSetBy: 'user',
+    })
+
+    expect(undoStatusChange(blocked, at)).toMatchObject({
+      undone: true,
+      task: { status: 'next_action', blockedBy: null },
+    })
+  })
 })
 
 /** Criterion 17: a task may not end up behind itself, directly or through a chain. */

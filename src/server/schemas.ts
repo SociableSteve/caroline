@@ -598,6 +598,12 @@ const planEntryResponseSchema = {
     pushedSinceReview: { type: 'boolean' },
     /** As it stands now, so a completed entry renders as done rather than as still to do. */
     taskStatus: nullableString(20),
+    /**
+     * What the task is waiting on as it stands now, read at the same moment as `taskStatus`, so a
+     * surface presenting an entry under its live status names the right thing under it. Spec 05,
+     * criterion 20.
+     */
+    currentWaitingOn: nullableString(TITLE_MAX),
     done: { type: 'boolean' },
   },
 } as const

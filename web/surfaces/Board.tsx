@@ -121,11 +121,15 @@ export function Board({
   const projectTitles = new Map(projects.map((project) => [project.id, project.title]))
   const taskTitles = new Map(tasks.map((task) => [task.id, task.title]))
   /**
-   * What a card may be blocked behind. The whole board, because completed work has already left
-   * it; the card drops itself from the list, and a chain that comes back round is the server's to
-   * refuse. Spec 08, criterion 52.
+   * What a card may be blocked behind: everything that could still finish. Completed work is
+   * dropped rather than assumed absent, because `tasks` carries it even though `columns` does not,
+   * and nothing would ever release a task filed behind something already done. The card drops
+   * itself from the list, and a chain that comes back round is the server's to refuse. Spec 08,
+   * criteria 52 and 54.
    */
-  const blockerOptions = tasks.map((task) => ({ id: task.id, title: task.title }))
+  const blockerOptions = tasks
+    .filter((task) => task.status !== 'done')
+    .map((task) => ({ id: task.id, title: task.title }))
 
   const focus = (id: string | undefined) => {
     if (id !== undefined) cards.current.get(id)?.focus()
@@ -323,7 +327,11 @@ export function Board({
       {/* No list role over the columns. Each is a region with an accessible name, which is
           already navigable; wrapping them in list semantics replaces that and costs the headings
           their place in the outline. Spec 08, accessibility. */}
-      <div className="grid min-h-0 flex-1 auto-cols-[minmax(15rem,1fr)] grid-flow-col items-stretch gap-3 overflow-x-auto pb-2 md:grid-flow-row md:grid-cols-7 md:overflow-x-visible">
+      {/* Seven columns side by side need more room than six did: at the `md` breakpoint they came
+          to about 100px each, which is narrower than a card's own content. The switch to a fitted
+          row is at `lg` instead, and below it the board scrolls sideways at a readable 15rem per
+          column, which is the behaviour spec 08 prescribes rather than a fallback. */}
+      <div className="grid min-h-0 flex-1 auto-cols-[minmax(15rem,1fr)] grid-flow-col items-stretch gap-3 overflow-x-auto pb-2 lg:grid-flow-row lg:grid-cols-7 lg:overflow-x-visible">
         {boardStatuses.map((status, columnIndex) => {
           const column = columns[columnIndex] ?? []
 

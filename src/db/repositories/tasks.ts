@@ -234,7 +234,7 @@ function releaseBlockedBy(database: Database, blockerId: string, at: number): vo
 }
 
 /** Why naming a blocker was refused, in the words a route or a tool can turn into a message. */
-export type BlockerRefusal = 'not-found' | 'no-such-blocker' | BlockRefusal
+export type BlockerRefusal = 'not-found' | 'no-such-blocker' | 'blocker-done' | BlockRefusal
 
 export type BlockerResult =
   | { readonly ok: true; readonly task: Task }
@@ -242,19 +242,31 @@ export type BlockerResult =
 
 /**
  * Whether naming this blocker would be refused, and why. A read, so a caller can answer before it
- * writes anything and leave the task exactly as it was. Spec 01, criterion 17.
+ * writes anything and leave the task exactly as it was. Spec 01, criteria 17 and 19.
  *
  * The chain is read from the database and the rule is applied in the domain, so every write path
  * asks the same question and none of them can answer it differently.
+ *
+ * `id` is null on the create path, where the task being blocked does not exist yet. Everything but
+ * the cycle walk still applies, and a task nothing points at cannot be in a cycle, so the one check
+ * that needs an id is the one skipped.
  */
 export function blockerRefusal(
   database: Database,
-  id: string,
+  id: string | null,
   blockedBy: string | null,
 ): BlockerRefusal | null {
-  if (getTask(database, id) === null) return 'not-found'
+  if (id !== null && getTask(database, id) === null) return 'not-found'
   if (blockedBy === null) return null
-  if (getTask(database, blockedBy) === null) return 'no-such-blocker'
+
+  const blocker = getTask(database, blockedBy)
+  if (blocker === null) return 'no-such-blocker'
+  // Nothing would ever release it. `releaseBlockedBy` fires on the transition to `done`, and that
+  // moment has passed, so a task filed behind finished work sits in the Blocked column until
+  // somebody notices. Spec 01, criterion 19.
+  if (blocker.status === 'done') return 'blocker-done'
+
+  if (id === null) return null
 
   return blockRefusal(id, blockedBy, (of) => getTask(database, of)?.blockedBy ?? null)
 }
