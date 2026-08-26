@@ -197,16 +197,18 @@ The dashboard is the morning screen. Reading it top to bottom:
   A three minute gap is drawn three minutes wide, and looks as unusable as it is. The line across it
   is now. Work still to do sits after that line and never before it, and work already done keeps the
   earlier part of the day it was drawn into. Free time behind the line is not drawn at all: it has
-  gone, and drawing it as free would show minutes that are no longer there to use. The legend under it
-  carries every figure in words: meetings, planned, done, and the
-  unplanned time left on the clock. Where the reserve fits inside that unplanned time it is named as
-  a part of it rather than as a figure of its own ("unplanned 1 hour 50 min, 1 hour 42 min of it
-  held back"); where the plan has taken more of the day than it had to give, so that less is left
-  unplanned than is held back, the two are stated separately instead, since nothing then contains
-  anything. Held back is in the legend and not on the bar: the reserve is a flat percentage of the
-  window rather than any particular minutes of it, so drawing it anywhere would claim minutes it
-  does not own. The unplanned figure is not the same number as the verdict's free capacity in the
-  line above, which weighs the whole plan against the window less its meetings and its reserve.
+  gone, and drawing it as free would show minutes that are no longer there to use. The legend under
+  it carries every figure in words: meetings, planned, done, and the unplanned time left on the
+  clock. Where the reserve fits inside that unplanned time it is named as a part of it rather than
+  as a figure of its own ("unplanned 1 hour 50 min, 1 hour 42 min of it held back"); where the plan
+  has taken more of the day than it had to give, so that less is left unplanned than is held back,
+  the two are stated separately instead, since nothing then contains anything. Held back is in the
+  legend and not on the bar: the reserve is a flat percentage of the window rather than any
+  particular minutes of it, so drawing it anywhere would claim minutes it does not own. Once part of
+  the window has passed, the legend states what is left of that percentage rather than the day's
+  whole share of it, since a reserve for a minute already gone is not a minute it can still promise
+  back. The unplanned figure is not the same number as the verdict's free capacity in the line
+  above, which weighs the whole plan against the window less its meetings and its reserve.
 - **The agenda** is the day itself, one time-ordered list: the calendar's meetings and the plan's
   entries interleaved, each entry with its rank, a sentence saying why, its estimate and a
   **Complete** button, and a rule where now falls. At least one review is in the plan whenever

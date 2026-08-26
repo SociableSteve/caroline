@@ -203,8 +203,11 @@ describe('the day bar', () => {
     expect(today().getByText('meetings 1 hour')).toBeInTheDocument()
     expect(today().getByText('planned 1 hour 30 min')).toBeInTheDocument()
     expect(today().getByText('done 30 min')).toBeInTheDocument()
+    // The clock is 90 minutes into the 510 minute window, so 420 of it is still ahead: the
+    // 102 minute reserve (a flat 20% of the whole window) is scaled to 84 of those 420 minutes,
+    // spec 08 criterion 47's extension for a day already under way.
     expect(
-      today().getByText('unplanned 5 hours 30 min, 1 hour 42 min of it held back'),
+      today().getByText('unplanned 5 hours 30 min, 1 hour 24 min of it held back'),
     ).toBeInTheDocument()
   })
 
@@ -413,7 +416,12 @@ describe('the day bar’s track', () => {
     expect(stretch?.width).toBeCloseTo(share(60), 6)
   })
 
-  /** Criterion 41: a day of scattered cracks and a day with one clear stretch do not draw alike. */
+  /**
+   * Criterion 41: a day of scattered cracks and a day with one clear stretch do not draw alike.
+   * The clock is at the top of the window, made explicit rather than left to the default, because
+   * nothing here has passed yet for any stretch to be excluded (spec 05, criterion 23); the case
+   * where the clock has moved and a stretch already gone drops out is its own test below.
+   */
   it('draws one element per stretch of free time rather than merging them', () => {
     renderDashboard({
       calendar: aTimedDay({
@@ -423,6 +431,7 @@ describe('the day bar’s track', () => {
           { start: WINDOW_START + 480 * MINUTE, end: WINDOW_START + 490 * MINUTE },
         ],
       }),
+      now: WINDOW_START,
     })
 
     const free = blocksOf('free').map(geometryOf)
@@ -891,6 +900,120 @@ describe('the day bar’s track', () => {
 
       expect(row?.textContent).toContain(formatTimeOfDay(drawnAt))
       expect(drawnAt).toBeGreaterThanOrEqual(now)
+    })
+
+    /**
+     * Criterion 22, the boundary the `durationMs > 0` guard misses: an entry with no estimate is
+     * placed at the cursor without moving it, and here the entry ranked before it fills the passed
+     * free time exactly to `now`, so the cursor the null-estimate entry is offered is `now` itself.
+     * Criterion 22 says a completed entry is placed in the free time before the present moment, not
+     * at it, so this has to stay untimed rather than land on the line.
+     */
+    it('does not place a completed entry with no estimate exactly at the present moment', () => {
+      const now = WINDOW_START + 30 * MINUTE
+      renderDashboard({
+        calendar: aTimedDay({ free: [{ start: WINDOW_START, end: WINDOW_END }] }),
+        plan: aPlan({
+          entries: [
+            aPlanEntry({ id: 'entry-1', estimateMinutes: 30, done: true }),
+            aPlanEntry({
+              id: 'entry-2',
+              title: 'File the expenses',
+              estimateMinutes: null,
+              done: true,
+            }),
+          ],
+        }),
+        now,
+      })
+
+      const row = today().getByText('File the expenses').closest('li')
+
+      expect(row).not.toBeNull()
+      expect(row?.firstElementChild?.textContent).toBe('')
+    })
+
+    /**
+     * Spec 08, criterion 41, once part of the window has passed: a stretch already gone is not one
+     * of the "several separate stretches" the criterion counts (it is spec 05 criterion 23's
+     * business to drop it), but two stretches both still ahead of the clock draw as two elements
+     * exactly as they would at the top of the window.
+     */
+    it('draws one element for each stretch still ahead of the clock, not for the one already spent', () => {
+      const now = WINDOW_START + 200 * MINUTE
+      renderDashboard({
+        calendar: aTimedDay({
+          free: [
+            { start: WINDOW_START, end: WINDOW_START + 50 * MINUTE },
+            { start: WINDOW_START + 300 * MINUTE, end: WINDOW_START + 310 * MINUTE },
+            { start: WINDOW_START + 400 * MINUTE, end: WINDOW_START + 410 * MINUTE },
+          ],
+        }),
+        now,
+      })
+
+      const free = blocksOf('free').map(geometryOf)
+
+      expect(free).toHaveLength(2)
+      expect(free.map((gap) => gap.left.toFixed(4))).toEqual(
+        [share(300), share(400)].map((offset) => offset.toFixed(4)),
+      )
+    })
+
+    /**
+     * Spec 08, criterion 47's extension: held back is no longer the day's whole reserve once part
+     * of the window has passed, but the same flat percentage applied to what is left of it. Ten
+     * hours, 102 minutes reserve (17%), half the window gone leaves 300 minutes ahead, so 51
+     * minutes of it (17% of 300) are held back rather than the full 102.
+     */
+    it('narrows what it holds back to the time still ahead, once part of the window has passed', () => {
+      const now = WINDOW_START + 300 * MINUTE
+      renderDashboard({
+        calendar: aTimedDay({
+          reserveMinutes: 102,
+          free: [{ start: WINDOW_START, end: WINDOW_END }],
+        }),
+        now,
+      })
+
+      expect(today().getByText('unplanned 5 hours, 51 min of it held back')).toBeInTheDocument()
+    })
+
+    /**
+     * The reported symptom, verified directly: ten minutes still on the clock and the reserve
+     * scaled down with them, rather than the whole day's 1 hour 42 min showing as separately held
+     * back beside almost nothing unplanned.
+     */
+    it('keeps held back inside the unplanned figure with only minutes left in the window', () => {
+      const now = WINDOW_START + 590 * MINUTE
+      renderDashboard({
+        calendar: aTimedDay({
+          reserveMinutes: 102,
+          free: [{ start: WINDOW_START, end: WINDOW_END }],
+        }),
+        now,
+      })
+
+      expect(today().getByText('unplanned 10 min, 2 min of it held back')).toBeInTheDocument()
+      expect(today().queryByText(/^held back/)).not.toBeInTheDocument()
+    })
+
+    /**
+     * Criterion 44: once the window has closed there is nothing left of the day's reserve to hold
+     * back either, so the legend says nothing about it, the same as a reserve configured at zero.
+     */
+    it('says nothing about held back once the window has closed', () => {
+      const now = WINDOW_END
+      renderDashboard({
+        calendar: aTimedDay({
+          reserveMinutes: 102,
+          free: [{ start: WINDOW_START, end: WINDOW_END }],
+        }),
+        now,
+      })
+
+      expect(today().getByText('unplanned 0 min')).toBeInTheDocument()
+      expect(today().queryByText(/^held back/)).not.toBeInTheDocument()
     })
   })
 })

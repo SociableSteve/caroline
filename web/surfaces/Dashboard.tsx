@@ -220,6 +220,13 @@ function placeInto(entries: readonly RankedEntry[], freeIntervals: readonly Inte
     let cursor = interval.start
     let placing = entries[next]
     while (placing !== undefined) {
+      // Once the cursor has reached the end of the interval there is no room left in it at all,
+      // not even for a no-estimate entry that would consume none: criterion 22 places a completed
+      // entry in the free time *before* the present moment, and the last passed interval's end is
+      // exactly `now`, so an entry placed at a cursor that has reached it would land on the line
+      // rather than behind it. Checked before the fit test below, which a zero duration entry
+      // always passes.
+      if (cursor >= interval.end) break
       const minutes = placing.entry.estimateMinutes ?? 0
       const durationMs = minutes * MINUTE_MS
       // The `durationMs > 0` guard is for the no-estimate case, which is placed at the cursor
@@ -484,7 +491,9 @@ function DayTrack({
  * "Held back" (`reserveMinutes`) is not drawn at all, only named in the legend (criterion 44). It is
  * a flat percentage of the window held back for interruptions, not any particular minutes of it, so
  * putting it anywhere on a clock would claim that some named stretch of the day is reserved when
- * none is. It is the one legend figure with nothing of its own on the track, which is why it is
+ * none is. Once part of the window has passed, the legend states the same percentage of what is
+ * left of it rather than `reserveMinutes` raw, so the figure shrinks with the day (criterion 47's
+ * extension). It is the one legend figure with nothing of its own on the track, which is why it is
  * stated inside the unplanned item wherever it is a part of those minutes: written as a sixth
  * figure it read as one more slice of the day to add on. It is not always a part of them. A plan
  * that overcommits the capacity the reserve was already taken out of leaves fewer unplanned minutes
@@ -500,10 +509,12 @@ function DayTrack({
  * on its own and `windowMinutes` is rounded separately, so event boundaries inside a minute can
  * leave the four totalling the window plus or minus a minute. Criterion 47 makes no sum claim.
  *
- * None of that is a second opinion on the API's figures (criterion 6): the window and the reserve
- * are the route's own, meetings re-sums the route's own busy intervals and rounds them the way
- * `busyMinutes` is rounded, so it is that number by another path, and the rest come from walking
- * the plan through the route's free intervals.
+ * None of that is a second opinion on the API's figures (criterion 6): the window is the route's
+ * own, meetings re-sums the route's own busy intervals and rounds them the way `busyMinutes` is
+ * rounded, so it is that number by another path, and the rest come from walking the plan through
+ * the route's free intervals. Held back is the one figure this scales rather than reads raw, and
+ * only by the fraction of the window the route's own `windowStart` and `windowEnd` say is still
+ * ahead of `now`, so it is still no independent view of the day's capacity.
  */
 function DayBar({
   capacity,
@@ -520,12 +531,40 @@ function DayBar({
     )
   }
 
+  // `capacityFrom` reports `workingDay: true` for exactly the days it has a window for, so these
+  // are populated wherever the track is drawn; the guard is what tells the compiler that, and it
+  // is also what a nonsense window (an end at or before its start) falls through.
+  const { windowStart, windowEnd } = capacity
+  const window: Interval | null =
+    windowStart !== null && windowEnd !== null && windowEnd > windowStart
+      ? { start: windowStart, end: windowEnd }
+      : null
+
   const blocks = trackBlocks(capacity, placement)
   const meetings = drawnMinutes(blocks, 'meeting')
   const planned = drawnMinutes(blocks, 'planned')
   const done = drawnMinutes(blocks, 'done')
   const free = drawnMinutes(blocks, 'free')
-  const reserve = Math.max(0, capacity.reserveMinutes)
+  // The reserve is a flat percentage of the window (criterion 44), so what is left of it once the
+  // day is under way is the same percentage applied to what is left of the window, not the whole
+  // of it: the share of the interruption budget that belonged to a minute already gone is not a
+  // minute the legend can still promise back (spec 08, criterion 47's extension; spec 05, criterion
+  // 23 for what "still ahead" means). `capacity.reserveMinutes` is read raw only at the top of the
+  // window, where the two are the same number. The window's own total is measured from `windowStart`
+  // and `windowEnd` here rather than taken from `capacity.windowMinutes`, since those instants are
+  // what the track itself is drawn from (criterion 40) and are exactly what "still ahead" is measured
+  // against; a total independently rounded elsewhere is not guaranteed to agree with them to the
+  // minute.
+  const windowTotalMinutes =
+    window === null ? 0 : Math.round((window.end - window.start) / MINUTE_MS)
+  const windowMinutesAhead =
+    window === null
+      ? 0
+      : Math.round(Math.max(0, window.end - Math.max(window.start, now)) / MINUTE_MS)
+  const reserve =
+    window === null || windowTotalMinutes <= 0
+      ? 0
+      : Math.max(0, Math.round((capacity.reserveMinutes * windowMinutesAhead) / windowTotalMinutes))
   // "Free" is already the verdict headline's word for a larger quantity just above the bar (the
   // free capacity the API gave), so the unplanned minutes are named "unplanned"; and where the
   // reserve is part of them, saying so inline is what stops a reader adding the two together and
@@ -546,15 +585,6 @@ function DayBar({
       : reserve <= free
         ? [`unplanned ${formatEstimate(free)}, ${formatEstimate(reserve)} of it held back`]
         : [`unplanned ${formatEstimate(free)}`, `held back ${formatEstimate(reserve)}`]
-
-  // `capacityFrom` reports `workingDay: true` for exactly the days it has a window for, so these
-  // are populated wherever the track is drawn; the guard is what tells the compiler that, and it
-  // is also what a nonsense window (an end at or before its start) falls through.
-  const { windowStart, windowEnd } = capacity
-  const window: Interval | null =
-    windowStart !== null && windowEnd !== null && windowEnd > windowStart
-      ? { start: windowStart, end: windowEnd }
-      : null
 
   return (
     <div className="my-1 mb-3 flex flex-col gap-1.5">

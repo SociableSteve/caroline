@@ -481,7 +481,11 @@ describes. That adds the following, appended for the same reason.
     unusable minutes as though they were usable, and that time looking unusable is the point.
 41. Free time is drawn one element per gap and never merged: a window with several separate
     stretches of free time in it draws one element for each, each at its own width and offset. A
-    day of thirty scattered cracks and a day with one long clear stretch do not draw alike.
+    day of thirty scattered cracks and a day with one long clear stretch do not draw alike. This
+    counts the gaps still ahead of the present moment: a stretch that has passed unspent is not
+    drawn at all (spec 05, criterion 23), so a stretch the clock has already moved past is not one
+    of the "several separate stretches" this criterion is counting, and two stretches both still
+    ahead of the clock draw as two elements exactly as they would at the top of the window.
 42. The present moment is drawn as a position on the track when it falls inside the window, and is
     drawn nowhere at all when it falls before the window opens or after it closes: clamping it to
     an edge would say the day had started, or was ending, when it has not. The legend states the
@@ -504,29 +508,33 @@ describes. That adds the following, appended for the same reason.
 46. A day that is not a working day draws no track and says why instead. A day whose capacity is
     unverified draws the track and keeps its unverified notice, which is honest because the notice
     says the window was assumed free. Neither falls back to a second, proportional drawing.
-47. Every figure in the legend is a total of the minutes the track drew, and none of them is
-    clamped to what is left of the day's capacity: planned and done total the entries actually
-    placed on the track, at their full estimates, and the unplanned figure totals the gaps drawn
-    between them. A plan that overcommits the window therefore reads the same in words as it is
-    drawn, where a clamped figure would have described minutes nothing on the screen matched. Held
-    back (criterion 44) is the one legend figure with nothing of its own on the track. The verdict
-    headline above the bar is a different claim and stays a different number: it weighs the whole
-    plan, unplaceable entries included, against the free capacity the API reported, which is the
-    window less its meetings and its reserve. The legend therefore does not call its own figure
-    free: it is "unplanned", the time actually left on the clock. Where the held-back minutes fit
-    inside it, it names them as a part of itself ("unplanned 1 hour 50 min, 1 hour 42 min of it
-    held back") so that the two cannot be read as separate slices of the day and added together.
-    That containment is conditional and is claimed only where it holds: the planner plans against a
-    capacity the reserve has already been taken out of, so a plan that overcommits that capacity
-    leaves fewer unplanned minutes than the reserve, and there the legend states the two as separate
-    items ("unplanned 1 hour", "held back 1 hour 42 min") rather than assert a containment that is
-    false. At the exact boundary, unplanned equal to the reserve, containment holds and the
-    containment sentence is what prints. On a day where every entry found a place, and none of the
-    working window has passed yet, the unplanned figure is the verdict's spare plus the held back.
-    That equality is a claim about a day that has not started: once the window is under way the
-    figure totals only the gaps the track drew, which are the free time from the present moment on
-    (spec 05, criterion 23), and it can therefore be less than the spare plus the held back while
-    both figures stay true.
+47. Every figure in the legend is a total of the minutes the track drew, and none of them is clamped
+    to what is left of the day's capacity: planned and done total the entries actually placed on the
+    track, at their full estimates, and the unplanned figure totals the gaps drawn between them. A
+    plan that overcommits the window therefore reads the same in words as it is drawn, where a
+    clamped figure would have described minutes nothing on the screen matched. Held back (criterion
+    44) is the one legend figure with nothing of its own on the track, and once part of the window
+    has passed it is no longer the day's whole reserve either: the legend states the same flat
+    percentage applied to what is left of the window (spec 05, criterion 23), not the raw
+    `reserveMinutes` the API reported for the day as configured, because the share of the
+    interruption budget that belonged to a minute already gone is not a minute the legend can still
+    promise back. The verdict headline above the bar is a different claim and stays a different
+    number: it weighs the whole plan, unplaceable entries included, against the free capacity the
+    API reported, which is the window less its meetings and its reserve. The legend therefore does
+    not call its own figure free: it is "unplanned", the time actually left on the clock. Where the
+    held-back minutes fit inside it, it names them as a part of itself ("unplanned 1 hour 50 min, 1
+    hour 42 min of it held back") so that the two cannot be read as separate slices of the day and
+    added together. That containment is conditional and is claimed only where it holds: the planner
+    plans against a capacity the reserve has already been taken out of, so a plan that overcommits
+    that capacity leaves fewer unplanned minutes than the reserve, and there the legend states the
+    two as separate items ("unplanned 1 hour", "held back 1 hour 42 min") rather than assert a
+    containment that is false. At the exact boundary, unplanned equal to the reserve, containment
+    holds and the containment sentence is what prints. On a day where every entry found a place, and
+    none of the working window has passed yet, the unplanned figure is the verdict's spare plus the
+    held back. That equality is a claim about a day that has not started: once the window is under
+    way the figure totals only the gaps the track drew, which are the free time from the present
+    moment on (spec 05, criterion 23), and it can therefore be less than the spare plus the held
+    back while both figures stay true.
 48. The unverified-capacity notice appears once on the surface, not once per source. The plan job
     stores it as a warning and the dashboard also reads it from the live capacity, both from
     `unverifiedCapacityNotice` so that the two cannot word the same fact differently (spec 05,
