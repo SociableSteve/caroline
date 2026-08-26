@@ -50,6 +50,12 @@ import {
 } from '../format.js'
 import { unverifiedCapacityNotice } from '../../src/domain/capacity.js'
 import type { Interval } from '../../src/domain/capacity.js'
+import {
+  scheduleDay,
+  type DayPlacement as PlacementOf,
+  type ScheduledEntry as ScheduledEntryOf,
+  type SlackGap,
+} from '../../src/domain/plan.js'
 import { cn } from '../lib/utils.js'
 import { projectHref, surfaceHref } from '../router.js'
 import { Badge, emptyClassName, itemOpenClassName, Panel } from '../components/primitives.js'
@@ -146,86 +152,17 @@ function whyFree(event: CalendarEventView): string | null {
   return 'not counted'
 }
 
-/** One plan entry's placement in the agenda, once its estimate has been walked through the free
- *  intervals in rank order. Null where nothing placed it: an entry that could not be scheduled
- *  still has to render somewhere, just without a time. */
-interface ScheduledEntry {
-  readonly entry: PlanEntryView
-  readonly startsAt: number | null
-}
-
-/** A stretch of free time nothing was scheduled into. Long enough that an overflow entry might
- *  be offered into it, per issue #47's "would fit" slack row. `endsAt` as well as `minutes`
- *  because the day bar draws the gap from its instants and the agenda's row reads its length in
- *  words: rounding the end out of the minutes would put the drawing half a minute off the clock. */
-interface SlackGap {
-  readonly startsAt: number
-  readonly endsAt: number
-  readonly minutes: number
-}
-
-/** One walk of the plan through the day's free time, rendered twice: as the day bar's track and as
- *  the agenda's clock times. Spec 08, criterion 43. */
-interface DayPlacement {
-  readonly scheduled: readonly ScheduledEntry[]
-  readonly gaps: readonly SlackGap[]
-}
-
 /**
- * Walks `entries` (rank order) through `freeIntervals` (chronological order), consuming each
- * entry's estimate from wherever the cursor currently sits. An entry too big for what remains of
- * an interval waits for the next one; an entry with no estimate is placed at the cursor without
- * moving it, since there is nothing to consume. Whatever of an interval is left over once entries
- * stop fitting becomes a gap.
- *
- * Called once per render, by the dashboard rather than by either of the two things that draw it:
- * the day bar positions each entry from this result and the agenda prints a clock time from the
- * same one, which is what makes "the bar and the agenda never disagree about when something is
- * happening" true by construction rather than by two algorithms happening to agree. Spec 08,
- * criterion 43. A day with no free intervals at all places nothing and leaves no gaps, which is
- * exactly the unschedulable case: every entry comes back without a time and still renders.
+ * `scheduleDay`'s result and one entry's placement in it, specialised to the client's own richer
+ * view of a plan entry: the walk itself is `src/domain/plan.ts`'s, pure and generic over whichever
+ * entry shape a caller hands it, so it can be unit tested directly against spec 05's criteria 21
+ * to 24 without a rendered fixture. This is the one walk both the day bar and the agenda draw
+ * from, which is what makes "the bar and the agenda never disagree about when something is
+ * happening" true by construction rather than by two algorithms happening to agree (spec 08,
+ * criterion 43).
  */
-function scheduleDay(
-  entries: readonly PlanEntryView[],
-  freeIntervals: readonly Interval[],
-): DayPlacement {
-  const scheduled: ScheduledEntry[] = []
-  const gaps: SlackGap[] = []
-  let index = 0
-
-  for (const interval of freeIntervals) {
-    let cursor = interval.start
-    let entry = entries[index]
-    while (entry !== undefined) {
-      const minutes = entry.estimateMinutes ?? 0
-      const durationMs = minutes * MINUTE_MS
-      // The `durationMs > 0` guard is for the no-estimate case, which is placed at the cursor
-      // without moving it. A negative estimate would skip the fit check and rewind the cursor, but
-      // cannot arrive: `estimateFor` in `src/domain/plan.ts` floors every entry at one minute.
-      if (durationMs > 0 && cursor + durationMs > interval.end) break
-      scheduled.push({ entry, startsAt: cursor })
-      cursor += durationMs
-      index += 1
-      entry = entries[index]
-    }
-
-    if (cursor < interval.end) {
-      gaps.push({
-        startsAt: cursor,
-        endsAt: interval.end,
-        minutes: Math.round((interval.end - cursor) / MINUTE_MS),
-      })
-    }
-  }
-
-  // Nothing left to place it in. Still shown, just without a resolved time: a plan the client
-  // cannot schedule is not a plan the client should hide.
-  for (let entry = entries[index]; entry !== undefined; index += 1, entry = entries[index]) {
-    scheduled.push({ entry, startsAt: null })
-  }
-
-  return { scheduled, gaps }
-}
+type DayPlacement = PlacementOf<PlanEntryView>
+type ScheduledEntry = ScheduledEntryOf<PlanEntryView>
 
 /**
  * One drawn element of the day bar's track: a busy block, a placed plan entry, or a stretch of free
@@ -244,7 +181,9 @@ interface TrackBlock {
  * Everything the track draws, in paint order: meetings first, then the work placed into the free
  * time between them, then the free time nothing was placed into. Free time is one block per gap
  * (criterion 41): thirty scattered two-minute cracks draw as thirty cracks, which a single merged
- * segment could not say.
+ * segment could not say. `placement.gaps` is already only the free time still ahead of `now`
+ * (spec 05, criterion 23), so a stretch that has simply elapsed draws nothing here at all: time
+ * already gone reads as gone, not as a free block sitting behind the present-moment line.
  */
 function trackBlocks(capacity: CapacityView, placement: DayPlacement): TrackBlock[] {
   const blocks: TrackBlock[] = capacity.busy.map((block, index) => ({
@@ -417,8 +356,10 @@ function DayTrack({
  * Three things are on the track. Busy blocks come from `capacity.busy` and sit where they fall.
  * Plan entries come from the placement walk the agenda also renders, so the two cannot disagree
  * about when something is happening (criterion 43); done and not-done keep their own fills, since
- * an entry already finished still occupied the minutes it was placed into. Free time is whatever
- * the walk left over, one element per gap rather than one merged block (criterion 41).
+ * an entry already finished still occupied the minutes it was placed into, wherever in the day
+ * that fell. Free time is whatever the walk left over that is still ahead of `now`, one element
+ * per gap rather than one merged block (criterion 41): a stretch behind the present-moment line
+ * has already gone and draws nothing, not a fourth kind of block.
  *
  * "Held back" (`reserveMinutes`) is not drawn at all, only named in the legend (criterion 44). It is
  * a flat percentage of the window held back for interruptions, not any particular minutes of it, so
@@ -435,9 +376,12 @@ function DayTrack({
  * that overcommits the window draws its entries at their full estimates, so a legend stating
  * anything less would describe minutes other than the ones on the screen beside it. The four kinds
  * partition the drawn blocks, so no minute of the track is counted under two of them; they are not
- * an exact decomposition of `windowMinutes` in print, because each figure is rounded to the minute
- * on its own and `windowMinutes` is rounded separately, so event boundaries inside a minute can
- * leave the four totalling the window plus or minus a minute. Criterion 47 makes no sum claim.
+ * an exact decomposition of `windowMinutes` in print. Two things keep them from summing to it: each
+ * figure is rounded to the minute on its own and `windowMinutes` is rounded separately, so event
+ * boundaries inside a minute can leave the four totalling the window plus or minus a minute; and
+ * free time already behind `now` is not drawn at all (spec 05, criterion 23), so on a day with
+ * elapsed time the gap between the four and `windowMinutes` is that elapsed stretch, not a rounding
+ * error. Criterion 47 makes no sum claim.
  *
  * None of that is a second opinion on the API's figures (criterion 6): the window and the reserve
  * are the route's own, meetings re-sums the route's own busy intervals and rounds them the way
@@ -471,14 +415,17 @@ function DayBar({
   // arriving at more day than exists. Criterion 47.
   //
   // Containment is not a given, though, so it is only claimed where it holds. Unplanned is the
-  // window less its meetings and less whatever the track drew, and the planner plans against a
-  // capacity that already has the reserve taken out of it, so a plan that overcommits that capacity
-  // leaves fewer unplanned minutes than the reserve. "of it held back" would then assert more
-  // held-back minutes than unplanned minutes exist, which is the same add-them-up error inverted,
-  // so those days state the two figures separately: an unplanned item and a held-back one, both
-  // true whatever the plan did. The exact boundary, unplanned equal to the reserve, keeps the
-  // containment sentence: it is true there, and two items carrying the same figure read no better
-  // while inviting the addition the wording exists to prevent.
+  // free time still ahead of `now` once meetings and whatever the track drew are taken out of it
+  // (spec 05, criterion 23, so it is smaller than "window less meetings less placed" by whatever
+  // has already elapsed), and the planner plans against a capacity that already has the reserve
+  // taken out of it, so a plan that overcommits that capacity, or a day with enough elapsed time
+  // behind it, leaves fewer unplanned minutes than the reserve. "of it held back" would then assert
+  // more held-back minutes than unplanned minutes exist, which is the same add-them-up error
+  // inverted, so those days state the two figures separately: an unplanned item and a held-back
+  // one, both true whatever the plan did and whatever time has gone by. The exact boundary,
+  // unplanned equal to the reserve, keeps the containment sentence: it is true there, and two items
+  // carrying the same figure read no better while inviting the addition the wording exists to
+  // prevent.
   const unplannedItems =
     reserve <= 0
       ? [`unplanned ${formatEstimate(free)}`]
@@ -1005,8 +952,9 @@ export function Dashboard({
   )
   // One placement, two renderings: the day bar draws this walk and the agenda prints clock times
   // from it, so the bar and the agenda cannot disagree about when something is happening. Spec 08,
-  // criterion 43.
-  const placement = scheduleDay(plan?.entries ?? [], calendar?.capacity.free ?? [])
+  // criterion 43. `now` is what keeps outstanding work from being drawn behind the present moment
+  // while a completed entry keeps its own place; spec 05, criteria 21 to 24.
+  const placement = scheduleDay(plan?.entries ?? [], calendar?.capacity.free ?? [], now)
   const todaysVerdict = verdict(calendar, totalPlanned)
 
   const needsYou: NeedsYouItem[] = [

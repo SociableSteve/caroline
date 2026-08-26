@@ -107,6 +107,33 @@ Completing a task from within the plan view completes the task; the plan entry t
 as done. Yesterday's plan is retained, and the dashboard shows planned against completed
 for the last fourteen days.
 
+## Placing the plan against the clock
+
+The entries are generated once, in rank order, but reading them is not instantaneous: a plan
+drawn at 07:30 might not be opened until the middle of the afternoon. Giving each entry a clock
+time is a walk of the plan through the day's free time, done wherever the plan is read rather than
+stored, and it has to answer honestly for whatever moment it is asked at, not for the moment the
+plan was drawn.
+
+Work still to be done is never placed before the present moment. A single cursor walking the whole
+plan in rank order and floored at the present moment is not enough to guarantee that on its own:
+ranked ahead of an entry still outstanding, a task already finished earlier in the day would be
+dragged forward into the future along with it. So completed work and outstanding work are placed
+separately. Completed entries are walked in their own rank order, from the top of the day's free
+time, exactly as if nothing were elapsed: where they actually happened is a fact this walk should
+not disturb, whatever finishes around them or whatever time it now is. Outstanding entries are then
+walked in their own rank order, into whatever free time is left once the completed entries' own
+minutes, and everything before the present moment, have both been taken out.
+
+The free time an outstanding entry can still be measured against is therefore what remains of the
+day's free intervals after both of those are removed, not the whole of them: minutes already spent
+on a completed entry are gone whether they fell before or after the present moment, and minutes
+that have simply elapsed are gone whether or not anything was ever placed into them. A free
+interval sitting entirely behind the present moment has nothing left to offer and is not free time
+any outstanding entry can use. This is the same walk that decides what the dashboard's day bar
+draws as a block and as a gap (spec 08); the rule is stated here because it is a fact about the
+plan's placement, not about how the day bar happens to draw it.
+
 ## Non-goals
 
 - Time-blocking or writing entries to the calendar.
@@ -182,3 +209,19 @@ reason.
     no capacity. What a nudge names is read at the same moment as the status it is presented under,
     so a task whose state changed after the plan was drawn cannot be shown as blocked behind a
     person or as worth chasing to a task.
+
+Issue #82 added placement against the clock, and the following with it, appended rather than
+renumbered for the same reason.
+
+21. An entry that has not yet been completed is never placed at an instant earlier than the
+    present moment.
+22. A completed entry keeps the place its own rank order gives it among the day's free time, taken
+    from the top of the window: it is never moved later for having elapsed, and never moved earlier
+    or later on account of where an outstanding entry ranks against it.
+23. The free time an outstanding entry can be placed into is what remains of the day's free
+    intervals once every completed entry's own minutes, and everything before the present moment,
+    have both been taken out; a free interval entirely behind the present moment offers no minutes
+    to any outstanding entry.
+24. An outstanding entry that finds no room in what is left of the day past the present moment
+    comes back without a placement rather than being dropped, the same as a plan with no room for
+    it anywhere in the day at all.
