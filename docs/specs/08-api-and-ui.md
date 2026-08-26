@@ -479,17 +479,21 @@ describes. That adds the following, appended for the same reason.
     equal duration are drawn equally wide wherever in the day they fall, and a block of twice the
     duration is drawn twice as wide. There is no minimum width, because a floor would draw three
     unusable minutes as though they were usable, and that time looking unusable is the point.
-41. Free time is drawn one element per gap and never merged: a window with several separate
-    stretches of free time in it draws one element for each, each at its own width and offset. A
-    day of thirty scattered cracks and a day with one long clear stretch do not draw alike.
+41. Free time still ahead of the present moment is drawn one element per gap and never merged: a
+    window with several separate stretches of it draws one element for each, each at its own width
+    and offset. A day of thirty scattered cracks and a day with one long clear stretch do not draw
+    alike. Free time that has already elapsed is not drawn at all, whether or not anything was ever
+    placed into it (spec 05, criterion 23): it is not a stretch anything could still use, and the
+    track does not offer it as one.
 42. The present moment is drawn as a position on the track when it falls inside the window, and is
     drawn nowhere at all when it falls before the window opens or after it closes: clamping it to
     an edge would say the day had started, or was ending, when it has not. The legend states the
     time in either case.
 43. The bar and the agenda place a plan entry at the same time, by construction rather than by
-    coincidence: one walk of the plan's entries through `capacity.free` produces the placement that
-    the bar draws and the agenda prints a clock time for, so an entry's offset on the track is the
-    offset of the time beside it in the agenda.
+    coincidence: one walk of the plan's entries through `capacity.free` and the present moment
+    (spec 05's placement rule) produces the placement that the bar draws and the agenda prints a
+    clock time for, so an entry's offset on the track is the offset of the time beside it in the
+    agenda, and neither ever draws an outstanding entry earlier than the present moment.
 44. Held back (`reserveMinutes`) is in the legend as a number and nowhere on the track. It is a
     flat percentage of the window held back for interruptions rather than any particular minutes of
     it, so drawing it anywhere on a clock would claim that specific minutes are reserved when none
@@ -519,8 +523,11 @@ describes. That adds the following, appended for the same reason.
     leaves fewer unplanned minutes than the reserve, and there the legend states the two as separate
     items ("unplanned 1 hour", "held back 1 hour 42 min") rather than assert a containment that is
     false. At the exact boundary, unplanned equal to the reserve, containment holds and the
-    containment sentence is what prints. On a day where every entry found a place, the unplanned
-    figure is the verdict's spare plus the held back.
+    containment sentence is what prints. On a day where every entry found a place and the present
+    moment falls at or before the window's start, so nothing on the clock has yet been taken out of
+    the free time, the unplanned figure is the verdict's spare plus the held back; once time has
+    elapsed, the two differ by whatever free time has gone by unused, since that time is no longer
+    drawn as free at all (criterion 41).
 48. The unverified-capacity notice appears once on the surface, not once per source. The plan job
     stores it as a warning and the dashboard also reads it from the live capacity, both from
     `unverifiedCapacityNotice` so that the two cannot word the same fact differently (spec 05,

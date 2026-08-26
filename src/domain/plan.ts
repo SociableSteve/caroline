@@ -6,10 +6,12 @@
  * enforced in code after the model returns rather than trusted to the prompt". A prompt is a
  * request; these are guarantees, so they live where they can be asserted without a model.
  */
+import type { Interval } from './capacity.js'
 import type { Task, TaskStatus } from './task.js'
 import { isStaleWait, waitingAge } from './waiting.js'
 
 const DAY_MS = 24 * 60 * 60_000
+const MINUTE_MS = 60_000
 
 /**
  * The three sections a plan has: what is planned, what is there if the day opens up, and who
@@ -404,4 +406,219 @@ export function blockedNudges(items: readonly BlockedItem[], dueBy: number): Blo
   return items
     .filter((item): item is BlockedNudge => item.dueAt !== null && item.dueAt <= dueBy)
     .toSorted((first, second) => first.dueAt - second.dueAt)
+}
+
+/**
+ * What `scheduleDay` needs to know about a plan entry: its estimate, to consume free time, and
+ * whether it is already done, since spec 05's placement rule (criteria 21 to 24) treats the two
+ * differently. Generic over the entry rather than a concrete type, so a caller with a richer view
+ * of a plan entry (the web client's own `PlanEntryView`, at present) can walk its own objects
+ * straight through and get them back, without this domain module taking a dependency on a shape
+ * that belongs to the client.
+ */
+export interface SchedulableEntry {
+  readonly estimateMinutes: number | null
+  readonly done: boolean
+}
+
+/** One entry's placement in the day, once its estimate has been walked through the free
+ *  intervals in rank order. Null where nothing placed it: an entry that could not be scheduled
+ *  still has to render somewhere, just without a time. */
+export interface ScheduledEntry<E extends SchedulableEntry = SchedulableEntry> {
+  readonly entry: E
+  readonly startsAt: number | null
+}
+
+/** A stretch of free time nothing was scheduled into, still ahead of the present moment: spec 05,
+ *  criterion 23. Long enough that an overflow entry might be offered into it, per issue #47's
+ *  "would fit" slack row. `endsAt` as well as `minutes` because the day bar draws the gap from its
+ *  instants and the agenda's row reads its length in words: rounding the end out of the minutes
+ *  would put the drawing half a minute off the clock. */
+export interface SlackGap {
+  readonly startsAt: number
+  readonly endsAt: number
+  readonly minutes: number
+}
+
+/** One walk of the plan through the day's free time, rendered twice: as the day bar's track and as
+ *  the agenda's clock times. Spec 08, criterion 43. */
+export interface DayPlacement<E extends SchedulableEntry = SchedulableEntry> {
+  readonly scheduled: readonly ScheduledEntry<E>[]
+  readonly gaps: readonly SlackGap[]
+}
+
+/**
+ * Walks `entries` (rank order) through `freeIntervals` (chronological order), consuming each
+ * entry's estimate from wherever the cursor currently sits. An entry too big for what remains of
+ * an interval waits for the next one; an entry with no estimate is placed at the cursor without
+ * moving it, since there is nothing to consume. Whatever of an interval is left over once entries
+ * stop fitting becomes a gap. Entries that never fit anywhere come back with `startsAt: null`
+ * rather than being dropped: a plan the walk cannot schedule is still a plan to show.
+ *
+ * The one pass both of `scheduleDay`'s two calls share: it does not know about "done" or "now",
+ * only about a list of entries and the free time offered to them.
+ */
+function placeInOrder<E extends SchedulableEntry>(
+  entries: readonly E[],
+  freeIntervals: readonly Interval[],
+): { readonly scheduled: readonly ScheduledEntry<E>[]; readonly gaps: readonly SlackGap[] } {
+  const scheduled: ScheduledEntry<E>[] = []
+  const gaps: SlackGap[] = []
+  let index = 0
+
+  for (const interval of freeIntervals) {
+    let cursor = interval.start
+    let entry = entries[index]
+    while (entry !== undefined) {
+      const minutes = entry.estimateMinutes ?? 0
+      const durationMs = minutes * MINUTE_MS
+      // The `durationMs > 0` guard is for the no-estimate case, which is placed at the cursor
+      // without moving it. A negative estimate would skip the fit check and rewind the cursor, but
+      // cannot arrive: `estimateFor` above floors every entry at one minute.
+      if (durationMs > 0 && cursor + durationMs > interval.end) break
+      scheduled.push({ entry, startsAt: cursor })
+      cursor += durationMs
+      index += 1
+      entry = entries[index]
+    }
+
+    if (cursor < interval.end) {
+      gaps.push({
+        startsAt: cursor,
+        endsAt: interval.end,
+        minutes: Math.round((interval.end - cursor) / MINUTE_MS),
+      })
+    }
+  }
+
+  for (let entry = entries[index]; entry !== undefined; index += 1, entry = entries[index]) {
+    scheduled.push({ entry, startsAt: null })
+  }
+
+  return { scheduled, gaps }
+}
+
+/** The minutes a placement actually consumed, as intervals, so they can be taken out of the free
+ *  time offered to the next walk. An entry with no estimate, or one the walk could not place,
+ *  consumed nothing and contributes no span. */
+function placedSpans(scheduled: readonly ScheduledEntry[]): Interval[] {
+  const spans: Interval[] = []
+
+  for (const { entry, startsAt } of scheduled) {
+    if (startsAt === null) continue
+    const minutes = entry.estimateMinutes ?? 0
+    if (minutes <= 0) continue
+    spans.push({ start: startsAt, end: startsAt + minutes * MINUTE_MS })
+  }
+
+  return spans
+}
+
+/** `intervals`, with every minute any of `spans` covers removed. Spans are expected to fall
+ *  within the intervals they were drawn from, but this holds for an arbitrary span regardless. */
+function withoutSpans(intervals: readonly Interval[], spans: readonly Interval[]): Interval[] {
+  if (spans.length === 0) return [...intervals]
+
+  const ordered = [...spans].toSorted((first, second) => first.start - second.start)
+  const remaining: Interval[] = []
+
+  for (const interval of intervals) {
+    let cursor = interval.start
+    for (const span of ordered) {
+      const start = Math.max(span.start, cursor)
+      const end = Math.min(span.end, interval.end)
+      if (end <= start) continue
+      if (start > cursor) remaining.push({ start: cursor, end: start })
+      cursor = Math.max(cursor, end)
+    }
+    if (cursor < interval.end) remaining.push({ start: cursor, end: interval.end })
+  }
+
+  return remaining
+}
+
+/** `intervals`, floored at `now`: the part of each interval before `now` is gone, and an interval
+ *  entirely before `now` disappears rather than surviving as an empty span. Spec 05, criterion 23. */
+function afterNow(intervals: readonly Interval[], now: number): Interval[] {
+  const future: Interval[] = []
+
+  for (const interval of intervals) {
+    const start = Math.max(interval.start, now)
+    if (start < interval.end) future.push({ start, end: interval.end })
+  }
+
+  return future
+}
+
+/**
+ * The day's placement: one walk of `entries` (rank order) through `freeIntervals`, aware of the
+ * present moment (`now`, epoch milliseconds) so that work still to be done is never placed behind
+ * it. Spec 05, criteria 21 to 24.
+ *
+ * Completed and outstanding entries are walked separately rather than through one cursor floored
+ * at `now`, because a single shared cursor would still get this wrong: ranked ahead of an entry
+ * still outstanding, a task already finished would be dragged forward into the future along with
+ * it. So:
+ *
+ * 1. Completed entries (`entry.done`) are walked first, in their own rank order, from the top of
+ *    `freeIntervals`, exactly as the whole plan used to be walked before `now` existed. Completed
+ *    work is a fact about where it happened, and this walk does not move it.
+ * 2. The minutes that walk consumed are taken out of `freeIntervals`, and whatever is left is
+ *    floored at `now`. Both cuts have to hold at once, including where a completed entry's own
+ *    block straddles `now`: the minutes it consumed are unavailable whichever side of `now` they
+ *    fall on, and the minutes before `now` are unavailable whether or not anything used them.
+ * 3. Outstanding entries are then walked, in their own rank order, through what that leaves: free
+ *    time that is neither already spent nor already gone.
+ *
+ * Called once per render, by the dashboard rather than by either of the two things that draw it:
+ * the day bar positions each entry from this result and the agenda prints a clock time from the
+ * same one, which is what makes "the bar and the agenda never disagree about when something is
+ * happening" true by construction rather than by two algorithms happening to agree (spec 08,
+ * criterion 43). The returned `scheduled` list keeps the entries in their original rank order,
+ * whichever of the two walks placed each one.
+ *
+ * A day with no free intervals at all places nothing and leaves no gaps, which is exactly the
+ * unschedulable case: every entry comes back without a time and still renders. With `now` at or
+ * before the earliest free interval's start, nothing has elapsed and nothing has been walked away
+ * from either walk, so this reduces to the single walk the day used before `now` was taken into
+ * account.
+ */
+export function scheduleDay<E extends SchedulableEntry>(
+  entries: readonly E[],
+  freeIntervals: readonly Interval[],
+  now: number,
+): DayPlacement<E> {
+  // Original positions rather than the entries themselves, so two entries that happened to be the
+  // same object would still each get the placement their own position earned, not whichever walk
+  // wrote to the map last.
+  const doneAt: number[] = []
+  const outstandingAt: number[] = []
+  entries.forEach((entry, index) => (entry.done ? doneAt : outstandingAt).push(index))
+
+  const donePlacement = placeInOrder(
+    doneAt.map((index) => entries[index] as E),
+    freeIntervals,
+  )
+  const freeAfterDone = withoutSpans(freeIntervals, placedSpans(donePlacement.scheduled))
+  const freeAheadOfNow = afterNow(freeAfterDone, now)
+  const outstandingPlacement = placeInOrder(
+    outstandingAt.map((index) => entries[index] as E),
+    freeAheadOfNow,
+  )
+
+  const startsAtByIndex = new Map<number, number | null>()
+  donePlacement.scheduled.forEach((placed, i) =>
+    startsAtByIndex.set(doneAt[i] as number, placed.startsAt),
+  )
+  outstandingPlacement.scheduled.forEach((placed, i) =>
+    startsAtByIndex.set(outstandingAt[i] as number, placed.startsAt),
+  )
+
+  return {
+    scheduled: entries.map((entry, index) => ({
+      entry,
+      startsAt: startsAtByIndex.get(index) ?? null,
+    })),
+    gaps: outstandingPlacement.gaps,
+  }
 }

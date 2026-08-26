@@ -194,8 +194,10 @@ The dashboard is the morning screen. Reading it top to bottom:
   the shape of the day (front loaded, clear afternoon, fragmented middle) is a glance rather than a
   read. Every stretch of free time is drawn at its own true width and none of them are merged, which
   is what makes the difference between one clear ninety minutes and thirty two-minute cracks visible.
-  A three minute gap is drawn three minutes wide, and looks as unusable as it is. The line across it
-  is now. The legend under it carries every figure in words: meetings, planned, done, and the
+  A three minute gap is drawn three minutes wide, and looks as unusable as it is. Time already gone
+  is not drawn as free either, whatever the plan did with it: only the free time still ahead of the
+  line reads as a stretch you could still use, and outstanding work is never placed behind it. The
+  line across it is now. The legend under it carries every figure in words: meetings, planned, done, and the
   unplanned time left on the clock. Where the reserve fits inside that unplanned time it is named as
   a part of it rather than as a figure of its own ("unplanned 1 hour 50 min, 1 hour 42 min of it
   held back"); where the plan has taken more of the day than it had to give, so that less is left

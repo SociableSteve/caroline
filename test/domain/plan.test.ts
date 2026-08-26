@@ -9,10 +9,14 @@ import {
   blockedNudges,
   chaseNudges,
   planCandidates,
+  scheduleDay,
   type PlanCandidate,
   type RankedEntry,
+  type SchedulableEntry,
+  type ScheduledEntry,
   type WaitingItem,
 } from '../../src/domain/plan.js'
+import type { Interval } from '../../src/domain/capacity.js'
 import type { Task } from '../../src/domain/task.js'
 
 const NOW = Date.UTC(2026, 5, 8, 9, 0, 0)
@@ -560,5 +564,159 @@ describe('blocked work', () => {
     )
 
     expect(nudges.map((nudge) => nudge.taskId)).toEqual(['last week', 'today'])
+  })
+})
+
+/**
+ * Spec 05, criteria 21 to 24: the plan is generated once, but placing it against a clock time is a
+ * walk done wherever it is read, and it has to answer honestly for whatever moment that is. Issue
+ * #82: reading a plan generated in the morning, later in the day, used to draw outstanding work
+ * behind the present moment because the walk had no notion of "now" at all.
+ */
+describe('scheduleDay', () => {
+  const MINUTE = 60_000
+  const WINDOW_START = NOW
+  const WINDOW_END = WINDOW_START + 480 * MINUTE
+
+  interface Entry extends SchedulableEntry {
+    readonly id: string
+  }
+
+  function entry(id: string, estimateMinutes: number | null, done = false): Entry {
+    return { id, estimateMinutes, done }
+  }
+
+  /** `[id, minutes from WINDOW_START, or null]` for each scheduled entry, in the order returned. */
+  function placements(scheduled: readonly ScheduledEntry<Entry>[]): Array<[string, number | null]> {
+    return scheduled.map(({ entry: placed, startsAt }) => [
+      placed.id,
+      startsAt === null ? null : (startsAt - WINDOW_START) / MINUTE,
+    ])
+  }
+
+  /** `[minutes from WINDOW_START, minutes long]` for each gap, in order. */
+  function gapShapes(
+    gaps: readonly { startsAt: number; endsAt: number }[],
+  ): Array<[number, number]> {
+    return gaps.map((gap) => [
+      (gap.startsAt - WINDOW_START) / MINUTE,
+      (gap.endsAt - gap.startsAt) / MINUTE,
+    ])
+  }
+
+  it('places an outstanding entry at or after now rather than at the top of the window (criterion 21)', () => {
+    const now = WINDOW_START + 300 * MINUTE
+    const result = scheduleDay([entry('a', 30)], [{ start: WINDOW_START, end: WINDOW_END }], now)
+
+    expect(placements(result.scheduled)).toEqual([['a', 300]])
+  })
+
+  it('keeps a completed entry at its own placement once now has moved past it (criterion 22)', () => {
+    const now = WINDOW_START + 300 * MINUTE
+    const result = scheduleDay(
+      [entry('done', 30, true)],
+      [{ start: WINDOW_START, end: WINDOW_END }],
+      now,
+    )
+
+    // Not dragged to `now`: it happened at the top of the window, and stays there.
+    expect(placements(result.scheduled)).toEqual([['done', 0]])
+  })
+
+  it('places a done entry at the top of the window even when it ranks after an outstanding one (criterion 22)', () => {
+    // Nothing has elapsed, so any difference from a single-pass rank-order walk comes from the
+    // done entry taking the top of the window regardless of its rank, not from the clock.
+    const now = WINDOW_START
+    const freeIntervals: Interval[] = [{ start: WINDOW_START, end: WINDOW_START + 100 * MINUTE }]
+
+    const result = scheduleDay(
+      [entry('outstanding', 40), entry('done', 20, true)],
+      freeIntervals,
+      now,
+    )
+
+    // The done entry claims the first 20 minutes regardless of rank; the outstanding entry, ranked
+    // first, is placed into what is left rather than at the top.
+    expect(placements(result.scheduled)).toEqual([
+      ['outstanding', 20],
+      ['done', 0],
+    ])
+  })
+
+  it("does not place outstanding work into minutes a done entry's block already consumed, including where that block straddles now (criterion 23)", () => {
+    // A 30-minute done entry from the top of the window, with `now` fifteen minutes in: the block
+    // straddles the present moment. A floor at `now` alone would offer the outstanding entry the
+    // minutes from 15 to 30, which the done entry already has.
+    const now = WINDOW_START + 15 * MINUTE
+    const freeIntervals: Interval[] = [{ start: WINDOW_START, end: WINDOW_START + 100 * MINUTE }]
+
+    const result = scheduleDay(
+      [entry('outstanding', 20), entry('done', 30, true)],
+      freeIntervals,
+      now,
+    )
+
+    expect(placements(result.scheduled)).toEqual([
+      ['outstanding', 30],
+      ['done', 0],
+    ])
+  })
+
+  it('offers no gap for a free interval entirely behind now, and trims one that straddles it (criterion 23)', () => {
+    const now = WINDOW_START + 50 * MINUTE
+    const freeIntervals: Interval[] = [
+      // Wholly elapsed: offers nothing, and is not reported as a gap at all.
+      { start: WINDOW_START, end: WINDOW_START + 20 * MINUTE },
+      // Straddles now: only the part still ahead of it is a gap.
+      { start: WINDOW_START + 30 * MINUTE, end: WINDOW_START + 80 * MINUTE },
+    ]
+
+    const result = scheduleDay([], freeIntervals, now)
+
+    expect(gapShapes(result.gaps)).toEqual([[50, 30]])
+  })
+
+  it('returns an outstanding entry without a placement, rather than dropping it, when it no longer fits past now (criterion 24)', () => {
+    const now = WINDOW_START + 470 * MINUTE
+    const result = scheduleDay(
+      [entry('too-big-now', 30)],
+      [{ start: WINDOW_START, end: WINDOW_END }],
+      now,
+    )
+
+    expect(placements(result.scheduled)).toEqual([['too-big-now', null]])
+    // The ten minutes left past `now` are real free time, just not enough for this entry: they are
+    // still reported as a gap rather than swallowed along with the entry that could not use them.
+    expect(gapShapes(result.gaps)).toEqual([[470, 10]])
+  })
+
+  it('behaves exactly as a single top-of-window walk when now is before the window opens', () => {
+    const now = WINDOW_START - 60 * MINUTE
+    const freeIntervals: Interval[] = [{ start: WINDOW_START, end: WINDOW_START + 100 * MINUTE }]
+
+    const result = scheduleDay([entry('a', 30), entry('b', 45)], freeIntervals, now)
+
+    expect(placements(result.scheduled)).toEqual([
+      ['a', 0],
+      ['b', 30],
+    ])
+    expect(gapShapes(result.gaps)).toEqual([[75, 25]])
+  })
+
+  it('places no outstanding work and offers no gaps once now is past the window, while a done entry keeps its own placement', () => {
+    const now = WINDOW_END + MINUTE
+    const freeIntervals: Interval[] = [{ start: WINDOW_START, end: WINDOW_END }]
+
+    const result = scheduleDay(
+      [entry('done', 30, true), entry('outstanding', 30)],
+      freeIntervals,
+      now,
+    )
+
+    expect(placements(result.scheduled)).toEqual([
+      ['done', 0],
+      ['outstanding', null],
+    ])
+    expect(result.gaps).toEqual([])
   })
 })
