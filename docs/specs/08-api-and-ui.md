@@ -489,7 +489,9 @@ describes. That adds the following, appended for the same reason.
 43. The bar and the agenda place a plan entry at the same time, by construction rather than by
     coincidence: one walk of the plan's entries through `capacity.free` produces the placement that
     the bar draws and the agenda prints a clock time for, so an entry's offset on the track is the
-    offset of the time beside it in the agenda.
+    offset of the time beside it in the agenda. The one walk is also the one place spec 05's
+    placement rule is applied (criteria 21 to 23), so the bar and the agenda are given the same
+    answer rather than each deciding when a thing is happening.
 44. Held back (`reserveMinutes`) is in the legend as a number and nowhere on the track. It is a
     flat percentage of the window held back for interruptions rather than any particular minutes of
     it, so drawing it anywhere on a clock would claim that specific minutes are reserved when none
@@ -519,8 +521,12 @@ describes. That adds the following, appended for the same reason.
     leaves fewer unplanned minutes than the reserve, and there the legend states the two as separate
     items ("unplanned 1 hour", "held back 1 hour 42 min") rather than assert a containment that is
     false. At the exact boundary, unplanned equal to the reserve, containment holds and the
-    containment sentence is what prints. On a day where every entry found a place, the unplanned
-    figure is the verdict's spare plus the held back.
+    containment sentence is what prints. On a day where every entry found a place, and none of the
+    working window has passed yet, the unplanned figure is the verdict's spare plus the held back.
+    That equality is a claim about a day that has not started: once the window is under way the
+    figure totals only the gaps the track drew, which are the free time from the present moment on
+    (spec 05, criterion 23), and it can therefore be less than the spare plus the held back while
+    both figures stay true.
 48. The unverified-capacity notice appears once on the surface, not once per source. The plan job
     stores it as a warning and the dashboard also reads it from the live capacity, both from
     `unverifiedCapacityNotice` so that the two cannot word the same fact differently (spec 05,

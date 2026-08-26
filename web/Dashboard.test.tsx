@@ -197,6 +197,7 @@ describe('the day bar', () => {
           aPlanEntry({ id: 'entry-2', estimateMinutes: 30, done: true }),
         ],
       }),
+      now: meetingEnd + 30 * 60_000,
     })
 
     expect(today().getByText('meetings 1 hour')).toBeInTheDocument()
@@ -494,6 +495,7 @@ describe('the day bar’s track', () => {
           aPlanEntry({ id: 'entry-2', estimateMinutes: 30, done: false }),
         ],
       }),
+      now: WINDOW_START + 30 * MINUTE,
     })
 
     const [doneBlock] = blocksOf('done').map(geometryOf)
@@ -631,6 +633,7 @@ describe('the day bar’s track', () => {
       plan: aPlan({
         entries: [aPlanEntry({ id: 'entry-1', estimateMinutes: 240, done: true })],
       }),
+      now: WINDOW_START + 240 * MINUTE,
     })
 
     const [block] = blocksOf('done').map(geometryOf)
@@ -682,6 +685,213 @@ describe('the day bar’s track', () => {
 
     expect(track()).toBeInTheDocument()
     expect(today().getByText(/unverified/i)).toBeInTheDocument()
+  })
+
+  /**
+   * Spec 05, criteria 21 to 23: the day's free time is divided at the present moment, and the
+   * plan with it. Work still to be done walks the free time from now on; work already completed
+   * walks the free time before now, in its own rank order. Issue #82.
+   */
+  describe('placing the day’s work against the clock', () => {
+    /** Criterion 21. This is the issue: an unfinished entry drawn behind the "now" marker. */
+    it('places work still to be done at the present moment rather than at the top of the window', () => {
+      const now = WINDOW_START + 480 * MINUTE
+      renderDashboard({
+        calendar: aTimedDay({ free: [{ start: WINDOW_START, end: WINDOW_END }] }),
+        plan: aPlan({
+          entries: [
+            aPlanEntry({
+              id: 'entry-1',
+              title: 'Write the report',
+              estimateMinutes: 60,
+              done: false,
+            }),
+          ],
+        }),
+        now,
+      })
+
+      const [block] = blocksOf('planned').map(geometryOf)
+      const row = today().getByText('Write the report').closest('li')
+
+      expect(block?.left).toBeCloseTo(share(480), 6)
+      expect(block?.width).toBeCloseTo(share(60), 6)
+      expect(row?.textContent).toContain(formatTimeOfDay(now))
+    })
+
+    /** Criterion 21. */
+    it('leaves work the day has no room left for without a time, and still shows it', () => {
+      const now = WINDOW_END - 30 * MINUTE
+      renderDashboard({
+        calendar: aTimedDay({ free: [{ start: WINDOW_START, end: WINDOW_END }] }),
+        plan: aPlan({
+          entries: [aPlanEntry({ id: 'entry-1', title: 'Write the report', estimateMinutes: 60 })],
+        }),
+        now,
+      })
+
+      const row = today().getByText('Write the report').closest('li')
+
+      expect(blocksOf('planned')).toHaveLength(0)
+      expect(row).not.toBeNull()
+      expect(row?.firstElementChild?.textContent).toBe('')
+    })
+
+    /** Criteria 22 and 21: completed work stays behind the clock, and what is left goes after it. */
+    it('keeps completed work in the time that has passed, and puts what is left after the clock', () => {
+      const now = WINDOW_START + 300 * MINUTE
+      renderDashboard({
+        calendar: aTimedDay({ free: [{ start: WINDOW_START, end: WINDOW_END }] }),
+        plan: aPlan({
+          entries: [
+            aPlanEntry({ id: 'entry-1', estimateMinutes: 30, done: true }),
+            aPlanEntry({ id: 'entry-2', estimateMinutes: 60, done: false }),
+          ],
+        }),
+        now,
+      })
+
+      const [doneBlock] = blocksOf('done').map(geometryOf)
+      const [plannedBlock] = blocksOf('planned').map(geometryOf)
+
+      expect(doneBlock?.left).toBeCloseTo(share(0), 6)
+      expect(doneBlock?.width).toBeCloseTo(share(30), 6)
+      expect(plannedBlock?.left).toBeCloseTo(share(300), 6)
+    })
+
+    /** Criterion 22: the two walks are independent, so rank does not push completed work forward. */
+    it('draws work completed out of rank order behind the present moment, not after it', () => {
+      const now = WINDOW_START + 300 * MINUTE
+      renderDashboard({
+        calendar: aTimedDay({ free: [{ start: WINDOW_START, end: WINDOW_END }] }),
+        plan: aPlan({
+          entries: [
+            aPlanEntry({ id: 'entry-1', estimateMinutes: 60, done: false }),
+            aPlanEntry({ id: 'entry-2', estimateMinutes: 30, done: true }),
+          ],
+        }),
+        now,
+      })
+
+      const [doneBlock] = blocksOf('done').map(geometryOf)
+      const [plannedBlock] = blocksOf('planned').map(geometryOf)
+
+      expect(doneBlock?.left).toBeCloseTo(share(0), 6)
+      expect(plannedBlock?.left).toBeCloseTo(share(300), 6)
+    })
+
+    /** Criterion 22. */
+    it('leaves completed work with no room behind the present moment without a time', () => {
+      const now = WINDOW_START + 20 * MINUTE
+      renderDashboard({
+        calendar: aTimedDay({ free: [{ start: WINDOW_START, end: WINDOW_END }] }),
+        plan: aPlan({
+          entries: [
+            aPlanEntry({
+              id: 'entry-1',
+              title: 'Write the report',
+              estimateMinutes: 30,
+              done: true,
+            }),
+          ],
+        }),
+        now,
+      })
+
+      const row = today().getByText('Write the report').closest('li')
+
+      expect(blocksOf('done')).toHaveLength(0)
+      expect(row).not.toBeNull()
+      expect(row?.firstElementChild?.textContent).toBe('')
+    })
+
+    /** Criterion 23. */
+    it('draws the free time from the present moment on, not the stretch that has passed', () => {
+      const now = WINDOW_START + 300 * MINUTE
+      renderDashboard({
+        calendar: aTimedDay({ free: [{ start: WINDOW_START, end: WINDOW_END }] }),
+        plan: aPlan({
+          entries: [aPlanEntry({ id: 'entry-1', estimateMinutes: 30, done: true })],
+        }),
+        now,
+      })
+
+      const free = blocksOf('free').map(geometryOf)
+
+      expect(free).toHaveLength(1)
+      expect(free[0]?.left).toBeCloseTo(share(300), 6)
+      expect(free[0]?.width).toBeCloseTo(share(300), 6)
+      expect(today().getByText('5 hours free')).toBeInTheDocument()
+    })
+
+    /** Criterion 23. */
+    it('offers an overflow entry into the time a gap still has', () => {
+      const now = WINDOW_START + 480 * MINUTE
+      renderDashboard({
+        calendar: aTimedDay({ free: [{ start: WINDOW_START, end: WINDOW_END }] }),
+        plan: aPlan({
+          entries: [aPlanEntry({ id: 'entry-1', estimateMinutes: 60 })],
+          overflow: [
+            aPlanEntry({
+              id: 'overflow-1',
+              kind: 'overflow',
+              title: 'Tidy the docs index',
+              estimateMinutes: 45,
+            }),
+          ],
+        }),
+        now,
+      })
+
+      expect(today().getByText('1 hour free')).toBeInTheDocument()
+      expect(today().getByText(/Tidy the docs index/)).toBeInTheDocument()
+    })
+
+    /** Criterion 23. */
+    it('does not offer an overflow entry into a gap the day has already spent', () => {
+      const now = WINDOW_START + 570 * MINUTE
+      renderDashboard({
+        calendar: aTimedDay({ free: [{ start: WINDOW_START, end: WINDOW_END }] }),
+        plan: aPlan({
+          entries: [aPlanEntry({ id: 'entry-1', estimateMinutes: 60 })],
+          overflow: [
+            aPlanEntry({
+              id: 'overflow-1',
+              kind: 'overflow',
+              title: 'Tidy the docs index',
+              estimateMinutes: 45,
+            }),
+          ],
+        }),
+        now,
+      })
+
+      expect(today().getByText('30 min free')).toBeInTheDocument()
+      expect(today().queryByText(/Tidy the docs index/)).not.toBeInTheDocument()
+    })
+
+    /**
+     * Spec 08, criterion 43, under a mid-day clock, and spec 05, criterion 21: the bar and the
+     * agenda still read the same time once the clock is not at the top of the window.
+     */
+    it('draws a plan entry at the offset of the time the agenda prints beside it, with part of the day gone', () => {
+      const freeStart = WINDOW_START + 97 * MINUTE
+      const now = freeStart + 30 * MINUTE
+      renderDashboard({
+        calendar: aTimedDay({ free: [{ start: freeStart, end: freeStart + 120 * MINUTE }] }),
+        plan: aPlan({
+          entries: [aPlanEntry({ id: 'entry-1', title: 'Write the report', estimateMinutes: 45 })],
+        }),
+        now,
+      })
+
+      const [block] = blocksOf('planned').map(geometryOf)
+      const drawnAt = WINDOW_START + ((block?.left ?? 0) / 100) * (WINDOW_END - WINDOW_START)
+      const row = today().getByText('Write the report').closest('li')
+
+      expect(row?.textContent).toContain(formatTimeOfDay(drawnAt))
+      expect(drawnAt).toBeGreaterThanOrEqual(now)
+    })
   })
 })
 

@@ -48,7 +48,7 @@ import {
   statusLabel,
   waitingAge,
 } from '../format.js'
-import { unverifiedCapacityNotice } from '../../src/domain/capacity.js'
+import { clipTo, unverifiedCapacityNotice } from '../../src/domain/capacity.js'
 import type { Interval } from '../../src/domain/capacity.js'
 import { cn } from '../lib/utils.js'
 import { projectHref, surfaceHref } from '../router.js'
@@ -171,42 +171,65 @@ interface DayPlacement {
   readonly gaps: readonly SlackGap[]
 }
 
+/** One plan entry with its place in the plan's own order, so a walk over some of the entries can
+ *  report where each landed without losing that order. */
+interface RankedEntry {
+  readonly entry: PlanEntryView
+  readonly index: number
+}
+
+/** Where a walk put the entries it was given, by their place in the plan, and whatever free time it
+ *  did not fill. */
+interface Walk {
+  readonly starts: ReadonlyMap<number, number>
+  readonly gaps: readonly SlackGap[]
+}
+
 /**
- * Walks `entries` (rank order) through `freeIntervals` (chronological order), consuming each
- * entry's estimate from wherever the cursor currently sits. An entry too big for what remains of
- * an interval waits for the next one; an entry with no estimate is placed at the cursor without
- * moving it, since there is nothing to consume. Whatever of an interval is left over once entries
- * stop fitting becomes a gap.
- *
- * Called once per render, by the dashboard rather than by either of the two things that draw it:
- * the day bar positions each entry from this result and the agenda prints a clock time from the
- * same one, which is what makes "the bar and the agenda never disagree about when something is
- * happening" true by construction rather than by two algorithms happening to agree. Spec 08,
- * criterion 43. A day with no free intervals at all places nothing and leaves no gaps, which is
- * exactly the unschedulable case: every entry comes back without a time and still renders.
+ * The day's free time either side of an instant: what has passed unspent, and what is still ahead. A
+ * stretch the instant falls inside yields one of each. `clipTo` (src/domain/capacity.ts) does the
+ * arithmetic, which is the same function the route's own free intervals were cut from, so the client
+ * cannot divide the day on a boundary the server would not recognise.
  */
-function scheduleDay(
-  entries: readonly PlanEntryView[],
-  freeIntervals: readonly Interval[],
-): DayPlacement {
-  const scheduled: ScheduledEntry[] = []
+function freeTimeEitherSideOf(freeIntervals: readonly Interval[], instant: number) {
+  const passed: Interval[] = []
+  const ahead: Interval[] = []
+
+  for (const interval of freeIntervals) {
+    const before = clipTo(interval, { start: Number.NEGATIVE_INFINITY, end: instant })
+    if (before !== null) passed.push(before)
+    const after = clipTo(interval, { start: instant, end: Number.POSITIVE_INFINITY })
+    if (after !== null) ahead.push(after)
+  }
+
+  return { passed, ahead }
+}
+
+/**
+ * Walks `entries` (rank order) through `freeIntervals` (chronological order), consuming each entry's
+ * estimate from wherever the cursor currently sits. An entry too big for what remains of an interval
+ * waits for the next one; an entry with no estimate is placed at the cursor without moving it, since
+ * there is nothing to consume. Whatever of an interval is left once entries stop fitting is a gap.
+ */
+function placeInto(entries: readonly RankedEntry[], freeIntervals: readonly Interval[]): Walk {
+  const starts = new Map<number, number>()
   const gaps: SlackGap[] = []
-  let index = 0
+  let next = 0
 
   for (const interval of freeIntervals) {
     let cursor = interval.start
-    let entry = entries[index]
-    while (entry !== undefined) {
-      const minutes = entry.estimateMinutes ?? 0
+    let placing = entries[next]
+    while (placing !== undefined) {
+      const minutes = placing.entry.estimateMinutes ?? 0
       const durationMs = minutes * MINUTE_MS
       // The `durationMs > 0` guard is for the no-estimate case, which is placed at the cursor
       // without moving it. A negative estimate would skip the fit check and rewind the cursor, but
       // cannot arrive: `estimateFor` in `src/domain/plan.ts` floors every entry at one minute.
       if (durationMs > 0 && cursor + durationMs > interval.end) break
-      scheduled.push({ entry, startsAt: cursor })
+      starts.set(placing.index, cursor)
       cursor += durationMs
-      index += 1
-      entry = entries[index]
+      next += 1
+      placing = entries[next]
     }
 
     if (cursor < interval.end) {
@@ -218,13 +241,51 @@ function scheduleDay(
     }
   }
 
-  // Nothing left to place it in. Still shown, just without a resolved time: a plan the client
-  // cannot schedule is not a plan the client should hide.
-  for (let entry = entries[index]; entry !== undefined; index += 1, entry = entries[index]) {
-    scheduled.push({ entry, startsAt: null })
-  }
+  return { starts, gaps }
+}
 
-  return { scheduled, gaps }
+/**
+ * One walk of the plan through the day's free time, rendered twice: as the day bar's track and as
+ * the agenda's clock times. Spec 08, criterion 43.
+ *
+ * The free time is divided at `now` first, and the plan with it: spec 05, criteria 21 to 23. Work
+ * still to be done walks the free time from `now` on, so an entry that has not been completed is
+ * never placed in a minute that has passed; work already completed walks the free time before `now`,
+ * in its own rank order, so completing something does not push it into the day ahead. Either walk
+ * can run out of room, and an entry it could not place comes back without a time and still renders,
+ * which is the answer a day with no free time at all already gave. Only the walk ahead reports gaps:
+ * free time that has passed unspent has gone, and offering work into it is what the division exists
+ * to prevent.
+ *
+ * Called once per render, by the dashboard rather than by either of the two things that draw it: the
+ * day bar positions each entry from this result and the agenda prints a clock time from the same
+ * one, which is what makes "the bar and the agenda never disagree about when something is happening"
+ * true by construction rather than by two algorithms happening to agree.
+ */
+function scheduleDay(
+  entries: readonly PlanEntryView[],
+  freeIntervals: readonly Interval[],
+  now: number,
+): DayPlacement {
+  const ranked: RankedEntry[] = entries.map((entry, index) => ({ entry, index }))
+  const { passed, ahead } = freeTimeEitherSideOf(freeIntervals, now)
+  const behind = placeInto(
+    ranked.filter(({ entry }) => entry.done),
+    passed,
+  )
+  const coming = placeInto(
+    ranked.filter(({ entry }) => !entry.done),
+    ahead,
+  )
+
+  // Rebuilt in the plan's own order rather than in the order the two walks placed them, so an entry
+  // neither walk could place still renders in rank order among the others the agenda lists untimed.
+  const scheduled = ranked.map(({ entry, index }) => ({
+    entry,
+    startsAt: behind.starts.get(index) ?? coming.starts.get(index) ?? null,
+  }))
+
+  return { scheduled, gaps: coming.gaps }
 }
 
 /**
@@ -1005,8 +1066,8 @@ export function Dashboard({
   )
   // One placement, two renderings: the day bar draws this walk and the agenda prints clock times
   // from it, so the bar and the agenda cannot disagree about when something is happening. Spec 08,
-  // criterion 43.
-  const placement = scheduleDay(plan?.entries ?? [], calendar?.capacity.free ?? [])
+  // criterion 43. The walk is divided at `now` per spec 05, criteria 21 to 23.
+  const placement = scheduleDay(plan?.entries ?? [], calendar?.capacity.free ?? [], now)
   const todaysVerdict = verdict(calendar, totalPlanned)
 
   const needsYou: NeedsYouItem[] = [

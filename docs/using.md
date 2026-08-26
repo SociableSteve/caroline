@@ -195,7 +195,10 @@ The dashboard is the morning screen. Reading it top to bottom:
   read. Every stretch of free time is drawn at its own true width and none of them are merged, which
   is what makes the difference between one clear ninety minutes and thirty two-minute cracks visible.
   A three minute gap is drawn three minutes wide, and looks as unusable as it is. The line across it
-  is now. The legend under it carries every figure in words: meetings, planned, done, and the
+  is now. Work still to do sits after that line and never before it, and work already done keeps the
+  earlier part of the day it was drawn into. Free time behind the line is not drawn at all: it has
+  gone, and drawing it as free would show minutes that are no longer there to use. The legend under it
+  carries every figure in words: meetings, planned, done, and the
   unplanned time left on the clock. Where the reserve fits inside that unplanned time it is named as
   a part of it rather than as a figure of its own ("unplanned 1 hour 50 min, 1 hour 42 min of it
   held back"); where the plan has taken more of the day than it had to give, so that less is left
@@ -212,7 +215,9 @@ The dashboard is the morning screen. Reading it top to bottom:
   planner's own, chiefly that it could not fit everything in. It also records that the capacity it
   drew against was unverified, but that is said once, up beside the arithmetic, rather than a second
   time here. A stretch of free time appears as its own row, and where something the plan left over
-  would fit into it, that is offered there.
+  would fit into it, that is offered there. Both are read from now on: a stretch the present moment
+  falls inside is listed at what it has left, and time that has passed is not listed as free at all.
+  An entry the day has no room left for keeps its row, at the end and without a time.
 - **Needs you**, in the left rail, is the triage list: the three oldest things only you can resolve,
   with a link to the board for the rest. **Gone quiet** is what has been waiting on somebody else
   longer than the staleness threshold, with who it is on and for how long, read as things stand now.

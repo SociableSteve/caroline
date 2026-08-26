@@ -107,6 +107,32 @@ Completing a task from within the plan view completes the task; the plan entry t
 as done. Yesterday's plan is retained, and the dashboard shows planned against completed
 for the last fourteen days.
 
+## Placing the plan in the day
+
+The plan is a list in rank order, and anything that draws it against a clock has to decide which
+minutes each entry occupies. That decision is taken here rather than in the drawing, because the day
+bar and the agenda are two renderings of one placement and neither of them is the place a rule about
+time should be decided.
+
+The day's free time is divided at the present moment, and the plan with it. Work still to be done is
+placed in the free time from that moment on, in rank order, each entry taking its estimate from where
+the one before it ended: an entry that has not been completed is never placed in a minute that has
+already passed. Work already completed keeps the time it was drawn into, in the free time before that
+moment and in its own rank order, because work that is finished is not re-planned and drawing it in
+front of the clock would say it is still to come. An entry that finds no room in its own half of the
+day is left without a time rather than moved into the other half, which is the answer a day with no
+free time at all already gives: it is still shown, because a plan the day cannot fit is not a plan to
+hide.
+
+Free time is what is left of it. A stretch that has passed unspent has gone, so it is not offered as
+free time and nothing is offered into it, and a stretch the present moment falls inside is free only
+from that moment to its end. Measuring work against minutes that no longer exist is the whole of what
+this section prevents.
+
+None of this re-plans anything. No row is written, no entry is re-ranked and nothing is regenerated:
+the plan is what it was when it was drawn, and this is how it is read against the clock as the day
+goes on.
+
 ## Non-goals
 
 - Time-blocking or writing entries to the calendar.
@@ -182,3 +208,22 @@ reason.
     no capacity. What a nudge names is read at the same moment as the status it is presented under,
     so a task whose state changed after the plan was drawn cannot be shown as blocked behind a
     person or as worth chasing to a task.
+
+Issue #82 added where the plan's entries sit in the day, and the following with it, appended rather
+than renumbered for the same reason.
+
+21. Work still to be done is placed in the free time the day has left. An entry that has not been
+    completed is placed at or after the present moment and never before it, whatever its rank: the
+    free time it is offered is what is left from that moment on, and a stretch that has already
+    passed is not free time it can be given. An entry that does not fit in what is left is placed
+    nowhere at all rather than earlier in the day, and still appears, without a time.
+22. Work already completed keeps the place it was given in the time that has passed. A completed
+    entry is placed in the free time before the present moment, in rank order among the completed
+    entries, and is never moved into the time still ahead, so completing something does not push it
+    into the day to come and a plan drawn this morning still says what this morning was spent on. A
+    completed entry that does not fit in the free time before the present moment is placed nowhere
+    rather than after it, and still appears, without a time.
+23. The free time the day still has is what is left of it from the present moment on. A stretch that
+    has passed unspent is not shown as free and nothing is offered into it, and a stretch the present
+    moment falls inside is free only from that moment to its end, so what an entry is measured
+    against is time it could still use.
