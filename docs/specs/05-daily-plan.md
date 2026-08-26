@@ -94,6 +94,27 @@ the prompt:
   so it holds for an id that names no candidate too: a repeated invented id is still one invented
   id, and it earns one warning rather than one per mention.
 
+## Placement: the clock and the plan
+
+The plan is drawn once and read all day, so reading it at 14:00 must not propose the morning.
+Placement reconciles this by accounting for the clock. It is not re-planning, because the entries,
+their ranks, their estimates and the capacity they were fitted against are all unchanged and no row
+is rewritten. What the clock decides is only where an entry is drawn.
+
+Two phases place entries over the same free intervals, with one boundary between them. Phase A
+places done entries first, walking from each interval's start in rank order, so nothing already
+done moves. The boundary is `floor = max(now, cursor after the done run)`. Phase B then places
+outstanding entries from `floor` onwards. Work completed out of rank order stays in its earlier
+time, and work not yet done sits right of the now line.
+
+Free time is split at the present moment and reported separately. Elapsed time behind the clock is
+never offered to work the plan could not fit, and an entry that no longer fits anywhere ahead says
+so rather than being drawn past the clock. The five numbers on the day bar are meetings, planned,
+done, gone and unplanned. "Gone" is the free time that has elapsed with nothing placed in it.
+
+Criteria 21, 22 and 23 state placement in the dashboard as a contract so the behaviour is
+specifiable and testable. Spec 08, criteria 57-60 do the same for the display side.
+
 ## Relationship to task state
 
 The plan is a proposal. Generating it changes no task's status, and no task is "assigned"
@@ -182,3 +203,19 @@ reason.
     no capacity. What a nudge names is read at the same moment as the status it is presented under,
     so a task whose state changed after the plan was drawn cannot be shown as blocked behind a
     person or as worth chasing to a task.
+
+Issue #82 added elapsed time tracking to the day bar and changed placement to account for the
+clock, appended rather than renumbered for the same reason.
+
+21. An entry that is not complete is never placed before the present moment: it takes free time at
+    or after now, so a plan drawn in the morning and read in the afternoon proposes only time still
+    to come. This is placement and not re-planning: the entries, their ranks and their estimates
+    are the plan's own and unchanged.
+22. An entry already complete keeps the earlier free time it was placed in, and is never moved
+    forward by work that is not done, whatever order the two were ranked in. Where the completed
+    work is more than the free time that has passed it runs on past the present moment rather than
+    being dropped, because those minutes were spent, and the outstanding work starts after it.
+23. Free time that has passed with nothing placed in it is time gone rather than capacity: it is
+    never offered to work the plan could not fit, and an entry that no longer fits anywhere ahead
+    is reported as having no time rather than given one behind the clock. A day whose window has
+    closed places no outstanding work at all.

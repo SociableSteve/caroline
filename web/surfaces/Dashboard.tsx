@@ -50,6 +50,8 @@ import {
 } from '../format.js'
 import { unverifiedCapacityNotice } from '../../src/domain/capacity.js'
 import type { Interval } from '../../src/domain/capacity.js'
+import { placeDay } from '../../src/domain/day-placement.js'
+import type { PlacedEntry, GapSpan, ElapsedSpan } from '../../src/domain/day-placement.js'
 import { cn } from '../lib/utils.js'
 import { projectHref, surfaceHref } from '../router.js'
 import { Badge, emptyClassName, itemOpenClassName, Panel } from '../components/primitives.js'
@@ -149,92 +151,61 @@ function whyFree(event: CalendarEventView): string | null {
 /** One plan entry's placement in the agenda, once its estimate has been walked through the free
  *  intervals in rank order. Null where nothing placed it: an entry that could not be scheduled
  *  still has to render somewhere, just without a time. */
-interface ScheduledEntry {
-  readonly entry: PlanEntryView
-  readonly startsAt: number | null
-}
+type ScheduledEntry = PlacedEntry<PlanEntryView>
 
-/** A stretch of free time nothing was scheduled into. Long enough that an overflow entry might
- *  be offered into it, per issue #47's "would fit" slack row. `endsAt` as well as `minutes`
- *  because the day bar draws the gap from its instants and the agenda's row reads its length in
- *  words: rounding the end out of the minutes would put the drawing half a minute off the clock. */
-interface SlackGap {
-  readonly startsAt: number
-  readonly endsAt: number
+/** A stretch of free time nothing was scheduled into, offered as slack. `endsAt` as well as
+ *  coming from the placement walk because the day bar draws the gap from its instants and the
+ *  agenda's row reads its length in words: rounding the end out of the minutes would put the
+ *  drawing half a minute off the clock. Spec 08, criterion 47. */
+interface SlackGap extends GapSpan {
   readonly minutes: number
 }
 
-/** One walk of the plan through the day's free time, rendered twice: as the day bar's track and as
- *  the agenda's clock times. Spec 08, criterion 43. */
+/** One walk of the plan through the day's free time. Rendered twice: as the day bar's track and
+ *  as the agenda's clock times. Spec 08, criterion 43. Includes elapsed time behind the clock
+ *  and gaps ahead of it, split at the present moment. Spec 05, criteria 21-23. */
 interface DayPlacement {
   readonly scheduled: readonly ScheduledEntry[]
   readonly gaps: readonly SlackGap[]
+  readonly elapsed: readonly ElapsedSpan[]
 }
 
 /**
- * Walks `entries` (rank order) through `freeIntervals` (chronological order), consuming each
- * entry's estimate from wherever the cursor currently sits. An entry too big for what remains of
- * an interval waits for the next one; an entry with no estimate is placed at the cursor without
- * moving it, since there is nothing to consume. Whatever of an interval is left over once entries
- * stop fitting becomes a gap.
+ * Places entries into the day's free time, accounting for elapsed time behind the clock.
+ * Completed entries are placed first from interval starts, and outstanding entries are placed
+ * from the present moment onwards. Free time is split at the clock into elapsed (offered nowhere)
+ * and gaps ahead (offered for overflow).
  *
  * Called once per render, by the dashboard rather than by either of the two things that draw it:
  * the day bar positions each entry from this result and the agenda prints a clock time from the
  * same one, which is what makes "the bar and the agenda never disagree about when something is
  * happening" true by construction rather than by two algorithms happening to agree. Spec 08,
- * criterion 43. A day with no free intervals at all places nothing and leaves no gaps, which is
- * exactly the unschedulable case: every entry comes back without a time and still renders.
+ * criterion 43. Spec 05, criteria 21-23.
  */
 function scheduleDay(
   entries: readonly PlanEntryView[],
   freeIntervals: readonly Interval[],
+  now: number,
 ): DayPlacement {
-  const scheduled: ScheduledEntry[] = []
-  const gaps: SlackGap[] = []
-  let index = 0
+  const placement = placeDay({ entries, free: freeIntervals, now })
 
-  for (const interval of freeIntervals) {
-    let cursor = interval.start
-    let entry = entries[index]
-    while (entry !== undefined) {
-      const minutes = entry.estimateMinutes ?? 0
-      const durationMs = minutes * MINUTE_MS
-      // The `durationMs > 0` guard is for the no-estimate case, which is placed at the cursor
-      // without moving it. A negative estimate would skip the fit check and rewind the cursor, but
-      // cannot arrive: `estimateFor` in `src/domain/plan.ts` floors every entry at one minute.
-      if (durationMs > 0 && cursor + durationMs > interval.end) break
-      scheduled.push({ entry, startsAt: cursor })
-      cursor += durationMs
-      index += 1
-      entry = entries[index]
-    }
+  // Add minutes to gaps for display
+  const gaps: SlackGap[] = placement.gaps.map((gap) => ({
+    ...gap,
+    minutes: Math.round((gap.endsAt - gap.startsAt) / MINUTE_MS),
+  }))
 
-    if (cursor < interval.end) {
-      gaps.push({
-        startsAt: cursor,
-        endsAt: interval.end,
-        minutes: Math.round((interval.end - cursor) / MINUTE_MS),
-      })
-    }
-  }
-
-  // Nothing left to place it in. Still shown, just without a resolved time: a plan the client
-  // cannot schedule is not a plan the client should hide.
-  for (let entry = entries[index]; entry !== undefined; index += 1, entry = entries[index]) {
-    scheduled.push({ entry, startsAt: null })
-  }
-
-  return { scheduled, gaps }
+  return { scheduled: placement.scheduled, gaps, elapsed: placement.elapsed }
 }
 
 /**
- * One drawn element of the day bar's track: a busy block, a placed plan entry, or a stretch of free
- * time nothing was placed into. Carries instants rather than a share of a total, because the track
- * is a clock. Spec 08, criterion 40.
+ * One drawn element of the day bar's track: a busy block, a placed plan entry, free time
+ * still ahead, or elapsed time behind the clock. Carries instants rather than a share of a
+ * total, because the track is a clock. Spec 08, criterion 40. Spec 05, criteria 21-23.
  */
 interface TrackBlock {
   readonly key: string
-  readonly kind: 'meeting' | 'planned' | 'done' | 'free'
+  readonly kind: 'meeting' | 'planned' | 'done' | 'elapsed' | 'free'
   readonly startsAt: number
   readonly endsAt: number
   readonly className: string
@@ -242,9 +213,10 @@ interface TrackBlock {
 
 /**
  * Everything the track draws, in paint order: meetings first, then the work placed into the free
- * time between them, then the free time nothing was placed into. Free time is one block per gap
- * (criterion 41): thirty scattered two-minute cracks draw as thirty cracks, which a single merged
- * segment could not say.
+ * time, then elapsed time behind the clock, then free time nothing was placed into ahead of now.
+ * Free time is one block per gap (criterion 41): thirty scattered two-minute cracks draw as thirty
+ * cracks, which a single merged segment could not say. Elapsed time is one block per span behind
+ * the clock, never merged. Spec 08, criterion 47. Spec 05, criteria 21-23.
  */
 function trackBlocks(capacity: CapacityView, placement: DayPlacement): TrackBlock[] {
   const blocks: TrackBlock[] = capacity.busy.map((block, index) => ({
@@ -271,6 +243,18 @@ function trackBlocks(capacity: CapacityView, placement: DayPlacement): TrackBloc
       endsAt: startsAt + minutes * MINUTE_MS,
       // An entry already done still occupies the minutes it was placed into, in its own fill.
       className: entry.done ? 'bg-chart-2/35' : 'bg-chart-2',
+    })
+  }
+
+  for (const [index, elapsed] of placement.elapsed.entries()) {
+    blocks.push({
+      key: `elapsed:${index}`,
+      kind: 'elapsed',
+      startsAt: elapsed.startsAt,
+      endsAt: elapsed.endsAt,
+      // A flat neutral tint, distinct from both work (full colour) and opportunity (dashed)
+      // Spec 05, criterion 21. Spec 10, criterion 21.
+      className: 'bg-foreground/10',
     })
   }
 
@@ -463,12 +447,13 @@ function DayBar({
   const meetings = drawnMinutes(blocks, 'meeting')
   const planned = drawnMinutes(blocks, 'planned')
   const done = drawnMinutes(blocks, 'done')
+  const elapsed = drawnMinutes(blocks, 'elapsed')
   const free = drawnMinutes(blocks, 'free')
   const reserve = Math.max(0, capacity.reserveMinutes)
   // "Free" is already the verdict headline's word for a larger quantity just above the bar (the
   // free capacity the API gave), so the unplanned minutes are named "unplanned"; and where the
   // reserve is part of them, saying so inline is what stops a reader adding the two together and
-  // arriving at more day than exists. Criterion 47.
+  // arriving at more day than exists. Criterion 47. Spec 05, criteria 21-23.
   //
   // Containment is not a given, though, so it is only claimed where it holds. Unplanned is the
   // window less its meetings and less whatever the track drew, and the planner plans against a
@@ -505,11 +490,12 @@ function DayBar({
         <li>meetings {formatEstimate(meetings)}</li>
         <li>planned {formatEstimate(planned)}</li>
         <li>done {formatEstimate(done)}</li>
+        {elapsed > 0 && <li>gone {formatEstimate(elapsed)}</li>}
         {unplannedItems.map((item) => (
           <li key={item}>{item}</li>
         ))}
         {/* The time is a position on the track as well as a figure here, and stays a figure even on
-            the days the marker cannot honestly be drawn. Criterion 42. */}
+            the days the marker cannot honestly be drawn. Criterion 42. Spec 05, criterion 21. */}
         <li className="ml-auto font-mono font-medium text-chart-2">now {formatTimeOfDay(now)}</li>
       </ul>
     </div>
@@ -637,17 +623,21 @@ function PlanEntryLine({
 
 function AgendaEntryRow({
   scheduled,
+  hadFreeIntervals,
   onComplete,
   onSelect,
   selected,
 }: {
   readonly scheduled: ScheduledEntry
+  readonly hadFreeIntervals: boolean
   readonly onComplete: (taskId: string) => void
   readonly onSelect: (item: ItemRef) => void
   readonly selected: ItemRef | null
 }) {
   const { entry, startsAt } = scheduled
   const open = isEntryOpen(entry, selected)
+  const noTimeLeftMessage =
+    startsAt === null && hadFreeIntervals && !entry.done ? 'no time left today' : null
 
   return (
     <li
@@ -665,12 +655,16 @@ function AgendaEntryRow({
           open && 'card-open border-chart-2/50 bg-chart-2/[0.08]',
         )}
       >
-        <PlanEntryLine
-          entry={entry}
-          onComplete={onComplete}
-          onSelect={onSelect}
-          selected={selected}
-        />
+        {noTimeLeftMessage ? (
+          <span className="text-muted-foreground">{noTimeLeftMessage}</span>
+        ) : (
+          <PlanEntryLine
+            entry={entry}
+            onComplete={onComplete}
+            onSelect={onSelect}
+            selected={selected}
+          />
+        )}
       </div>
     </li>
   )
@@ -830,6 +824,8 @@ function Agenda({
   // against free intervals, so the "now" marker still has somewhere real to go among them.
   const nowAt = nowIndex(timed, now)
 
+  const hadFreeIntervals = placement.gaps.length > 0 || placement.elapsed.length > 0
+
   const renderRow = (row: Row): ReactNode => {
     if (row.kind === 'meeting') return <AgendaMeetingRow key={row.key} event={row.event} />
     if (row.kind === 'entry')
@@ -837,6 +833,7 @@ function Agenda({
         <AgendaEntryRow
           key={row.key}
           scheduled={row.scheduled}
+          hadFreeIntervals={hadFreeIntervals}
           onComplete={onComplete}
           onSelect={onSelect}
           selected={selected}
@@ -1005,8 +1002,8 @@ export function Dashboard({
   )
   // One placement, two renderings: the day bar draws this walk and the agenda prints clock times
   // from it, so the bar and the agenda cannot disagree about when something is happening. Spec 08,
-  // criterion 43.
-  const placement = scheduleDay(plan?.entries ?? [], calendar?.capacity.free ?? [])
+  // criterion 43. Spec 05, criteria 21-23: placement accounts for elapsed time and completed work.
+  const placement = scheduleDay(plan?.entries ?? [], calendar?.capacity.free ?? [], now)
   const todaysVerdict = verdict(calendar, totalPlanned)
 
   const needsYou: NeedsYouItem[] = [
