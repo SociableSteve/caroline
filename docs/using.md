@@ -195,15 +195,19 @@ The dashboard is the morning screen. Reading it top to bottom:
   read. Every stretch of free time is drawn at its own true width and none of them are merged, which
   is what makes the difference between one clear ninety minutes and thirty two-minute cracks visible.
   A three minute gap is drawn three minutes wide, and looks as unusable as it is. The line across it
-  is now. The legend under it carries every figure in words: meetings, planned, done, and the
-  unplanned time left on the clock. Where the reserve fits inside that unplanned time it is named as
-  a part of it rather than as a figure of its own ("unplanned 1 hour 50 min, 1 hour 42 min of it
-  held back"); where the plan has taken more of the day than it had to give, so that less is left
-  unplanned than is held back, the two are stated separately instead, since nothing then contains
-  anything. Held back is in the legend and not on the bar: the reserve is a flat percentage of the
-  window rather than any particular minutes of it, so drawing it anywhere would claim minutes it
-  does not own. The unplanned figure is not the same number as the verdict's free capacity in the
-  line above, which weighs the whole plan against the window less its meetings and its reserve.
+  is now, and work still to be done always sits at or to the right of that line, whatever it was
+  ranked: a plan drawn in the morning and read in the afternoon proposes only the time still to come.
+  Work already done keeps the earlier time it was placed in regardless. The legend under it carries
+  every figure in words: meetings, planned, done, the time already gone, and the unplanned time left
+  on the clock; the gone figure is left out entirely on a day whose window is still wholly ahead.
+  Where the reserve fits inside that unplanned time it is named as a part of it rather than as a
+  figure of its own ("unplanned 1 hour 50 min, 1 hour 42 min of it held back"); where the plan has
+  taken more of the day than it had to give, so that less is left unplanned than is held back, the
+  two are stated separately instead, since nothing then contains anything. Held back is in the
+  legend and not on the bar: the reserve is a flat percentage of the window rather than any
+  particular minutes of it, so drawing it anywhere would claim minutes it does not own. The unplanned
+  figure is not the same number as the verdict's free capacity in the line above, which weighs the
+  whole plan against the window less its meetings and its reserve.
 - **The agenda** is the day itself, one time-ordered list: the calendar's meetings and the plan's
   entries interleaved, each entry with its rank, a sentence saying why, its estimate and a
   **Complete** button, and a rule where now falls. At least one review is in the plan whenever
@@ -211,8 +215,9 @@ The dashboard is the morning screen. Reading it top to bottom:
   unless `planning.includeReviews` in the config file is off. Warnings above the list are the
   planner's own, chiefly that it could not fit everything in. It also records that the capacity it
   drew against was unverified, but that is said once, up beside the arithmetic, rather than a second
-  time here. A stretch of free time appears as its own row, and where something the plan left over
-  would fit into it, that is offered there.
+  time here. A stretch of free time still ahead appears as its own row, and where something the plan
+  left over would fit into it, that is offered there; time already gone gets no row and nothing is
+  ever offered into it. An entry the day has no room left for says so, rather than a blank time.
 - **Needs you**, in the left rail, is the triage list: the three oldest things only you can resolve,
   with a link to the board for the rest. **Gone quiet** is what has been waiting on somebody else
   longer than the staleness threshold, with who it is on and for how long, read as things stand now.

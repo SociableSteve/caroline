@@ -94,6 +94,29 @@ the prompt:
   so it holds for an id that names no candidate too: a repeated invented id is still one invented
   id, and it earns one warning rather than one per mention.
 
+## Placement
+
+The plan is drawn once and read all day, so reading it at 14:00 must not propose the morning.
+`placeDay` walks the plan's entries through the day's free intervals twice: completed entries
+first, from each interval's own start, exactly as if nothing had elapsed; outstanding entries
+second, from `floor = max(now, the furthest instant completed work reached)` onwards. An entry
+not yet done is therefore never drawn before the present moment, and a done entry keeps the
+earlier time it was placed in whatever it is ranked behind, because completed work never moves.
+Free time behind `floor` and behind the plan's own capacity is not re-planned: the leftover
+before the present moment is reported as elapsed rather than offered to anything.
+
+This is placement and not the re-planning the non-goals below rule out: the entries, their
+ranks, their estimates and the capacity they were fitted against are all unchanged, and no row
+is rewritten. What the clock decides is only where an entry is drawn. The capacity arithmetic
+and the verdict are untouched by it: criteria 1 to 5 still hold exactly as written, and
+`capacityMinutes` is still a whole-day figure regardless of how much of the day has gone.
+
+One consequence worth stating rather than leaving as a surprise: rank order and clock order can
+now differ. A done entry ranked fifth can be drawn before an entry ranked second that is still
+outstanding, because the rank is a proposal and the clock is a record of what actually happened.
+The agenda already sorts its timed rows by their resolved start time, so this falls out of an
+existing rule rather than requiring a new one.
+
 ## Relationship to task state
 
 The plan is a proposal. Generating it changes no task's status, and no task is "assigned"
@@ -111,7 +134,9 @@ for the last fourteen days.
 
 - Time-blocking or writing entries to the calendar.
 - Multi-day or weekly planning.
-- Re-planning automatically as the day changes. Regeneration is on demand.
+- Re-planning automatically as the day changes. Regeneration is on demand. Placement (above) is
+  not this: the entries, their ranks, their estimates and the capacity they were drawn against
+  never change on their own, only where an unchanged entry is drawn.
 - Judging performance. Caroline records what was planned and what was completed, and draws
   no conclusion from the gap.
 
@@ -182,3 +207,19 @@ reason.
     no capacity. What a nudge names is read at the same moment as the status it is presented under,
     so a task whose state changed after the plan was drawn cannot be shown as blocked behind a
     person or as worth chasing to a task.
+
+Issue #82 added the placement rule above, and the following with it, appended rather than
+renumbered for the same reason.
+
+21. An entry that is not complete is never placed before the present moment: it takes free time at
+    or after now, so a plan drawn in the morning and read in the afternoon proposes only time still
+    to come. This is placement and not re-planning: the entries, their ranks and their estimates
+    are the plan's own and unchanged.
+22. An entry already complete keeps the earlier free time it was placed in, and is never moved
+    forward by work that is not done, whatever order the two were ranked in. Where the completed
+    work is more than the free time that has passed it runs on past the present moment rather than
+    being dropped, because those minutes were spent, and the outstanding work starts after it.
+23. Free time that has passed with nothing placed in it is time gone rather than capacity: it is
+    never offered to work the plan could not fit, and an entry that no longer fits anywhere ahead
+    is reported as having no time rather than given one behind the clock. A day whose window has
+    closed places no outstanding work at all.

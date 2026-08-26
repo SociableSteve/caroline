@@ -88,8 +88,10 @@ not a reading path.
    their own offset into the window and are drawn at their own duration, and every stretch of free
    time is drawn at its own true width rather than merged into one, so a fragmented afternoon reads
    as fragmented and a three-minute crack reads as unusable. The present moment is a position on
-   it. The agenda underneath prints the clock times of the same placements, so the two cannot
-   disagree about when something is happening.
+   it. Outstanding work is never drawn behind that position, only ahead of it; free time already
+   behind it is drawn in its own fill and counted under its own legend figure rather than offered
+   as an opportunity that has already passed. The agenda underneath prints the clock times of the
+   same placements, so the two cannot disagree about when something is happening.
 2. **Wants a decision.** Waiting items that have gone quiet, worth-a-chase nudges, blocked work
    whose deadline has arrived, the plan's overflow, and stalled projects. Second, because each of these is something only the user can
    resolve. The quiet-waiting panel is a chase list, not a count: it names the item, who it is
@@ -351,8 +353,8 @@ here is the behaviour each surface owes the reader; what is there is what they a
    is the same total arrived at equivalently (re-summed from the `capacity.busy` intervals the route
    returned, rounded the same way `busyMinutes` is, so it is the route's number by another path),
    and the planned, done and unplanned figures come from walking the plan's own estimates through
-   that route's free intervals. (Named the capacity bar until issue #67 redrew it as a clock; the
-   same contract.)
+   that route's free intervals and the present moment, with the elapsed figure coming from the same
+   walk. (Named the capacity bar until issue #67 redrew it as a clock; the same contract.)
 7. Chat streams incrementally and a dropped connection leaves the conversation recoverable
    on reload.
 8. The board is fully operable by keyboard alone, through native focus order and the card's own
@@ -487,9 +489,9 @@ describes. That adds the following, appended for the same reason.
     an edge would say the day had started, or was ending, when it has not. The legend states the
     time in either case.
 43. The bar and the agenda place a plan entry at the same time, by construction rather than by
-    coincidence: one walk of the plan's entries through `capacity.free` produces the placement that
-    the bar draws and the agenda prints a clock time for, so an entry's offset on the track is the
-    offset of the time beside it in the agenda.
+    coincidence: one walk of the plan's entries through `capacity.free` and the present moment
+    produces the placement that the bar draws and the agenda prints a clock time for, so an entry's
+    offset on the track is the offset of the time beside it in the agenda.
 44. Held back (`reserveMinutes`) is in the legend as a number and nowhere on the track. It is a
     flat percentage of the window held back for interruptions rather than any particular minutes of
     it, so drawing it anywhere on a clock would claim that specific minutes are reserved when none
@@ -504,11 +506,13 @@ describes. That adds the following, appended for the same reason.
     says the window was assumed free. Neither falls back to a second, proportional drawing.
 47. Every figure in the legend is a total of the minutes the track drew, and none of them is
     clamped to what is left of the day's capacity: planned and done total the entries actually
-    placed on the track, at their full estimates, and the unplanned figure totals the gaps drawn
-    between them. A plan that overcommits the window therefore reads the same in words as it is
-    drawn, where a clamped figure would have described minutes nothing on the screen matched. Held
-    back (criterion 44) is the one legend figure with nothing of its own on the track. The verdict
-    headline above the bar is a different claim and stays a different number: it weighs the whole
+    placed on the track, at their full estimates, the unplanned figure totals the gaps drawn
+    between them, and (since issue #82) the elapsed figure totals the stretches of free time
+    already behind the present moment (criterion 58). A plan that overcommits the window therefore
+    reads the same in words as it is drawn, where a clamped figure would have described minutes
+    nothing on the screen matched. Held back (criterion 44) is the one legend figure with nothing
+    of its own on the track. The verdict headline above the bar is a different claim and stays a
+    different number: it weighs the whole
     plan, unplaceable entries included, against the free capacity the API reported, which is the
     window less its meetings and its reserve. The legend therefore does not call its own figure
     free: it is "unplanned", the time actually left on the clock. Where the held-back minutes fit
@@ -519,8 +523,10 @@ describes. That adds the following, appended for the same reason.
     leaves fewer unplanned minutes than the reserve, and there the legend states the two as separate
     items ("unplanned 1 hour", "held back 1 hour 42 min") rather than assert a containment that is
     false. At the exact boundary, unplanned equal to the reserve, containment holds and the
-    containment sentence is what prints. On a day where every entry found a place, the unplanned
-    figure is the verdict's spare plus the held back.
+    containment sentence is what prints. On a day whose window is wholly ahead, where every entry
+    found a place, the unplanned figure is the verdict's spare plus the held back; that identity is
+    only true while nothing has elapsed, and once minutes have elapsed it is the unplanned figure
+    plus the elapsed one that makes the same sum (criterion 58).
 48. The unverified-capacity notice appears once on the surface, not once per source. The plan job
     stores it as a warning and the dashboard also reads it from the live capacity, both from
     `unverifiedCapacityNotice` so that the two cannot word the same fact differently (spec 05,
@@ -575,3 +581,26 @@ rather than renumbered, for the same reason.
     no shortcut legend under it. Quick capture's `c` is the one shortcut the app answers, and it is
     handled for the whole document rather than by the board. Every action a removed key performed keeps
     its own control on the card, which is what criterion 8 is satisfied by.
+
+Issue #82 gave the day bar and the agenda a present moment they place work against, and the
+following with it, appended rather than renumbered for the same reason.
+
+57. Neither surface draws an outstanding entry left of the present moment: the day bar's offset for
+    it and the agenda's printed time for it are both at or after now, whatever the entry's rank.
+    Both read spec 05's criteria 21 to 23, so the marker on the track and the now rule in the agenda
+    separate the same work from the same moment rather than two surfaces each deciding it alone.
+58. Free time already passed is drawn in its own kind on the track and totalled under its own
+    legend figure, distinct from free time still ahead: it is never offered as slack to an overflow
+    entry, and the agenda gives it no row of its own, because a row saying "free" about the past
+    would be a claim the day bar does not make either. A stretch the present moment falls inside
+    draws as two elements, one on each side of it.
+59. On a day whose window is wholly ahead, the legend reads exactly as it did before this: no
+    elapsed figure appears at all, and the other figures are unchanged. Consequently every test
+    written for spec 08 before this holds unaltered, since every one of them reads the day from its
+    own start.
+60. An entry the day no longer has room for says so ("no time left today") rather than rendering a
+    blank time gutter, distinct from the untimed entry a calendar carrying no interval data has
+    always produced. The distinction is what there was free time to place it into: an entry that
+    exhausted real free time says so, and one for which there was never any interval data to
+    schedule against does not, so a fixture that only sets summary minutes is not misread as a
+    full day.

@@ -519,7 +519,7 @@ describe('the day bar’s track', () => {
       }),
     })
 
-    const covered = [...blocksOf('meeting'), ...blocksOf('free')]
+    const covered = [...blocksOf('meeting'), ...blocksOf('free'), ...blocksOf('elapsed')]
       .map((block) => geometryOf(block).width)
       .reduce((total, width) => total + width, 0)
 
@@ -682,6 +682,155 @@ describe('the day bar’s track', () => {
 
     expect(track()).toBeInTheDocument()
     expect(today().getByText(/unverified/i)).toBeInTheDocument()
+  })
+
+  /**
+   * Issue #82, spec 08 criterion 57: an entry not yet done is never drawn before the present
+   * moment, whatever the rank order says. Read four hours in, with nothing else on the calendar.
+   */
+  it('draws an outstanding entry at or right of the present moment’s offset, read four hours in', () => {
+    const now = WINDOW_START + 240 * MINUTE
+    renderDashboard({
+      calendar: aTimedDay({ free: [{ start: WINDOW_START, end: WINDOW_END }] }),
+      plan: aPlan({ entries: [aPlanEntry({ id: 'entry-1', estimateMinutes: 30 })] }),
+      now,
+    })
+
+    const [block] = blocksOf('planned').map(geometryOf)
+    const marker = track().querySelector<HTMLElement>('[data-marker="now"]')
+
+    expect(block?.left).toBeCloseTo(share(240), 6)
+    expect(Number.parseFloat(marker?.style.left ?? '')).toBeCloseTo(share(240), 6)
+  })
+
+  /**
+   * Spec 08 criterion 57: a done entry keeps the earlier time it was placed in, and is never
+   * moved forward by work that is not done, whatever order the two were ranked in.
+   */
+  it('keeps a done entry left of the marker while an unfinished entry ranked before it moves right', () => {
+    const now = WINDOW_START + 120 * MINUTE
+    renderDashboard({
+      calendar: aTimedDay({ free: [{ start: WINDOW_START, end: WINDOW_END }] }),
+      plan: aPlan({
+        entries: [
+          aPlanEntry({ id: 'entry-1', estimateMinutes: 30, done: false }),
+          aPlanEntry({ id: 'entry-2', estimateMinutes: 30, done: true }),
+        ],
+      }),
+      now,
+    })
+
+    const [doneBlock] = blocksOf('done').map(geometryOf)
+    const [plannedBlock] = blocksOf('planned').map(geometryOf)
+
+    expect(doneBlock?.left).toBeCloseTo(share(0), 6)
+    expect(plannedBlock?.left).toBeCloseTo(share(120), 6)
+  })
+
+  /** Spec 08 criterion 58: elapsed free time is drawn one element per stretch, and totalled under
+   *  its own legend figure. */
+  it('draws one elapsed block per stretch of free time already gone, and states it in the legend', () => {
+    const now = WINDOW_START + 120 * MINUTE
+    renderDashboard({
+      calendar: aTimedDay({
+        free: [
+          { start: WINDOW_START, end: WINDOW_START + 30 * MINUTE },
+          { start: WINDOW_START + 60 * MINUTE, end: WINDOW_END },
+        ],
+      }),
+      now,
+    })
+
+    const elapsedBlocks = blocksOf('elapsed').map(geometryOf)
+
+    expect(elapsedBlocks).toHaveLength(2)
+    expect(elapsedBlocks[0]?.left).toBeCloseTo(share(0), 6)
+    expect(elapsedBlocks[0]?.width).toBeCloseTo(share(30), 6)
+    expect(elapsedBlocks[1]?.left).toBeCloseTo(share(60), 6)
+    expect(elapsedBlocks[1]?.width).toBeCloseTo(share(60), 6)
+    expect(today().getByText('gone 1 hour 30 min')).toBeInTheDocument()
+  })
+
+  /** Spec 08 criterion 58: elapsed free time is never offered as slack, whatever would fit it. */
+  it('never offers an overflow entry into a stretch of free time already gone', () => {
+    const now = WINDOW_START + 40 * MINUTE
+    renderDashboard({
+      calendar: aTimedDay({
+        free: [
+          { start: WINDOW_START, end: WINDOW_START + 30 * MINUTE },
+          { start: WINDOW_START + 100 * MINUTE, end: WINDOW_START + 110 * MINUTE },
+        ],
+      }),
+      plan: aPlan({
+        entries: [],
+        overflow: [
+          aPlanEntry({ id: 'overflow-1', title: 'Too small to matter', estimateMinutes: 20 }),
+        ],
+      }),
+      now,
+    })
+
+    expect(today().queryByText(/would fit/i)).not.toBeInTheDocument()
+  })
+
+  /** Spec 08 criterion 59: a day whose window is still wholly ahead reads exactly as it did
+   *  before this change, with no elapsed item at all. */
+  it('shows no elapsed item and leaves the unplanned figure unchanged when now is the window start', () => {
+    renderDashboard({
+      calendar: aTimedDay({
+        reserveMinutes: 0,
+        free: [{ start: WINDOW_START, end: WINDOW_END }],
+      }),
+      now: WINDOW_START,
+    })
+
+    expect(blocksOf('elapsed')).toHaveLength(0)
+    expect(today().queryByText(/^gone /)).not.toBeInTheDocument()
+    expect(today().getByText('unplanned 10 hours')).toBeInTheDocument()
+  })
+
+  /** Criterion 43, once now has pushed an entry forward of where it would otherwise have landed:
+   *  the bar and the agenda still cannot disagree about when it is happening. */
+  it('keeps the drawn offset equal to the agenda’s printed time once now has pushed the entry forward', () => {
+    const freeStart = WINDOW_START + 97 * MINUTE
+    const now = freeStart + 40 * MINUTE
+    renderDashboard({
+      calendar: aTimedDay({ free: [{ start: freeStart, end: freeStart + 120 * MINUTE }] }),
+      plan: aPlan({
+        entries: [aPlanEntry({ id: 'entry-1', title: 'Write the report', estimateMinutes: 45 })],
+      }),
+      now,
+    })
+
+    const [block] = blocksOf('planned').map(geometryOf)
+    const row = today().getByText('Write the report').closest('li')
+
+    expect(block?.left).toBeCloseTo(share(137), 6)
+    expect(row?.textContent).toContain(formatTimeOfDay(now))
+  })
+
+  /** Spec 08 criterion 60: an entry the day no longer has room for says so, distinct from one
+   *  merely untimed for want of interval data. */
+  it('says an entry has no room left once the free time it needed has gone', () => {
+    renderDashboard({
+      calendar: aTimedDay({ free: [{ start: WINDOW_START, end: WINDOW_START + 10 * MINUTE }] }),
+      plan: aPlan({
+        entries: [aPlanEntry({ id: 'entry-1', title: 'Too big now', estimateMinutes: 30 })],
+      }),
+    })
+
+    expect(today().getByText('no time left today')).toBeInTheDocument()
+  })
+
+  /** Spec 08 criterion 60: gated on there having been free intervals at all, so a calendar
+   *  carrying no interval data does not read as a full day. */
+  it('does not say an entry has no room left when the calendar carried no interval data at all', () => {
+    renderDashboard({
+      calendar: aCalendarDay(),
+      plan: aPlan({ entries: [aPlanEntry({ id: 'entry-1', title: 'Untimed for want of data' })] }),
+    })
+
+    expect(today().queryByText('no time left today')).not.toBeInTheDocument()
   })
 })
 

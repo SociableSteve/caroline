@@ -232,9 +232,12 @@ exemption is that it must carry no meaning: it is `aria-hidden`, and every quant
 stated in words next to it. The day bar is the case the suite already settles this way. Its track is
 `aria-hidden="true"`, its blocks are tints of `--chart-2` and `--foreground` chosen to be
 distinguishable from each other rather than legible against anything, and the legend beneath it
-states meetings, planned, done and the unplanned remainder as figures (spec 08, criteria 45 and 47).
-A decorative fill still has to be told apart from its neighbours, which is why the free-time block
-carries a dashed border as well as a `6%` tint. Criterion 22 is this clause.
+states meetings, planned, done, elapsed and the unplanned remainder as figures (spec 08, criteria
+45 and 47). A decorative fill still has to be told apart from its neighbours, which is why the
+free-time block carries a dashed border as well as a `6%` tint; elapsed time (issue #82) is a flat
+`--muted-foreground` tint with no border of its own, since it is neither the meeting fill nor the
+free block's dashed accent but a third, quieter thing: minutes that are neither work nor
+opportunity. Criterion 22 is this clause.
 
 Colour is a second carrier, never the first. Every state that a colour marks also says what it is in
 words: a stale wait says "Stale", a completed plan entry says "done" beside the strikethrough, a
