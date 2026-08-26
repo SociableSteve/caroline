@@ -195,24 +195,31 @@ The dashboard is the morning screen. Reading it top to bottom:
   read. Every stretch of free time is drawn at its own true width and none of them are merged, which
   is what makes the difference between one clear ninety minutes and thirty two-minute cracks visible.
   A three minute gap is drawn three minutes wide, and looks as unusable as it is. The line across it
-  is now. The legend under it carries every figure in words: meetings, planned, done, and the
-  unplanned time left on the clock. Where the reserve fits inside that unplanned time it is named as
-  a part of it rather than as a figure of its own ("unplanned 1 hour 50 min, 1 hour 42 min of it
-  held back"); where the plan has taken more of the day than it had to give, so that less is left
-  unplanned than is held back, the two are stated separately instead, since nothing then contains
-  anything. Held back is in the legend and not on the bar: the reserve is a flat percentage of the
-  window rather than any particular minutes of it, so drawing it anywhere would claim minutes it
-  does not own. The unplanned figure is not the same number as the verdict's free capacity in the
-  line above, which weighs the whole plan against the window less its meetings and its reserve.
+  is now, and outstanding work always sits to its right: completed work keeps whatever earlier time
+  it was placed in, but nothing still to do is ever drawn as though it were already happening. Free
+  time that has already gone by is its own kind on the track, drawn behind the line, and its own
+  figure in the legend ("gone"), so it is never offered as time still available; a day whose whole
+  window is still ahead shows no such figure at all. The legend under it carries every other figure
+  in words too: meetings, planned, done, and the unplanned time left on the clock. Where the reserve
+  fits inside that unplanned time it is named as a part of it rather than as a figure of its own
+  ("unplanned 1 hour 50 min, 1 hour 42 min of it held back"); where the plan has taken more of the
+  day than it had to give, so that less is left unplanned than is held back, the two are stated
+  separately instead, since nothing then contains anything. Held back is in the legend and not on
+  the bar: the reserve is a flat percentage of the window rather than any particular minutes of it,
+  so drawing it anywhere would claim minutes it does not own. The unplanned figure is not the same
+  number as the verdict's free capacity in the line above, which weighs the whole plan against the
+  window less its meetings and its reserve.
 - **The agenda** is the day itself, one time-ordered list: the calendar's meetings and the plan's
   entries interleaved, each entry with its rank, a sentence saying why, its estimate and a
-  **Complete** button, and a rule where now falls. At least one review is in the plan whenever
-  something is waiting on you and the day has room for it, whether the model thought of it or not,
-  unless `planning.includeReviews` in the config file is off. Warnings above the list are the
+  **Complete** button, and a rule where now falls. Outstanding entries are never listed before that
+  rule; a completed one keeps the earlier time it was placed in. At least one review is in the plan
+  whenever something is waiting on you and the day has room for it, whether the model thought of it
+  or not, unless `planning.includeReviews` in the config file is off. Warnings above the list are the
   planner's own, chiefly that it could not fit everything in. It also records that the capacity it
   drew against was unverified, but that is said once, up beside the arithmetic, rather than a second
-  time here. A stretch of free time appears as its own row, and where something the plan left over
-  would fit into it, that is offered there.
+  time here. A stretch of free time still ahead appears as its own row, and where something the plan
+  left over would fit into it, that is offered there; time already gone gets no row of its own. An
+  entry the day no longer has room for says so rather than leaving its time blank.
 - **Needs you**, in the left rail, is the triage list: the three oldest things only you can resolve,
   with a link to the board for the rest. **Gone quiet** is what has been waiting on somebody else
   longer than the staleness threshold, with who it is on and for how long, read as things stand now.

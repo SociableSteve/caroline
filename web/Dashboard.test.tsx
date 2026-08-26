@@ -15,7 +15,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { Dashboard } from './surfaces/Dashboard.js'
-import { formatTimeOfDay } from './format.js'
+import { formatEstimate, formatTimeOfDay } from './format.js'
 import { unverifiedCapacityNotice } from '../src/domain/capacity.js'
 import type { CapacityView } from './api.js'
 import { aCalendarDay, aPlan, aPlanEntry, aProject, aTask, DAY, NOW } from './test-fixtures.js'
@@ -682,6 +682,191 @@ describe('the day bar’s track', () => {
 
     expect(track()).toBeInTheDocument()
     expect(today().getByText(/unverified/i)).toBeInTheDocument()
+  })
+})
+
+/**
+ * Issue #82: completed work from earlier in the day is not moved, and only outstanding work is
+ * placed against the clock. Spec 05 criteria 21 to 23, spec 08 criteria 57 to 60. The window here
+ * is the same fixed ten-hour one `aTimedDay` builds above.
+ */
+describe('placement against the present moment', () => {
+  const MINUTE = 60_000
+  const WINDOW_START = NOW
+  const WINDOW_MINUTES = 600
+  const WINDOW_END = WINDOW_START + WINDOW_MINUTES * MINUTE
+
+  function aTimedDay(capacity: Partial<CapacityView> = {}) {
+    return aCalendarDay({
+      capacity: {
+        windowStart: WINDOW_START,
+        windowEnd: WINDOW_END,
+        busy: [],
+        free: [],
+        ...capacity,
+      },
+    })
+  }
+
+  function track(): HTMLElement {
+    const strip = screen
+      .getByRole('region', { name: /today/i })
+      .querySelector<HTMLElement>('.day-bar')
+    expect(strip).not.toBeNull()
+    return strip as HTMLElement
+  }
+
+  function blocksOf(kind: string): HTMLElement[] {
+    return [...track().querySelectorAll<HTMLElement>(`[data-block="${kind}"]`)]
+  }
+
+  function geometryOf(element: HTMLElement) {
+    return {
+      left: Number.parseFloat(element.style.left),
+      width: Number.parseFloat(element.style.width),
+    }
+  }
+
+  function share(minutes: number): number {
+    return (minutes / WINDOW_MINUTES) * 100
+  }
+
+  // Criterion 57.
+  it('draws an outstanding entry read four hours in to the right of the marker’s offset', () => {
+    const now = WINDOW_START + 240 * MINUTE
+    renderDashboard({
+      calendar: aTimedDay({ free: [{ start: WINDOW_START, end: WINDOW_END }] }),
+      plan: aPlan({
+        entries: [aPlanEntry({ id: 'entry-1', title: 'Write the report', estimateMinutes: 30 })],
+      }),
+      now,
+    })
+
+    const marker = track().querySelector<HTMLElement>('[data-marker="now"]')
+    const [block] = blocksOf('planned').map(geometryOf)
+
+    expect(Number.parseFloat(marker?.style.left ?? '')).toBeCloseTo(share(240), 6)
+    expect(block?.left).toBeGreaterThanOrEqual(share(240))
+  })
+
+  // Criterion 57, and the case a single cursor floored at now fails.
+  it('keeps a done entry left of the marker while the entry beside it moves right of it', () => {
+    const now = WINDOW_START + 240 * MINUTE
+    renderDashboard({
+      calendar: aTimedDay({ free: [{ start: WINDOW_START, end: WINDOW_END }] }),
+      plan: aPlan({
+        entries: [
+          aPlanEntry({ id: 'entry-1', estimateMinutes: 30, done: false }),
+          aPlanEntry({ id: 'entry-2', estimateMinutes: 30, done: true }),
+        ],
+      }),
+      now,
+    })
+
+    const [doneBlock] = blocksOf('done').map(geometryOf)
+    const [plannedBlock] = blocksOf('planned').map(geometryOf)
+
+    expect(doneBlock?.left).toBeCloseTo(share(0), 6)
+    expect(plannedBlock?.left).toBeGreaterThanOrEqual(share(240))
+  })
+
+  // Criterion 58.
+  it('draws one elapsed block per stretch of free time already gone, and states it in the legend', () => {
+    const now = WINDOW_START + 300 * MINUTE
+    renderDashboard({
+      calendar: aTimedDay({
+        free: [
+          { start: WINDOW_START, end: WINDOW_START + 100 * MINUTE },
+          { start: WINDOW_START + 200 * MINUTE, end: WINDOW_END },
+        ],
+      }),
+      now,
+    })
+
+    const elapsed = blocksOf('elapsed').map(geometryOf)
+
+    expect(elapsed).toHaveLength(2)
+    expect(elapsed[0]?.left).toBeCloseTo(share(0), 6)
+    expect(elapsed[0]?.width).toBeCloseTo(share(100), 6)
+    expect(elapsed[1]?.left).toBeCloseTo(share(200), 6)
+    expect(elapsed[1]?.width).toBeCloseTo(share(100), 6)
+    expect(today().getByText(`gone ${formatEstimate(200)}`)).toBeInTheDocument()
+  })
+
+  // Criterion 58: elapsed time is never offered as slack.
+  it('offers an overflow entry nowhere when it would only fit a stretch already gone', () => {
+    const now = WINDOW_START + 200 * MINUTE
+    renderDashboard({
+      calendar: aTimedDay({ free: [{ start: WINDOW_START, end: WINDOW_START + 100 * MINUTE }] }),
+      plan: aPlan({
+        entries: [],
+        overflow: [aPlanEntry({ id: 'overflow-1', kind: 'overflow', estimateMinutes: 30 })],
+      }),
+      now,
+    })
+
+    expect(blocksOf('elapsed')).toHaveLength(1)
+    expect(today().queryByText(/would fit/i)).not.toBeInTheDocument()
+  })
+
+  // Criterion 59.
+  it('shows no elapsed item and leaves the unplanned figure unchanged with now at the window start', () => {
+    renderDashboard({
+      calendar: aTimedDay({
+        reserveMinutes: 0,
+        free: [{ start: WINDOW_START, end: WINDOW_END }],
+      }),
+      now: WINDOW_START,
+    })
+
+    expect(blocksOf('elapsed')).toHaveLength(0)
+    expect(today().queryByText(/^gone /)).not.toBeInTheDocument()
+    expect(today().getByText('unplanned 10 hours')).toBeInTheDocument()
+  })
+
+  /** Criterion 43, read mid-window rather than at the window start: the offset the track draws
+   *  and the clock time the agenda prints beside the entry are the same instant even once the
+   *  present moment has pushed the entry forward. */
+  it('keeps the pushed entry’s drawn offset equal to the time the agenda prints beside it', () => {
+    const now = WINDOW_START + 150 * MINUTE
+    renderDashboard({
+      calendar: aTimedDay({ free: [{ start: WINDOW_START, end: WINDOW_END }] }),
+      plan: aPlan({
+        entries: [aPlanEntry({ id: 'entry-1', title: 'Write the report', estimateMinutes: 45 })],
+      }),
+      now,
+    })
+
+    const [block] = blocksOf('planned').map(geometryOf)
+    const drawnAt = WINDOW_START + ((block?.left ?? 0) / 100) * (WINDOW_END - WINDOW_START)
+    const row = today().getByText('Write the report').closest('li')
+
+    expect(row?.textContent).toContain(formatTimeOfDay(drawnAt))
+    // Nothing done precedes it, so the floor is `now` itself: the offset the track drew is the
+    // same instant, not merely the same printed clock string.
+    expect(block?.left).toBeCloseTo(share(150), 6)
+  })
+
+  // Criterion 60.
+  it('says an entry has no time left today, distinct from one untimed for want of any interval', () => {
+    renderDashboard({
+      calendar: aTimedDay({ free: [{ start: WINDOW_START, end: WINDOW_START + 10 * MINUTE }] }),
+      plan: aPlan({
+        entries: [aPlanEntry({ id: 'too-big', title: 'No room today', estimateMinutes: 500 })],
+      }),
+    })
+
+    expect(today().getByText('no time left today')).toBeInTheDocument()
+  })
+
+  it('leaves an entry untimed with no room label when the calendar carried no interval data', () => {
+    renderDashboard({
+      calendar: aTimedDay(),
+      plan: aPlan({ entries: [aPlanEntry({ id: 'entry-1', title: 'Untimed work' })] }),
+    })
+
+    expect(today().getByText('Untimed work')).toBeInTheDocument()
+    expect(today().queryByText('no time left today')).not.toBeInTheDocument()
   })
 })
 
